@@ -2,6 +2,7 @@
 
 #include "Window.hpp"
 #include "AssetManager.hpp"
+#include "ThreadPool.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "scene/SceneManager.hpp"
 #include <memory>
@@ -17,6 +18,7 @@ public:
 
     SceneManager& get_scene_manager() { return m_scene_manager; }
     AssetManager& get_asset_manager() { return m_asset_manager; }
+    ThreadPool& get_thread_pool() { return m_thread_pool; }
     Window& get_window() { return *m_window; }
     Renderer2D* get_renderer() { return m_renderer.get(); }
 
@@ -32,6 +34,7 @@ private:
     std::unique_ptr<Renderer2D> m_renderer;
     SceneManager m_scene_manager;
     AssetManager m_asset_manager;
+    ThreadPool m_thread_pool;
     bool m_running{true};
     bool m_tab_pressed_last_frame{false};
 };

@@ -14,6 +14,7 @@ set(SOURCES
     src/core/Application.cpp
     src/core/AssetManager.cpp
     src/core/Log.cpp
+    src/core/ThreadPool.cpp
     src/core/Window.cpp
     src/renderer/Animation2D.cpp
     src/renderer/Renderer2D.cpp

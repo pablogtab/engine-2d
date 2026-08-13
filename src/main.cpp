@@ -17,7 +17,7 @@ protected:
         // Register testbed scenes
         get_scene_manager().add_scene(std::make_shared<Sandbox::AnimatedSpriteDemoScene>(renderer));
         get_scene_manager().add_scene(std::make_shared<Sandbox::DepthDemoScene>(renderer));
-        get_scene_manager().add_scene(std::make_shared<Sandbox::StressTestScene>(renderer, 3000));
+        get_scene_manager().add_scene(std::make_shared<Sandbox::StressTestScene>(renderer, &get_thread_pool(), 3000));
 
         std::cout << "\n=======================================================" << std::endl;
         std::cout << " [TESTBED FRAMEWORK ACTIVE]" << std::endl;

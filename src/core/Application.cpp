@@ -9,6 +9,7 @@ Application::Application(const std::string& name, int width, int height) {
 
     m_window = std::make_unique<Window>(name, width, height);
     m_renderer = std::make_unique<Renderer2D>(m_window->get_sdl_renderer());
+    m_renderer->set_thread_pool(&m_thread_pool);
 
     // Register window resize / High-DPI scale change callback
     m_window->set_resize_callback([this](int w, int h) {

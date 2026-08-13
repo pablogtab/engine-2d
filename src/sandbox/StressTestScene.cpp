@@ -7,9 +7,9 @@
 
 namespace Sandbox {
 
-StressTestScene::StressTestScene(SDL_Renderer *renderer, size_t particle_count)
+StressTestScene::StressTestScene(SDL_Renderer *renderer, Engine::ThreadPool* thread_pool, size_t particle_count)
     : Engine::Scene("GPU/CPU Stress Test"),
-      m_sdl_renderer(renderer), m_camera(1280.0f, 720.0f) {
+      m_sdl_renderer(renderer), m_thread_pool(thread_pool), m_camera(1280.0f, 720.0f) {
 
   set_particle_count(particle_count);
 }
@@ -17,6 +17,7 @@ StressTestScene::StressTestScene(SDL_Renderer *renderer, size_t particle_count)
 void StressTestScene::set_particle_count(size_t count) {
   m_particles.clear();
   m_particles.resize(count);
+  m_sprite_batch.resize(count);
 
   bool is_galaxy_mode = (count >= 30000);
 
@@ -70,13 +71,12 @@ void StressTestScene::on_attach() {
   m_particle_texture = std::unique_ptr<Engine::Texture>(
       Engine::Texture::create_circle(m_sdl_renderer, 64, 255, 255, 255));
 
+  size_t threads = m_thread_pool ? m_thread_pool->get_thread_count() : 1;
+
   ENGINE_LOG_INFO("=======================================================");
-  ENGINE_LOG_INFO(" [STRESS TEST SCENE ACTIVE] Particles: {}", m_particles.size());
-  ENGINE_LOG_INFO(" - Press 1 : 3,000 Sprites");
-  ENGINE_LOG_INFO(" - Press 2 : 10,000 Sprites");
-  ENGINE_LOG_INFO(" - Press 3 : 30,000 Sprites");
-  ENGINE_LOG_INFO(" - Press 4 : 75,000 Sprites");
-  ENGINE_LOG_INFO(" - Press 5 : 150,000 Sprites");
+  ENGINE_LOG_INFO(" [STRESS TEST SCENE ACTIVE] Particles: {} | Active CPU Threads: {}", m_particles.size(), threads);
+  ENGINE_LOG_INFO(" - Particle Count Hotkeys: 1 (3k), 2 (10k), 3 (30k), 4 (75k), 5 (150k)");
+  ENGINE_LOG_INFO(" - CPU Threads Hotkeys: F1 (1 Core), F2 (2 Cores), F3 (4 Cores), F4 (All Cores)");
   ENGINE_LOG_INFO("=======================================================");
 }
 
@@ -101,39 +101,69 @@ void StressTestScene::on_update(float delta_time) {
   if (keys[SDL_SCANCODE_4] && m_particles.size() != 75000)  { set_particle_count(75000);  ENGINE_LOG_INFO("Set Stress Test to 75,000 Sprites"); }
   if (keys[SDL_SCANCODE_5] && m_particles.size() != 150000) { set_particle_count(150000); ENGINE_LOG_INFO("Set Stress Test to 150,000 Sprites"); }
 
-  // Update particles
-  for (auto &p : m_particles) {
-    p.position.x += p.velocity.x * delta_time;
-    p.position.y += p.velocity.y * delta_time;
+  // Dynamic CPU Core count hotkeys
+  if (m_thread_pool) {
+    if (keys[SDL_SCANCODE_F1] && m_thread_pool->get_thread_count() != 1) { m_thread_pool->set_thread_count(1); }
+    if (keys[SDL_SCANCODE_F2] && m_thread_pool->get_thread_count() != 2) { m_thread_pool->set_thread_count(2); }
+    if (keys[SDL_SCANCODE_F3] && m_thread_pool->get_thread_count() != 4) { m_thread_pool->set_thread_count(4); }
+    if (keys[SDL_SCANCODE_F4]) { m_thread_pool->set_thread_count(0); } // 0 auto-detects max hardware threads
+  }
 
-    // Bounce at boundaries
-    if (p.position.x < -1200.0f || p.position.x > 1200.0f)
-      p.velocity.x *= -1.0f;
-    if (p.position.y < -700.0f || p.position.y > 700.0f)
-      p.velocity.y *= -1.0f;
+  // Update particles in parallel and build SpriteCommands batch
+  if (m_thread_pool && m_thread_pool->get_thread_count() > 1) {
+    m_thread_pool->parallel_for(0, m_particles.size(), [this, delta_time](size_t i) {
+      auto &p = m_particles[i];
+      p.position.x += p.velocity.x * delta_time;
+      p.position.y += p.velocity.y * delta_time;
+
+      if (p.position.x < -1200.0f || p.position.x > 1200.0f) p.velocity.x *= -1.0f;
+      if (p.position.y < -700.0f || p.position.y > 700.0f)   p.velocity.y *= -1.0f;
+
+      m_sprite_batch[i] = Engine::SpriteCommand{
+          m_particle_texture.get(),
+          p.position,
+          p.size,
+          0.0f,
+          p.color
+      };
+    });
+  } else {
+    for (size_t i = 0; i < m_particles.size(); ++i) {
+      auto &p = m_particles[i];
+      p.position.x += p.velocity.x * delta_time;
+      p.position.y += p.velocity.y * delta_time;
+
+      if (p.position.x < -1200.0f || p.position.x > 1200.0f) p.velocity.x *= -1.0f;
+      if (p.position.y < -700.0f || p.position.y > 700.0f)   p.velocity.y *= -1.0f;
+
+      m_sprite_batch[i] = Engine::SpriteCommand{
+          m_particle_texture.get(),
+          p.position,
+          p.size,
+          0.0f,
+          p.color
+      };
+    }
   }
 }
 
 void StressTestScene::on_render(Engine::Renderer2D &renderer) {
   renderer.begin_scene(m_camera);
-
-  for (const auto &p : m_particles) {
-    renderer.submit_sprite(m_particle_texture.get(), p.position, p.size, 0.0f,
-                           p.color);
-  }
-
+  renderer.submit_sprites_batch(m_sprite_batch.data(), m_sprite_batch.size());
   renderer.end_scene();
 
   // Print accurate real-time telemetry every 1.5 seconds
   if (m_accumulated_time >= 1.5f && m_accumulated_frames > 0) {
     int fps = static_cast<int>(m_accumulated_frames / m_accumulated_time);
     float frame_ms = (m_accumulated_time / m_accumulated_frames) * 1000.0f;
+    size_t active_threads = m_thread_pool ? m_thread_pool->get_thread_count() : 1;
 
-    ENGINE_LOG_INFO("[PERFORMANCE] Active: {} | Rendered: {} | Culled: {} | Draw Calls: {} | FPS: {} ({:.2f} ms/frame)",
+    ENGINE_LOG_INFO("[PERFORMANCE] Active: {} | Rendered: {} | Culled: {} | Draw Calls: {} | CPU Cores: {} | FPS: {} ({:.2f} ms/frame)",
                     m_particles.size(),
                     renderer.get_rendered_sprite_count(),
                     renderer.get_culled_sprite_count(),
                     renderer.get_draw_call_count(),
+                    active_threads,
                     fps,
                     frame_ms);
 

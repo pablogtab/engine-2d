@@ -60,9 +60,15 @@ graph LR
 
 ---
 
-### 📍 Fase 3: Arquitectura de Entidades & Sistema de Entrada (Medio Plazo)
-> **Objetivo**: Desacoplar la lógica del juego del código duro en las escenas mediante componentes y mapeo de controles.
+### 📍 Fase 3: Arquitectura de Entidades, Multihilo & Sistema de Entrada (Medio Plazo)
+> **Objetivo**: Desacoplar la lógica del juego del código duro en las escenas mediante componentes, hilos secundarios y mapeo de controles.
 
+- [x] **2.6 Envío en Lote Paralelo (`submit_sprites_batch`)**:
+  - `Renderer2D::submit_sprites_batch` realiza el *culling* y empaquetado de claves en paralelo con `ThreadPool`.
+- [x] **2.7 Vectorización SIMD Cross-Platform (`Engine::SIMD`)**:
+  - Abstracción de 128 bits con ARM NEON (Mac/iOS) y SSE2/AVX2 (PC) para transformación de esquinas en 2 instrucciones.
+- [x] **2.8 Modo Bajo Lag / Doble Buffer Configurable (`set_low_latency_mode`)**:
+  - Interruptor configurable para alternar entre 0-lag (juegos competitivos/FPS) y máximo rendimiento (simulaciones masivas).
 - [ ] **3.1 Sistema de Entrada (Input Manager)**:
   - Crear un sistema de acciones mapeables (`"MoveLeft"`, `"Jump"`, `"Pause"`) para Teclado, Ratón y Gamepads (mandos Xbox/PlayStation).
   - Soporte para eventos de clic y coordenadas del ratón convertidas al mundo 2.5D.

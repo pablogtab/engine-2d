@@ -1,5 +1,9 @@
 #include "Renderer2D.hpp"
+#include "core/ThreadPool.hpp"
+#include "core/Log.hpp"
+#include "core/SIMD.hpp"
 #include <algorithm>
+#include <chrono>
 
 namespace Engine {
 
@@ -10,6 +14,7 @@ Renderer2D::Renderer2D(SDL_Renderer* renderer)
 
 void Renderer2D::reserve_capacity(size_t max_sprites) {
     m_sprite_queue.reserve(max_sprites);
+    m_sort_temp_buffer.reserve(max_sprites);
     m_vertex_buffer.reserve(max_sprites * 4);
     m_index_buffer.reserve(max_sprites * 6);
 }
@@ -17,8 +22,6 @@ void Renderer2D::reserve_capacity(size_t max_sprites) {
 void Renderer2D::begin_scene(const Camera2D& camera) {
     m_active_camera = &camera;
     m_sprite_queue.clear();
-    m_vertex_buffer.clear();
-    m_index_buffer.clear();
     m_draw_calls = 0;
     m_rendered_sprites = 0;
     m_culled_sprites = 0;
@@ -53,43 +56,97 @@ void Renderer2D::submit_sprite(
     m_sprite_queue.push_back(cmd);
 }
 
+void Renderer2D::submit_sprites_batch(const SpriteCommand* commands, size_t count) {
+    if (!commands || count == 0) return;
+
+    if (m_thread_pool && m_thread_pool->get_thread_count() > 1 && count >= 512) {
+        std::vector<SpriteCommand> processed_cmds(count);
+        std::vector<uint8_t> is_visible(count, 0);
+
+        m_thread_pool->parallel_for(0, count, [&](size_t i) {
+            const auto& src = commands[i];
+            if (!src.texture) return;
+
+            if (m_active_camera && !m_active_camera->is_visible(src.position, src.size)) {
+                return; // Culled
+            }
+
+            SpriteCommand cmd = src;
+            uint32_t z_key = static_cast<uint32_t>(src.position.z + 10000.0f);
+            uint16_t y_key = static_cast<uint16_t>(src.position.y + 32768.0f);
+            uint16_t tex_key = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(src.texture) & 0xFFFF);
+            cmd.sort_key = (static_cast<uint64_t>(z_key) << 32) | (static_cast<uint64_t>(y_key) << 16) | tex_key;
+
+            processed_cmds[i] = cmd;
+            is_visible[i] = 1;
+        });
+
+        for (size_t i = 0; i < count; ++i) {
+            if (is_visible[i]) {
+                m_sprite_queue.push_back(processed_cmds[i]);
+            } else {
+                m_culled_sprites++;
+            }
+        }
+    } else {
+        for (size_t i = 0; i < count; ++i) {
+            submit_sprite(
+                commands[i].texture,
+                commands[i].position,
+                commands[i].size,
+                commands[i].rotation,
+                commands[i].color,
+                commands[i].has_src_rect ? &commands[i].src_rect : nullptr
+            );
+        }
+    }
+}
+
 void Renderer2D::flush_batch(Texture* texture) {
-    if (m_vertex_buffer.empty() || !texture || !m_sdl_renderer) return;
-
-    SDL_RenderGeometry(
-        m_sdl_renderer,
-        texture->get_sdl_texture(),
-        m_vertex_buffer.data(),
-        static_cast<int>(m_vertex_buffer.size()),
-        m_index_buffer.data(),
-        static_cast<int>(m_index_buffer.size())
-    );
-
-    m_draw_calls++;
-    m_vertex_buffer.clear();
-    m_index_buffer.clear();
+    // Legacy single flush stub (retained for API compatibility)
 }
 
 void Renderer2D::end_scene() {
-    if (!m_active_camera || !m_sdl_renderer) return;
+    if (!m_active_camera || !m_sdl_renderer || m_sprite_queue.empty()) return;
 
-    // Stable single 64-bit integer comparison sort (Z-depth, Y-sorting, Texture batching)
-    std::stable_sort(m_sprite_queue.begin(), m_sprite_queue.end(), [](const SpriteCommand& a, const SpriteCommand& b) {
-        return a.sort_key < b.sort_key;
-    });
+    auto t0 = std::chrono::high_resolution_clock::now();
 
-    Texture* current_texture = nullptr;
+    size_t sprite_count = m_sprite_queue.size();
 
-    for (const auto& cmd : m_sprite_queue) {
-        if (!cmd.texture) continue;
+    // 1. O(N) 64-bit LSD Radix Sort (4 passes of 16-bit buckets)
+    m_sort_temp_buffer.resize(sprite_count);
 
-        // Flush batch if texture switches
-        if (cmd.texture != current_texture) {
-            if (current_texture != nullptr) {
-                flush_batch(current_texture);
-            }
-            current_texture = cmd.texture;
+    for (int shift = 0; shift < 64; shift += 16) {
+        size_t count[65536] = {0};
+
+        for (size_t i = 0; i < sprite_count; ++i) {
+            uint16_t bucket = static_cast<uint16_t>((m_sprite_queue[i].sort_key >> shift) & 0xFFFF);
+            count[bucket]++;
         }
+
+        size_t pref[65536];
+        pref[0] = 0;
+        for (int i = 1; i < 65536; ++i) {
+            pref[i] = pref[i - 1] + count[i - 1];
+        }
+
+        for (size_t i = 0; i < sprite_count; ++i) {
+            uint16_t bucket = static_cast<uint16_t>((m_sprite_queue[i].sort_key >> shift) & 0xFFFF);
+            m_sort_temp_buffer[pref[bucket]++] = m_sprite_queue[i];
+        }
+
+        m_sprite_queue.swap(m_sort_temp_buffer);
+    }
+
+    auto t1 = std::chrono::high_resolution_clock::now();
+
+    // 2. Resize output vertex & index buffers to exact required capacity
+    m_vertex_buffer.resize(sprite_count * 4);
+    m_index_buffer.resize(sprite_count * 6);
+
+    auto process_sprite = [this](size_t idx) {
+        const auto& cmd = m_sprite_queue[idx];
+        if (!cmd.texture) return;
 
         // Calculate GPU screen position based on camera parallax and Z-depth
         glm::vec2 screen_pos = m_active_camera->world_to_screen(cmd.position);
@@ -97,29 +154,16 @@ void Renderer2D::end_scene() {
 
         glm::vec2 half_size = (cmd.size * z_scale) * 0.5f;
 
-        // Corners relative to center
-        glm::vec2 corners[4] = {
+        // Corners relative to center (Vectorized via SIMD)
+        glm::vec2 corners_rel[4] = {
             {-half_size.x, -half_size.y},
             { half_size.x, -half_size.y},
             { half_size.x,  half_size.y},
             {-half_size.x,  half_size.y}
         };
 
-        if (cmd.rotation != 0.0f) {
-            float rad = glm::radians(cmd.rotation);
-            float cos_a = std::cos(rad);
-            float sin_a = std::sin(rad);
-
-            for (int i = 0; i < 4; ++i) {
-                float rx = corners[i].x * cos_a - corners[i].y * sin_a;
-                float ry = corners[i].x * sin_a + corners[i].y * cos_a;
-                corners[i] = glm::vec2(rx, ry);
-            }
-        }
-
-        for (int i = 0; i < 4; ++i) {
-            corners[i] += screen_pos;
-        }
+        glm::vec2 corners[4];
+        SIMD::transform_quad_corners(corners_rel, corners, screen_pos, cmd.rotation);
 
         // Normalize UVs (0.0f to 1.0f)
         float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
@@ -139,28 +183,70 @@ void Renderer2D::end_scene() {
             cmd.color.a / 255.0f
         };
 
-        int base_vertex = static_cast<int>(m_vertex_buffer.size());
+        size_t v_idx = idx * 4;
+        m_vertex_buffer[v_idx + 0] = SDL_Vertex{{corners[0].x, corners[0].y}, col, {u0, v0}};
+        m_vertex_buffer[v_idx + 1] = SDL_Vertex{{corners[1].x, corners[1].y}, col, {u1, v0}};
+        m_vertex_buffer[v_idx + 2] = SDL_Vertex{{corners[2].x, corners[2].y}, col, {u1, v1}};
+        m_vertex_buffer[v_idx + 3] = SDL_Vertex{{corners[3].x, corners[3].y}, col, {u0, v1}};
 
-        // Quad 4 vertices
-        m_vertex_buffer.push_back(SDL_Vertex{{corners[0].x, corners[0].y}, col, {u0, v0}});
-        m_vertex_buffer.push_back(SDL_Vertex{{corners[1].x, corners[1].y}, col, {u1, v0}});
-        m_vertex_buffer.push_back(SDL_Vertex{{corners[2].x, corners[2].y}, col, {u1, v1}});
-        m_vertex_buffer.push_back(SDL_Vertex{{corners[3].x, corners[3].y}, col, {u0, v1}});
+        size_t i_idx = idx * 6;
+        int base_v = static_cast<int>(v_idx);
+        m_index_buffer[i_idx + 0] = base_v + 0;
+        m_index_buffer[i_idx + 1] = base_v + 1;
+        m_index_buffer[i_idx + 2] = base_v + 2;
+        m_index_buffer[i_idx + 3] = base_v + 0;
+        m_index_buffer[i_idx + 4] = base_v + 2;
+        m_index_buffer[i_idx + 5] = base_v + 3;
+    };
 
-        // Quad 6 indices (2 triangles)
-        m_index_buffer.push_back(base_vertex + 0);
-        m_index_buffer.push_back(base_vertex + 1);
-        m_index_buffer.push_back(base_vertex + 2);
-
-        m_index_buffer.push_back(base_vertex + 0);
-        m_index_buffer.push_back(base_vertex + 2);
-        m_index_buffer.push_back(base_vertex + 3);
-
-        m_rendered_sprites++;
+    // 3. Multi-threaded parallel vertex generation
+    if (m_thread_pool && m_thread_pool->get_thread_count() > 1 && sprite_count >= 256) {
+        m_thread_pool->parallel_for(0, sprite_count, process_sprite);
+    } else {
+        for (size_t i = 0; i < sprite_count; ++i) {
+            process_sprite(i);
+        }
     }
 
-    if (current_texture != nullptr) {
-        flush_batch(current_texture);
+    auto t2 = std::chrono::high_resolution_clock::now();
+
+    // 4. Batch flushing by texture ranges
+    size_t batch_start = 0;
+    Texture* current_texture = m_sprite_queue[0].texture;
+
+    for (size_t i = 1; i <= sprite_count; ++i) {
+        Texture* tex = (i < sprite_count) ? m_sprite_queue[i].texture : nullptr;
+        if (tex != current_texture || i == sprite_count) {
+            size_t batch_count = i - batch_start;
+            if (current_texture != nullptr && batch_count > 0) {
+                SDL_RenderGeometry(
+                    m_sdl_renderer,
+                    current_texture->get_sdl_texture(),
+                    m_vertex_buffer.data(),
+                    static_cast<int>(m_vertex_buffer.size()),
+                    &m_index_buffer[batch_start * 6],
+                    static_cast<int>(batch_count * 6)
+                );
+                m_draw_calls++;
+                m_rendered_sprites += batch_count;
+            }
+            batch_start = i;
+            current_texture = tex;
+        }
+    }
+
+    auto t3 = std::chrono::high_resolution_clock::now();
+
+    // Log detailed sub-stage breakdown every 2 seconds for heavy scenes
+    static float log_timer = 0.0f;
+    log_timer += 0.016f;
+    if (log_timer >= 2.0f && sprite_count >= 30000) {
+        log_timer = 0.0f;
+        float sort_ms = std::chrono::duration<float, std::milli>(t1 - t0).count();
+        float vert_ms = std::chrono::duration<float, std::milli>(t2 - t1).count();
+        float gpu_ms  = std::chrono::duration<float, std::milli>(t3 - t2).count();
+        ENGINE_LOG_INFO("[PIPELINE PROFILE] Sort: {} ms | Vertices (Parallel): {} ms | GPU Submit: {} ms",
+                        sort_ms, vert_ms, gpu_ms);
     }
 }
 
