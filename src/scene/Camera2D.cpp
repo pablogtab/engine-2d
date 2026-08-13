@@ -43,4 +43,16 @@ bool Camera2D::is_visible(const glm::vec3& world_pos, const glm::vec2& size) con
              max_y < 0.0f || min_y > m_viewport_size.y);
 }
 
+SDL_FRect Camera2D::get_world_bounds(float z) const {
+    float z_scale = get_z_scale(z) * m_zoom;
+    glm::vec2 half_world_dim = (m_viewport_size / z_scale) * 0.5f;
+
+    return SDL_FRect{
+        m_position.x - half_world_dim.x,
+        m_position.y - half_world_dim.y,
+        half_world_dim.x * 2.0f,
+        half_world_dim.y * 2.0f
+    };
+}
+
 } // namespace Engine

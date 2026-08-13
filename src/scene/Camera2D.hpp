@@ -2,6 +2,8 @@
 
 #include <glm/glm.hpp>
 
+#include <SDL3/SDL.h>
+
 namespace Engine {
 
 class Camera2D {
@@ -31,6 +33,9 @@ public:
 
     // Checks if a 2.5D sprite is within the visible camera viewport (Frustum Culling)
     bool is_visible(const glm::vec3& world_pos, const glm::vec2& size) const;
+
+    // Returns the visible 2.5D world bounding box for spatial queries
+    SDL_FRect get_world_bounds(float z = 0.0f) const;
 
 private:
     glm::vec2 m_position{0.0f, 0.0f};

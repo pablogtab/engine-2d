@@ -45,6 +45,7 @@ public:
     size_t get_draw_call_count() const { return m_draw_calls; }
     size_t get_rendered_sprite_count() const { return m_rendered_sprites; }
     size_t get_culled_sprite_count() const { return m_culled_sprites; }
+    const Camera2D* get_active_camera() const { return m_active_camera; }
 
 private:
     void flush_batch(Texture* texture);
