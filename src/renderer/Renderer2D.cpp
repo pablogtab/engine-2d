@@ -13,6 +13,7 @@ void Renderer2D::begin_scene(const Camera2D& camera) {
     m_index_buffer.clear();
     m_draw_calls = 0;
     m_rendered_sprites = 0;
+    m_culled_sprites = 0;
 }
 
 void Renderer2D::submit_sprite(
@@ -23,6 +24,12 @@ void Renderer2D::submit_sprite(
     SDL_Color color,
     const SDL_FRect* src_rect
 ) {
+    // 2D Frustum Culling Check
+    if (m_active_camera && !m_active_camera->is_visible(position, size)) {
+        m_culled_sprites++;
+        return; // Early discard out-of-screen sprite
+    }
+
     SpriteCommand cmd{texture, position, size, rotation, color};
     if (src_rect) {
         cmd.src_rect = *src_rect;

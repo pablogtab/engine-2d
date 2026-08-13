@@ -1,5 +1,4 @@
 #include "Camera2D.hpp"
-#include <algorithm>
 
 namespace Engine {
 
@@ -28,6 +27,20 @@ glm::vec2 Camera2D::world_to_screen(const glm::vec3& world_pos) const {
     glm::vec2 screen_center = m_viewport_size * 0.5f;
 
     return relative_pos + screen_center;
+}
+
+bool Camera2D::is_visible(const glm::vec3& world_pos, const glm::vec2& size) const {
+    glm::vec2 screen_pos = world_to_screen(world_pos);
+    float z_scale = get_z_scale(world_pos.z) * m_zoom;
+    glm::vec2 half_size = (size * z_scale) * 0.5f;
+
+    float min_x = screen_pos.x - half_size.x;
+    float max_x = screen_pos.x + half_size.x;
+    float min_y = screen_pos.y - half_size.y;
+    float max_y = screen_pos.y + half_size.y;
+
+    return !(max_x < 0.0f || min_x > m_viewport_size.x || 
+             max_y < 0.0f || min_y > m_viewport_size.y);
 }
 
 } // namespace Engine

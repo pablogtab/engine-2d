@@ -78,7 +78,8 @@ void StressTestScene::on_render(Engine::Renderer2D &renderer) {
   timer += 0.016f;
   if (timer >= 3.0f) {
     timer = 0.0f;
-    std::cout << "[BATCHING] Sprites: " << renderer.get_rendered_sprite_count()
+    std::cout << "[RENDER STATS] Rendered: " << renderer.get_rendered_sprite_count()
+              << " | Culled: " << renderer.get_culled_sprite_count()
               << " | Draw Calls: " << renderer.get_draw_call_count() << std::endl;
   }
 }

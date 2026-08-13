@@ -44,9 +44,9 @@ graph LR
 - [x] **2.1 Sprite Batching / Instancing (Reducción Masiva de Draw Calls)**:
   - Agrupar la geometría de sprites por textura/atlas en un solo buffer de vértices VBO/VAO (`SDL_RenderGeometry`).
   - Reducción probada: De 3,000 llamadas individuales a la GPU a **1 sola Draw Call por fotograma** (99.97% de reducción en sobrecarga GPU).
-- [ ] **2.2 Frustum Culling 2D (Descarte de Objetos Fuera de Pantalla)**:
-  - Verificar si el AABB del sprite interseca con el área visible de la cámara.
-  - Descartar objetos fuera de pantalla en $O(1)$ antes de encolar u ordenar en CPU.
+- [x] **2.2 Frustum Culling 2D (Descarte de Objetos Fuera de Pantalla)**:
+  - Verificación en $O(1)$ (`Camera2D::is_visible`) para descartar sprites fuera del campo de visión antes de encolar u ordenar.
+  - Ahorro probado: Descarte instantáneo de objetos fuera de pantalla sin asignaciones en RAM ni llamadas a GPU.
 - [ ] **2.3 Administrador Centralizado de Recursos (`AssetManager`)**:
   - Sistema de caché con `std::unordered_map<std::string, std::shared_ptr<Texture>>`.
   - Evitar recargas duplicadas en disco y VRAM cuando múltiples entidades comparten la misma imagen.

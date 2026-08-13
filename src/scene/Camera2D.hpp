@@ -28,6 +28,9 @@ public:
     // Returns visual scale factor produced by Z distance
     float get_z_scale(float z) const;
 
+    // Checks if a 2.5D sprite is within the visible camera viewport (Frustum Culling)
+    bool is_visible(const glm::vec3& world_pos, const glm::vec2& size) const;
+
 private:
     glm::vec2 m_position{0.0f, 0.0f};
     glm::vec2 m_viewport_size{1280.0f, 720.0f};

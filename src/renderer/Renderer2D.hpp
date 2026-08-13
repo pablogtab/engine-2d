@@ -35,6 +35,7 @@ public:
 
     size_t get_draw_call_count() const { return m_draw_calls; }
     size_t get_rendered_sprite_count() const { return m_rendered_sprites; }
+    size_t get_culled_sprite_count() const { return m_culled_sprites; }
 
 private:
     void flush_batch(Texture* texture);
@@ -47,6 +48,7 @@ private:
     std::vector<int> m_index_buffer;
     size_t m_draw_calls{0};
     size_t m_rendered_sprites{0};
+    size_t m_culled_sprites{0};
 };
 
 } // namespace Engine
