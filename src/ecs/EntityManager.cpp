@@ -21,6 +21,15 @@ void EntityManager::destroy_entity(EntityID entity) {
     auto it = std::find(m_living_entities.begin(), m_living_entities.end(), entity);
     if (it == m_living_entities.end()) return;
 
+    // Clean up hierarchy links before destroying entity
+    if (has_component<HierarchyComponent>(entity)) {
+        auto children_copy = get_component<HierarchyComponent>(entity).children;
+        for (EntityID child : children_copy) {
+            remove_parent(child);
+        }
+        remove_parent(entity);
+    }
+
     // Purge entity from all component arrays
     for (auto& pair : m_component_arrays) {
         if (pair.second) {
@@ -43,6 +52,21 @@ EntityID EntityManager::clone_entity(EntityID src) {
         }
     }
     m_entity_masks[dst] = m_entity_masks[src];
+
+    // Ensure cloned entity starts with a fresh children list
+    if (has_component<HierarchyComponent>(dst)) {
+        get_component<HierarchyComponent>(dst).children.clear();
+    }
+
+    // If cloned entity has a parent, automatically register it into the parent's children list!
+    if (has_component<HierarchyComponent>(src)) {
+        EntityID parent_id = get_component<HierarchyComponent>(src).parent;
+        if (parent_id != 0 && is_alive(parent_id)) {
+            get_component<HierarchyComponent>(dst).parent = 0;
+            set_parent(dst, parent_id);
+        }
+    }
+
     return dst;
 }
 

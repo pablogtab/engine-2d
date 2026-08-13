@@ -303,16 +303,21 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
         .position = m_player_pos;
   }
 
-  // Continuously update child orb entity's local position to orbit around the
-  // player
+  // Continuously update all child orb entities' local positions to orbit around the player
   m_orb_angle += 3.5f * delta_time;
   float orb_radius = 60.0f;
-  if (m_entity_manager.has_component<Engine::TransformComponent>(m_child_orb)) {
-    auto &orb_transform =
-        m_entity_manager.get_component<Engine::TransformComponent>(m_child_orb);
-    orb_transform.position.x = std::cos(m_orb_angle) * orb_radius;
-    orb_transform.position.y = std::sin(m_orb_angle) * orb_radius;
-  }
+  int orb_index = 0;
+
+  m_entity_manager.for_each<Engine::TagComponent, Engine::TransformComponent>(
+      [this, orb_radius, &orb_index](Engine::EntityID id, const Engine::TagComponent& tag, Engine::TransformComponent& transform) {
+        if (tag.tag.starts_with("PlayerPetOrb")) {
+          float angle_offset = orb_index * 0.628f; // Stagger orbit angle per cloned orb
+          transform.position.x = std::cos(m_orb_angle + angle_offset) * orb_radius;
+          transform.position.y = std::sin(m_orb_angle + angle_offset) * orb_radius;
+          orb_index++;
+        }
+      }
+  );
 
   // Evaluate parent-child hierarchy matrix/vector transforms across all ECS
   // entities
