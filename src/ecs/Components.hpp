@@ -39,11 +39,13 @@ struct TransformComponent {
     glm::vec3 position{0.0f, 0.0f, 0.0f}; // Local X, Y, Z (Depth)
     glm::vec2 scale{1.0f, 1.0f};          // Local Scale
     float rotation{0.0f};                 // Local Angle in degrees
+    bool visible{true};                   // Local Visibility flag
 
     // Computed World Transforms (updated by TransformSystem for parent-child hierarchies)
     glm::vec3 world_position{0.0f, 0.0f, 0.0f};
     glm::vec2 world_scale{1.0f, 1.0f};
     float world_rotation{0.0f};
+    bool world_visible{true};             // Top-Down Hierarchical Computed Visibility
 
     TransformComponent() = default;
     TransformComponent(const glm::vec3& pos, const glm::vec2& scl = {1.0f, 1.0f}, float rot = 0.0f)

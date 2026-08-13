@@ -162,6 +162,8 @@ void AnimatedSpriteDemoScene::on_attach() {
       m_player_entity, Engine::TagComponent{"HeroPlayer"});
   m_entity_manager.add_component<Engine::TransformComponent>(
       m_player_entity, Engine::TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
+  m_entity_manager.add_component<Engine::SpriteComponent>(
+      m_player_entity, Engine::SpriteComponent{nullptr, glm::vec2(64.0f, 64.0f)});
 
   // 5. Create Child Pet/Orb Entity attached to Player (Parent-Child Hierarchy!)
   m_child_orb = m_entity_manager.create_entity();
@@ -273,6 +275,15 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
     }
   }
 
+  // V Key: Toggle Visibility (Hiding parent automatically hides all hierarchical children with 0 overhead!)
+  if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_V)) {
+    if (m_entity_manager.has_component<Engine::TransformComponent>(m_player_entity)) {
+      auto& transform = m_entity_manager.get_component<Engine::TransformComponent>(m_player_entity);
+      transform.visible = !transform.visible;
+      ENGINE_LOG_INFO("[ECS TOP-DOWN VISIBILITY] Player visibility toggled to: {}", transform.visible ? "VISIBLE" : "HIDDEN (All children auto-hidden)");
+    }
+  }
+
   // X Key: Bulk Purge Spawned Trees & Cloned Orbs via destroy_matching API
   if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_X)) {
     size_t count_before = m_entity_manager.get_living_entity_count();
@@ -346,7 +357,12 @@ void AnimatedSpriteDemoScene::on_render(Engine::Renderer2D &renderer) {
   Engine::RenderSystem::render(m_entity_manager, renderer);
 
   // Player Animated Sprite
-  if (m_current_anim) {
+  bool is_player_visible = true;
+  if (m_entity_manager.has_component<Engine::TransformComponent>(m_player_entity)) {
+    is_player_visible = m_entity_manager.get_component<Engine::TransformComponent>(m_player_entity).world_visible;
+  }
+
+  if (m_current_anim && is_player_visible) {
     SDL_FRect src_rect = m_current_anim->get_current_frame_rect();
     renderer.submit_sprite(m_current_anim->get_texture(), m_player_pos,
                            glm::vec2(64.0f, 64.0f), 0.0f, {255, 255, 255, 255},

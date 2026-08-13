@@ -8,11 +8,11 @@ namespace Engine {
 
 class RenderSystem {
 public:
-    // Render all entities possessing TransformComponent and SpriteComponent
+    // Render all entities possessing TransformComponent and SpriteComponent with 0-overhead Top-Down visibility
     static void render(EntityManager& entity_manager, Renderer2D& renderer) {
         entity_manager.for_each<TransformComponent, SpriteComponent>(
             [&renderer](EntityID id, const TransformComponent& transform, const SpriteComponent& sprite) {
-                if (!sprite.visible || !sprite.texture) return;
+                if (!transform.world_visible || !sprite.visible || !sprite.texture) return;
 
                 const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
 
