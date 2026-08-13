@@ -41,9 +41,9 @@ graph LR
 ### 📍 Fase 2: Optimizaciones de Alto Rendimiento (Prioridad Inmediata)
 > **Objetivo**: Eliminar los cuellos de botella GPU/CPU para pasar de 3,000 a +100,000 sprites a 60+ FPS estables.
 
-- [ ] **2.1 Sprite Batching / Instancing (Reducción Masiva de Draw Calls)**:
-  - Agrupar la geometría de sprites por textura/atlas en un solo buffer de vértices VBO/VAO.
-  - Pasar de N llamadas individuales por frame (`SDL_RenderTexture`) a 1-5 Draw Calls por fotograma.
+- [x] **2.1 Sprite Batching / Instancing (Reducción Masiva de Draw Calls)**:
+  - Agrupar la geometría de sprites por textura/atlas en un solo buffer de vértices VBO/VAO (`SDL_RenderGeometry`).
+  - Reducción probada: De 3,000 llamadas individuales a la GPU a **1 sola Draw Call por fotograma** (99.97% de reducción en sobrecarga GPU).
 - [ ] **2.2 Frustum Culling 2D (Descarte de Objetos Fuera de Pantalla)**:
   - Verificar si el AABB del sprite interseca con el área visible de la cámara.
   - Descartar objetos fuera de pantalla en $O(1)$ antes de encolar u ordenar en CPU.
@@ -53,6 +53,10 @@ graph LR
 - [ ] **2.4 Optimización de Memoria RAM & Ordenamiento**:
   - Pre-asignar memoria en la cola de renderizado (`m_sprite_queue.reserve`) para evitar fragmentación del Heap en el bucle principal.
   - Optimizar el algoritmo de ordenamiento por capas $Z/Y$.
+- [ ] **2.5 Sistema de Logging Profesional (`Engine::Log`)**:
+  - Implementar un Logger asíncrono desacoplado con niveles (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`).
+  - Reemplazar llamadas a `std::cout` por macros optimizadas que se compilan como código nulo en builds *Release*.
+  - Salida dual a consola coloreada y archivo `engine.log`.
 
 ---
 
