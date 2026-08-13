@@ -4,7 +4,15 @@
 namespace Engine {
 
 Renderer2D::Renderer2D(SDL_Renderer* renderer)
-    : m_sdl_renderer(renderer) {}
+    : m_sdl_renderer(renderer) {
+    reserve_capacity(10000);
+}
+
+void Renderer2D::reserve_capacity(size_t max_sprites) {
+    m_sprite_queue.reserve(max_sprites);
+    m_vertex_buffer.reserve(max_sprites * 4);
+    m_index_buffer.reserve(max_sprites * 6);
+}
 
 void Renderer2D::begin_scene(const Camera2D& camera) {
     m_active_camera = &camera;
@@ -35,6 +43,13 @@ void Renderer2D::submit_sprite(
         cmd.src_rect = *src_rect;
         cmd.has_src_rect = true;
     }
+
+    // Fast 64-bit multi-key quantization (Z-depth, Y-position, Texture Pointer)
+    uint32_t z_key = static_cast<uint32_t>(position.z + 10000.0f);
+    uint16_t y_key = static_cast<uint16_t>(position.y + 32768.0f);
+    uint16_t tex_key = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(texture) & 0xFFFF);
+    cmd.sort_key = (static_cast<uint64_t>(z_key) << 32) | (static_cast<uint64_t>(y_key) << 16) | tex_key;
+
     m_sprite_queue.push_back(cmd);
 }
 
@@ -58,15 +73,9 @@ void Renderer2D::flush_batch(Texture* texture) {
 void Renderer2D::end_scene() {
     if (!m_active_camera || !m_sdl_renderer) return;
 
-    // Depth sorting (Z-depth first, then Y-sorting, then Texture grouping for batching)
+    // Fast single 64-bit integer comparison sort (Z-depth, Y-sorting, Texture batching)
     std::sort(m_sprite_queue.begin(), m_sprite_queue.end(), [](const SpriteCommand& a, const SpriteCommand& b) {
-        if (a.position.z != b.position.z) {
-            return a.position.z < b.position.z;
-        }
-        if (a.position.y != b.position.y) {
-            return a.position.y < b.position.y;
-        }
-        return a.texture < b.texture;
+        return a.sort_key < b.sort_key;
     });
 
     Texture* current_texture = nullptr;

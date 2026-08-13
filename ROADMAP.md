@@ -50,9 +50,9 @@ graph LR
 - [x] **2.3 Administrador Centralizado de Recursos (`AssetManager`)**:
   - Sistema de caché con `std::unordered_map<std::string, std::shared_ptr<Texture>>`.
   - Reutilización inteligente de assets en VRAM para evitar cargas duplicadas de disco.
-- [ ] **2.4 Optimización de Memoria RAM & Ordenamiento**:
-  - Pre-asignar memoria en la cola de renderizado (`m_sprite_queue.reserve`) para evitar fragmentación del Heap en el bucle principal.
-  - Optimizar el algoritmo de ordenamiento por capas $Z/Y$.
+- [x] **2.4 Optimización de Memoria RAM & Ordenamiento**:
+  - Pre-asignación de capacidad (`m_sprite_queue.reserve`, `m_vertex_buffer.reserve`) para eliminar asignaciones dinámicas en el bucle principal.
+  - Ordenamiento hiper-rápido usando clave cuantizada entera de 64 bits (`sort_key`), reduciendo comparaciones flotantes en CPU.
 - [ ] **2.5 Sistema de Logging Profesional (`Engine::Log`)**:
   - Implementar un Logger asíncrono desacoplado con niveles (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`).
   - Reemplazar llamadas a `std::cout` por macros optimizadas que se compilan como código nulo en builds *Release*.

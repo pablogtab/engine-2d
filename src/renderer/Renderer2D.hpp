@@ -15,6 +15,7 @@ struct SpriteCommand {
     float rotation{0.0f};
     SDL_Color color{255, 255, 255, 255};
     SDL_FRect src_rect{0.0f, 0.0f, 0.0f, 0.0f};
+    uint64_t sort_key{0};
     bool has_src_rect{false};
 };
 
@@ -22,6 +23,7 @@ class Renderer2D {
 public:
     explicit Renderer2D(SDL_Renderer* renderer);
 
+    void reserve_capacity(size_t max_sprites);
     void begin_scene(const Camera2D& camera);
     void submit_sprite(
         Texture* texture, 
