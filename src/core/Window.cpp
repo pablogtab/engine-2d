@@ -1,5 +1,5 @@
 #include "Window.hpp"
-#include <iostream>
+#include "Log.hpp"
 
 namespace Engine {
 
@@ -7,7 +7,7 @@ Window::Window(const std::string& title, int width, int height)
     : m_title(title), m_width(width), m_height(height) {
     
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
-        std::cerr << "[ERROR] Failed to initialize SDL3: " << SDL_GetError() << std::endl;
+        ENGINE_LOG_ERROR("Failed to initialize SDL3: {}", SDL_GetError());
         return;
     }
 
@@ -19,13 +19,13 @@ Window::Window(const std::string& title, int width, int height)
     );
 
     if (!m_window) {
-        std::cerr << "[ERROR] Could not create SDL3 window: " << SDL_GetError() << std::endl;
+        ENGINE_LOG_ERROR("Could not create SDL3 window: {}", SDL_GetError());
         return;
     }
 
     m_renderer = SDL_CreateRenderer(m_window, nullptr);
     if (!m_renderer) {
-        std::cerr << "[ERROR] Could not create SDL3 renderer: " << SDL_GetError() << std::endl;
+        ENGINE_LOG_ERROR("Could not create SDL3 renderer: {}", SDL_GetError());
         return;
     }
 
@@ -42,10 +42,8 @@ Window::Window(const std::string& title, int width, int height)
 
     update_sizes();
 
-    std::cout << "[INFO] Window and SDL3 renderer successfully created. Backend: " 
-              << SDL_GetRendererName(m_renderer) 
-              << " | Logical: " << m_width << "x" << m_height 
-              << " | Pixels: " << m_pixel_width << "x" << m_pixel_height << std::endl;
+    ENGINE_LOG_INFO("Window & SDL3 renderer created. Backend: {} | Logical: {}x{} | Pixels: {}x{}",
+                    SDL_GetRendererName(m_renderer), m_width, m_height, m_pixel_width, m_pixel_height);
 }
 
 Window::~Window() {

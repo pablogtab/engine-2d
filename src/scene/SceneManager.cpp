@@ -1,5 +1,5 @@
 #include "SceneManager.hpp"
-#include <iostream>
+#include "../core/Log.hpp"
 
 namespace Engine {
 
@@ -25,8 +25,7 @@ void SceneManager::set_active_scene(size_t index) {
     m_scenes[m_active_index]->on_attach();
     m_scenes[m_active_index]->on_resize(m_last_width, m_last_height);
 
-    std::cout << "[SCENE MANAGER] Switched to Scene [" << m_active_index + 1 << "/" << m_scenes.size() 
-              << "]: " << m_scenes[m_active_index]->get_name() << std::endl;
+    ENGINE_LOG_INFO("Switched to Scene [{}/{}]: '{}'", m_active_index + 1, m_scenes.size(), m_scenes[m_active_index]->get_name());
 }
 
 void SceneManager::set_active_scene(const std::string& name) {

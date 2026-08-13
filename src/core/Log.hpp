@@ -1,0 +1,105 @@
+#pragma once
+
+#include <string>
+#include <fstream>
+#include <mutex>
+#include <sstream>
+
+namespace Engine {
+
+enum class LogLevel {
+    TRACE = 0,
+    DEBUG,
+    INFO,
+    WARN,
+    ERR,
+    CRITICAL,
+    OFF
+};
+
+class Log {
+public:
+    static void init(const std::string& filename = "engine.log");
+    static void shutdown();
+    static void set_level(LogLevel level);
+
+    static void trace(const std::string& msg);
+    static void debug(const std::string& msg);
+    static void info(const std::string& msg);
+    static void warn(const std::string& msg);
+    static void error(const std::string& msg);
+    static void critical(const std::string& msg);
+
+    // Formatted helper for multiple arguments
+    template <typename... Args>
+    static void trace(const std::string& fmt_str, Args&&... args) {
+        log(LogLevel::TRACE, format_msg(fmt_str, std::forward<Args>(args)...));
+    }
+
+    template <typename... Args>
+    static void debug(const std::string& fmt_str, Args&&... args) {
+        log(LogLevel::DEBUG, format_msg(fmt_str, std::forward<Args>(args)...));
+    }
+
+    template <typename... Args>
+    static void info(const std::string& fmt_str, Args&&... args) {
+        log(LogLevel::INFO, format_msg(fmt_str, std::forward<Args>(args)...));
+    }
+
+    template <typename... Args>
+    static void warn(const std::string& fmt_str, Args&&... args) {
+        log(LogLevel::WARN, format_msg(fmt_str, std::forward<Args>(args)...));
+    }
+
+    template <typename... Args>
+    static void error(const std::string& fmt_str, Args&&... args) {
+        log(LogLevel::ERR, format_msg(fmt_str, std::forward<Args>(args)...));
+    }
+
+private:
+    static void log(LogLevel level, const std::string& message);
+    static std::string get_timestamp();
+    static const char* level_to_string(LogLevel level);
+
+    template <typename T>
+    static void format_helper(std::ostringstream& ss, const std::string& fmt, size_t& pos, T&& val) {
+        size_t placeholder = fmt.find("{}", pos);
+        if (placeholder != std::string::npos) {
+            ss << fmt.substr(pos, placeholder - pos);
+            ss << std::forward<T>(val);
+            pos = placeholder + 2;
+        }
+    }
+
+    template <typename... Args>
+    static std::string format_msg(const std::string& fmt, Args&&... args) {
+        std::ostringstream ss;
+        size_t pos = 0;
+        (format_helper(ss, fmt, pos, std::forward<Args>(args)), ...);
+        if (pos < fmt.length()) {
+            ss << fmt.substr(pos);
+        }
+        return ss.str();
+    }
+
+    static LogLevel s_level;
+    static std::ofstream s_file_stream;
+    static std::mutex s_mutex;
+    static bool s_initialized;
+};
+
+} // namespace Engine
+
+// Global Log Macros
+#ifdef NDEBUG
+    #define ENGINE_LOG_TRACE(...) ((void)0)
+    #define ENGINE_LOG_DEBUG(...) ((void)0)
+#else
+    #define ENGINE_LOG_TRACE(...) ::Engine::Log::trace(__VA_ARGS__)
+    #define ENGINE_LOG_DEBUG(...) ::Engine::Log::debug(__VA_ARGS__)
+#endif
+
+#define ENGINE_LOG_INFO(...)     ::Engine::Log::info(__VA_ARGS__)
+#define ENGINE_LOG_WARN(...)     ::Engine::Log::warn(__VA_ARGS__)
+#define ENGINE_LOG_ERROR(...)    ::Engine::Log::error(__VA_ARGS__)
+#define ENGINE_LOG_CRITICAL(...) ::Engine::Log::critical(__VA_ARGS__)

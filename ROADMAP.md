@@ -53,10 +53,10 @@ graph LR
 - [x] **2.4 Optimización de Memoria RAM & Ordenamiento**:
   - Pre-asignación de capacidad (`m_sprite_queue.reserve`, `m_vertex_buffer.reserve`) para eliminar asignaciones dinámicas en el bucle principal.
   - Ordenamiento hiper-rápido usando clave cuantizada entera de 64 bits (`sort_key`), reduciendo comparaciones flotantes en CPU.
-- [ ] **2.5 Sistema de Logging Profesional (`Engine::Log`)**:
-  - Implementar un Logger asíncrono desacoplado con niveles (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`).
-  - Reemplazar llamadas a `std::cout` por macros optimizadas que se compilan como código nulo en builds *Release*.
-  - Salida dual a consola coloreada y archivo `engine.log`.
+- [x] **2.5 Sistema de Logging Profesional (`Engine::Log`)**:
+  - Implementación de `Engine::Log` con soporte de formateo, timestamps, mutex thread-safe y colores ANSI.
+  - Salida dual a consola y archivo de disco `engine.log`.
+  - Macros `ENGINE_LOG_TRACE`, `ENGINE_LOG_INFO`, `ENGINE_LOG_ERROR` optimizables a código nulo en builds *Release*.
 
 ---
 

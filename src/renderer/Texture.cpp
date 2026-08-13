@@ -1,8 +1,8 @@
 #include "stb/stb_image.h"
 #include "Texture.hpp"
+#include "../core/Log.hpp"
 #include <vector>
 #include <cmath>
-#include <iostream>
 
 namespace Engine {
 
@@ -34,14 +34,14 @@ Texture* Texture::load_from_file(SDL_Renderer* renderer, const std::string& file
     stbi_uc* data = stbi_load(filepath.c_str(), &w, &h, &channels, STBI_rgb_alpha);
 
     if (!data) {
-        std::cerr << "[ERROR] Failed to load image asset '" << filepath << "': " << stbi_failure_reason() << std::endl;
+        ENGINE_LOG_ERROR("Failed to load image asset '{}': {}", filepath, stbi_failure_reason());
         return nullptr;
     }
 
     Texture* tex = new Texture(renderer, w, h, reinterpret_cast<const uint32_t*>(data));
     stbi_image_free(data);
 
-    std::cout << "[INFO] Loaded texture asset: " << filepath << " (" << w << "x" << h << " px)" << std::endl;
+    ENGINE_LOG_INFO("Loaded texture asset: '{}' ({}x{} px)", filepath, w, h);
     return tex;
 }
 

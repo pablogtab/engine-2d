@@ -1,12 +1,12 @@
 #include "AssetManager.hpp"
-#include <iostream>
+#include "Log.hpp"
 
 namespace Engine {
 
 std::shared_ptr<Texture> AssetManager::load_texture(SDL_Renderer* renderer, const std::string& filepath) {
     auto it = m_textures.find(filepath);
     if (it != m_textures.end()) {
-        // Return cached texture
+        ENGINE_LOG_TRACE("AssetManager cache hit: '{}'", filepath);
         return it->second;
     }
 
@@ -18,7 +18,7 @@ std::shared_ptr<Texture> AssetManager::load_texture(SDL_Renderer* renderer, cons
 
     std::shared_ptr<Texture> shared_tex(tex);
     m_textures[filepath] = shared_tex;
-    std::cout << "[ASSET MANAGER] Cached texture asset: '" << filepath << "'" << std::endl;
+    ENGINE_LOG_INFO("Cached new texture asset: '{}'", filepath);
     return shared_tex;
 }
 
@@ -26,7 +26,7 @@ void AssetManager::register_texture(const std::string& name, std::unique_ptr<Tex
     if (!texture) return;
     std::shared_ptr<Texture> shared_tex = std::move(texture);
     m_textures[name] = shared_tex;
-    std::cout << "[ASSET MANAGER] Registered procedural texture: '" << name << "'" << std::endl;
+    ENGINE_LOG_INFO("Registered procedural texture: '{}'", name);
 }
 
 std::shared_ptr<Texture> AssetManager::get_texture(const std::string& name) const {
@@ -43,7 +43,7 @@ bool AssetManager::has_texture(const std::string& name) const {
 
 void AssetManager::clear() {
     m_textures.clear();
-    std::cout << "[ASSET MANAGER] Cleared all cached assets." << std::endl;
+    ENGINE_LOG_INFO("Cleared all cached assets in AssetManager.");
 }
 
 } // namespace Engine

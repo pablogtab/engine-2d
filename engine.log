@@ -1,0 +1,7 @@
+[17:19:11.019] [INFO] Engine Log System Initialized.
+[17:19:11.019] [INFO ] Initializing Engine Application: 'Cross-Platform 2D Engine - Testbed Framework' (1280x720)
+[17:19:11.190] [INFO ] Window & SDL3 renderer created. Backend: metal | Logical: 1280x720 | Pixels: 2560x1440
+[17:19:11.193] [INFO ] Loaded texture asset: 'assets/textures/player.png' (256x256 px)
+[17:19:11.193] [INFO ] Switched to Scene [1/1]: '2D Animated Sprites & Asset Loader'
+[17:19:13.876] [INFO ] Switched to Scene [2/3]: '2.5D Depth & Parallax Test'
+[17:19:17.892] [INFO ] Switched to Scene [3/3]: 'GPU/CPU Stress Test (3,000 Sprites)'

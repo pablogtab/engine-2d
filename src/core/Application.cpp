@@ -1,9 +1,12 @@
 #include "Application.hpp"
-#include <iostream>
+#include "Log.hpp"
 
 namespace Engine {
 
 Application::Application(const std::string& name, int width, int height) {
+    Log::init("engine.log");
+    ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{})", name, width, height);
+
     m_window = std::make_unique<Window>(name, width, height);
     m_renderer = std::make_unique<Renderer2D>(m_window->get_sdl_renderer());
 
@@ -62,6 +65,8 @@ void Application::run() {
     }
 
     on_shutdown();
+    ENGINE_LOG_INFO("Engine Application shutting down.");
+    Log::shutdown();
 }
 
 } // namespace Engine
