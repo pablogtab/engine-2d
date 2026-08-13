@@ -1,7 +1,48 @@
 #include "Window.hpp"
 #include "Log.hpp"
+#include "Input.hpp"
+#include <fstream>
 
 namespace Engine {
+
+namespace {
+    const char* STATE_FILE_PRIMARY = "build/.window_state";
+    const char* STATE_FILE_FALLBACK = ".window_state";
+}
+
+void Window::save_state() {
+    if (!m_window) return;
+
+    int x = 0, y = 0;
+    int w = 0, h = 0;
+    SDL_GetWindowPosition(m_window, &x, &y);
+    SDL_GetWindowSize(m_window, &w, &h);
+
+    if (w <= 100 || h <= 100) return;
+
+    std::ofstream out(STATE_FILE_PRIMARY);
+    if (!out.is_open()) {
+        out.open(STATE_FILE_FALLBACK);
+    }
+    if (out.is_open()) {
+        out << x << " " << y << " " << w << " " << h << "\n";
+    }
+}
+
+bool Window::load_state(int& x, int& y, int& w, int& h) {
+    std::ifstream in(STATE_FILE_PRIMARY);
+    if (!in.is_open()) {
+        in.open(STATE_FILE_FALLBACK);
+    }
+    if (in.is_open()) {
+        if (in >> x >> y >> w >> h) {
+            if (w > 100 && h > 100) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 Window::Window(const std::string& title, int width, int height)
     : m_title(title), m_width(width), m_height(height) {
@@ -9,6 +50,14 @@ Window::Window(const std::string& title, int width, int height)
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
         ENGINE_LOG_ERROR("Failed to initialize SDL3: {}", SDL_GetError());
         return;
+    }
+
+    int saved_x = 0, saved_y = 0, saved_w = 0, saved_h = 0;
+    bool has_saved_state = load_state(saved_x, saved_y, saved_w, saved_h);
+
+    if (has_saved_state) {
+        m_width = saved_w;
+        m_height = saved_h;
     }
 
     m_window = SDL_CreateWindow(
@@ -22,6 +71,13 @@ Window::Window(const std::string& title, int width, int height)
         ENGINE_LOG_ERROR("Could not create SDL3 window: {}", SDL_GetError());
         return;
     }
+
+    if (has_saved_state) {
+        SDL_SetWindowPosition(m_window, saved_x, saved_y);
+    }
+
+    // Bring window to front and give it input focus on macOS when launched from scripts
+    SDL_RaiseWindow(m_window);
 
     m_renderer = SDL_CreateRenderer(m_window, nullptr);
     if (!m_renderer) {
@@ -47,6 +103,7 @@ Window::Window(const std::string& title, int width, int height)
 }
 
 Window::~Window() {
+    save_state();
     if (m_renderer) {
         SDL_DestroyRenderer(m_renderer);
     }
@@ -64,6 +121,8 @@ void Window::update_sizes() {
 void Window::poll_events() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        Input::process_event(event);
+
         if (event.type == SDL_EVENT_QUIT) {
             m_should_close = true;
         }
@@ -73,12 +132,14 @@ void Window::poll_events() {
             }
         }
         else if (event.type == SDL_EVENT_WINDOW_RESIZED || 
+                 event.type == SDL_EVENT_WINDOW_MOVED ||
                  event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
                  event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
             
             update_sizes();
+            save_state();
 
-            if (m_resize_callback) {
+            if (m_resize_callback && (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)) {
                 // Pass current render output dimensions to callback
                 m_resize_callback(m_pixel_width, m_pixel_height);
             }

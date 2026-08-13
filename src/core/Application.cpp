@@ -1,11 +1,14 @@
 #include "Application.hpp"
 #include "Log.hpp"
+#include "Input.hpp"
 
 namespace Engine {
 
 Application::Application(const std::string& name, int width, int height) {
     Log::init("engine.log");
     ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{})", name, width, height);
+
+    Input::init();
 
     m_window = std::make_unique<Window>(name, width, height);
     m_renderer = std::make_unique<Renderer2D>(m_window->get_sdl_renderer());
@@ -40,18 +43,13 @@ void Application::run() {
             delta_time = 0.1f;
         }
 
-        // 1. Process window & input events
+        // 1. Reset frame input delta states, then process window & input events
+        Input::update();
         m_window->poll_events();
 
-        // Scene Switching shortcut (Press TAB or 1 / 2)
-        const bool* keys = SDL_GetKeyboardState(nullptr);
-        if (keys[SDL_SCANCODE_TAB]) {
-            if (!m_tab_pressed_last_frame) {
-                m_scene_manager.next_scene();
-                m_tab_pressed_last_frame = true;
-            }
-        } else {
-            m_tab_pressed_last_frame = false;
+        // Scene Switching shortcut (Press TAB)
+        if (Input::is_key_just_pressed(SDL_SCANCODE_TAB)) {
+            m_scene_manager.next_scene();
         }
 
         // 2. Update Application logic & active Scene
@@ -66,6 +64,7 @@ void Application::run() {
     }
 
     on_shutdown();
+    Input::shutdown();
     ENGINE_LOG_INFO("Engine Application shutting down.");
     Log::shutdown();
 }

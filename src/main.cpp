@@ -19,6 +19,9 @@ protected:
         get_scene_manager().add_scene(std::make_shared<Sandbox::DepthDemoScene>(renderer));
         get_scene_manager().add_scene(std::make_shared<Sandbox::StressTestScene>(renderer, &get_thread_pool(), 3000));
 
+        // Restore last active scene if available
+        get_scene_manager().restore_state();
+
         std::cout << "\n=======================================================" << std::endl;
         std::cout << " [TESTBED FRAMEWORK ACTIVE]" << std::endl;
         std::cout << " - Press TAB to switch between test scenes at runtime!" << std::endl;

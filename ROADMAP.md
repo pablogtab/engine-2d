@@ -69,7 +69,7 @@ graph LR
   - Abstracción de 128 bits con ARM NEON (Mac/iOS) y SSE2/AVX2 (PC) para transformación de esquinas en 2 instrucciones.
 - [x] **2.8 Modo Bajo Lag / Doble Buffer Configurable (`set_low_latency_mode`)**:
   - Interruptor configurable para alternar entre 0-lag (juegos competitivos/FPS) y máximo rendimiento (simulaciones masivas).
-- [ ] **3.1 Sistema de Entrada (Input Manager)**:
+- [x] **3.1 Sistema de Entrada (Input Manager)**:
   - Crear un sistema de acciones mapeables (`"MoveLeft"`, `"Jump"`, `"Pause"`) para Teclado, Ratón y Gamepads (mandos Xbox/PlayStation).
   - Soporte para eventos de clic y coordenadas del ratón convertidas al mundo 2.5D.
 - [ ] **3.2 Sistema de Componentes (ECS o GameObject/Component)**:

@@ -13,6 +13,7 @@ find_package(glm REQUIRED)
 set(SOURCES
     src/core/Application.cpp
     src/core/AssetManager.cpp
+    src/core/Input.cpp
     src/core/Log.cpp
     src/core/ThreadPool.cpp
     src/core/Window.cpp

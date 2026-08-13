@@ -1,5 +1,6 @@
 #include "AnimatedSpriteDemoScene.hpp"
 #include "../renderer/Renderer2D.hpp"
+#include "../core/Input.hpp"
 #include <SDL3/SDL.h>
 #include <iostream>
 #include <cmath>
@@ -126,14 +127,21 @@ void AnimatedSpriteDemoScene::on_resize(int width, int height) {
 }
 
 void AnimatedSpriteDemoScene::on_update(float delta_time) {
-    const bool* keys = SDL_GetKeyboardState(nullptr);
     float speed = 250.0f * delta_time;
 
-    glm::vec2 move{0.0f, 0.0f};
-    if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    move.y -= speed;
-    if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])  move.y += speed;
-    if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  move.x -= speed;
-    if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) move.x += speed;
+    float move_x = Engine::Input::get_axis("Horizontal");
+    float move_y = -Engine::Input::get_axis("Vertical"); // Invert because Vertical axis has Up = +1.0f
+
+    // Arrow keys fallback / addition
+    if (Engine::Input::is_key_pressed(SDL_SCANCODE_LEFT)) move_x -= 1.0f;
+    if (Engine::Input::is_key_pressed(SDL_SCANCODE_RIGHT)) move_x += 1.0f;
+    if (Engine::Input::is_key_pressed(SDL_SCANCODE_UP)) move_y -= 1.0f;
+    if (Engine::Input::is_key_pressed(SDL_SCANCODE_DOWN)) move_y += 1.0f;
+
+    move_x = std::clamp(move_x, -1.0f, 1.0f);
+    move_y = std::clamp(move_y, -1.0f, 1.0f);
+
+    glm::vec2 move{move_x * speed, move_y * speed};
 
     bool is_moving = (move.x != 0.0f || move.y != 0.0f);
     if (move.x < 0.0f) m_facing_right = false;
@@ -142,8 +150,8 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
     m_player_pos.x += move.x;
     m_player_pos.y += move.y;
 
-    // Trigger Spin / Jump on Space or Shift
-    if (keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_LSHIFT]) {
+    // Trigger Spin / Jump via mapped action or Shift key
+    if (Engine::Input::is_action_just_pressed("Jump") || Engine::Input::is_key_just_pressed(SDL_SCANCODE_LSHIFT)) {
         m_spin_timer = 0.5f;
     }
 

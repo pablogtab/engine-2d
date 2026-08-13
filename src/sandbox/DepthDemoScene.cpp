@@ -1,5 +1,6 @@
 #include "DepthDemoScene.hpp"
 #include "../renderer/Renderer2D.hpp"
+#include "../core/Input.hpp"
 #include <SDL3/SDL.h>
 #include <iostream>
 #include <cmath>
@@ -27,21 +28,49 @@ void DepthDemoScene::on_resize(int width, int height) {
 }
 
 void DepthDemoScene::on_update(float delta_time) {
-    const bool* keys = SDL_GetKeyboardState(nullptr);
     float speed = 400.0f * delta_time;
 
-    glm::vec2 cam_move{0.0f, 0.0f};
-    if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP])    cam_move.y -= speed;
-    if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN])  cam_move.y += speed;
-    if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT])  cam_move.x -= speed;
-    if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) cam_move.x += speed;
+    float move_x = Engine::Input::get_axis("Horizontal");
+    float move_y = -Engine::Input::get_axis("Vertical");
 
+    if (Engine::Input::is_key_pressed(SDL_SCANCODE_LEFT)) move_x -= 1.0f;
+    if (Engine::Input::is_key_pressed(SDL_SCANCODE_RIGHT)) move_x += 1.0f;
+    if (Engine::Input::is_key_pressed(SDL_SCANCODE_UP)) move_y -= 1.0f;
+    if (Engine::Input::is_key_pressed(SDL_SCANCODE_DOWN)) move_y += 1.0f;
+
+    move_x = std::clamp(move_x, -1.0f, 1.0f);
+    move_y = std::clamp(move_y, -1.0f, 1.0f);
+
+    glm::vec2 cam_move{move_x * speed, move_y * speed};
     m_camera.move(cam_move);
+
+    // Drag Camera with Middle or Right Mouse Button
+    if (Engine::Input::is_mouse_pressed(Engine::MouseButton::MIDDLE) || 
+        Engine::Input::is_mouse_pressed(Engine::MouseButton::RIGHT)) {
+        glm::vec2 mouse_delta = Engine::Input::get_mouse_delta();
+        float zoom = m_camera.get_zoom();
+        m_camera.move(-mouse_delta / zoom);
+    }
+
+    // Zoom Camera with Mouse Wheel
+    glm::vec2 scroll = Engine::Input::get_mouse_scroll();
+    if (scroll.y != 0.0f) {
+        float new_zoom = m_camera.get_zoom() + scroll.y * 0.15f;
+        m_camera.set_zoom(new_zoom);
+    }
 
     // Smooth automatic player animation
     m_player_anim_time += delta_time;
     m_player_pos.x = std::sin(m_player_anim_time * 2.0f) * 150.0f;
     m_player_pos.y = std::cos(m_player_anim_time * 1.5f) * 80.0f;
+
+    // Log Mouse Click Position (Screen vs 2.5D World)
+    if (Engine::Input::is_mouse_just_pressed(Engine::MouseButton::LEFT)) {
+        glm::vec2 mouse_screen = Engine::Input::get_mouse_position();
+        glm::vec2 mouse_world = Engine::Input::get_mouse_world_position(m_camera);
+        std::cout << "[INPUT DEMO] Left Click at Screen: (" << mouse_screen.x << ", " << mouse_screen.y 
+                  << ") -> 2.5D World: (" << mouse_world.x << ", " << mouse_world.y << ")" << std::endl;
+    }
 }
 
 void DepthDemoScene::on_render(Engine::Renderer2D& renderer) {
@@ -81,7 +110,17 @@ void DepthDemoScene::on_render(Engine::Renderer2D& renderer) {
         {255, 220, 100, 255}
     );
 
-    // 4. Foreground Layer (Z = +40.0f)
+    // 4. Cursor Indicator following Mouse position converted to 2.5D World (Z = 0.0f)
+    glm::vec2 mouse_world = Engine::Input::get_mouse_world_position(m_camera);
+    renderer.submit_sprite(
+        m_fg_texture.get(),
+        glm::vec3(mouse_world.x, mouse_world.y, 0.0f),
+        glm::vec2(24.0f, 24.0f),
+        0.0f,
+        {255, 80, 80, 220}
+    );
+
+    // 5. Foreground Layer (Z = +40.0f)
     for (int i = 0; i < 5; ++i) {
         float offset_x = std::sin(m_player_anim_time + i) * 200.0f;
         float offset_y = std::cos(m_player_anim_time * 0.8f + i) * 150.0f;

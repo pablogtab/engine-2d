@@ -33,6 +33,8 @@ public:
 
 private:
     void update_sizes();
+    void save_state();
+    bool load_state(int& x, int& y, int& w, int& h);
 
     SDL_Window* m_window{nullptr};
     SDL_Renderer* m_renderer{nullptr};

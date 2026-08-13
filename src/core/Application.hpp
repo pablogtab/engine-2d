@@ -36,7 +36,6 @@ private:
     AssetManager m_asset_manager;
     ThreadPool m_thread_pool;
     bool m_running{true};
-    bool m_tab_pressed_last_frame{false};
 };
 
 } // namespace Engine

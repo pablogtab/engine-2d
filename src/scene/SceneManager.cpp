@@ -1,7 +1,38 @@
 #include "SceneManager.hpp"
 #include "../core/Log.hpp"
+#include <fstream>
 
 namespace Engine {
+
+namespace {
+    const char* SCENE_STATE_PRIMARY = "build/.scene_state";
+    const char* SCENE_STATE_FALLBACK = ".scene_state";
+}
+
+void SceneManager::save_state() {
+    if (m_active_index < 0 || static_cast<size_t>(m_active_index) >= m_scenes.size()) return;
+
+    std::ofstream out(SCENE_STATE_PRIMARY);
+    if (!out.is_open()) {
+        out.open(SCENE_STATE_FALLBACK);
+    }
+    if (out.is_open()) {
+        out << m_scenes[m_active_index]->get_name() << "\n";
+    }
+}
+
+void SceneManager::restore_state() {
+    std::ifstream in(SCENE_STATE_PRIMARY);
+    if (!in.is_open()) {
+        in.open(SCENE_STATE_FALLBACK);
+    }
+    if (in.is_open()) {
+        std::string name;
+        if (std::getline(in, name) && !name.empty()) {
+            set_active_scene(name);
+        }
+    }
+}
 
 void SceneManager::add_scene(std::shared_ptr<Scene> scene) {
     if (!scene) return;
@@ -24,6 +55,8 @@ void SceneManager::set_active_scene(size_t index) {
     m_active_index = static_cast<int>(index);
     m_scenes[m_active_index]->on_attach();
     m_scenes[m_active_index]->on_resize(m_last_width, m_last_height);
+
+    save_state();
 
     ENGINE_LOG_INFO("Switched to Scene [{}/{}]: '{}'", m_active_index + 1, m_scenes.size(), m_scenes[m_active_index]->get_name());
 }

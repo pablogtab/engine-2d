@@ -18,6 +18,7 @@ public:
     void set_viewport_size(float width, float height) {
         m_viewport_size = glm::vec2(width, height);
     }
+    const glm::vec2& get_viewport_size() const { return m_viewport_size; }
 
     // Converts a 2.5D world position (X, Y, Z) to GPU screen coordinates.
     // Z < 0: Background (moves slower with parallax, scales down)

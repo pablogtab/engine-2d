@@ -17,6 +17,8 @@ public:
     void next_scene();
     void previous_scene();
 
+    void restore_state();
+
     void update(float delta_time);
     void render(Renderer2D& renderer);
     void resize(int width, int height);
@@ -26,6 +28,8 @@ public:
     int get_active_index() const { return m_active_index; }
 
 private:
+    void save_state();
+
     std::vector<std::shared_ptr<Scene>> m_scenes;
     int m_active_index{-1};
     int m_last_width{1280};
