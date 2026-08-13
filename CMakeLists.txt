@@ -15,6 +15,7 @@ file(GLOB_RECURSE SOURCES
     src/renderer/*.cpp
     src/scene/*.cpp
     src/sandbox/*.cpp
+    vendor/*.cpp
     src/main.cpp
 )
 
@@ -22,6 +23,7 @@ add_executable(Engine2D ${SOURCES})
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
 )
 
 target_link_libraries(Engine2D PRIVATE 

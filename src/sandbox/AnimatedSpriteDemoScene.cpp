@@ -73,8 +73,8 @@ Engine::Texture* AnimatedSpriteDemoScene::generate_procedural_spritesheet() {
 }
 
 void AnimatedSpriteDemoScene::on_attach() {
-    // Attempt to load real PNG asset from assets/ folder
-    Engine::Texture* file_tex = Engine::Texture::load_from_file(m_sdl_renderer, "assets/player.png");
+    // Attempt to load real PNG asset from assets/textures/ folder
+    Engine::Texture* file_tex = Engine::Texture::load_from_file(m_sdl_renderer, "assets/textures/player.png");
 
     if (file_tex) {
         m_spritesheet_texture = std::shared_ptr<Engine::Texture>(file_tex);
