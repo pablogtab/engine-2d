@@ -10,12 +10,21 @@ find_package(SDL3 REQUIRED)
 find_package(glm REQUIRED)
 
 # Source files
-file(GLOB_RECURSE SOURCES
-    src/core/*.cpp
-    src/renderer/*.cpp
-    src/scene/*.cpp
-    src/sandbox/*.cpp
-    vendor/*.cpp
+set(SOURCES
+    src/core/Application.cpp
+    src/core/AssetManager.cpp
+    src/core/Log.cpp
+    src/core/Window.cpp
+    src/renderer/Animation2D.cpp
+    src/renderer/Renderer2D.cpp
+    src/renderer/SpriteSheet.cpp
+    src/renderer/Texture.cpp
+    src/scene/Camera2D.cpp
+    src/scene/SceneManager.cpp
+    src/sandbox/AnimatedSpriteDemoScene.cpp
+    src/sandbox/DepthDemoScene.cpp
+    src/sandbox/StressTestScene.cpp
+    vendor/stb/stb_impl.cpp
     src/main.cpp
 )
 

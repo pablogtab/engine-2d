@@ -63,11 +63,14 @@ private:
 
     template <typename T>
     static void format_helper(std::ostringstream& ss, const std::string& fmt, size_t& pos, T&& val) {
-        size_t placeholder = fmt.find("{}", pos);
-        if (placeholder != std::string::npos) {
-            ss << fmt.substr(pos, placeholder - pos);
-            ss << std::forward<T>(val);
-            pos = placeholder + 2;
+        size_t open_brace = fmt.find('{', pos);
+        if (open_brace != std::string::npos) {
+            size_t close_brace = fmt.find('}', open_brace);
+            if (close_brace != std::string::npos) {
+                ss << fmt.substr(pos, open_brace - pos);
+                ss << std::forward<T>(val);
+                pos = close_brace + 1;
+            }
         }
     }
 

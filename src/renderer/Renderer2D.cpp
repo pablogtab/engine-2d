@@ -73,8 +73,8 @@ void Renderer2D::flush_batch(Texture* texture) {
 void Renderer2D::end_scene() {
     if (!m_active_camera || !m_sdl_renderer) return;
 
-    // Fast single 64-bit integer comparison sort (Z-depth, Y-sorting, Texture batching)
-    std::sort(m_sprite_queue.begin(), m_sprite_queue.end(), [](const SpriteCommand& a, const SpriteCommand& b) {
+    // Stable single 64-bit integer comparison sort (Z-depth, Y-sorting, Texture batching)
+    std::stable_sort(m_sprite_queue.begin(), m_sprite_queue.end(), [](const SpriteCommand& a, const SpriteCommand& b) {
         return a.sort_key < b.sort_key;
     });
 

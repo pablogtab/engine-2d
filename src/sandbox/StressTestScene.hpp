@@ -25,12 +25,16 @@ public:
     void on_render(Engine::Renderer2D& renderer) override;
     void on_resize(int width, int height) override;
 
+    void set_particle_count(size_t count);
+
 private:
     SDL_Renderer* m_sdl_renderer{nullptr};
     Engine::Camera2D m_camera;
     std::unique_ptr<Engine::Texture> m_particle_texture;
     std::vector<Particle> m_particles;
     float m_total_time{0.0f};
+    float m_accumulated_time{0.0f};
+    int m_accumulated_frames{0};
 };
 
 } // namespace Sandbox
