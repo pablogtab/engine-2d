@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Window.hpp"
+#include "AssetManager.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "scene/SceneManager.hpp"
 #include <memory>
@@ -15,6 +16,7 @@ public:
     void run();
 
     SceneManager& get_scene_manager() { return m_scene_manager; }
+    AssetManager& get_asset_manager() { return m_asset_manager; }
     Window& get_window() { return *m_window; }
     Renderer2D* get_renderer() { return m_renderer.get(); }
 
@@ -29,6 +31,7 @@ private:
     std::unique_ptr<Window> m_window;
     std::unique_ptr<Renderer2D> m_renderer;
     SceneManager m_scene_manager;
+    AssetManager m_asset_manager;
     bool m_running{true};
     bool m_tab_pressed_last_frame{false};
 };

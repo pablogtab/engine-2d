@@ -47,9 +47,9 @@ graph LR
 - [x] **2.2 Frustum Culling 2D (Descarte de Objetos Fuera de Pantalla)**:
   - Verificación en $O(1)$ (`Camera2D::is_visible`) para descartar sprites fuera del campo de visión antes de encolar u ordenar.
   - Ahorro probado: Descarte instantáneo de objetos fuera de pantalla sin asignaciones en RAM ni llamadas a GPU.
-- [ ] **2.3 Administrador Centralizado de Recursos (`AssetManager`)**:
+- [x] **2.3 Administrador Centralizado de Recursos (`AssetManager`)**:
   - Sistema de caché con `std::unordered_map<std::string, std::shared_ptr<Texture>>`.
-  - Evitar recargas duplicadas en disco y VRAM cuando múltiples entidades comparten la misma imagen.
+  - Reutilización inteligente de assets en VRAM para evitar cargas duplicadas de disco.
 - [ ] **2.4 Optimización de Memoria RAM & Ordenamiento**:
   - Pre-asignar memoria en la cola de renderizado (`m_sprite_queue.reserve`) para evitar fragmentación del Heap en el bucle principal.
   - Optimizar el algoritmo de ordenamiento por capas $Z/Y$.

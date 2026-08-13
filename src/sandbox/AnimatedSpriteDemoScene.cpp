@@ -77,7 +77,7 @@ void AnimatedSpriteDemoScene::on_attach() {
     Engine::Texture* file_tex = Engine::Texture::load_from_file(m_sdl_renderer, "assets/player.png");
 
     if (file_tex) {
-        m_spritesheet_texture = std::unique_ptr<Engine::Texture>(file_tex);
+        m_spritesheet_texture = std::shared_ptr<Engine::Texture>(file_tex);
         // Created a 4-col x 4-row PNG sprite sheet
         m_spritesheet = std::make_unique<Engine::SpriteSheet>(m_spritesheet_texture.get(), 4, 4);
 
@@ -91,7 +91,7 @@ void AnimatedSpriteDemoScene::on_attach() {
         m_anim_spin.set_clip(8, 15, 14.0f, true); // Rows 2 & 3
     } else {
         // Fallback to procedural generator if PNG asset is missing
-        m_spritesheet_texture = std::unique_ptr<Engine::Texture>(generate_procedural_spritesheet());
+        m_spritesheet_texture = std::shared_ptr<Engine::Texture>(generate_procedural_spritesheet());
         m_spritesheet = std::make_unique<Engine::SpriteSheet>(m_spritesheet_texture.get(), 6, 3);
 
         m_anim_idle.set_spritesheet(m_spritesheet.get());
@@ -104,10 +104,10 @@ void AnimatedSpriteDemoScene::on_attach() {
         m_anim_spin.set_clip(12, 17, 16.0f, true);
     }
 
-    m_bg_texture = std::unique_ptr<Engine::Texture>(
+    m_bg_texture = std::shared_ptr<Engine::Texture>(
         Engine::Texture::create_grid(m_sdl_renderer, 64, 40, 50, 70)
     );
-    m_tree_texture = std::unique_ptr<Engine::Texture>(
+    m_tree_texture = std::shared_ptr<Engine::Texture>(
         Engine::Texture::create_circle(m_sdl_renderer, 64, 50, 160, 90)
     );
 

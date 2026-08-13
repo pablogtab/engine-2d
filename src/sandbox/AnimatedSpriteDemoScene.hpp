@@ -26,9 +26,9 @@ private:
     SDL_Renderer* m_sdl_renderer{nullptr};
     Engine::Camera2D m_camera;
 
-    std::unique_ptr<Engine::Texture> m_spritesheet_texture;
-    std::unique_ptr<Engine::Texture> m_bg_texture;
-    std::unique_ptr<Engine::Texture> m_tree_texture;
+    std::shared_ptr<Engine::Texture> m_spritesheet_texture;
+    std::shared_ptr<Engine::Texture> m_bg_texture;
+    std::shared_ptr<Engine::Texture> m_tree_texture;
     std::unique_ptr<Engine::SpriteSheet> m_spritesheet;
 
     Engine::Animation2D m_anim_idle;
