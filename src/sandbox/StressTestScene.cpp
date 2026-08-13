@@ -72,6 +72,15 @@ void StressTestScene::on_render(Engine::Renderer2D &renderer) {
   }
 
   renderer.end_scene();
+
+  // Print telemetry every 3 seconds
+  static float timer = 0.0f;
+  timer += 0.016f;
+  if (timer >= 3.0f) {
+    timer = 0.0f;
+    std::cout << "[BATCHING] Sprites: " << renderer.get_rendered_sprite_count()
+              << " | Draw Calls: " << renderer.get_draw_call_count() << std::endl;
+  }
 }
 
 } // namespace Sandbox
