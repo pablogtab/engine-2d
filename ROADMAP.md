@@ -72,9 +72,12 @@ graph LR
 - [x] **3.1 Sistema de Entrada (Input Manager)**:
   - Crear un sistema de acciones mapeables (`"MoveLeft"`, `"Jump"`, `"Pause"`) para Teclado, Ratón y Gamepads (mandos Xbox/PlayStation).
   - Soporte para eventos de clic y coordenadas del ratón convertidas al mundo 2.5D.
-- [ ] **3.2 Sistema de Componentes (ECS o GameObject/Component)**:
-  - Integrar la biblioteca **EnTT** o implementar una jerarquía `Entity-Component-System`.
-  - Componentes fundamentales: `TransformComponent`, `SpriteComponent`, `CameraComponent`, `ScriptComponent`.
+- [x] **3.2 Sistema de Componentes (ECS & EntityManager)**:
+  - Implementar arquitectura ligera `Entity-Component-System` a la medida del motor en C++20.
+  - Componentes fundamentales: `TransformComponent` (2.5D), `SpriteComponent`, `BehaviorComponent`, `TagComponent`.
+- [x] **3.3 Sistema de Eventos Desacoplado (`EventDispatcher`)**:
+  - Bus de eventos fuertemente tipado para comunicación entre sistemas (`CollisionEvent`, `EntityDestroyedEvent`, eventos personalizados).
+  - Emisión síncrona inmediata (`publish`) y diferida al final del fotograma (`queue` / `dispatch_queued`).
 
 ---
 

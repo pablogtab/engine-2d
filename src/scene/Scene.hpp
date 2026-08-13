@@ -1,7 +1,7 @@
 #pragma once
 
-#include <string>
-#include <utility>
+#include "../ecs/EntityManager.hpp"
+#include "../events/EventDispatcher.hpp"
 
 namespace Engine {
 
@@ -19,8 +19,14 @@ public:
 
     const std::string& get_name() const { return m_name; }
 
+    EntityManager& get_entity_manager() { return m_entity_manager; }
+    EventDispatcher& get_event_dispatcher() { return m_event_dispatcher; }
+
 protected:
     explicit Scene(std::string name) : m_name(std::move(name)) {}
+
+    EntityManager m_entity_manager;
+    EventDispatcher m_event_dispatcher;
 
 private:
     std::string m_name;

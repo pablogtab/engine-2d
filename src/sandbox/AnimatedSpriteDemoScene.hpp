@@ -39,6 +39,9 @@ private:
     glm::vec3 m_player_pos{0.0f, 0.0f, 0.0f};
     bool m_facing_right{true};
     float m_spin_timer{0.0f};
+    Engine::EntityID m_player_entity{0};
+    Engine::EntityID m_child_orb{0};
+    float m_orb_angle{0.0f};
 };
 
 } // namespace Sandbox
