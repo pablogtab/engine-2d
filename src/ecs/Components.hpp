@@ -6,9 +6,33 @@
 #include <string>
 #include <functional>
 
+#include <bitset>
+
 namespace Engine {
 
 using EntityID = uint32_t;
+using ComponentTypeID = uint8_t;
+static constexpr size_t MAX_COMPONENTS = 64;
+using ComponentMask = std::bitset<MAX_COMPONENTS>;
+
+// Helper function to assign a unique 0..63 ID per Component type
+inline ComponentTypeID get_next_type_id() {
+    static ComponentTypeID last_id = 0;
+    return last_id++;
+}
+
+template<typename T>
+inline ComponentTypeID get_component_type_id() {
+    static ComponentTypeID type_id = get_next_type_id();
+    return type_id;
+}
+
+// Exclusion tag helper for ECS queries: for_each(exclude<Tag1, Tag2>, func)
+template<typename... Ts>
+struct exclude_t {};
+
+template<typename... Ts>
+inline constexpr exclude_t<Ts...> exclude{};
 
 // Transform Component for 2.5D positioning, depth scaling, and rotation
 struct TransformComponent {

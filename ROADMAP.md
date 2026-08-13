@@ -72,9 +72,13 @@ graph LR
 - [x] **3.1 Sistema de Entrada (Input Manager)**:
   - Crear un sistema de acciones mapeables (`"MoveLeft"`, `"Jump"`, `"Pause"`) para Teclado, Ratón y Gamepads (mandos Xbox/PlayStation).
   - Soporte para eventos de clic y coordenadas del ratón convertidas al mundo 2.5D.
-- [x] **3.2 Sistema de Componentes (ECS & EntityManager)**:
+- [x] **3.2 Sistema de Componentes (ECS & EntityManager — AAA World-Class Standard)**:
   - Implementar arquitectura ligera `Entity-Component-System` a la medida del motor en C++20.
-  - Componentes fundamentales: `TransformComponent` (2.5D), `SpriteComponent`, `BehaviorComponent`, `TagComponent`.
+  - Componentes fundamentales: `TransformComponent` (2.5D), `SpriteComponent`, `BehaviorComponent`, `TagComponent`, `HierarchyComponent`.
+  - **Firmas por Máscara de Bits (`ComponentMask` / `std::bitset<64>`)**: Coincidencia de componentes en 1 instrucción CPU `AND`.
+  - **Filtros de Exclusión (`exclude<T1, T2...>`)**: Vistas avanzadas que ignoran entidades con tags específicos.
+  - **Hooks de Ciclo de Vida (`on_construct`, `on_destroy`)**: Callbacks automáticos al adjuntar/remover componentes.
+  - **APIs de Alta Expresividad**: `find_by_tag`, `clone_entity`, `destroy_matching`, y desempaquetado de tuplas C++20 (`get_components`).
 - [x] **3.3 Sistema de Eventos Desacoplado (`EventDispatcher`)**:
   - Bus de eventos fuertemente tipado para comunicación entre sistemas (`CollisionEvent`, `EntityDestroyedEvent`, eventos personalizados).
   - Emisión síncrona inmediata (`publish`) y diferida al final del fotograma (`queue` / `dispatch_queued`).

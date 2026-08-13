@@ -125,14 +125,19 @@ void AnimatedSpriteDemoScene::on_attach() {
 
   m_current_anim = &m_anim_idle;
 
-  // 1. Subscribe Event Listener
+  // 1. Register ECS Component Lifecycle Callbacks
+  m_entity_manager.on_construct<Engine::TagComponent>([](Engine::EntityID id, Engine::TagComponent& tag) {
+      ENGINE_LOG_INFO("[ECS LIFECYCLE HOOK] Component constructed on Entity #{}: Tag='{}'", id, tag.tag);
+  });
+
+  // 2. Subscribe Event Listener
   m_event_dispatcher.subscribe<Engine::CustomLogEvent>(
       [](const Engine::CustomLogEvent &ev) {
         ENGINE_LOG_INFO("[EVENT BUS] Subscriber received event: '{}'",
                         ev.message);
       });
 
-  // 2. Instantiate Environment Trees as ECS Entities
+  // 3. Instantiate Environment Trees as ECS Entities
   Engine::EntityID tree1 = m_entity_manager.create_entity();
   m_entity_manager.add_component<Engine::TagComponent>(
       tree1, Engine::TagComponent{"Tree_Left"});
@@ -151,14 +156,14 @@ void AnimatedSpriteDemoScene::on_attach() {
       tree2,
       Engine::SpriteComponent{m_tree_texture.get(), glm::vec2(110.0f, 130.0f)});
 
-  // 3. Create Player Entity in ECS
+  // 4. Create Player Entity in ECS
   m_player_entity = m_entity_manager.create_entity();
   m_entity_manager.add_component<Engine::TagComponent>(
       m_player_entity, Engine::TagComponent{"HeroPlayer"});
   m_entity_manager.add_component<Engine::TransformComponent>(
       m_player_entity, Engine::TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
 
-  // 4. Create Child Pet/Orb Entity attached to Player (Parent-Child Hierarchy!)
+  // 5. Create Child Pet/Orb Entity attached to Player (Parent-Child Hierarchy!)
   m_child_orb = m_entity_manager.create_entity();
   m_entity_manager.add_component<Engine::TagComponent>(
       m_child_orb, Engine::TagComponent{"PlayerPetOrb"});
@@ -178,8 +183,14 @@ void AnimatedSpriteDemoScene::on_attach() {
 
   std::cout << "\n======================================================="
             << std::endl;
-  std::cout << " [ANIMATED SPRITE & ECS DEMO ACTIVE]" << std::endl;
+  std::cout << " [ANIMATED SPRITE & WORLD-CLASS ECS DEMO ACTIVE]" << std::endl;
   std::cout << " - WASD / Arrow Keys : Move Character in 2.5D Space"
+            << std::endl;
+  std::cout << " - RIGHT CLICK       : Spawn New ECS Entity in 2.5D Space"
+            << std::endl;
+  std::cout << " - C KEY             : Clone Orb Entity via clone_entity API"
+            << std::endl;
+  std::cout << " - X KEY             : Bulk Purge Spawned Entities via destroy_matching API"
             << std::endl;
   std::cout << " - SPACE / SHIFT    : Trigger Spin & Dispatch ECS Event"
             << std::endl;
@@ -250,6 +261,26 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
         "Dynamically spawned ECS Entity #" + std::to_string(new_tree) +
         " at World (" + std::to_string(static_cast<int>(mouse_world.x)) + ", " +
         std::to_string(static_cast<int>(mouse_world.y)) + ")"});
+  }
+
+  // C Key: Clone Orb Entity via Ergonomic clone_entity API
+  if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_C)) {
+    Engine::EntityID cloned_orb = m_entity_manager.clone_entity(m_child_orb);
+    if (cloned_orb != 0) {
+      auto& orb_trans = m_entity_manager.get_component<Engine::TransformComponent>(cloned_orb);
+      orb_trans.position += glm::vec3(20.0f, -20.0f, 0.0f);
+      ENGINE_LOG_INFO("[ECS API] Cloned entity #{} from template #{}", cloned_orb, m_child_orb);
+    }
+  }
+
+  // X Key: Bulk Purge Spawned Trees & Cloned Orbs via destroy_matching API
+  if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_X)) {
+    size_t count_before = m_entity_manager.get_living_entity_count();
+    m_entity_manager.destroy_matching<Engine::TagComponent>([](const Engine::TagComponent& tag) {
+      return tag.tag.starts_with("SpawnedTree_") || tag.tag.starts_with("PlayerPetOrb");
+    });
+    size_t count_after = m_entity_manager.get_living_entity_count();
+    ENGINE_LOG_INFO("[ECS API] Purged {} spawned/cloned entities! Living entities: {}", count_before - count_after, count_after);
   }
 
   if (m_spin_timer > 0.0f) {

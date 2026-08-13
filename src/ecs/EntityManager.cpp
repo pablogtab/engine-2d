@@ -28,8 +28,42 @@ void EntityManager::destroy_entity(EntityID entity) {
         }
     }
 
+    m_entity_masks.erase(entity);
     m_living_entities.erase(it);
     m_free_entities.push_back(entity);
+}
+
+EntityID EntityManager::clone_entity(EntityID src) {
+    if (!is_alive(src)) return 0;
+
+    EntityID dst = create_entity();
+    for (auto& pair : m_component_arrays) {
+        if (pair.second) {
+            pair.second->clone_data(src, dst);
+        }
+    }
+    m_entity_masks[dst] = m_entity_masks[src];
+    return dst;
+}
+
+EntityID EntityManager::find_by_tag(const std::string& tag) {
+    EntityID result = 0;
+    for_each<TagComponent>([&result, &tag](EntityID id, const TagComponent& comp) {
+        if (result == 0 && comp.tag == tag) {
+            result = id;
+        }
+    });
+    return result;
+}
+
+std::vector<EntityID> EntityManager::find_all_by_tag(const std::string& tag) {
+    std::vector<EntityID> result;
+    for_each<TagComponent>([&result, &tag](EntityID id, const TagComponent& comp) {
+        if (comp.tag == tag) {
+            result.push_back(id);
+        }
+    });
+    return result;
 }
 
 bool EntityManager::is_alive(EntityID entity) const {
@@ -85,6 +119,7 @@ void EntityManager::clear() {
     m_component_arrays.clear();
     m_living_entities.clear();
     m_free_entities.clear();
+    m_entity_masks.clear();
     m_next_entity_id = 1;
 }
 

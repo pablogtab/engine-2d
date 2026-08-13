@@ -3,6 +3,7 @@
 #include "IComponentArray.hpp"
 #include <vector>
 #include <unordered_map>
+#include <functional>
 #include <cassert>
 #include <stdexcept>
 
@@ -11,11 +12,17 @@ namespace Engine {
 template<typename T>
 class ComponentArray : public IComponentArray {
 public:
+    using ComponentCallback = std::function<void(EntityID, T&)>;
+
+    void set_on_construct(ComponentCallback cb) { on_construct_cb = cb; }
+    void set_on_destroy(ComponentCallback cb) { on_destroy_cb = cb; }
+
     void insert_data(EntityID entity, T component) {
         if (m_entity_to_index_map.find(entity) != m_entity_to_index_map.end()) {
             // Replace existing component data
             size_t index = m_entity_to_index_map[entity];
             m_component_array[index] = component;
+            if (on_construct_cb) on_construct_cb(entity, m_component_array[index]);
             return;
         }
 
@@ -23,6 +30,8 @@ public:
         m_entity_to_index_map[entity] = new_index;
         m_index_to_entity_map[new_index] = entity;
         m_component_array.push_back(component);
+
+        if (on_construct_cb) on_construct_cb(entity, m_component_array[new_index]);
     }
 
     void remove_data(EntityID entity) {
@@ -30,6 +39,8 @@ public:
         if (it == m_entity_to_index_map.end()) return;
 
         size_t removed_index = it->second;
+        if (on_destroy_cb) on_destroy_cb(entity, m_component_array[removed_index]);
+
         size_t last_index = m_component_array.size() - 1;
 
         // Move last component into removed element's place (Swap-and-Pop O(1))
@@ -72,6 +83,12 @@ public:
         }
     }
 
+    void clone_data(EntityID src, EntityID dst) override {
+        if (has_data(src)) {
+            insert_data(dst, get_data(src));
+        }
+    }
+
     void clear() {
         m_component_array.clear();
         m_entity_to_index_map.clear();
@@ -84,6 +101,8 @@ private:
     std::vector<T> m_component_array;
     std::unordered_map<EntityID, size_t> m_entity_to_index_map;
     std::unordered_map<size_t, EntityID> m_index_to_entity_map;
+    ComponentCallback on_construct_cb;
+    ComponentCallback on_destroy_cb;
 };
 
 } // namespace Engine
