@@ -1,6 +1,7 @@
 #include "Application.hpp"
 #include "Log.hpp"
 #include "Input.hpp"
+#include "Time.hpp"
 
 namespace Engine {
 
@@ -36,13 +37,12 @@ void Application::run() {
 
     while (m_running && !m_window->is_should_close()) {
         uint64_t current_counter = SDL_GetPerformanceCounter();
-        float delta_time = static_cast<float>(current_counter - last_counter) / static_cast<float>(frequency);
+        float raw_delta_time = static_cast<float>(current_counter - last_counter) / static_cast<float>(frequency);
         last_counter = current_counter;
 
-        // Cap delta_time to a reasonable maximum (e.g. 0.1s)
-        if (delta_time > 0.1f) {
-            delta_time = 0.1f;
-        }
+        // 0. Update global engine time clock (handles time_scale, real_dt, and clamping)
+        Time::update(raw_delta_time);
+        float dt = Time::get_delta_time();
 
         // 1. Reset frame input delta states, then process window & input events
         Input::update();
@@ -53,9 +53,9 @@ void Application::run() {
             m_scene_manager.next_scene();
         }
 
-        // 2. Update Application logic & active Scene
-        on_update(delta_time);
-        m_scene_manager.update(delta_time);
+        // 2. Update Application logic & active Scene (scaled delta time)
+        on_update(dt);
+        m_scene_manager.update(dt);
 
         // 3. Render frame & active Scene
         m_window->clear(24, 28, 36, 255);

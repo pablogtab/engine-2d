@@ -71,6 +71,43 @@ void Renderer2D::submit_sprite(
     m_sprite_queue.push_back(cmd);
 }
 
+void Renderer2D::submit_screen_sprite(
+    Texture* texture,
+    const glm::vec2& screen_position,
+    const glm::vec2& size,
+    float rotation,
+    SDL_Color color,
+    const SDL_FRect* src_rect,
+    const glm::vec2& pivot,
+    float z_layer,
+    bool flip_x,
+    bool flip_y
+) {
+    if (!texture) return;
+
+    SpriteCommand cmd;
+    cmd.texture = texture;
+    cmd.position = glm::vec3(screen_position.x, screen_position.y, z_layer);
+    cmd.size = size;
+    cmd.rotation = rotation;
+    cmd.pivot = pivot;
+    cmd.color = color;
+    if (src_rect) {
+        cmd.src_rect = *src_rect;
+        cmd.has_src_rect = true;
+    }
+    cmd.flip_x = flip_x;
+    cmd.flip_y = flip_y;
+    cmd.is_screen_space = true;
+
+    // Screen-space sort key: Bit 63 is 1 to guarantee rendering on top of all world geometry!
+    uint32_t z_key = static_cast<uint32_t>(z_layer + 1000.0f);
+    uint32_t tex_key = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(texture) & 0xFFFFFFFF);
+    cmd.sort_key = (1ULL << 63) | (static_cast<uint64_t>(z_key) << 32) | tex_key;
+
+    m_sprite_queue.push_back(cmd);
+}
+
 void Renderer2D::submit_sprites_batch(const SpriteCommand* commands, size_t count) {
     if (!commands || count == 0) return;
 
@@ -162,11 +199,21 @@ void Renderer2D::end_scene() {
     auto process_sprite = [this](size_t idx) {
         const auto& cmd = m_sprite_queue[idx];
 
-        // Calculate GPU screen position based on camera parallax and Z-depth
-        glm::vec2 screen_pos = m_active_camera->world_to_screen(cmd.position);
-        float z_scale = m_active_camera->get_z_scale(cmd.position.z) * m_active_camera->get_effective_zoom();
+        glm::vec2 screen_pos;
+        glm::vec2 scaled_size;
 
-        glm::vec2 scaled_size = cmd.size * z_scale;
+        if (cmd.is_screen_space) {
+            // Direct screen pixel coordinates scaled by DPI scale
+            float dpi = m_active_camera ? m_active_camera->get_dpi_scale() : 1.0f;
+            screen_pos = glm::vec2(cmd.position.x, cmd.position.y) * dpi;
+            scaled_size = cmd.size * dpi;
+        } else {
+            // Calculate GPU screen position based on camera parallax and Z-depth
+            screen_pos = m_active_camera->world_to_screen(cmd.position);
+            float z_scale = m_active_camera->get_z_scale(cmd.position.z) * m_active_camera->get_effective_zoom();
+            scaled_size = cmd.size * z_scale;
+        }
+
         float min_x = -cmd.pivot.x * scaled_size.x;
         float max_x = (1.0f - cmd.pivot.x) * scaled_size.x;
         float min_y = -cmd.pivot.y * scaled_size.y;

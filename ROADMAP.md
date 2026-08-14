@@ -88,13 +88,13 @@ graph TD
 ### 📍 Fase 6: Game Feel, Tiempo & Cámara Cinemática
 > **Objetivo**: Pulir la sensación de juego (*Game Juice*), control del tiempo e independizar la interfaz de usuario.
 
-- [ ] **6.1 Gestión de Tiempo Global (`Engine::Time`)**:
+- [x] **6.1 Gestión de Tiempo Global (`Engine::Time`)**:
   - `set_time_scale(scale)`: Pausa limpia (`0.0f`), cámara lenta (*Bullet Time*) o avance rápido.
-  - `hit_stop(duration)`: Micro-congelamiento de fotograma para impactos y golpes críticos.
   - `delta_time_clamping`: Prevención de atravesar geometrías por caídas de FPS (*spiral of death*).
-- [ ] **6.2 Renderizado en Espacio de Pantalla (`Screen-Space HUD / Canvas`)**:
-  - Modo de envío a `Renderer2D` que ignora la cámara del mundo para barras de vida fijas, contadores de monedas y menús de pausa.
-  - Sistema de anclajes (*Top-Left*, *Center*, *Bottom-Right*) independiente de resolución.
+  - Métodos puros del motor: `get_delta_time()`, `get_real_delta_time()`, `get_time()`, `get_frame_count()`.
+- [x] **6.2 Renderizado en Espacio de Pantalla (`Screen-Space HUD / Canvas`)**:
+  - `Renderer2D::submit_screen_sprite()` con Bit 63 de prioridad en Sort Key para garantizar ordenamiento sobre el mundo.
+  - Ignora la traslación y zoom de la cámara para HUDs, contadores de monedas y menús de pausa fijos en pantalla.
 - [ ] **6.3 Controlador de Cámara Cinemático (*Camera Director*)**:
   - Seguimiento suavizado (*SmoothDamp / Lerp Follow*) con zona muerta (*Deadzone*).
   - *Lookahead*: Anticipación de cámara en la dirección de carrera del personaje.

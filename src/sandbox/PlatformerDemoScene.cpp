@@ -1,6 +1,7 @@
 #include "PlatformerDemoScene.hpp"
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
+#include "../core/Time.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../ecs/RenderSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
@@ -701,6 +702,13 @@ void PlatformerDemoScene::on_update(float delta_time) {
         return;
     }
 
+    // Bullet-Time / Slow Motion (Hold Left Shift or Q for 0.20x time scale)
+    if (Engine::Input::is_key_pressed(SDL_SCANCODE_LSHIFT) || Engine::Input::is_key_pressed(SDL_SCANCODE_Q)) {
+        Engine::Time::set_time_scale(0.20f);
+    } else {
+        Engine::Time::set_time_scale(1.0f);
+    }
+
     // Post-Processing Presets (Keys 1 - 6)
     if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_1)) {
         m_base_profile = Engine::PostProcessProfile::PresetDefault();
@@ -1182,6 +1190,63 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
 
     // 4. Render Active 2D Particles (Sparks, Smoke, Dust, Starbursts, Campfire Embers)
     m_particle_system.render(renderer);
+
+    // 5. Render Screen-Space HUD / Canvas (Fixed in Screen Pixels, Independent of Camera)
+    {
+        // A. Glassmorphism HUD Pill Backdrop (Top-Left corner)
+        renderer.submit_screen_sprite(
+            m_player_texture.get(),
+            glm::vec2(24.0f, 24.0f),
+            glm::vec2(150.0f, 42.0f),
+            0.0f,
+            SDL_Color{14, 18, 28, 220},
+            nullptr,
+            glm::vec2(0.0f, 0.0f),
+            0.0f // HUD base Z
+        );
+
+        // B. Coin Icon (Radiant Gold)
+        renderer.submit_screen_sprite(
+            m_coin_texture.get(),
+            glm::vec2(32.0f, 31.0f),
+            glm::vec2(28.0f, 28.0f),
+            0.0f,
+            SDL_Color{255, 215, 0, 255},
+            nullptr,
+            glm::vec2(0.0f, 0.0f),
+            1.0f // HUD content Z
+        );
+
+        // C. Coin Collection Pip Dots (Gold when collected, Gray when pending)
+        for (int i = 0; i < m_total_coins; ++i) {
+            bool collected = (i < m_score);
+            SDL_Color pip_color = collected ? SDL_Color{255, 225, 40, 255} : SDL_Color{60, 70, 90, 180};
+            renderer.submit_screen_sprite(
+                m_circle_debug_texture.get(),
+                glm::vec2(72.0f + static_cast<float>(i) * 16.0f, 45.0f),
+                glm::vec2(10.0f, 10.0f),
+                0.0f,
+                pip_color,
+                nullptr,
+                glm::vec2(0.5f, 0.5f),
+                2.0f
+            );
+        }
+
+        // D. Bullet Time Active Indicator (Glowing Cyan Pill)
+        if (Engine::Time::get_time_scale() < 0.9f) {
+            renderer.submit_screen_sprite(
+                m_player_texture.get(),
+                glm::vec2(24.0f, 72.0f),
+                glm::vec2(150.0f, 22.0f),
+                0.0f,
+                SDL_Color{0, 200, 255, 220},
+                nullptr,
+                glm::vec2(0.0f, 0.0f),
+                1.0f
+            );
+        }
+    }
 
     renderer.end_scene();
 }

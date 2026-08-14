@@ -23,6 +23,7 @@ struct SpriteCommand {
     bool has_src_rect{false};
     bool flip_x{false};
     bool flip_y{false};
+    bool is_screen_space{false};
 };
 
 class Renderer2D {
@@ -47,6 +48,18 @@ public:
         const SDL_FRect* src_rect = nullptr,
         const glm::vec2& pivot = {0.5f, 0.5f},
         bool is_overlay = false,
+        bool flip_x = false,
+        bool flip_y = false
+    );
+    void submit_screen_sprite(
+        Texture* texture,
+        const glm::vec2& screen_position,
+        const glm::vec2& size,
+        float rotation = 0.0f,
+        SDL_Color color = {255, 255, 255, 255},
+        const SDL_FRect* src_rect = nullptr,
+        const glm::vec2& pivot = {0.0f, 0.0f},
+        float z_layer = 0.0f,
         bool flip_x = false,
         bool flip_y = false
     );
