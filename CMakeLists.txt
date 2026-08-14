@@ -18,6 +18,7 @@ set(SOURCES
     src/core/ThreadPool.cpp
     src/core/Window.cpp
     src/ecs/EntityManager.cpp
+    src/ecs/PhysicsSystem.cpp
     src/renderer/Animation2D.cpp
     src/renderer/Renderer2D.cpp
     src/renderer/SpriteSheet.cpp
