@@ -80,8 +80,8 @@ graph TD
 - [x] **5.4 Efectos de Shaders de Materiales / Sprites**:
   - *Outline & Glow* (resaltado de siluetas de objetos seleccionables o coleccionables mediante `SpriteComponent`).
   - *Hit Flash* / *Screen Flash* (destello reactivo ante daño o detonaciones).
-- [ ] **5.5 Iluminación 2D Dinámica Básica**:
-  - Luces puntuales 2D (*Point Lights*) con radio, color, intensidad y mezcla multiplicativa con mapa de sombras/ambiente.
+- [x] **5.5 Iluminación 2D Dinámica Básica**:
+  - Luces puntuales 2D (*Point Lights*) con radio, color, intensidad y mezcla multiplicativa con mapa de sombras/ambiente (demostrado en la hoguera con titilación sinusoidal).
 
 ---
 
@@ -99,7 +99,7 @@ graph TD
   - Seguimiento suavizado (*SmoothDamp / Lerp Follow*) con zona muerta (*Deadzone*).
   - *Lookahead*: Anticipación de cámara en la dirección de carrera del personaje.
   - *Camera Bounds*: Restricción de límites para no mostrar zonas vacías fuera del nivel.
-  - *Trauma Screen Shake*: Decaimiento no lineal de vibración de cámara.
+  - *Trauma Screen Shake*: Decaimiento no lineal de vibración de cámara (impactos, explosiones).
 
 ---
 
@@ -109,8 +109,9 @@ graph TD
 - [ ] **7.1 Máquina de Estados Finitos Genérica (`StateMachine<T>`)**:
   - Patrón de estados fuertemente tipado con métodos `enter()`, `update()`, `exit()`.
   - Eliminación de flags booleanos masivos en personajes.
-- [ ] **7.2 Máquina de Estados de Animación**:
-  - Conexión automática entre el estado lógico del personaje (*Idle, Run, Jump, Fall, WallSlide, Grapple*) y sus clips en `Animation2D`.
+- [x] **7.2 Máquina de Estados de Animación**:
+  - Conexión automática entre el estado lógico del personaje (*Idle, Run, Jump, Fall, Grapple*) y sus clips en `Animation2D`.
+  - Inversión horizontal en GPU (*Flip X*) y anclaje de spritesheet por celda.
 
 ---
 
