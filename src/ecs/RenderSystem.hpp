@@ -110,6 +110,44 @@ public:
                             glm::vec2(0.5f, 0.5f),
                             true /* is_overlay = true to force render on top! */
                         );
+                    } else if (shape.type == ColliderShapeType::Polygon) {
+                        size_t num_verts = shape.vertices.size();
+                        if (num_verts >= 2) {
+                            float rad = glm::radians(transform.world_rotation);
+                            float cos_r = std::cos(rad);
+                            float sin_r = std::sin(rad);
+
+                            auto transform_pt = [&](const glm::vec2& v) -> glm::vec2 {
+                                glm::vec2 scaled = (v + shape.offset) * transform.world_scale;
+                                glm::vec2 rotated(scaled.x * cos_r - scaled.y * sin_r,
+                                                  scaled.x * sin_r + scaled.y * cos_r);
+                                return glm::vec2(transform.world_position.x + rotated.x,
+                                                 transform.world_position.y + rotated.y);
+                            };
+
+                            for (size_t i = 0; i < num_verts; ++i) {
+                                glm::vec2 pA = transform_pt(shape.vertices[i]);
+                                glm::vec2 pB = transform_pt(shape.vertices[(i + 1) % num_verts]);
+
+                                glm::vec2 delta = pB - pA;
+                                float length = glm::length(delta);
+                                if (length > 0.001f) {
+                                    float angle = glm::degrees(std::atan2(delta.y, delta.x));
+                                    glm::vec2 mid = (pA + pB) * 0.5f;
+
+                                    renderer.submit_sprite(
+                                        nullptr,
+                                        glm::vec3(mid, transform.world_position.z),
+                                        glm::vec2(length, 3.0f),
+                                        angle,
+                                        col,
+                                        nullptr,
+                                        glm::vec2(0.5f, 0.5f),
+                                        true
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }

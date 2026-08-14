@@ -43,11 +43,13 @@ private:
     std::unique_ptr<Engine::Texture> m_coin_texture;
     std::unique_ptr<Engine::Texture> m_launch_pad_texture;
     std::unique_ptr<Engine::Texture> m_elevator_texture;
+    std::unique_ptr<Engine::Texture> m_slope_texture;
     std::unique_ptr<Engine::Texture> m_wheel_texture;
     std::unique_ptr<Engine::Texture> m_circle_debug_texture;
 
     void setup_level();
     void create_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color);
+    void create_slope(const glm::vec2& position, const glm::vec2& size, bool slope_up_right = true);
     void create_elevator(const glm::vec2& position, const glm::vec2& size);
     void create_coin(const glm::vec2& position);
     void create_launch_pad(const glm::vec2& position);

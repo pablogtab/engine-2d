@@ -127,17 +127,15 @@ namespace CollisionCategory {
     constexpr uint16_t ALL     = 0xFFFF; // Collides with everything
 }
 
-// Physics Collider Shapes (Box, Circle, Triangle)
-enum class ColliderShapeType { Box, Circle, Triangle };
+// Physics Collider Shapes (Box, Circle, Polygon / Slope)
+enum class ColliderShapeType { Box, Circle, Polygon };
 
 struct ColliderShape {
     ColliderShapeType type{ColliderShapeType::Box};
     glm::vec2 offset{0.0f, 0.0f};  // Offset relative to entity transform center
     glm::vec2 size{32.0f, 32.0f};   // Dimensions for Box shape
     float radius{16.0f};            // Radius for Circle shape
-    glm::vec2 p1{0.0f, 0.0f};       // Vertex 1 for Triangle shape
-    glm::vec2 p2{0.0f, 0.0f};       // Vertex 2 for Triangle shape
-    glm::vec2 p3{0.0f, 0.0f};       // Vertex 3 for Triangle shape
+    std::vector<glm::vec2> vertices; // Local vertex array for Polygon / Slope shapes (up to 8 in Box2D)
     bool is_trigger{false};         // True = Trigger sensor (no solid physical response)
     uint16_t category_bits{CollisionCategory::DEFAULT}; // Layer this shape belongs to
     uint16_t mask_bits{CollisionCategory::ALL};         // Mask of layers this shape can collide with
@@ -162,26 +160,46 @@ struct ColliderComponent {
         return comp;
     }
 
-    static ColliderComponent Triangle(const glm::vec2& p1, const glm::vec2& p2, const glm::vec2& p3, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
+    static ColliderComponent Polygon(const std::vector<glm::vec2>& vertices, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
         ColliderComponent comp;
-        comp.add_triangle(p1, p2, p3, is_trigger, category, mask);
+        comp.add_polygon(vertices, offset, is_trigger, category, mask);
+        return comp;
+    }
+
+    static ColliderComponent Slope(float width, float height, bool slope_up_right = true, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
+        ColliderComponent comp;
+        comp.add_slope(width, height, slope_up_right, offset, is_trigger, category, mask);
         return comp;
     }
 
     // Chainable composite shape builders
     ColliderComponent& add_box(const glm::vec2& size, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
-        shapes.push_back({ColliderShapeType::Box, offset, size, 0.0f, {0,0}, {0,0}, {0,0}, is_trigger, category, mask});
+        shapes.push_back({ColliderShapeType::Box, offset, size, 0.0f, {}, is_trigger, category, mask});
         return *this;
     }
 
     ColliderComponent& add_circle(float radius, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
-        shapes.push_back({ColliderShapeType::Circle, offset, {0,0}, radius, {0,0}, {0,0}, {0,0}, is_trigger, category, mask});
+        shapes.push_back({ColliderShapeType::Circle, offset, {0,0}, radius, {}, is_trigger, category, mask});
         return *this;
     }
 
-    ColliderComponent& add_triangle(const glm::vec2& p1, const glm::vec2& p2, const glm::vec2& p3, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
-        shapes.push_back({ColliderShapeType::Triangle, {0,0}, {0,0}, 0.0f, p1, p2, p3, is_trigger, category, mask});
+    ColliderComponent& add_polygon(const std::vector<glm::vec2>& vertices, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
+        shapes.push_back({ColliderShapeType::Polygon, offset, {0,0}, 0.0f, vertices, is_trigger, category, mask});
         return *this;
+    }
+
+    ColliderComponent& add_slope(float width, float height, bool slope_up_right = true, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
+        float hw = width * 0.5f;
+        float hh = height * 0.5f;
+        std::vector<glm::vec2> verts;
+        if (slope_up_right) {
+            // Right-triangle ramping UP from left to right: (-hw, -hh), (hw, -hh), (hw, hh)
+            verts = {{-hw, -hh}, {hw, -hh}, {hw, hh}};
+        } else {
+            // Right-triangle ramping UP from right to left: (-hw, -hh), (hw, -hh), (-hw, hh)
+            verts = {{-hw, -hh}, {hw, -hh}, {-hw, hh}};
+        }
+        return add_polygon(verts, offset, is_trigger, category, mask);
     }
 };
 

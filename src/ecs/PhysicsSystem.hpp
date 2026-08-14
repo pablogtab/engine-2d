@@ -225,6 +225,19 @@ public:
                     0.0f);
                 fixtureDef.shape = &box;
                 body->CreateFixture(&fixtureDef);
+              } else if (shape.type == ColliderShapeType::Polygon) {
+                b2PolygonShape polygon;
+                std::vector<b2Vec2> b2_verts;
+                b2_verts.reserve(shape.vertices.size());
+                for (const auto &v : shape.vertices) {
+                  b2_verts.emplace_back((v.x * transform.world_scale.x + shape.offset.x) * k_p2m,
+                                        (v.y * transform.world_scale.y + shape.offset.y) * k_p2m);
+                }
+                if (b2_verts.size() >= 3) {
+                  polygon.Set(b2_verts.data(), static_cast<int32>(b2_verts.size()));
+                  fixtureDef.shape = &polygon;
+                  body->CreateFixture(&fixtureDef);
+                }
               }
             }
 

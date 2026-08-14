@@ -54,6 +54,35 @@ void PlatformerDemoScene::on_attach() {
         Engine::Texture::create_solid(m_sdl_renderer, 100, 20, 0, 220, 255, 255)
     );
 
+    // Procedural right-triangle slope texture (128x128 with grass top trim and anti-aliasing)
+    {
+        int w = 128, h = 128;
+        std::vector<uint32_t> pixels(w * h, 0);
+        uint32_t body_color  = (140 << 24) | (100 << 16) | (70 << 8)  | 255; // Wooden earth
+        uint32_t grass_color = (80 << 24)  | (140 << 16) | (60 << 8)  | 255; // Grass green matching ground floor
+
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                // Diagonal hypotenuse from (0, h) [bottom-left] to (w, 0) [top-right]
+                float target_y = (1.0f - static_cast<float>(x) / static_cast<float>(w)) * static_cast<float>(h);
+                float dist_below = static_cast<float>(y) - target_y;
+
+                if (dist_below >= 0.0f) {
+                    if (dist_below < 6.0f) {
+                        pixels[y * w + x] = grass_color; // Grass trim along the slope
+                    } else {
+                        pixels[y * w + x] = body_color;
+                    }
+                } else if (dist_below > -1.0f) {
+                    float alpha_factor = 1.0f + dist_below;
+                    uint8_t a = static_cast<uint8_t>(255.0f * alpha_factor);
+                    pixels[y * w + x] = (80 << 24) | (140 << 16) | (60 << 8) | a;
+                }
+            }
+        }
+        m_slope_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, w, h, pixels.data());
+    }
+
     // Procedural wheel texture with spokes generated locally for the sandbox demo
     {
         int radius = 24;
@@ -205,16 +234,33 @@ void PlatformerDemoScene::setup_level() {
         m_player_id, Engine::ColliderComponent::Box({44.0f, 56.0f}, {0.0f, 0.0f}, false, Layer::PLAYER, player_mask)
     );
 
-    // 6. Create Rolling Physical Wheel Entity (Free 2D Rotation: lock_rotation = false)
+    // 6. Create Rolling Physical Wheel Entity on Raised Platform (Rolls down slope!)
     Engine::EntityID wheel_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(wheel_id, Engine::TagComponent{"RollingWheel"});
-    m_entity_manager.add_component<Engine::TransformComponent>(wheel_id, Engine::TransformComponent{glm::vec3(0.0f, 100.0f, 0.0f)});
+    m_entity_manager.add_component<Engine::TransformComponent>(wheel_id, Engine::TransformComponent{glm::vec3(420.0f, -80.0f, 0.0f)});
     m_entity_manager.add_component<Engine::SpriteComponent>(wheel_id, Engine::SpriteComponent{m_wheel_texture.get(), glm::vec2(48.0f, 48.0f), SDL_Color{255, 255, 255, 255}});
-    m_entity_manager.add_component<Engine::RigidBodyComponent>(wheel_id, Engine::RigidBodyComponent::Dynamic(1.0f, 0.5f, 0.6f, false)); // lock_rotation = false!
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(wheel_id, Engine::RigidBodyComponent::Dynamic(1.0f, 0.4f, 0.6f, false)); // lock_rotation = false!
     m_entity_manager.add_component<Engine::ColliderComponent>(wheel_id, Engine::ColliderComponent::Circle(24.0f, {0.0f, 0.0f}, false, Layer::DEFAULT, Layer::GROUND | Layer::PLAYER));
 
     // 7. Create Kinematic Elevator Moving Platform on the Left (X = -480.0)
     create_elevator({-480.0f, -220.0f}, {110.0f, 22.0f});
+
+    // 8. Create Triangular Physics Slope Ramp on the Right seamlessly connecting floor (Y=-260) to platform (Y=-110)
+    create_slope({290.0f, -185.0f}, {180.0f, 150.0f}, true);
+    create_platform({460.0f, -125.0f}, {160.0f, 30.0f}, {140, 100, 70, 255});
+}
+
+void PlatformerDemoScene::create_slope(const glm::vec2& position, const glm::vec2& size, bool slope_up_right) {
+    Engine::EntityID slope_id = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(slope_id, Engine::TagComponent{"Slope"});
+    m_entity_manager.add_component<Engine::TransformComponent>(slope_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(slope_id, Engine::SpriteComponent{m_slope_texture.get(), size, SDL_Color{255, 255, 255, 255}});
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(slope_id, Engine::RigidBodyComponent::Static(0.4f));
+
+    uint16_t ground_mask = Layer::PLAYER | Layer::DEFAULT;
+    m_entity_manager.add_component<Engine::ColliderComponent>(
+        slope_id, Engine::ColliderComponent::Slope(size.x, size.y, slope_up_right, {0.0f, 0.0f}, false, Layer::GROUND, ground_mask)
+    );
 }
 
 void PlatformerDemoScene::create_elevator(const glm::vec2& position, const glm::vec2& size) {
