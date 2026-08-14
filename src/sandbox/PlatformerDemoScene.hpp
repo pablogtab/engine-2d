@@ -6,8 +6,11 @@
 #include "../scene/Scene.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/Texture.hpp"
-#include "../renderer/PostProcessPipeline.hpp"
-#include "../renderer/PostProcessPasses.hpp"
+#include "../renderer/postprocess/PostProcessPipeline.hpp"
+#include "../renderer/postprocess/PostProcessPasses.hpp"
+#include "../renderer/postprocess/PostProcessProfile.hpp"
+#include "../renderer/postprocess/PostProcessVolume.hpp"
+#include "../renderer/postprocess/PostProcessTweens.hpp"
 #include "../particles/ParticleSystem2D.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include <SDL3/SDL.h>
@@ -32,9 +35,9 @@ private:
     Engine::EventDispatcher m_event_dispatcher;
     Engine::ParticleSystem2D m_particle_system{3000};
     Engine::PostProcessPipeline m_post_process_pipeline;
-    std::shared_ptr<Engine::VignettePass> m_vignette_pass;
-    std::shared_ptr<Engine::ScreenFlashPass> m_flash_pass;
-    std::shared_ptr<Engine::ChromaticAberrationPass> m_chroma_pass;
+    Engine::PostProcessVolumeManager m_volume_manager;
+    Engine::PostProcessProfile m_base_profile;
+    Engine::PostProcessProfile m_current_profile;
 
     Engine::EntityID m_player_id{0};
     Engine::EntityID m_elevator_id{0};

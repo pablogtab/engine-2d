@@ -8,10 +8,9 @@ namespace Engine {
 // ---------------------------------------------------------------------------
 // IPostProcessPass
 // ---------------------------------------------------------------------------
-// Pure abstract interface for all screen-space post-processing shader passes.
-// The engine core is 100% agnostic to what each pass does: each pass takes
-// an input texture from VRAM, performs GPU-accelerated drawing, and writes
-// to a destination target.
+// Interfaz base pura para todos los pases de post-procesado en espacio de pantalla.
+// Soporta ciclo de vida, actualización temporal para animaciones/tweens y
+// hook para inspección visual automática en Dear ImGui (Fase 8).
 // ---------------------------------------------------------------------------
 class IPostProcessPass {
 public:
@@ -21,7 +20,10 @@ public:
     virtual bool is_enabled() const = 0;
     virtual void set_enabled(bool enabled) = 0;
 
-    // Apply the pass from source texture to destination render target
+    // Actualización temporal de animaciones, decaimientos y ruidos procedurales
+    virtual void update(float /*delta_time*/) {}
+
+    // Aplicar el pase desde la textura origen hacia el render target de destino
     virtual void apply(
         SDL_Renderer* renderer, 
         SDL_Texture* source, 
@@ -29,6 +31,12 @@ public:
         int width, 
         int height
     ) = 0;
+
+    // Hook para que herramientas y editores (Dear ImGui) inspeccionen sus controles
+    virtual void on_gui() {}
+
+    // Reiniciar valores por defecto
+    virtual void reset() {}
 };
 
 } // namespace Engine

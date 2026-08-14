@@ -88,17 +88,17 @@ Window::Window(const std::string& title, int width, int height)
     // Enable VSync by default
     SDL_SetRenderVSync(m_renderer, 1);
 
-    // Set fixed virtual logical presentation resolution so game FOV is identical on Retina (2x) and 1080p (1x) displays
+    // Disable logical presentation so Renderer2D & Camera2D render in crisp 1:1 physical pixels (Retina & 1080p)
     SDL_SetRenderLogicalPresentation(
         m_renderer, 
-        m_width, 
-        m_height, 
-        SDL_LOGICAL_PRESENTATION_LETTERBOX
+        0, 
+        0, 
+        SDL_LOGICAL_PRESENTATION_DISABLED
     );
 
     update_sizes();
 
-    ENGINE_LOG_INFO("Window & SDL3 renderer created. Backend: {} | Logical: {}x{} | Pixels: {}x{}",
+    ENGINE_LOG_INFO("Window & SDL3 renderer created. Backend: {} | Window: {}x{} | Pixels: {}x{}",
                     SDL_GetRendererName(m_renderer), m_width, m_height, m_pixel_width, m_pixel_height);
 }
 
@@ -134,12 +134,16 @@ void Window::poll_events() {
         else if (event.type == SDL_EVENT_WINDOW_RESIZED || 
                  event.type == SDL_EVENT_WINDOW_MOVED ||
                  event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
-                 event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
+                 event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED ||
+                 event.type == SDL_EVENT_WINDOW_RESTORED ||
+                 event.type == SDL_EVENT_WINDOW_MAXIMIZED) {
             
+            int prev_w = m_pixel_width;
+            int prev_h = m_pixel_height;
             update_sizes();
             save_state();
 
-            if (m_resize_callback && (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)) {
+            if (m_resize_callback && (m_pixel_width != prev_w || m_pixel_height != prev_h || event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)) {
                 // Pass current render output dimensions to callback
                 m_resize_callback(m_pixel_width, m_pixel_height);
             }

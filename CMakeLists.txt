@@ -20,7 +20,8 @@ set(SOURCES
     src/ecs/EntityManager.cpp
     src/particles/ParticleSystem2D.cpp
     src/renderer/Animation2D.cpp
-    src/renderer/PostProcessPipeline.cpp
+    src/renderer/postprocess/PostProcessPipeline.cpp
+    src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp
     src/renderer/SpriteSheet.cpp
     src/renderer/Texture.cpp

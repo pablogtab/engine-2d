@@ -71,7 +71,7 @@ graph TD
 - [x] **5.2 Pipeline de Render Targets & Post-Processing (`PostProcessPipeline`)**:
   - Renderizado a textura intermedia con búferes Ping-Pong en VRAM (`SDL_TEXTUREACCESS_TARGET`).
   - Cadena extensible de pases abstractos (`IPostProcessPass`): Viñeteado radial, Aberración cromática RGB y Destello de pantalla/daño.
-- [ ] **5.3 Evolución Profesional de Post-Processing & Shaders GPU**:
+- [x] **5.3 Evolución Profesional de Post-Processing & Shaders GPU**:
   - *Fragment Shaders Reales*: Bloom de alta intensidad, Blur Gaussiano separable (pase horizontal/vertical), Film Grain, Color Grading LUT y simulación CRT/Scanlines a nivel de píxel.
   - *Cadena de Downsampling / Mip-chain*: Render targets auxiliares a 1/2 y 1/4 de resolución para optimización de efectos densos (Bloom / Glow ambiental).
   - *Volúmenes de Post-Proceso 2D (`PostProcessVolume`)*: Triggers espaciales en escena con interpolación suave (*lerp/blend*) de parámetros al entrar a zonas (cuevas oscuras, bajo el agua, fuego).

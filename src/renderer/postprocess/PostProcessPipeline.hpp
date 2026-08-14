@@ -19,7 +19,10 @@ public:
     void resize(int width, int height);
     void destroy_targets();
 
-    // Pipeline registration
+    // Actualizar todos los pases registrados (animaciones, tweens, ruidos)
+    void update(float delta_time);
+
+    // Registro y gestión de pases
     void add_pass(std::shared_ptr<IPostProcessPass> pass);
     void remove_pass(const std::string& name);
     void set_pass_enabled(const std::string& name, bool enabled);
@@ -29,7 +32,7 @@ public:
     template<typename T>
     std::shared_ptr<T> get_pass(const std::string& name) const {
         for (const auto& pass : m_passes) {
-            if (pass->get_name() == name) {
+            if (pass && pass->get_name() == name) {
                 return std::dynamic_pointer_cast<T>(pass);
             }
         }
@@ -39,7 +42,7 @@ public:
     const std::vector<std::shared_ptr<IPostProcessPass>>& get_passes() const { return m_passes; }
     size_t get_active_pass_count() const;
 
-    // Render target redirection
+    // Redirección de Render Targets
     void begin_capture();
     void end_capture_and_process(SDL_Texture* final_destination = nullptr);
 
@@ -47,12 +50,23 @@ public:
     int get_width() const { return m_width; }
     int get_height() const { return m_height; }
 
+    // Buffers auxiliares de resolución reducida (para Bloom / Gaussian Blur)
+    SDL_Texture* get_half_target_a() const { return m_half_target_a; }
+    SDL_Texture* get_half_target_b() const { return m_half_target_b; }
+    SDL_Texture* get_quarter_target() const { return m_quarter_target; }
+
 private:
     void create_targets();
 
     SDL_Renderer* m_renderer{nullptr};
     SDL_Texture* m_target_a{nullptr};
     SDL_Texture* m_target_b{nullptr};
+
+    // Render targets de Downsampling para optimización de efectos densos
+    SDL_Texture* m_half_target_a{nullptr};
+    SDL_Texture* m_half_target_b{nullptr};
+    SDL_Texture* m_quarter_target{nullptr};
+
     int m_width{1280};
     int m_height{720};
 

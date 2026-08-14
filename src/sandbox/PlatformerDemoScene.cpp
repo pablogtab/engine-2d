@@ -36,16 +36,39 @@ void PlatformerDemoScene::on_attach() {
     // Set Platformer Downward Gravity (Y = -800.0f pulls downward)
     Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, -800.0f));
 
-    // Initialize Post-Processing Shader Pipeline & Passes
+    // Initialize Post-Processing Shader Pipeline & All Passes
     m_post_process_pipeline.init(m_sdl_renderer, 1280, 720);
-    m_vignette_pass = std::make_shared<Engine::VignettePass>();
-    m_vignette_pass->set_intensity(0.50f);
-    m_flash_pass = std::make_shared<Engine::ScreenFlashPass>();
-    m_chroma_pass = std::make_shared<Engine::ChromaticAberrationPass>();
+    m_post_process_pipeline.clear_passes();
+    m_post_process_pipeline.add_pass(std::make_shared<Engine::VignettePass>());
+    m_post_process_pipeline.add_pass(std::make_shared<Engine::ChromaticAberrationPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<Engine::BloomPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<Engine::GaussianBlurPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<Engine::ColorGradingPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<Engine::FilmGrainPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<Engine::ScanlinesCRTPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<Engine::ScreenFlashPass>());
 
-    m_post_process_pipeline.add_pass(m_vignette_pass);
-    m_post_process_pipeline.add_pass(m_chroma_pass);
-    m_post_process_pipeline.add_pass(m_flash_pass);
+    m_base_profile = Engine::PostProcessProfile::PresetDefault();
+    m_base_profile.apply_to_pipeline(m_post_process_pipeline);
+
+    // Setup 2D Spatial Post-Process Volumes in the World
+    m_volume_manager.clear();
+    // 1. Lower Cave / Underwater Abyss Volume (Left bottom zone)
+    m_volume_manager.add_volume(Engine::PostProcessVolume(
+        "Underwater Abyss",
+        glm::vec2(-450.0f, -120.0f),
+        glm::vec2(380.0f, 220.0f),
+        Engine::PostProcessProfile::PresetUnderwater(),
+        90.0f
+    ));
+    // 2. High-Altitude Floating Sanctuary Volume (Top platform)
+    m_volume_manager.add_volume(Engine::PostProcessVolume(
+        "Floating Sanctuary",
+        glm::vec2(0.0f, 200.0f),
+        glm::vec2(500.0f, 180.0f),
+        Engine::PostProcessProfile::PresetDreamyBloom(),
+        80.0f
+    ));
 
     // Wider camera zoom to frame the whole level comfortably
     m_camera.set_zoom(0.76f);
@@ -292,9 +315,7 @@ void PlatformerDemoScene::on_attach() {
             if (hit_coin && m_entity_manager.is_alive(coin_id)) {
                 m_score++;
                 ENGINE_LOG_INFO("[PLATFORMER DEMO] COIN COLLECTED! Score: {} / {}", m_score, m_total_coins);
-                if (m_flash_pass) {
-                    m_flash_pass->trigger_flash(SDL_Color{255, 235, 120, 80}, 0.14f);
-                }
+                Engine::PostProcessTweens::trigger_flash(m_post_process_pipeline, SDL_Color{255, 235, 120, 80}, 0.14f);
                 if (m_entity_manager.has_component<Engine::TransformComponent>(coin_id)) {
                     const auto& coin_tx = m_entity_manager.get_component<Engine::TransformComponent>(coin_id);
                     Engine::Presets::sparkle(m_particle_system, glm::vec2(coin_tx.position.x, coin_tx.position.y), 18);
@@ -558,6 +579,27 @@ void PlatformerDemoScene::on_update(float delta_time) {
         return;
     }
 
+    // Post-Processing Presets (Keys 1 - 6)
+    if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_1)) {
+        m_base_profile = Engine::PostProcessProfile::PresetDefault();
+        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'Default' profile.");
+    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_2)) {
+        m_base_profile = Engine::PostProcessProfile::PresetRetroCRT();
+        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'RetroCRT' scanline profile.");
+    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_3)) {
+        m_base_profile = Engine::PostProcessProfile::PresetUnderwater();
+        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'Underwater' profile.");
+    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_4)) {
+        m_base_profile = Engine::PostProcessProfile::PresetCinematic();
+        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'Cinematic' film-grain profile.");
+    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_5)) {
+        m_base_profile = Engine::PostProcessProfile::PresetNightVision();
+        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'NightVision' high-gain profile.");
+    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_6)) {
+        m_base_profile = Engine::PostProcessProfile::PresetDreamyBloom();
+        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'DreamyBloom' profile.");
+    }
+
     // 1. Toggle Debug Overlay with 'G' key & Toggle Laser Aim with 'L' key
     if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_G)) {
         m_show_debug_colliders = !m_show_debug_colliders;
@@ -652,21 +694,24 @@ void PlatformerDemoScene::on_update(float delta_time) {
         m_shockwaves.push_back({blast_pos, 0.0f, blast_radius, 0.35f, 0.0f});
         Engine::Presets::explosion(m_particle_system, blast_pos, 45, 18);
 
-        // Trigger Post-Processing Flash & Chromatic Aberration Punch
-        if (m_flash_pass) {
-            m_flash_pass->trigger_flash(SDL_Color{255, 245, 210, 140}, 0.20f);
-        }
-        if (m_chroma_pass) {
-            m_chroma_pass->trigger(6.5f, 0.30f);
-        }
+        // Trigger Post-Processing Flash, Bloom Pulse & Chromatic Aberration Punch
+        Engine::PostProcessTweens::trigger_explosion_fx(m_post_process_pipeline, 7.5f, 1.2f, SDL_Color{255, 245, 200, 150});
 
         ENGINE_LOG_INFO("[EXPLOSION BLAST] Detonated at ({:.1f}, {:.1f})! Affected {} bodies.",
                         blast_pos.x, blast_pos.y, affected.size());
     }
 
-    // Update Post-Processing Shader Passes
-    if (m_flash_pass) m_flash_pass->update(delta_time);
-    if (m_chroma_pass) m_chroma_pass->update(delta_time);
+    // Evaluate 2D Spatial Post-Processing Volumes
+    glm::vec2 eval_pos = m_camera.get_position();
+    if (m_entity_manager.is_alive(m_player_id) && m_entity_manager.has_component<Engine::TransformComponent>(m_player_id)) {
+        const auto& p_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+        eval_pos = glm::vec2(p_tx.position.x, p_tx.position.y);
+    }
+    m_current_profile = m_volume_manager.evaluate(eval_pos, m_base_profile);
+    m_current_profile.apply_to_pipeline(m_post_process_pipeline);
+
+    // Update Post-Processing Pipeline & Tweens
+    m_post_process_pipeline.update(delta_time);
 
     // Update Particle Engine & Expanding Shockwaves
     m_particle_system.update(delta_time);

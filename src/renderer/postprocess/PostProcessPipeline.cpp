@@ -1,5 +1,5 @@
 #include "PostProcessPipeline.hpp"
-#include "../core/Log.hpp"
+#include "../../core/Log.hpp"
 #include <algorithm>
 
 namespace Engine {
@@ -25,48 +25,67 @@ void PostProcessPipeline::resize(int width, int height) {
 }
 
 void PostProcessPipeline::destroy_targets() {
-    if (m_target_a) {
-        SDL_DestroyTexture(m_target_a);
-        m_target_a = nullptr;
-    }
-    if (m_target_b) {
-        SDL_DestroyTexture(m_target_b);
-        m_target_b = nullptr;
-    }
+    auto destroy_tex = [](SDL_Texture*& tex) {
+        if (tex) {
+            SDL_DestroyTexture(tex);
+            tex = nullptr;
+        }
+    };
+
+    destroy_tex(m_target_a);
+    destroy_tex(m_target_b);
+    destroy_tex(m_half_target_a);
+    destroy_tex(m_half_target_b);
+    destroy_tex(m_quarter_target);
 }
 
 void PostProcessPipeline::create_targets() {
     destroy_targets();
     if (!m_renderer) return;
 
-    m_target_a = SDL_CreateTexture(
-        m_renderer, 
-        SDL_PIXELFORMAT_RGBA8888, 
-        SDL_TEXTUREACCESS_TARGET, 
-        m_width, 
-        m_height
-    );
-    m_target_b = SDL_CreateTexture(
-        m_renderer, 
-        SDL_PIXELFORMAT_RGBA8888, 
-        SDL_TEXTUREACCESS_TARGET, 
-        m_width, 
-        m_height
-    );
+    auto create_rt = [this](int w, int h) -> SDL_Texture* {
+        SDL_Texture* tex = SDL_CreateTexture(
+            m_renderer, 
+            SDL_PIXELFORMAT_RGBA8888, 
+            SDL_TEXTUREACCESS_TARGET, 
+            std::max(1, w), 
+            std::max(1, h)
+        );
+        if (tex) {
+            SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
+        }
+        return tex;
+    };
 
-    if (m_target_a) {
-        SDL_SetTextureBlendMode(m_target_a, SDL_BLENDMODE_BLEND);
-    }
-    if (m_target_b) {
-        SDL_SetTextureBlendMode(m_target_b, SDL_BLENDMODE_BLEND);
-    }
+    // Full resolution Ping-Pong pair
+    m_target_a = create_rt(m_width, m_height);
+    m_target_b = create_rt(m_width, m_height);
 
-    ENGINE_LOG_INFO("[POST-PROCESS] Framebuffer Render Targets created ({}x{} px)", m_width, m_height);
+    // Downscaled auxiliary buffers (1/2 and 1/4 size for Bloom & Gaussian Blur)
+    int half_w = std::max(1, m_width / 2);
+    int half_h = std::max(1, m_height / 2);
+    m_half_target_a = create_rt(half_w, half_h);
+    m_half_target_b = create_rt(half_w, half_h);
+
+    int quarter_w = std::max(1, m_width / 4);
+    int quarter_h = std::max(1, m_height / 4);
+    m_quarter_target = create_rt(quarter_w, quarter_h);
+
+    ENGINE_LOG_INFO("[POST-PROCESS] Created Framebuffers (Full: {}x{}, Half: {}x{}, Quarter: {}x{})",
+                    m_width, m_height, half_w, half_h, quarter_w, quarter_h);
+}
+
+void PostProcessPipeline::update(float delta_time) {
+    for (auto& pass : m_passes) {
+        if (pass) {
+            pass->update(delta_time);
+        }
+    }
 }
 
 void PostProcessPipeline::add_pass(std::shared_ptr<IPostProcessPass> pass) {
     if (!pass) return;
-    // Prevent duplicate pass names
     remove_pass(pass->get_name());
     m_passes.push_back(pass);
     ENGINE_LOG_INFO("[POST-PROCESS] Registered pass: '{}'", pass->get_name());
@@ -117,13 +136,9 @@ size_t PostProcessPipeline::get_active_pass_count() const {
 void PostProcessPipeline::begin_capture() {
     if (!m_renderer) return;
 
-    // Auto-detect Retina / High-DPI framebuffer resolution
-    int out_w = 0, out_h = 0;
-    SDL_GetCurrentRenderOutputSize(m_renderer, &out_w, &out_h);
-    if (out_w > 0 && out_h > 0 && (out_w != m_width || out_h != m_height || !m_target_a)) {
-        resize(out_w, out_h);
+    if (!m_target_a) {
+        create_targets();
     }
-
     if (!m_target_a) return;
 
     m_is_capturing = true;
@@ -152,26 +167,24 @@ void PostProcessPipeline::end_capture_and_process(SDL_Texture* final_destination
         return;
     }
 
-    // Ping-Pong execution across active passes
+    // Ping-Pong execution across active passes strictly within VRAM texture coordinates
     SDL_Texture* current_src = m_target_a;
     SDL_Texture* current_dst = m_target_b;
 
     for (size_t i = 0; i < active_passes.size(); ++i) {
-        bool is_last_pass = (i == active_passes.size() - 1);
-        SDL_Texture* pass_output = is_last_pass ? final_destination : current_dst;
-
-        SDL_SetRenderTarget(m_renderer, pass_output);
+        SDL_SetRenderTarget(m_renderer, current_dst);
         SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 0);
         SDL_RenderClear(m_renderer);
 
-        active_passes[i]->apply(m_renderer, current_src, pass_output, m_width, m_height);
+        active_passes[i]->apply(m_renderer, current_src, current_dst, m_width, m_height);
 
         // Swap ping-pong pointers for next pass
         std::swap(current_src, current_dst);
     }
 
-    // Restore final target (default is window backbuffer nullptr)
+    // Blit final processed texture to destination (window framebuffer)
     SDL_SetRenderTarget(m_renderer, final_destination);
+    SDL_RenderTexture(m_renderer, current_src, nullptr, nullptr);
 }
 
 } // namespace Engine
