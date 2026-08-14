@@ -1,8 +1,19 @@
-# Build artifacts
+# Build directories & compilation caches
 build/
+build_*/
+bin/
+dist/
 .cache/
 compile_commands.json
 
-# OS files
-.DS_Store
+# Logs & runtime locks
 *.log
+*.lock
+
+# Archives
+*.zip
+*.tar.gz
+
+# OS specific files
+.DS_Store
+Thumbs.db

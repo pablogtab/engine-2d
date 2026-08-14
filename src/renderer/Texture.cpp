@@ -3,6 +3,7 @@
 #include "../core/Log.hpp"
 #include <vector>
 #include <cmath>
+#include <algorithm>
 
 namespace Engine {
 

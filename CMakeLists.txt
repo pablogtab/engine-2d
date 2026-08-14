@@ -53,11 +53,24 @@ target_include_directories(Engine2D PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
 
-target_link_libraries(Engine2D PRIVATE 
-    SDL3::SDL3
-    glm::glm
-    box2d
-)
+if (WIN32)
+    set(SDL3_WIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/windows/SDL3-3.2.4/x86_64-w64-mingw32")
+    target_include_directories(Engine2D PRIVATE ${SDL3_WIN_DIR}/include)
+    target_link_directories(Engine2D PRIVATE ${SDL3_WIN_DIR}/lib)
+    target_link_libraries(Engine2D PRIVATE 
+        ${SDL3_WIN_DIR}/lib/libSDL3.dll.a
+        box2d
+        -static-libgcc -static-libstdc++
+    )
+else()
+    find_package(SDL3 REQUIRED)
+    find_package(glm REQUIRED)
+    target_link_libraries(Engine2D PRIVATE 
+        SDL3::SDL3
+        glm::glm
+        box2d
+    )
+endif()
 
 # Automatically copy compile_commands.json to workspace root for IDE / IntelliSense
 add_custom_target(copy_compile_commands ALL
