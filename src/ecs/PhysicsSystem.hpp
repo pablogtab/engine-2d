@@ -60,6 +60,55 @@ public:
     s_b2_world.reset();
   }
 
+  static void set_velocity(EntityManager &em, EntityID id, const glm::vec2 &velocity) {
+    if (!em.has_component<RigidBodyComponent>(id)) return;
+    auto &rb = em.get_component<RigidBodyComponent>(id);
+    rb.velocity = velocity;
+    auto it = s_b2_bodies.find(id);
+    if (it != s_b2_bodies.end() && it->second) {
+      it->second->SetLinearVelocity(b2Vec2(velocity.x * k_p2m, velocity.y * k_p2m));
+    }
+  }
+
+  static void apply_impulse(EntityManager &em, EntityID id, const glm::vec2 &impulse) {
+    if (!em.has_component<RigidBodyComponent>(id)) return;
+    auto &rb = em.get_component<RigidBodyComponent>(id);
+    float mag = glm::length(impulse);
+    glm::vec2 dir = (mag > 0.0001f) ? (impulse / mag) : glm::vec2(0.0f, 1.0f);
+    ActiveForce af;
+    af.mode = ForceMode::Impulse;
+    af.direction = dir;
+    af.max_magnitude = mag;
+    af.duration = 0.001f;
+    rb.active_forces.push_back(af);
+  }
+
+  static void apply_force(EntityManager &em, EntityID id, const glm::vec2 &force, float duration) {
+    if (!em.has_component<RigidBodyComponent>(id)) return;
+    auto &rb = em.get_component<RigidBodyComponent>(id);
+    float mag = glm::length(force);
+    glm::vec2 dir = (mag > 0.0001f) ? (force / mag) : glm::vec2(0.0f, 1.0f);
+    ActiveForce af;
+    af.mode = ForceMode::ContinuousForce;
+    af.direction = dir;
+    af.max_magnitude = mag;
+    af.duration = duration;
+    af.curve = BezierCurve(EasingPreset::Linear);
+    rb.active_forces.push_back(af);
+  }
+
+  static void apply_curve_force(EntityManager &em, EntityID id, const glm::vec2 &direction, float max_magnitude, float duration, const BezierCurve &curve) {
+    if (!em.has_component<RigidBodyComponent>(id)) return;
+    auto &rb = em.get_component<RigidBodyComponent>(id);
+    ActiveForce af;
+    af.mode = ForceMode::CurveOverTime;
+    af.direction = (glm::length(direction) > 0.0001f) ? glm::normalize(direction) : glm::vec2(0.0f, 1.0f);
+    af.max_magnitude = max_magnitude;
+    af.duration = duration;
+    af.curve = curve;
+    rb.active_forces.push_back(af);
+  }
+
   static void update(EntityManager &entity_manager,
                      EventDispatcher &event_dispatcher, float delta_time) {
     if (!s_b2_world) {
@@ -83,7 +132,7 @@ public:
     // Synchronize entities into Box2D simulation world
     entity_manager.for_each<TransformComponent, RigidBodyComponent,
                             ColliderComponent>(
-        [&entity_manager](EntityID id, TransformComponent &transform,
+        [&entity_manager, delta_time](EntityID id, TransformComponent &transform,
                           RigidBodyComponent &rb, ColliderComponent &collider) {
           if (!transform.world_visible)
             return;
@@ -137,6 +186,37 @@ public:
           }
 
           if (!rb.is_static) {
+            // Process active force curve envelopes
+            for (auto &force : rb.active_forces) {
+              if (force.finished) continue;
+
+              force.elapsed_time += delta_time;
+              float progress = (force.duration > 0.0f) ? std::clamp(force.elapsed_time / force.duration, 0.0f, 1.0f) : 1.0f;
+              float curve_factor = force.curve.evaluate(progress);
+
+              if (force.mode == ForceMode::Impulse) {
+                b2Vec2 impulse(force.direction.x * force.max_magnitude * k_p2m,
+                               force.direction.y * force.max_magnitude * k_p2m);
+                body->ApplyLinearImpulseToCenter(impulse, true);
+                b2Vec2 updated_vel = body->GetLinearVelocity();
+                rb.velocity = glm::vec2(updated_vel.x * k_m2p, updated_vel.y * k_m2p);
+                force.finished = true;
+              } else if (force.mode == ForceMode::VelocityChange) {
+                rb.velocity = force.direction * (force.max_magnitude * curve_factor);
+                if (progress >= 1.0f) force.finished = true;
+              } else { // ContinuousForce or CurveOverTime
+                b2Vec2 force_vec(force.direction.x * (force.max_magnitude * curve_factor) * k_p2m,
+                                 force.direction.y * (force.max_magnitude * curve_factor) * k_p2m);
+                body->ApplyForceToCenter(force_vec, true);
+                b2Vec2 updated_vel = body->GetLinearVelocity();
+                rb.velocity = glm::vec2(updated_vel.x * k_m2p, updated_vel.y * k_m2p);
+                if (progress >= 1.0f) force.finished = true;
+              }
+            }
+
+            // Purge finished forces
+            std::erase_if(rb.active_forces, [](const ActiveForce &f) { return f.finished; });
+
             body->SetLinearVelocity(
                 b2Vec2(rb.velocity.x * k_p2m, rb.velocity.y * k_p2m));
           }

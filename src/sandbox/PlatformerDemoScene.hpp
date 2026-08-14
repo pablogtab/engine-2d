@@ -29,6 +29,7 @@ private:
     Engine::EntityID m_player_id{0};
     bool m_show_debug_colliders{true};
     bool m_is_grounded{false};
+    float m_launch_cooldown{0.0f};
     int m_score{0};
     int m_total_coins{0};
 
@@ -36,11 +37,13 @@ private:
     std::unique_ptr<Engine::Texture> m_player_texture;
     std::unique_ptr<Engine::Texture> m_block_texture;
     std::unique_ptr<Engine::Texture> m_coin_texture;
+    std::unique_ptr<Engine::Texture> m_launch_pad_texture;
     std::unique_ptr<Engine::Texture> m_circle_debug_texture;
 
     void setup_level();
     void create_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color);
     void create_coin(const glm::vec2& position);
+    void create_launch_pad(const glm::vec2& position);
 };
 
 } // namespace Sandbox

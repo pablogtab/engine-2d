@@ -1,11 +1,11 @@
 #pragma once
 
 #include "../renderer/Texture.hpp"
+#include "../physics/BezierCurve.hpp"
 #include <glm/glm.hpp>
 #include <SDL3/SDL.h>
 #include <string>
 #include <functional>
-
 #include <bitset>
 
 namespace Engine {
@@ -185,6 +185,23 @@ struct ColliderComponent {
     }
 };
 
+enum class ForceMode {
+    Impulse,         // 1-frame instant velocity change J = m * delta_v
+    ContinuousForce, // Constant force F = m * a over duration T
+    VelocityChange,  // Direct velocity override
+    CurveOverTime    // Envelope magnitude F(t) = F_max * BezierCurve.evaluate(t / T)
+};
+
+struct ActiveForce {
+    glm::vec2 direction{0.0f, 1.0f};
+    float max_magnitude{1000.0f};
+    float duration{1.0f};
+    float elapsed_time{0.0f};
+    ForceMode mode{ForceMode::CurveOverTime};
+    BezierCurve curve;
+    bool finished{false};
+};
+
 // RigidBody Component for 2D dynamics, gravity, friction, and velocity physics simulation
 struct RigidBodyComponent {
     glm::vec2 velocity{0.0f, 0.0f};
@@ -195,6 +212,8 @@ struct RigidBodyComponent {
     float friction{0.4f};           // Surface friction coefficient (0.0 = Ice, 1.0 = High grip)
     bool is_static{false};          // True = Immovable solid (Walls, Floors, Terrain)
     float restitution{0.2f};         // Elasticity / Bounciness factor (0.0 = No bounce, 1.0 = Perfect bounce)
+
+    std::vector<ActiveForce> active_forces; // Queue of active force curve envelopes
 
     RigidBodyComponent() = default;
     explicit RigidBodyComponent(bool static_body, float gravity = 1.0f, float bounciness = 0.2f, float surface_friction = 0.4f)

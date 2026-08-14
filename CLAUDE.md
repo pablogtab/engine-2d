@@ -18,6 +18,7 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
 3. **Formato de Logs & Telemetría:**
    - Evitar logs ineficientes con decimales innecesarios (ej. `99.9667%`).
    - Imprimir únicamente métricas esenciales, limpias y formateadas (ej. `[RENDER STATS] Rendered: 2420 | Culled: 580 | Draw Calls: 1`).
+   - **NO utilizar emoticones / emojis en los logs**. Mantener todos los logs en texto ASCII limpio y profesional.
 
 4. **Estructura del Proyecto:**
    - Mantener `src/` exclusivamente para código propio del motor.

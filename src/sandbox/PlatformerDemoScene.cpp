@@ -46,11 +46,15 @@ void PlatformerDemoScene::on_attach() {
         Engine::Texture::create_circle(m_sdl_renderer, 16, 255, 215, 0, 255)
     );
 
+    m_launch_pad_texture = std::unique_ptr<Engine::Texture>(
+        Engine::Texture::create_solid(m_sdl_renderer, 60, 16, 220, 50, 255, 255)
+    );
+
     m_circle_debug_texture = std::unique_ptr<Engine::Texture>(
         Engine::Texture::create_circle(m_sdl_renderer, 32, 0, 255, 120, 180)
     );
 
-    // Register Event Listener for Collectibles and Ground Contact
+    // Register Event Listener for Collectibles, Ground Contact, and Curve Force Launch Pads
     m_event_dispatcher.subscribe<Engine::CollisionEvent>(
         [this](const Engine::CollisionEvent& ev) {
             // Check Ground Contact for Player (Normal pointing UP from floor to feet)
@@ -64,6 +68,30 @@ void PlatformerDemoScene::on_attach() {
                         m_is_grounded = true;
                     }
                 }
+            }
+
+            // Launch Pad Premiere Cubic Bezier Force Launch Trigger (Single-shot cooldown)
+            bool hit_pad = false;
+            if (ev.entity_a == m_player_id && m_entity_manager.has_component<Engine::TagComponent>(ev.entity_b)) {
+                if (m_entity_manager.get_component<Engine::TagComponent>(ev.entity_b).tag == "LaunchPad") {
+                    hit_pad = true;
+                }
+            } else if (ev.entity_b == m_player_id && m_entity_manager.has_component<Engine::TagComponent>(ev.entity_a)) {
+                if (m_entity_manager.get_component<Engine::TagComponent>(ev.entity_a).tag == "LaunchPad") {
+                    hit_pad = true;
+                }
+            }
+
+            if (hit_pad && m_launch_cooldown <= 0.0f) {
+                m_launch_cooldown = 0.4f; // Prevent multi-frame trigger stacking
+                auto& rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_player_id);
+
+                // Explicitly reset downward Y-velocity on BOTH ECS and Box2D body before launching
+                Engine::PhysicsSystem::set_velocity(m_entity_manager, m_player_id, glm::vec2(rb.velocity.x, 0.0f));
+
+                // Apply fixed consistent spring bounce impulse (200.0 px/s height reach)
+                Engine::PhysicsSystem::apply_impulse(m_entity_manager, m_player_id, glm::vec2(0.0f, 200.0f));
+                ENGINE_LOG_INFO("[TRAMPOLINE BOUNCE] Fixed Consistent Spring Launch Applied! Velocity Y set to 200.0");
             }
 
             // Collectible Coin Sensor Listener
@@ -108,7 +136,10 @@ void PlatformerDemoScene::setup_level() {
     create_platform({380.0f, 150.0f}, {280.0f, 30.0f}, {140, 100, 70, 255});
     create_platform({-200.0f, 240.0f}, {220.0f, 30.0f}, {140, 100, 70, 255});
 
-    // 3. Spawn Collectible Coins (Triggers on Layer COIN)
+    // 3. Create Premiere Bezier Launch Pad Trigger on Floor
+    create_launch_pad({150.0f, -252.0f});
+
+    // 4. Spawn Collectible Coins (Triggers on Layer COIN)
     std::vector<glm::vec2> coin_positions = {
         {-420.0f, -60.0f}, {-280.0f, -60.0f},
         {-50.0f, 80.0f},   {50.0f, 80.0f},
@@ -121,7 +152,7 @@ void PlatformerDemoScene::setup_level() {
     }
     m_total_coins = static_cast<int>(coin_positions.size());
 
-    // 4. Create Player Entity (Knight Jumper)
+    // 5. Create Player Entity (Knight Jumper)
     m_player_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(m_player_id, Engine::TagComponent{"Player"});
     m_entity_manager.add_component<Engine::TransformComponent>(
@@ -157,6 +188,19 @@ void PlatformerDemoScene::create_platform(const glm::vec2& position, const glm::
     );
 }
 
+void PlatformerDemoScene::create_launch_pad(const glm::vec2& position) {
+    Engine::EntityID pad_id = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(pad_id, Engine::TagComponent{"LaunchPad"});
+    m_entity_manager.add_component<Engine::TransformComponent>(pad_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(pad_id, Engine::SpriteComponent{m_launch_pad_texture.get(), glm::vec2(60.0f, 16.0f), SDL_Color{220, 50, 255, 255}});
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(pad_id, Engine::RigidBodyComponent{true}); // Static sensor
+
+    // LaunchPad Collider: Category COIN (Trigger), Mask PLAYER, is_trigger = true
+    m_entity_manager.add_component<Engine::ColliderComponent>(
+        pad_id, Engine::ColliderComponent::Box({60.0f, 16.0f}, {0.0f, 0.0f}, true, Layer::COIN, Layer::PLAYER)
+    );
+}
+
 void PlatformerDemoScene::create_coin(const glm::vec2& position) {
     Engine::EntityID coin_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(coin_id, Engine::TagComponent{"Coin"});
@@ -171,6 +215,17 @@ void PlatformerDemoScene::create_coin(const glm::vec2& position) {
 }
 
 void PlatformerDemoScene::on_update(float delta_time) {
+    if (m_launch_cooldown > 0.0f) {
+        m_launch_cooldown -= delta_time;
+    }
+
+    // 0. 'R' Key: Reset Scene Level & Player Position
+    if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_R)) {
+        ENGINE_LOG_INFO("[PLATFORMER DEMO] 'R' Key pressed! Resetting level...");
+        on_attach();
+        return;
+    }
+
     // 1. Toggle Debug Overlay with 'G' key
     if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_G)) {
         m_show_debug_colliders = !m_show_debug_colliders;
@@ -207,6 +262,15 @@ void PlatformerDemoScene::on_update(float delta_time) {
     // 3. Update Systems
     Engine::PhysicsSystem::update(m_entity_manager, m_event_dispatcher, delta_time);
     Engine::TransformSystem::update(m_entity_manager);
+
+    // Live Position & Velocity Debug Logging (every 15 frames)
+    static int s_pos_log_counter = 0;
+    if (m_entity_manager.is_alive(m_player_id) && (++s_pos_log_counter % 15 == 0)) {
+        const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+        const auto& player_rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_player_id);
+        ENGINE_LOG_INFO("[PLAYER POS LOG] Pos=({:.1f}, {:.1f}) | Vel=({:.1f}, {:.1f})",
+                        player_tx.position.x, player_tx.position.y, player_rb.velocity.x, player_rb.velocity.y);
+    }
 
     // 4. Smooth Camera Follow
     if (m_entity_manager.is_alive(m_player_id)) {
