@@ -309,14 +309,16 @@ public:
         SDL_SetTextureBlendMode(source, SDL_BLENDMODE_BLEND);
         SDL_SetTextureColorMod(source, 255, 255, 255);
 
-        // Center tap
-        SDL_SetTextureAlphaMod(source, 160);
+        // 1. Draw base crisp scene at 100% full opacity
+        SDL_SetTextureAlphaMod(source, 255);
         SDL_FRect dst_center{0.0f, 0.0f, w, h};
         SDL_RenderTexture(renderer, source, nullptr, &dst_center);
 
-        // Subtle 4-tap soft focus
-        if (m_radius > 0.1f) {
-            SDL_SetTextureAlphaMod(source, 24);
+        // 2. Soft blurred taps scaled smoothly by radius
+        if (m_radius > 0.08f) {
+            float blur_weight = std::clamp(m_radius / 3.0f, 0.0f, 1.0f);
+            uint8_t tap_alpha = static_cast<uint8_t>(35.0f * blur_weight);
+            SDL_SetTextureAlphaMod(source, tap_alpha);
             float r = m_radius;
             SDL_FRect t1{-r, 0.0f, w, h};
             SDL_FRect t2{r, 0.0f, w, h};
@@ -326,8 +328,8 @@ public:
             SDL_RenderTexture(renderer, source, nullptr, &t2);
             SDL_RenderTexture(renderer, source, nullptr, &t3);
             SDL_RenderTexture(renderer, source, nullptr, &t4);
+            SDL_SetTextureAlphaMod(source, 255);
         }
-        SDL_SetTextureAlphaMod(source, 255);
     }
 
 private:
@@ -449,6 +451,9 @@ public:
     void set_scanline_spacing(float spacing) { m_scanline_spacing = std::clamp(spacing, 2.0f, 8.0f); }
     float get_scanline_spacing() const { return m_scanline_spacing; }
 
+    void set_flicker(float flicker) { m_flicker = std::clamp(flicker, 0.0f, 0.2f); }
+    float get_flicker() const { return m_flicker; }
+
     void update(float delta_time) override {
         m_time += delta_time;
     }
@@ -478,6 +483,7 @@ private:
     bool m_enabled{false};
     float m_scanline_intensity{0.0f};
     float m_scanline_spacing{3.0f};
+    float m_flicker{0.015f};
     float m_time{0.0f};
 };
 

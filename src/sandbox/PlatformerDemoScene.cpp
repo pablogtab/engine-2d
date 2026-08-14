@@ -51,23 +51,23 @@ void PlatformerDemoScene::on_attach() {
     m_base_profile = Engine::PostProcessProfile::PresetDefault();
     m_base_profile.apply_to_pipeline(m_post_process_pipeline);
 
-    // Setup 2D Spatial Post-Process Volumes in the World
+    // Setup 2D Spatial Post-Process Atmospheric Volumes
     m_volume_manager.clear();
-    // 1. Lower Cave / Underwater Abyss Volume (Left bottom zone)
+    // 1. Far-Left Underground Crystal Cavern (Gentle aquatic cave tone with 150px feathering)
     m_volume_manager.add_volume(Engine::PostProcessVolume(
-        "Underwater Abyss",
-        glm::vec2(-450.0f, -120.0f),
-        glm::vec2(380.0f, 220.0f),
+        "Crystal Cavern",
+        glm::vec2(-620.0f, -160.0f),
+        glm::vec2(280.0f, 260.0f),
         Engine::PostProcessProfile::PresetUnderwater(),
-        90.0f
+        150.0f
     ));
-    // 2. High-Altitude Floating Sanctuary Volume (Top platform)
+    // 2. High-Altitude Celestial Sanctuary (Upper floating platforms with 160px feathering)
     m_volume_manager.add_volume(Engine::PostProcessVolume(
-        "Floating Sanctuary",
-        glm::vec2(0.0f, 200.0f),
-        glm::vec2(500.0f, 180.0f),
+        "Celestial Sanctuary",
+        glm::vec2(0.0f, 320.0f),
+        glm::vec2(640.0f, 220.0f),
         Engine::PostProcessProfile::PresetDreamyBloom(),
-        80.0f
+        160.0f
     ));
 
     // Wider camera zoom to frame the whole level comfortably
@@ -622,19 +622,6 @@ void PlatformerDemoScene::on_update(float delta_time) {
         m_last_raycast_hit = Engine::PhysicsSystem::raycast_direction(
             player_center, ray_dir, 1000.0f, Engine::CollisionCategory::ALL, true, m_player_id
         );
-
-        // Periodic diagnostic log for active hits (every 60 frames)
-        static int s_ray_log_counter = 0;
-        if (m_last_raycast_hit.hit && (++s_ray_log_counter % 60 == 0)) {
-            std::string tag_name = "Object";
-            if (m_entity_manager.has_component<Engine::TagComponent>(m_last_raycast_hit.entity_id)) {
-                tag_name = m_entity_manager.get_component<Engine::TagComponent>(m_last_raycast_hit.entity_id).tag;
-            }
-            ENGINE_LOG_INFO("[RAYCAST HIT] Target='{}' (ID {}) | Dist={:.1f}px | Pt=({:.1f}, {:.1f}) | Norm=({:.2f}, {:.2f})",
-                            tag_name, m_last_raycast_hit.entity_id, m_last_raycast_hit.distance,
-                            m_last_raycast_hit.point.x, m_last_raycast_hit.point.y,
-                            m_last_raycast_hit.normal.x, m_last_raycast_hit.normal.y);
-        }
     }
 
     // 2.5 Interactive Object Hover Highlight (Hovering cursor over coins activates outline halo)
@@ -707,6 +694,35 @@ void PlatformerDemoScene::on_update(float delta_time) {
         const auto& p_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
         eval_pos = glm::vec2(p_tx.position.x, p_tx.position.y);
     }
+
+    // Diagnostic logging for 2D Post-Process Volume Atmospheric transitions
+    static std::string s_last_active_vol = "";
+    static float s_last_logged_weight = -1.0f;
+    std::string current_vol_name = "";
+    float current_vol_weight = 0.0f;
+
+    for (const auto& vol : m_volume_manager.get_volumes()) {
+        float w = vol.calculate_weight(eval_pos);
+        if (w > 0.01f && w > current_vol_weight) {
+            current_vol_weight = w;
+            current_vol_name = vol.get_name();
+        }
+    }
+
+    if (!current_vol_name.empty()) {
+        if (std::abs(current_vol_weight - s_last_logged_weight) >= 0.15f || current_vol_name != s_last_active_vol) {
+            s_last_active_vol = current_vol_name;
+            s_last_logged_weight = current_vol_weight;
+            ENGINE_LOG_INFO("[VOLUME TRANSITION] Inside '{}' | Atmospheric Blend: {:.0f}% | Player at ({:.0f}, {:.0f})",
+                            current_vol_name, current_vol_weight * 100.0f, eval_pos.x, eval_pos.y);
+        }
+    } else if (!s_last_active_vol.empty()) {
+        ENGINE_LOG_INFO("[VOLUME TRANSITION] Exited '{}' -> Smoothly returned to '{}' base profile.",
+                        s_last_active_vol, m_base_profile.name);
+        s_last_active_vol = "";
+        s_last_logged_weight = 0.0f;
+    }
+
     m_current_profile = m_volume_manager.evaluate(eval_pos, m_base_profile);
     m_current_profile.apply_to_pipeline(m_post_process_pipeline);
 
@@ -825,15 +841,6 @@ void PlatformerDemoScene::on_update(float delta_time) {
     // 3. Update Systems
     Engine::PhysicsSystem::update(m_entity_manager, m_event_dispatcher, delta_time);
     Engine::TransformSystem::update(m_entity_manager);
-
-    // Live Position & Velocity Debug Logging (every 15 frames)
-    static int s_pos_log_counter = 0;
-    if (m_entity_manager.is_alive(m_player_id) && (++s_pos_log_counter % 15 == 0)) {
-        const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
-        const auto& player_rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_player_id);
-        ENGINE_LOG_INFO("[PLAYER POS LOG] Pos=({:.1f}, {:.1f}) | Vel=({:.1f}, {:.1f})",
-                        player_tx.position.x, player_tx.position.y, player_rb.velocity.x, player_rb.velocity.y);
-    }
 
     // 4. Smooth Camera Follow (Weighted centering keeps entire arena in view)
     if (m_entity_manager.is_alive(m_player_id)) {

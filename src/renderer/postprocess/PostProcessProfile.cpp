@@ -5,7 +5,6 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
-#include <cmath>
 
 namespace Engine {
 
@@ -113,10 +112,10 @@ PostProcessProfile PostProcessProfile::PresetDefault() {
     PostProcessProfile p;
     p.name = "Default";
     p.vignette_enabled = true;
-    p.vignette_intensity = 0.35f;
+    p.vignette_intensity = 0.20f; // Very soft, natural framing
     p.bloom_enabled = true;
-    p.bloom_intensity = 0.20f;
-    p.bloom_radius = 4.0f;
+    p.bloom_intensity = 0.15f;
+    p.bloom_radius = 3.0f;
     p.color_tint = SDL_Color{255, 255, 255, 255};
     return p;
 }
@@ -125,15 +124,15 @@ PostProcessProfile PostProcessProfile::PresetCinematic() {
     PostProcessProfile p;
     p.name = "Cinematic";
     p.vignette_enabled = true;
-    p.vignette_intensity = 0.65f;
+    p.vignette_intensity = 0.38f;
     p.vignette_color = SDL_Color{10, 15, 25, 255};
     p.bloom_enabled = true;
-    p.bloom_intensity = 0.40f;
-    p.bloom_radius = 6.0f;
-    p.color_tint = SDL_Color{240, 245, 255, 255};
-    p.shadow_tint = SDL_Color{15, 25, 45, 30}; // Cool teal shadow grading
+    p.bloom_intensity = 0.22f;
+    p.bloom_radius = 4.0f;
+    p.color_tint = SDL_Color{248, 250, 255, 255};
+    p.shadow_tint = SDL_Color{15, 25, 45, 18}; // Soft cinematic teal tone
     p.film_grain_enabled = true;
-    p.film_grain_intensity = 0.18f;
+    p.film_grain_intensity = 0.10f;
     return p;
 }
 
@@ -141,18 +140,18 @@ PostProcessProfile PostProcessProfile::PresetRetroCRT() {
     PostProcessProfile p;
     p.name = "RetroCRT";
     p.vignette_enabled = true;
-    p.vignette_intensity = 0.70f;
+    p.vignette_intensity = 0.35f;
     p.vignette_color = SDL_Color{0, 0, 0, 255};
     p.crt_enabled = true;
-    p.crt_scanline_intensity = 0.45f;
-    p.crt_scanline_spacing = 4.0f;
-    p.crt_flicker = 0.03f;
+    p.crt_scanline_intensity = 0.32f; // Fine, subtle scanlines
+    p.crt_scanline_spacing = 3.0f;
+    p.crt_flicker = 0.015f;
     p.chromatic_enabled = true;
-    p.chromatic_offset = 1.2f;
+    p.chromatic_offset = 0.6f;
     p.bloom_enabled = true;
-    p.bloom_intensity = 0.50f;
-    p.bloom_radius = 5.0f;
-    p.color_tint = SDL_Color{230, 255, 230, 255}; // Phosphor green tint
+    p.bloom_intensity = 0.20f;
+    p.bloom_radius = 3.5f;
+    p.color_tint = SDL_Color{245, 255, 245, 255};
     return p;
 }
 
@@ -160,14 +159,14 @@ PostProcessProfile PostProcessProfile::PresetUnderwater() {
     PostProcessProfile p;
     p.name = "Underwater";
     p.vignette_enabled = true;
-    p.vignette_intensity = 0.75f;
-    p.vignette_color = SDL_Color{0, 40, 70, 255};
+    p.vignette_intensity = 0.42f;
+    p.vignette_color = SDL_Color{5, 30, 55, 255};
     p.blur_enabled = true;
-    p.blur_radius = 2.5f;
-    p.color_tint = SDL_Color{100, 200, 255, 255};
-    p.shadow_tint = SDL_Color{0, 50, 90, 60};
+    p.blur_radius = 0.7f; // Gentle aquatic softening, not blinding blur
+    p.color_tint = SDL_Color{200, 235, 255, 255};
+    p.shadow_tint = SDL_Color{0, 35, 70, 25};
     p.chromatic_enabled = true;
-    p.chromatic_offset = 2.0f;
+    p.chromatic_offset = 0.8f;
     return p;
 }
 
@@ -175,15 +174,15 @@ PostProcessProfile PostProcessProfile::PresetNightVision() {
     PostProcessProfile p;
     p.name = "NightVision";
     p.vignette_enabled = true;
-    p.vignette_intensity = 0.85f;
+    p.vignette_intensity = 0.50f;
     p.vignette_color = SDL_Color{0, 0, 0, 255};
     p.bloom_enabled = true;
-    p.bloom_intensity = 0.80f;
-    p.bloom_radius = 6.0f;
+    p.bloom_intensity = 0.35f;
+    p.bloom_radius = 5.0f;
     p.film_grain_enabled = true;
-    p.film_grain_intensity = 0.40f;
-    p.color_tint = SDL_Color{60, 255, 60, 255};
-    p.shadow_tint = SDL_Color{0, 60, 0, 70};
+    p.film_grain_intensity = 0.22f;
+    p.color_tint = SDL_Color{140, 255, 150, 255};
+    p.shadow_tint = SDL_Color{0, 35, 10, 40};
     return p;
 }
 
@@ -191,15 +190,14 @@ PostProcessProfile PostProcessProfile::PresetDreamyBloom() {
     PostProcessProfile p;
     p.name = "DreamyBloom";
     p.vignette_enabled = true;
-    p.vignette_intensity = 0.40f;
-    p.vignette_color = SDL_Color{255, 220, 230, 255};
+    p.vignette_intensity = 0.25f;
+    p.vignette_color = SDL_Color{255, 230, 240, 255};
     p.bloom_enabled = true;
-    p.bloom_intensity = 0.95f;
-    p.bloom_radius = 8.0f;
-    p.blur_enabled = true;
-    p.blur_radius = 1.5f;
-    p.color_tint = SDL_Color{255, 240, 245, 255};
-    p.shadow_tint = SDL_Color{255, 180, 200, 25};
+    p.bloom_intensity = 0.45f;
+    p.bloom_radius = 5.0f;
+    p.blur_enabled = false;
+    p.color_tint = SDL_Color{255, 248, 250, 255};
+    p.shadow_tint = SDL_Color{255, 200, 220, 12};
     return p;
 }
 
