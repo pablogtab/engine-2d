@@ -152,6 +152,84 @@ public:
                 }
             }
         );
+
+        // Render Joint connection lines (chains / cables)
+        entity_manager.for_each<TransformComponent, JointComponent>(
+            [&renderer, &entity_manager](EntityID idA, const TransformComponent& txA, const JointComponent& joint) {
+                if (!entity_manager.is_alive(joint.target_entity) ||
+                    !entity_manager.has_component<TransformComponent>(joint.target_entity)) {
+                    return;
+                }
+                const auto& txB = entity_manager.get_component<TransformComponent>(joint.target_entity);
+
+                float radA = glm::radians(txA.world_rotation);
+                glm::vec2 rotA(joint.local_anchor_a.x * std::cos(radA) - joint.local_anchor_a.y * std::sin(radA),
+                               joint.local_anchor_a.x * std::sin(radA) + joint.local_anchor_a.y * std::cos(radA));
+                glm::vec2 anchorA = glm::vec2(txA.world_position.x, txA.world_position.y) + rotA * txA.world_scale;
+
+                float radB = glm::radians(txB.world_rotation);
+                glm::vec2 rotB(joint.local_anchor_b.x * std::cos(radB) - joint.local_anchor_b.y * std::sin(radB),
+                               joint.local_anchor_b.x * std::sin(radB) + joint.local_anchor_b.y * std::cos(radB));
+                glm::vec2 anchorB = glm::vec2(txB.world_position.x, txB.world_position.y) + rotB * txB.world_scale;
+
+                glm::vec2 delta = anchorB - anchorA;
+                float len = glm::length(delta);
+                if (len < 0.001f) return;
+
+                float max_l = (joint.distance_config.max_length >= 0.0f) ? joint.distance_config.max_length : len;
+                float slack = max_l - len;
+
+                // If it's a flexible rope and there is slack (d < max_length), draw a drooping catenary Bézier curve!
+                if (joint.type == JointType::Rope && slack > 2.0f) {
+                    float sag = std::min(slack * 0.65f, 150.0f);
+                    glm::vec2 ctrl_pt = (anchorA + anchorB) * 0.5f + glm::vec2(0.0f, -sag);
+
+                    constexpr int SEGMENTS = 12;
+                    glm::vec2 prev_pt = anchorA;
+
+                    for (int s = 1; s <= SEGMENTS; ++s) {
+                        float t = static_cast<float>(s) / static_cast<float>(SEGMENTS);
+                        float inv_t = 1.0f - t;
+                        glm::vec2 curr_pt = (inv_t * inv_t) * anchorA +
+                                            (2.0f * inv_t * t) * ctrl_pt +
+                                            (t * t) * anchorB;
+
+                        glm::vec2 seg_delta = curr_pt - prev_pt;
+                        float seg_len = glm::length(seg_delta);
+                        if (seg_len > 0.001f) {
+                            float seg_angle = -glm::degrees(std::atan2(seg_delta.y, seg_delta.x));
+                            glm::vec2 seg_mid = (prev_pt + curr_pt) * 0.5f;
+
+                            renderer.submit_sprite(
+                                nullptr,
+                                glm::vec3(seg_mid, 0.0f),
+                                glm::vec2(seg_len, 3.5f),
+                                seg_angle,
+                                SDL_Color{220, 180, 100, 240}, // Natural hemp rope golden brown
+                                nullptr,
+                                glm::vec2(0.5f, 0.5f),
+                                true
+                            );
+                        }
+                        prev_pt = curr_pt;
+                    }
+                } else {
+                    // Tight cable or rigid rod
+                    float angle = -glm::degrees(std::atan2(delta.y, delta.x));
+                    glm::vec2 mid = (anchorA + anchorB) * 0.5f;
+                    renderer.submit_sprite(
+                        nullptr,
+                        glm::vec3(mid, 0.0f),
+                        glm::vec2(len, 3.5f),
+                        angle,
+                        SDL_Color{230, 210, 130, 240}, // Metallic cable gold
+                        nullptr,
+                        glm::vec2(0.5f, 0.5f),
+                        true
+                    );
+                }
+            }
+        );
     }
 };
 

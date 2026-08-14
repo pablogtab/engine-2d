@@ -269,4 +269,101 @@ struct RigidBodyComponent {
     }
 };
 
+// 2D Physics Joints & Constraints
+enum class JointType {
+    Distance,   // Fixed distance / spring damper (rigid rods, springs)
+    Rope,       // Flexible slack rope (slack when d < max_length, tense when d == max_length)
+    Revolute,   // Hinge / Pin / Pendulum pivot (wheels, swinging chains, ragdolls)
+    Prismatic   // Slider / Piston along an axis (elevators, pistons, sliding doors)
+};
+
+struct DistanceJointConfig {
+    float length{-1.0f};      // Length in pixels (-1.0f = auto-compute initial distance)
+    float min_length{0.0f};   // Minimum distance in pixels (0.0 for slack rope)
+    float max_length{-1.0f};  // Maximum distance in pixels (-1.0 = auto)
+    float stiffness{0.0f};   // Spring stiffness (Hz frequency in Box2D)
+    float damping{0.0f};     // Damping ratio [0, 1]
+};
+
+struct RevoluteJointConfig {
+    bool enable_limit{false};
+    float lower_angle{0.0f};      // Lower limit in degrees
+    float upper_angle{0.0f};      // Upper limit in degrees
+    bool enable_motor{false};
+    float motor_speed{0.0f};      // Desired motor speed in deg/sec
+    float max_motor_torque{0.0f}; // Max motor torque
+};
+
+struct PrismaticJointConfig {
+    glm::vec2 axis{1.0f, 0.0f};   // Direction of slide in local coordinates
+    bool enable_limit{false};
+    float lower_translation{0.0f}; // Lower translation limit in pixels
+    float upper_translation{0.0f}; // Upper translation limit in pixels
+    bool enable_motor{false};
+    float motor_speed{0.0f};       // Desired motor speed in pixels/sec
+    float max_motor_force{0.0f};  // Max motor force
+};
+
+struct JointComponent {
+    JointType type{JointType::Distance};
+    EntityID target_entity{0};           // The other entity to connect to
+    glm::vec2 local_anchor_a{0.0f, 0.0f}; // Anchor on this entity (pixels relative to center)
+    glm::vec2 local_anchor_b{0.0f, 0.0f}; // Anchor on target entity (pixels relative to center)
+    bool collide_connected{false};       // True = Allow the two connected bodies to collide with each other
+
+    DistanceJointConfig distance_config;
+    RevoluteJointConfig revolute_config;
+    PrismaticJointConfig prismatic_config;
+
+    JointComponent() = default;
+
+    static JointComponent Distance(EntityID target, const glm::vec2& anchor_a = {0.0f, 0.0f}, const glm::vec2& anchor_b = {0.0f, 0.0f},
+                                   float length = -1.0f, float stiffness = 0.0f, float damping = 0.0f, bool collide = false) {
+        JointComponent j;
+        j.type = JointType::Distance;
+        j.target_entity = target;
+        j.local_anchor_a = anchor_a;
+        j.local_anchor_b = anchor_b;
+        j.collide_connected = collide;
+        j.distance_config = {length, 0.0f, -1.0f, stiffness, damping};
+        return j;
+    }
+
+    static JointComponent Rope(EntityID target, float max_length = -1.0f, const glm::vec2& anchor_a = {0.0f, 0.0f},
+                               const glm::vec2& anchor_b = {0.0f, 0.0f}, bool collide = false) {
+        JointComponent j;
+        j.type = JointType::Rope;
+        j.target_entity = target;
+        j.local_anchor_a = anchor_a;
+        j.local_anchor_b = anchor_b;
+        j.collide_connected = collide;
+        j.distance_config.min_length = 0.0f;
+        j.distance_config.max_length = max_length;
+        return j;
+    }
+
+    static JointComponent Revolute(EntityID target, const glm::vec2& anchor_a = {0.0f, 0.0f}, const glm::vec2& anchor_b = {0.0f, 0.0f},
+                                   bool collide = false) {
+        JointComponent j;
+        j.type = JointType::Revolute;
+        j.target_entity = target;
+        j.local_anchor_a = anchor_a;
+        j.local_anchor_b = anchor_b;
+        j.collide_connected = collide;
+        return j;
+    }
+
+    static JointComponent Prismatic(EntityID target, const glm::vec2& axis = {1.0f, 0.0f}, const glm::vec2& anchor_a = {0.0f, 0.0f},
+                                    const glm::vec2& anchor_b = {0.0f, 0.0f}, bool collide = false) {
+        JointComponent j;
+        j.type = JointType::Prismatic;
+        j.target_entity = target;
+        j.local_anchor_a = anchor_a;
+        j.local_anchor_b = anchor_b;
+        j.collide_connected = collide;
+        j.prismatic_config.axis = axis;
+        return j;
+    }
+};
+
 } // namespace Engine

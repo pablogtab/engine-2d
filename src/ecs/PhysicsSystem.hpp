@@ -346,6 +346,7 @@ public:
 
   static void clear() {
     s_b2_bodies.clear();
+    s_b2_joints.clear();
     s_ignore_one_way.clear();
     s_contact_listener.reset();
     s_b2_world.reset();
@@ -400,6 +401,16 @@ public:
     rb.active_forces.push_back(af);
   }
 
+  static void destroy_joint(EntityID id) {
+    auto it = s_b2_joints.find(id);
+    if (it != s_b2_joints.end()) {
+      if (s_b2_world && it->second) {
+        s_b2_world->DestroyJoint(it->second);
+      }
+      s_b2_joints.erase(it);
+    }
+  }
+
   static void update(EntityManager &entity_manager,
                      EventDispatcher &event_dispatcher, float delta_time) {
     if (!s_b2_world) {
@@ -410,7 +421,26 @@ public:
       s_b2_world->SetContactListener(s_contact_listener.get());
     }
 
-    // Clean up bodies for destroyed entities
+    // 1. Clean up destroyed joints FIRST (before destroying bodies to prevent double-free dangling pointers)
+    for (auto it = s_b2_joints.begin(); it != s_b2_joints.end();) {
+      bool a_alive = entity_manager.is_alive(it->first) && entity_manager.has_component<JointComponent>(it->first);
+      bool b_alive = false;
+      if (a_alive) {
+        const auto &jc = entity_manager.get_component<JointComponent>(it->first);
+        b_alive = entity_manager.is_alive(jc.target_entity);
+      }
+
+      if (!a_alive || !b_alive) {
+        if (s_b2_world && it->second) {
+          s_b2_world->DestroyJoint(it->second);
+        }
+        it = s_b2_joints.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+    // 2. Clean up bodies for destroyed entities AFTER joints have been safely freed
     for (auto it = s_b2_bodies.begin(); it != s_b2_bodies.end();) {
       if (!entity_manager.is_alive(it->first)) {
         s_b2_world->DestroyBody(it->second);
@@ -538,6 +568,84 @@ public:
           }
         });
 
+    // Synchronize and initialize active JointComponent constraints
+    entity_manager.for_each<JointComponent>(
+        [&entity_manager](EntityID id, JointComponent &joint) {
+          if (s_b2_joints.find(id) != s_b2_joints.end()) return;
+
+          auto itA = s_b2_bodies.find(id);
+          auto itB = s_b2_bodies.find(joint.target_entity);
+
+          if (itA == s_b2_bodies.end() || !itA->second ||
+              itB == s_b2_bodies.end() || !itB->second) {
+            return;
+          }
+
+          b2Body *bodyA = itA->second;
+          b2Body *bodyB = itB->second;
+
+          b2Vec2 anchorA_m(joint.local_anchor_a.x * k_p2m, joint.local_anchor_a.y * k_p2m);
+          b2Vec2 anchorB_m(joint.local_anchor_b.x * k_p2m, joint.local_anchor_b.y * k_p2m);
+
+          b2Joint *b2_joint = nullptr;
+
+          if (joint.type == JointType::Distance || joint.type == JointType::Rope) {
+            b2DistanceJointDef def;
+            b2Vec2 worldA = bodyA->GetWorldPoint(anchorA_m);
+            b2Vec2 worldB = bodyB->GetWorldPoint(anchorB_m);
+            def.Initialize(bodyA, bodyB, worldA, worldB);
+            def.collideConnected = joint.collide_connected;
+
+            if (joint.type == JointType::Rope || joint.distance_config.max_length >= 0.0f) {
+              float max_l = (joint.distance_config.max_length >= 0.0f) ? joint.distance_config.max_length : (worldB - worldA).Length() * k_m2p;
+              def.minLength = joint.distance_config.min_length * k_p2m;
+              def.maxLength = max_l * k_p2m;
+            } else if (joint.distance_config.length >= 0.0f) {
+              def.length = joint.distance_config.length * k_p2m;
+            }
+            if (joint.distance_config.stiffness > 0.0f) {
+              b2LinearStiffness(def.stiffness, def.damping,
+                                joint.distance_config.stiffness,
+                                joint.distance_config.damping,
+                                bodyA, bodyB);
+            }
+            b2_joint = s_b2_world->CreateJoint(&def);
+          } else if (joint.type == JointType::Revolute) {
+            b2RevoluteJointDef def;
+            b2Vec2 worldAnchor = bodyA->GetWorldPoint(anchorA_m);
+            def.Initialize(bodyA, bodyB, worldAnchor);
+            def.localAnchorA = anchorA_m;
+            def.localAnchorB = anchorB_m;
+            def.collideConnected = joint.collide_connected;
+            def.enableLimit = joint.revolute_config.enable_limit;
+            def.lowerAngle = glm::radians(joint.revolute_config.lower_angle);
+            def.upperAngle = glm::radians(joint.revolute_config.upper_angle);
+            def.enableMotor = joint.revolute_config.enable_motor;
+            def.motorSpeed = glm::radians(-joint.revolute_config.motor_speed);
+            def.maxMotorTorque = joint.revolute_config.max_motor_torque;
+            b2_joint = s_b2_world->CreateJoint(&def);
+          } else if (joint.type == JointType::Prismatic) {
+            b2PrismaticJointDef def;
+            b2Vec2 worldAnchor = bodyA->GetWorldPoint(anchorA_m);
+            b2Vec2 worldAxis(joint.prismatic_config.axis.x, -joint.prismatic_config.axis.y);
+            def.Initialize(bodyA, bodyB, worldAnchor, worldAxis);
+            def.localAnchorA = anchorA_m;
+            def.localAnchorB = anchorB_m;
+            def.collideConnected = joint.collide_connected;
+            def.enableLimit = joint.prismatic_config.enable_limit;
+            def.lowerTranslation = joint.prismatic_config.lower_translation * k_p2m;
+            def.upperTranslation = joint.prismatic_config.upper_translation * k_p2m;
+            def.enableMotor = joint.prismatic_config.enable_motor;
+            def.motorSpeed = joint.prismatic_config.motor_speed * k_p2m;
+            def.maxMotorForce = joint.prismatic_config.max_motor_force;
+            b2_joint = s_b2_world->CreateJoint(&def);
+          }
+
+          if (b2_joint) {
+            s_b2_joints[id] = b2_joint;
+          }
+        });
+
     // Step physics simulation world
     s_b2_world->Step(delta_time, 8, 3);
 
@@ -594,6 +702,7 @@ private:
   static inline std::unique_ptr<PhysicsContactListener> s_contact_listener{
       nullptr};
   static inline std::unordered_map<EntityID, b2Body *> s_b2_bodies;
+  static inline std::unordered_map<EntityID, b2Joint *> s_b2_joints;
   static inline std::unordered_set<EntityID> s_ignore_one_way;
 };
 

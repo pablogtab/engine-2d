@@ -60,15 +60,23 @@ private:
     std::unique_ptr<Engine::Texture> m_elevator_texture;
     std::unique_ptr<Engine::Texture> m_slope_texture;
     std::unique_ptr<Engine::Texture> m_wheel_texture;
+    std::unique_ptr<Engine::Texture> m_wrecking_ball_texture;
     std::unique_ptr<Engine::Texture> m_circle_debug_texture;
+
+    bool m_is_grappling{false};
+    Engine::EntityID m_grapple_anchor_id{0};
 
     void setup_level();
     void create_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color);
     void create_one_way_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color);
     void create_slope(const glm::vec2& position, const glm::vec2& size, bool slope_up_right = true);
+    void create_wrecking_ball(const glm::vec2& anchor_pos, const glm::vec2& ball_pos, float radius = 28.0f);
     void create_elevator(const glm::vec2& position, const glm::vec2& size);
     void create_coin(const glm::vec2& position);
     void create_launch_pad(const glm::vec2& position);
+
+    void attach_grapple(const glm::vec2& target_point);
+    void detach_grapple();
 };
 
 } // namespace Sandbox

@@ -33,6 +33,10 @@ void PlatformerDemoScene::on_attach() {
     // Set Platformer Downward Gravity (Y = -800.0f pulls downward)
     Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, -800.0f));
 
+    // Wider camera zoom to frame the whole level comfortably
+    m_camera.set_zoom(0.76f);
+    m_camera.set_position(glm::vec2(0.0f, -20.0f));
+
     // Generate Procedural Textures
     m_player_texture = std::unique_ptr<Engine::Texture>(
         Engine::Texture::create_solid(m_sdl_renderer, 64, 64, 40, 180, 255, 255)
@@ -109,6 +113,38 @@ void PlatformerDemoScene::on_attach() {
             }
         }
         m_wheel_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, diameter, diameter, pixels.data());
+    }
+
+    // Procedural metallic wrecking ball texture (56x56)
+    {
+        int radius = 28;
+        int diameter = radius * 2;
+        std::vector<uint32_t> pixels(diameter * diameter, 0);
+        uint32_t metal_base = (70 << 24) | (75 << 16) | (85 << 8) | 255;
+        uint32_t highlight  = (160 << 24) | (170 << 16) | (190 << 8) | 255;
+        uint32_t rim_dark   = (40 << 24) | (42 << 16) | (48 << 8) | 255;
+
+        for (int y = 0; y < diameter; ++y) {
+            for (int x = 0; x < diameter; ++x) {
+                float dx = x - radius + 0.5f;
+                float dy = y - radius + 0.5f;
+                float dist_sq = dx * dx + dy * dy;
+                if (dist_sq <= radius * radius) {
+                    float dist = std::sqrt(dist_sq);
+                    float hdx = dx + 7.0f;
+                    float hdy = dy + 7.0f;
+                    float h_dist = std::sqrt(hdx * hdx + hdy * hdy);
+                    if (h_dist < 6.0f) {
+                        pixels[y * diameter + x] = highlight;
+                    } else if (dist > radius - 2.5f) {
+                        pixels[y * diameter + x] = rim_dark;
+                    } else {
+                        pixels[y * diameter + x] = metal_base;
+                    }
+                }
+            }
+        }
+        m_wrecking_ball_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, diameter, diameter, pixels.data());
     }
 
     m_circle_debug_texture = std::unique_ptr<Engine::Texture>(
@@ -188,24 +224,32 @@ void PlatformerDemoScene::on_detach() {
 }
 
 void PlatformerDemoScene::setup_level() {
-    // 1. Create Main Ground Platform (Static Solid RigidBody)
-    create_platform({0.0f, -280.0f}, {1200.0f, 40.0f}, {80, 140, 60, 255});
+    // 1. Create Main Ground Platform (Static Solid RigidBody, 1400px wide)
+    create_platform({0.0f, -280.0f}, {1400.0f, 40.0f}, {80, 140, 60, 255});
 
-    // 2. Create Floating One-Way (Jump-Through) Platforms
-    create_one_way_platform({-350.0f, -120.0f}, {280.0f, 24.0f}, {160, 110, 75, 255});
-    create_one_way_platform({0.0f, 20.0f}, {260.0f, 24.0f}, {160, 110, 75, 255});
-    create_one_way_platform({380.0f, 150.0f}, {280.0f, 24.0f}, {160, 110, 75, 255});
-    create_one_way_platform({-200.0f, 240.0f}, {220.0f, 24.0f}, {160, 110, 75, 255});
+    // 2. Left Zone: Kinematic Elevator + Top Observation Deck + Stepping Platforms
+    create_elevator({-500.0f, -220.0f}, {110.0f, 22.0f});
+    create_platform({-500.0f, 180.0f}, {140.0f, 24.0f}, {140, 100, 70, 255}); // Top deck
+    create_one_way_platform({-320.0f, -60.0f}, {180.0f, 22.0f}, {160, 110, 75, 255});
+    create_one_way_platform({-320.0f, 80.0f}, {180.0f, 22.0f}, {160, 110, 75, 255});
 
-    // 3. Create Premiere Bezier Launch Pad Trigger on Floor
-    create_launch_pad({150.0f, -252.0f});
+    // 3. Center Zone: Solid Ceiling Arch + Swinging Wrecking Ball + Central Launch Pad
+    create_platform({0.0f, 220.0f}, {180.0f, 24.0f}, {90, 95, 105, 255});
+    create_wrecking_ball({0.0f, 208.0f}, {55.0f, 80.0f}, 26.0f);
+    create_launch_pad({0.0f, -252.0f}); // Trampoline right under the open swing zone!
 
-    // 4. Spawn Collectible Coins (Triggers on Layer COIN)
+    // 4. Right Zone: Slope Ramp + Raised Deck + Rolling Wheel + High Floating Deck
+    create_slope({280.0f, -185.0f}, {180.0f, 150.0f}, true);
+    create_platform({460.0f, -125.0f}, {180.0f, 30.0f}, {140, 100, 70, 255});
+    create_one_way_platform({280.0f, 70.0f}, {180.0f, 22.0f}, {160, 110, 75, 255});
+
+    // 5. Spawn Collectible Coins in exciting reward spots
     std::vector<glm::vec2> coin_positions = {
-        {-420.0f, -60.0f}, {-280.0f, -60.0f},
-        {-50.0f, 80.0f},   {50.0f, 80.0f},
-        {320.0f, 210.0f},  {440.0f, 210.0f},
-        {-200.0f, 300.0f}
+        {-500.0f, 230.0f},                  // Above Elevator Top Deck
+        {-320.0f, 130.0f},                  // Above Mid-Left Platform
+        {-45.0f, -70.0f}, {0.0f, -20.0f}, {45.0f, -70.0f}, // Parabolic Arc above Launch Pad!
+        {280.0f, 120.0f},                   // Above High Right Platform
+        {460.0f, -60.0f}                    // Above Raised Wooden Deck
     };
 
     for (const auto& pos : coin_positions) {
@@ -213,11 +257,11 @@ void PlatformerDemoScene::setup_level() {
     }
     m_total_coins = static_cast<int>(coin_positions.size());
 
-    // 5. Create Player Entity (Knight Jumper)
+    // 6. Create Player Entity (Knight Jumper)
     m_player_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(m_player_id, Engine::TagComponent{"Player"});
     m_entity_manager.add_component<Engine::TransformComponent>(
-        m_player_id, Engine::TransformComponent{glm::vec3(0.0f, -200.0f, 0.0f)}
+        m_player_id, Engine::TransformComponent{glm::vec3(-150.0f, -200.0f, 0.0f)}
     );
     m_entity_manager.add_component<Engine::SpriteComponent>(
         m_player_id, Engine::SpriteComponent{m_player_texture.get(), glm::vec2(44.0f, 56.0f), SDL_Color{50, 180, 255, 255}}
@@ -234,20 +278,44 @@ void PlatformerDemoScene::setup_level() {
         m_player_id, Engine::ColliderComponent::Box({44.0f, 56.0f}, {0.0f, 0.0f}, false, Layer::PLAYER, player_mask)
     );
 
-    // 6. Create Rolling Physical Wheel Entity on Raised Platform (Rolls down slope!)
+    // 7. Create Rolling Physical Wheel Entity on Raised Platform (Rolls down slope!)
     Engine::EntityID wheel_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(wheel_id, Engine::TagComponent{"RollingWheel"});
-    m_entity_manager.add_component<Engine::TransformComponent>(wheel_id, Engine::TransformComponent{glm::vec3(420.0f, -80.0f, 0.0f)});
+    m_entity_manager.add_component<Engine::TransformComponent>(wheel_id, Engine::TransformComponent{glm::vec3(450.0f, -80.0f, 0.0f)});
     m_entity_manager.add_component<Engine::SpriteComponent>(wheel_id, Engine::SpriteComponent{m_wheel_texture.get(), glm::vec2(48.0f, 48.0f), SDL_Color{255, 255, 255, 255}});
     m_entity_manager.add_component<Engine::RigidBodyComponent>(wheel_id, Engine::RigidBodyComponent::Dynamic(1.0f, 0.4f, 0.6f, false)); // lock_rotation = false!
     m_entity_manager.add_component<Engine::ColliderComponent>(wheel_id, Engine::ColliderComponent::Circle(24.0f, {0.0f, 0.0f}, false, Layer::DEFAULT, Layer::GROUND | Layer::PLAYER));
+}
 
-    // 7. Create Kinematic Elevator Moving Platform on the Left (X = -480.0)
-    create_elevator({-480.0f, -220.0f}, {110.0f, 22.0f});
+void PlatformerDemoScene::create_wrecking_ball(const glm::vec2& anchor_pos, const glm::vec2& ball_pos, float radius) {
+    // 1. Static Anchor Pin
+    Engine::EntityID anchor_id = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(anchor_id, Engine::TagComponent{"PendulumAnchor"});
+    m_entity_manager.add_component<Engine::TransformComponent>(anchor_id, Engine::TransformComponent{glm::vec3(anchor_pos, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(anchor_id, Engine::SpriteComponent{m_block_texture.get(), glm::vec2(16.0f, 16.0f), SDL_Color{80, 80, 80, 255}});
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(anchor_id, Engine::RigidBodyComponent::Static());
+    m_entity_manager.add_component<Engine::ColliderComponent>(anchor_id, Engine::ColliderComponent::Box({16.0f, 16.0f}));
 
-    // 8. Create Triangular Physics Slope Ramp on the Right seamlessly connecting floor (Y=-260) to platform (Y=-110)
-    create_slope({290.0f, -185.0f}, {180.0f, 150.0f}, true);
-    create_platform({460.0f, -125.0f}, {160.0f, 30.0f}, {140, 100, 70, 255});
+    // 2. Heavy Dynamic Wrecking Ball
+    Engine::EntityID ball_id = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(ball_id, Engine::TagComponent{"WreckingBall"});
+    m_entity_manager.add_component<Engine::TransformComponent>(ball_id, Engine::TransformComponent{glm::vec3(ball_pos, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(ball_id, Engine::SpriteComponent{m_wrecking_ball_texture.get(), glm::vec2(radius * 2.0f), SDL_Color{255, 255, 255, 255}});
+
+    auto& ball_rb = m_entity_manager.add_component<Engine::RigidBodyComponent>(
+        ball_id, Engine::RigidBodyComponent::Dynamic(1.0f, 0.6f, 0.3f, false)
+    );
+    ball_rb.mass = 4.0f;
+
+    uint16_t ball_mask = Layer::GROUND | Layer::PLAYER | Layer::DEFAULT;
+    m_entity_manager.add_component<Engine::ColliderComponent>(
+        ball_id, Engine::ColliderComponent::Circle(radius, {0.0f, 0.0f}, false, Layer::DEFAULT, ball_mask)
+    );
+
+    // 3. Connect via Distance Joint
+    m_entity_manager.add_component<Engine::JointComponent>(
+        ball_id, Engine::JointComponent::Distance(anchor_id, {0.0f, 0.0f}, {0.0f, 0.0f}, -1.0f, 0.0f, 0.0f, false)
+    );
 }
 
 void PlatformerDemoScene::create_slope(const glm::vec2& position, const glm::vec2& size, bool slope_up_right) {
@@ -380,6 +448,24 @@ void PlatformerDemoScene::on_update(float delta_time) {
         }
     }
 
+    // 3. Right-Click or 'E' key: Fire / Detach Flexible Grappling Rope!
+    if (Engine::Input::is_mouse_just_pressed(Engine::MouseButton::RIGHT) ||
+        Engine::Input::is_key_just_pressed(SDL_SCANCODE_E)) {
+        if (m_is_grappling) {
+            detach_grapple();
+        } else if (m_entity_manager.is_alive(m_player_id)) {
+            glm::vec2 mouse_screen = Engine::Input::get_mouse_position();
+            glm::vec2 target_world = m_camera.screen_to_world(mouse_screen);
+            const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+            glm::vec2 player_pos(player_tx.position.x, player_tx.position.y);
+
+            auto hit = Engine::PhysicsSystem::raycast(player_pos, target_world, Layer::GROUND, true, m_player_id);
+            if (hit.hit) {
+                attach_grapple(hit.point);
+            }
+        }
+    }
+
     // 3. Left-Click (or 'F' key): Detonate Radial Physical Explosion at Mouse World Position!
     if (Engine::Input::is_mouse_just_pressed(Engine::MouseButton::LEFT) ||
         Engine::Input::is_key_just_pressed(SDL_SCANCODE_F)) {
@@ -423,7 +509,15 @@ void PlatformerDemoScene::on_update(float delta_time) {
             move_x += move_speed;
         }
 
-        rb.velocity.x = move_x;
+        if (m_is_grappling) {
+            // Dynamic swinging force: allow the player to pump the pendulum with A/D!
+            if (move_x != 0.0f) {
+                rb.velocity.x += (move_x > 0.0f ? 600.0f : -600.0f) * delta_time;
+                rb.velocity.x = std::clamp(rb.velocity.x, -550.0f, 550.0f);
+            }
+        } else {
+            rb.velocity.x = move_x;
+        }
 
         // Grounded check: Physics contact manifold query OR velocity threshold (supports moving elevator & flat terrain)
         constexpr float VERTICAL_GROUND_THRESHOLD = 35.0f;
@@ -445,12 +539,20 @@ void PlatformerDemoScene::on_update(float delta_time) {
             m_jump_buffer_timer -= delta_time;
         }
 
-        // Execute Jump if buffered and within coyote window
-        if (m_jump_buffer_timer > 0.0f && m_coyote_timer > 0.0f) {
-            rb.velocity.y = 520.0f;
-            m_jump_buffer_timer = 0.0f;
-            m_coyote_timer = 0.0f;
-            ENGINE_LOG_INFO("[PLATFORMER DEMO] Jump Applied! Velocity Y set to 520.0");
+        // Execute Jump if buffered and within coyote window (OR release grapple catapult jump!)
+        if (m_jump_buffer_timer > 0.0f) {
+            if (m_is_grappling) {
+                detach_grapple();
+                rb.velocity.y = std::max(rb.velocity.y + 260.0f, 480.0f);
+                m_jump_buffer_timer = 0.0f;
+                m_coyote_timer = 0.0f;
+                ENGINE_LOG_INFO("[GRAPPLE JUMP] Grapple Released with Catapult Momentum Boost!");
+            } else if (m_coyote_timer > 0.0f) {
+                rb.velocity.y = 520.0f;
+                m_jump_buffer_timer = 0.0f;
+                m_coyote_timer = 0.0f;
+                ENGINE_LOG_INFO("[PLATFORMER DEMO] Jump Applied! Velocity Y set to 520.0");
+            }
         }
 
         // Drop-Down / Passthrough Mechanic (Pressing S or Down Arrow to drop through one-way platforms)
@@ -498,12 +600,12 @@ void PlatformerDemoScene::on_update(float delta_time) {
                         player_tx.position.x, player_tx.position.y, player_rb.velocity.x, player_rb.velocity.y);
     }
 
-    // 4. Smooth Camera Follow
+    // 4. Smooth Camera Follow (Weighted centering keeps entire arena in view)
     if (m_entity_manager.is_alive(m_player_id)) {
         const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
         glm::vec2 current_cam = m_camera.get_position();
-        glm::vec2 target_cam = glm::vec2(player_tx.position.x, player_tx.position.y + 60.0f);
-        m_camera.set_position(current_cam + (target_cam - current_cam) * 6.0f * delta_time);
+        glm::vec2 target_cam = glm::vec2(player_tx.position.x * 0.45f, player_tx.position.y * 0.35f + 10.0f);
+        m_camera.set_position(current_cam + (target_cam - current_cam) * 4.5f * delta_time);
     }
 }
 
@@ -595,6 +697,45 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
     }
 
     renderer.end_scene();
+}
+
+void PlatformerDemoScene::attach_grapple(const glm::vec2& target_point) {
+    detach_grapple();
+
+    m_grapple_anchor_id = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(m_grapple_anchor_id, Engine::TagComponent{"GrappleAnchor"});
+    m_entity_manager.add_component<Engine::TransformComponent>(m_grapple_anchor_id, Engine::TransformComponent{glm::vec3(target_point, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(m_grapple_anchor_id, Engine::SpriteComponent{m_circle_debug_texture.get(), glm::vec2(14.0f, 14.0f), SDL_Color{255, 230, 0, 255}});
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(m_grapple_anchor_id, Engine::RigidBodyComponent::Static());
+    m_entity_manager.add_component<Engine::ColliderComponent>(m_grapple_anchor_id, Engine::ColliderComponent::Circle(7.0f));
+
+    if (m_entity_manager.is_alive(m_player_id) && m_entity_manager.has_component<Engine::TransformComponent>(m_player_id)) {
+        const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+        float rope_length = glm::distance(glm::vec2(player_tx.position.x, player_tx.position.y), target_point);
+
+        // Attach Slack Rope Joint to Player!
+        m_entity_manager.add_component<Engine::JointComponent>(
+            m_player_id, Engine::JointComponent::Rope(m_grapple_anchor_id, rope_length)
+        );
+        m_is_grappling = true;
+        ENGINE_LOG_INFO("[GRAPPLE ROPE] Attached rope to ({:.1f}, {:.1f}) with max_length={:.1f}px!",
+                        target_point.x, target_point.y, rope_length);
+    }
+}
+
+void PlatformerDemoScene::detach_grapple() {
+    if (m_is_grappling) {
+        Engine::PhysicsSystem::destroy_joint(m_player_id);
+        if (m_entity_manager.is_alive(m_player_id) && m_entity_manager.has_component<Engine::JointComponent>(m_player_id)) {
+            m_entity_manager.remove_component<Engine::JointComponent>(m_player_id);
+        }
+        if (m_grapple_anchor_id != 0 && m_entity_manager.is_alive(m_grapple_anchor_id)) {
+            m_entity_manager.destroy_entity(m_grapple_anchor_id);
+            m_grapple_anchor_id = 0;
+        }
+        m_is_grappling = false;
+        ENGINE_LOG_INFO("[GRAPPLE ROPE] Detached and removed grapple rope!");
+    }
 }
 
 } // namespace Sandbox
