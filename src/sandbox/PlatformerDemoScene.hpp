@@ -29,6 +29,8 @@ private:
     Engine::EntityID m_player_id{0};
     bool m_show_debug_colliders{true};
     bool m_is_grounded{false};
+    float m_coyote_timer{0.0f};
+    float m_jump_buffer_timer{0.0f};
     float m_launch_cooldown{0.0f};
     int m_score{0};
     int m_total_coins{0};

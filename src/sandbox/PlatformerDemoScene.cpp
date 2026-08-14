@@ -284,13 +284,29 @@ void PlatformerDemoScene::on_update(float delta_time) {
 
         rb.velocity.x = move_x;
 
-        // Grounded Jump: Allowed when vertical velocity is 0 (standing on flat surface)
-        bool is_grounded = std::abs(rb.velocity.y) < 1.0f;
+        // Grounded Jump with Vertical Velocity Tolerance Threshold & Coyote Time
+        constexpr float VERTICAL_GROUND_THRESHOLD = 35.0f; // Allows jumping through micro-bounces and settled contact
+        if (m_is_grounded || std::abs(rb.velocity.y) < VERTICAL_GROUND_THRESHOLD) {
+            m_coyote_timer = 0.12f; // 120ms coyote time window
+        } else {
+            m_coyote_timer -= delta_time;
+        }
 
-        if (is_grounded && (Engine::Input::is_key_just_pressed(SDL_SCANCODE_SPACE) ||
-                             Engine::Input::is_key_just_pressed(SDL_SCANCODE_W) ||
-                             Engine::Input::is_key_just_pressed(SDL_SCANCODE_UP))) {
+        // Jump Input Buffering
+        if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_SPACE) ||
+            Engine::Input::is_key_just_pressed(SDL_SCANCODE_W) ||
+            Engine::Input::is_key_just_pressed(SDL_SCANCODE_UP)) {
+            m_jump_buffer_timer = 0.12f; // 120ms jump buffer
+        } else {
+            m_jump_buffer_timer -= delta_time;
+        }
+
+        // Execute Jump if buffered and within coyote window
+        if (m_jump_buffer_timer > 0.0f && m_coyote_timer > 0.0f) {
             rb.velocity.y = 520.0f; // Jump upward impulse
+            m_jump_buffer_timer = 0.0f;
+            m_coyote_timer = 0.0f;
+            m_is_grounded = false;
             ENGINE_LOG_INFO("[PLATFORMER DEMO] Jump Applied! Velocity Y set to 520.0");
         }
     }
