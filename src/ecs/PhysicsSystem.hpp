@@ -1,211 +1,170 @@
 #pragma once
 
-#include "../core/Log.hpp"
 #include "../events/Event.hpp"
 #include "../events/EventDispatcher.hpp"
-#include "../scene/SpatialGrid.hpp"
 #include "Components.hpp"
 #include "EntityManager.hpp"
-#include "../physics/cute_c2.h"
-#include <algorithm>
-#include <cmath>
+#include <box2d/box2d.h>
 #include <glm/glm.hpp>
-#include <vector>
+#include <memory>
+#include <unordered_map>
 
 namespace Engine {
 
-class PhysicsSystem {
+// Contact listener for Box2D collision events
+class PhysicsContactListener : public b2ContactListener {
 public:
-  static void set_gravity(const glm::vec2 &gravity) { s_gravity = gravity; }
-  static const glm::vec2 &get_gravity() { return s_gravity; }
+  explicit PhysicsContactListener(EventDispatcher &dispatcher)
+      : m_dispatcher(dispatcher) {}
 
-  // Execute 2D Physics Step: Kinematic Pre-Movement Sweep & Axis-Separated
-  // Collision Clamping
-  static void update(EntityManager &entity_manager,
-                     EventDispatcher &event_dispatcher, float delta_time) {
-    // Step 1: Populate Spatial Hash Grid for Broadphase Collision Querying
-    static SpatialGrid s_physics_grid(256.0f);
-    s_physics_grid.clear();
+  void BeginContact(b2Contact *contact) override {
+    b2Fixture *fixtureA = contact->GetFixtureA();
+    b2Fixture *fixtureB = contact->GetFixtureB();
 
-    entity_manager.for_each<TransformComponent, ColliderComponent>(
-        [](EntityID id, const TransformComponent &transform,
-           const ColliderComponent &collider) {
-          if (!transform.world_visible)
-            return;
+    EntityID idA =
+        static_cast<EntityID>(fixtureA->GetBody()->GetUserData().pointer);
+    EntityID idB =
+        static_cast<EntityID>(fixtureB->GetBody()->GetUserData().pointer);
 
-          glm::vec2 max_size{64.0f, 64.0f};
-          for (const auto &shape : collider.shapes) {
-            if (shape.type == ColliderShapeType::Box) {
-              max_size = glm::max(max_size, shape.size);
-            } else if (shape.type == ColliderShapeType::Circle) {
-              max_size = glm::max(max_size, glm::vec2(shape.radius * 2.0f));
-            }
-          }
-          s_physics_grid.insert(id, transform.world_position,
-                                max_size * transform.world_scale);
-        });
+    b2WorldManifold worldManifold;
+    contact->GetWorldManifold(&worldManifold);
+    glm::vec2 normal(worldManifold.normal.x, worldManifold.normal.y);
 
-    // Step 2: Godot 4 & Unity Official Iterative move_and_slide Vector Logic for Dynamic Bodies
-    entity_manager.for_each<TransformComponent, RigidBodyComponent, ColliderComponent>(
-        [&entity_manager, delta_time](EntityID id1, TransformComponent &t1, RigidBodyComponent &rb1, ColliderComponent &c1) {
-          if (rb1.is_static) return;
+    bool is_trigger = fixtureA->IsSensor() || fixtureB->IsSensor();
 
-          // Apply Acceleration & Gravity
-          rb1.velocity += (rb1.acceleration + s_gravity * rb1.gravity_scale) * delta_time;
-
-          glm::vec2 movement = rb1.velocity * delta_time;
-          if (glm::length(movement) < 0.0001f) return;
-
-          constexpr int MAX_SLIDES = 4;
-          for (int slide_iter = 0; slide_iter < MAX_SLIDES; ++slide_iter) {
-            if (glm::length(movement) < 0.0001f) break;
-
-            // Proposed position step
-            TransformComponent test_step = t1;
-            test_step.position += glm::vec3(movement, 0.0f);
-            test_step.world_position += glm::vec3(movement, 0.0f);
-
-            glm::vec2 best_normal{0.0f, 0.0f};
-            float max_penetration = 0.0f;
-            bool collided = false;
-
-            entity_manager.for_each<TransformComponent, ColliderComponent>(
-                [&t1, &c1, &test_step, id1, &collided, &best_normal, &max_penetration](
-                    EntityID id2, const TransformComponent &t2, const ColliderComponent &c2) {
-                  if (id1 == id2 || !t2.world_visible) return;
-                  for (const auto &s1 : c1.shapes) {
-                    for (const auto &s2 : c2.shapes) {
-                      if (s1.is_trigger || s2.is_trigger) continue;
-
-                      glm::vec2 mtv; float pen;
-                      if (check_shape_intersection(test_step, s1, t2, s2, mtv, pen)) {
-                        collided = true;
-                        if (pen > max_penetration) {
-                          max_penetration = pen;
-                          best_normal = mtv; // Normal pointing away from t2 obstacle towards t1
-                        }
-                      }
-                    }
-                  }
-                }
-            );
-
-            if (!collided) {
-              // Clear path! Apply movement fully
-              t1.position += glm::vec3(movement, 0.0f);
-              break;
-            }
-
-            // Collision encountered!
-            float n_len = glm::length(best_normal);
-            if (n_len < 0.0001f) break;
-
-            glm::vec2 unit_N = best_normal / n_len;
-
-            // Project remaining movement along wall surface plane (Godot/Unity slide)
-            float dot = glm::dot(movement, unit_N);
-            if (dot < 0.0f) {
-              movement = movement - unit_N * dot;
-              rb1.velocity = rb1.velocity - unit_N * glm::dot(rb1.velocity, unit_N);
-              t1.position += glm::vec3(movement, 0.0f);
-            }
-            break;
-          }
-        }
-    );
-
-    // Step 3: Trigger Sensors & Overlap Event Dispatching
-    entity_manager.for_each<TransformComponent, ColliderComponent>(
-        [&entity_manager, &event_dispatcher](
-            EntityID id1, TransformComponent &t1, ColliderComponent &c1) {
-          if (!t1.world_visible)
-            return;
-
-          SDL_FRect query_bounds{t1.world_position.x - 200.0f,
-                                 t1.world_position.y - 200.0f, 400.0f, 400.0f};
-
-          static std::vector<EntityID> candidates;
-          candidates.clear();
-          s_physics_grid.query_bounds(query_bounds, candidates);
-
-          for (EntityID id2 : candidates) {
-            if (id1 >= id2 || !entity_manager.is_alive(id2))
-              continue;
-            if (!entity_manager.has_component<TransformComponent>(id2) ||
-                !entity_manager.has_component<ColliderComponent>(id2))
-              continue;
-
-            auto &t2 = entity_manager.get_component<TransformComponent>(id2);
-            auto &c2 = entity_manager.get_component<ColliderComponent>(id2);
-            if (!t2.world_visible)
-              continue;
-
-            for (const auto &s1 : c1.shapes) {
-              for (const auto &s2 : c2.shapes) {
-                glm::vec2 mtv{0.0f, 0.0f};
-                float penetration = 0.0f;
-
-                if (check_shape_intersection(t1, s1, t2, s2, mtv,
-                                             penetration)) {
-                  bool is_trigger_pair = s1.is_trigger || s2.is_trigger;
-                  CollisionEvent col_ev{id1, id2, mtv, is_trigger_pair};
-                  event_dispatcher.publish(col_ev);
-                }
-              }
-            }
-          }
-        });
+    CollisionEvent col_ev{idA, idB, normal, is_trigger};
+    m_dispatcher.publish(col_ev);
   }
 
 private:
-  static inline glm::vec2 s_gravity{0.0f, -480.0f};
-  static constexpr float s_collision_epsilon = 0.0001f;
+  EventDispatcher &m_dispatcher;
+};
 
-  // Unified Collision Shape Intersection using cute_c2 physics engine: out_mtv ALWAYS points FROM t2 TOWARDS t1
-  static bool check_shape_intersection(const TransformComponent &t1,
-                                       const ColliderShape &s1,
-                                       const TransformComponent &t2,
-                                       const ColliderShape &s2,
-                                       glm::vec2 &out_mtv,
-                                       float &out_penetration) {
-    glm::vec2 pos1 = glm::vec2(t1.world_position) + s1.offset * t1.world_scale;
-    glm::vec2 pos2 = glm::vec2(t2.world_position) + s2.offset * t2.world_scale;
+class PhysicsSystem {
+public:
+  static constexpr float k_p2m = 0.01f;  // Pixels to meters scale factor
+  static constexpr float k_m2p = 100.0f; // Meters to pixels scale factor
 
-    c2Manifold m;
-    m.count = 0;
-
-    if (s1.type == ColliderShapeType::Circle && s2.type == ColliderShapeType::Circle) {
-      c2Circle cA{c2V(pos1.x, pos1.y), s1.radius * t1.world_scale.x};
-      c2Circle cB{c2V(pos2.x, pos2.y), s2.radius * t2.world_scale.x};
-      c2CircletoCircleManifold(cA, cB, &m);
-    } else if (s1.type == ColliderShapeType::Box && s2.type == ColliderShapeType::Box) {
-      glm::vec2 h1 = s1.size * t1.world_scale * 0.5f;
-      glm::vec2 h2 = s2.size * t2.world_scale * 0.5f;
-      c2AABB bA{c2V(pos1.x - h1.x, pos1.y - h1.y), c2V(pos1.x + h1.x, pos1.y + h1.y)};
-      c2AABB bB{c2V(pos2.x - h2.x, pos2.y - h2.y), c2V(pos2.x + h2.x, pos2.y + h2.y)};
-      c2AABBtoAABBManifold(bA, bB, &m);
-    } else if (s1.type == ColliderShapeType::Box && s2.type == ColliderShapeType::Circle) {
-      glm::vec2 h1 = s1.size * t1.world_scale * 0.5f;
-      c2AABB bA{c2V(pos1.x - h1.x, pos1.y - h1.y), c2V(pos1.x + h1.x, pos1.y + h1.y)};
-      c2Circle cB{c2V(pos2.x, pos2.y), s2.radius * t2.world_scale.x};
-      c2CircletoAABBManifold(cB, bA, &m);
-      m.n.x = -m.n.x;
-      m.n.y = -m.n.y;
-    } else if (s1.type == ColliderShapeType::Circle && s2.type == ColliderShapeType::Box) {
-      c2Circle cA{c2V(pos1.x, pos1.y), s1.radius * t1.world_scale.x};
-      glm::vec2 h2 = s2.size * t2.world_scale * 0.5f;
-      c2AABB bB{c2V(pos2.x - h2.x, pos2.y - h2.y), c2V(pos2.x + h2.x, pos2.y + h2.y)};
-      c2CircletoAABBManifold(cA, bB, &m);
+  static void set_gravity(const glm::vec2 &gravity) {
+    s_gravity = gravity;
+    if (s_b2_world) {
+      s_b2_world->SetGravity(b2Vec2(gravity.x * k_p2m, gravity.y * k_p2m));
     }
-
-    if (m.count > 0 && m.depths[0] > 0.0001f) {
-      out_penetration = m.depths[0];
-      out_mtv = glm::vec2(m.n.x, m.n.y);
-      return true;
-    }
-
-    return false;
   }
+
+  static const glm::vec2 &get_gravity() { return s_gravity; }
+
+  static void update(EntityManager &entity_manager,
+                     EventDispatcher &event_dispatcher, float delta_time) {
+    if (!s_b2_world) {
+      s_b2_world = std::make_unique<b2World>(
+          b2Vec2(s_gravity.x * k_p2m, s_gravity.y * k_p2m));
+      s_contact_listener =
+          std::make_unique<PhysicsContactListener>(event_dispatcher);
+      s_b2_world->SetContactListener(s_contact_listener.get());
+    }
+
+    // Clean up bodies for destroyed entities
+    for (auto it = s_b2_bodies.begin(); it != s_b2_bodies.end();) {
+      if (!entity_manager.is_alive(it->first)) {
+        s_b2_world->DestroyBody(it->second);
+        it = s_b2_bodies.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+    // Synchronize entities into Box2D simulation world
+    entity_manager.for_each<TransformComponent, RigidBodyComponent,
+                            ColliderComponent>(
+        [&entity_manager](EntityID id, TransformComponent &transform,
+                          RigidBodyComponent &rb, ColliderComponent &collider) {
+          if (!transform.world_visible)
+            return;
+
+          b2Body *body = nullptr;
+          auto it = s_b2_bodies.find(id);
+
+          if (it == s_b2_bodies.end()) {
+            b2BodyDef bodyDef;
+            bodyDef.type = rb.is_static ? b2_staticBody : b2_dynamicBody;
+            bodyDef.position.Set(transform.world_position.x * k_p2m,
+                                 transform.world_position.y * k_p2m);
+            bodyDef.angle = glm::radians(transform.world_rotation);
+            bodyDef.fixedRotation = true;
+            bodyDef.userData.pointer = static_cast<uintptr_t>(id);
+
+            body = s_b2_world->CreateBody(&bodyDef);
+
+            for (const auto &shape : collider.shapes) {
+              b2FixtureDef fixtureDef;
+              fixtureDef.isSensor = shape.is_trigger;
+              fixtureDef.density = rb.mass;
+              fixtureDef.friction = rb.friction;
+              fixtureDef.restitution = rb.restitution;
+
+              if (shape.type == ColliderShapeType::Circle) {
+                b2CircleShape circle;
+                circle.m_p.Set(shape.offset.x * k_p2m, shape.offset.y * k_p2m);
+                circle.m_radius =
+                    (shape.radius * transform.world_scale.x) * k_p2m;
+                fixtureDef.shape = &circle;
+                body->CreateFixture(&fixtureDef);
+              } else if (shape.type == ColliderShapeType::Box) {
+                b2PolygonShape box;
+                glm::vec2 half =
+                    (shape.size * transform.world_scale) * 0.5f * k_p2m;
+                box.SetAsBox(
+                    half.x, half.y,
+                    b2Vec2(shape.offset.x * k_p2m, shape.offset.y * k_p2m),
+                    0.0f);
+                fixtureDef.shape = &box;
+                body->CreateFixture(&fixtureDef);
+              }
+            }
+
+            s_b2_bodies[id] = body;
+          } else {
+            body = it->second;
+          }
+
+          if (!rb.is_static) {
+            body->SetLinearVelocity(
+                b2Vec2(rb.velocity.x * k_p2m, rb.velocity.y * k_p2m));
+          }
+        });
+
+    // Step physics simulation world
+    s_b2_world->Step(delta_time, 8, 3);
+
+    // Synchronize positions and velocities back to ECS
+    for (auto &[id, body] : s_b2_bodies) {
+      if (!entity_manager.is_alive(id))
+        continue;
+      if (!entity_manager.has_component<TransformComponent>(id) ||
+          !entity_manager.has_component<RigidBodyComponent>(id))
+        continue;
+
+      auto &transform = entity_manager.get_component<TransformComponent>(id);
+      auto &rb = entity_manager.get_component<RigidBodyComponent>(id);
+
+      if (!rb.is_static) {
+        b2Vec2 pos = body->GetPosition();
+        b2Vec2 vel = body->GetLinearVelocity();
+
+        transform.position.x = pos.x * k_m2p;
+        transform.position.y = pos.y * k_m2p;
+        rb.velocity = glm::vec2(vel.x * k_m2p, vel.y * k_m2p);
+      }
+    }
+  }
+
+private:
+  static inline glm::vec2 s_gravity{0.0f, 0.0f};
+  static inline std::unique_ptr<b2World> s_b2_world{nullptr};
+  static inline std::unique_ptr<PhysicsContactListener> s_contact_listener{
+      nullptr};
+  static inline std::unordered_map<EntityID, b2Body *> s_b2_bodies;
 };
 
 } // namespace Engine

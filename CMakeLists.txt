@@ -18,7 +18,6 @@ set(SOURCES
     src/core/ThreadPool.cpp
     src/core/Window.cpp
     src/ecs/EntityManager.cpp
-    src/ecs/PhysicsSystem.cpp
     src/renderer/Animation2D.cpp
     src/renderer/Renderer2D.cpp
     src/renderer/SpriteSheet.cpp
@@ -32,16 +31,24 @@ set(SOURCES
     src/main.cpp
 )
 
+# Build vendored Box2D library
+set(BOX2D_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
+add_subdirectory(vendor/box2d)
+
 add_executable(Engine2D ${SOURCES})
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
 
 target_link_libraries(Engine2D PRIVATE 
     SDL3::SDL3
     glm::glm
+    box2d
 )
 
 # Automatically copy compile_commands.json to workspace root for IDE / IntelliSense
