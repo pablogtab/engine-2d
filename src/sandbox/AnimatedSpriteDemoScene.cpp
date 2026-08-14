@@ -190,7 +190,7 @@ void AnimatedSpriteDemoScene::on_attach() {
       tree1,
       Engine::ColliderComponent::Circle(50.0f)); // Circular tree collider!
   m_entity_manager.add_component<Engine::RigidBodyComponent>(
-      tree1, Engine::RigidBodyComponent{true}); // Solid static tree
+      tree1, Engine::RigidBodyComponent::Static()); // Solid static tree
 
   Engine::EntityID tree2 = m_entity_manager.create_entity();
   m_entity_manager.add_component<Engine::TagComponent>(
@@ -204,7 +204,7 @@ void AnimatedSpriteDemoScene::on_attach() {
       tree2,
       Engine::ColliderComponent::Circle(55.0f)); // Circular tree collider!
   m_entity_manager.add_component<Engine::RigidBodyComponent>(
-      tree2, Engine::RigidBodyComponent{true});
+      tree2, Engine::RigidBodyComponent::Static());
 
   // 3.b Solid Box / Square Obstacles
   Engine::EntityID box1 = m_entity_manager.create_entity();
@@ -219,7 +219,7 @@ void AnimatedSpriteDemoScene::on_attach() {
   m_entity_manager.add_component<Engine::ColliderComponent>(
       box1, Engine::ColliderComponent::Box(glm::vec2(90.0f, 90.0f)));
   m_entity_manager.add_component<Engine::RigidBodyComponent>(
-      box1, Engine::RigidBodyComponent{true}); // Solid static box
+      box1, Engine::RigidBodyComponent::Static()); // Solid static box
 
   Engine::EntityID box2 = m_entity_manager.create_entity();
   m_entity_manager.add_component<Engine::TagComponent>(
@@ -233,7 +233,7 @@ void AnimatedSpriteDemoScene::on_attach() {
   m_entity_manager.add_component<Engine::ColliderComponent>(
       box2, Engine::ColliderComponent::Box(glm::vec2(110.0f, 80.0f)));
   m_entity_manager.add_component<Engine::RigidBodyComponent>(
-      box2, Engine::RigidBodyComponent{true}); // Solid static box
+      box2, Engine::RigidBodyComponent::Static()); // Solid static box
 
   // 4. Create Player Entity in ECS with Circle Collider (26px radius matching
   // circular character body)
@@ -249,7 +249,7 @@ void AnimatedSpriteDemoScene::on_attach() {
       m_player_entity, Engine::ColliderComponent::Circle(26.0f));
   m_entity_manager.add_component<Engine::RigidBodyComponent>(
       m_player_entity,
-      Engine::RigidBodyComponent{false, 0.0f, 0.2f}); // Dynamic body
+      Engine::RigidBodyComponent::Dynamic(0.0f, 0.2f)); // Dynamic body
 
   // 5. Create Child Pet/Orb Entity attached to Player (Parent-Child Hierarchy!)
   m_child_orb = m_entity_manager.create_entity();
@@ -427,7 +427,7 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
                     true /*Right Wing Trigger*/); // Right Wing Trigger
 
     m_entity_manager.add_component<Engine::RigidBodyComponent>(
-        composite_boss, Engine::RigidBodyComponent{true}); // Solid static boss
+        composite_boss, Engine::RigidBodyComponent::Static()); // Solid static boss
     ENGINE_LOG_INFO("[COMPOSITE COLLIDER] Spawned Composite Boss #{} with 1 "
                     "Box + 2 Circle Trigger Wings at ({:.1f}, {:.1f})",
                     composite_boss, mouse_world.x, mouse_world.y);

@@ -27,6 +27,8 @@ private:
     Engine::EventDispatcher m_event_dispatcher;
 
     Engine::EntityID m_player_id{0};
+    Engine::EntityID m_elevator_id{0};
+    float m_elevator_time{0.0f};
     bool m_show_debug_colliders{true};
     bool m_is_grounded{false};
     float m_coyote_timer{0.0f};
@@ -40,11 +42,13 @@ private:
     std::unique_ptr<Engine::Texture> m_block_texture;
     std::unique_ptr<Engine::Texture> m_coin_texture;
     std::unique_ptr<Engine::Texture> m_launch_pad_texture;
+    std::unique_ptr<Engine::Texture> m_elevator_texture;
     std::unique_ptr<Engine::Texture> m_wheel_texture;
     std::unique_ptr<Engine::Texture> m_circle_debug_texture;
 
     void setup_level();
     void create_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color);
+    void create_elevator(const glm::vec2& position, const glm::vec2& size);
     void create_coin(const glm::vec2& position);
     void create_launch_pad(const glm::vec2& position);
 };

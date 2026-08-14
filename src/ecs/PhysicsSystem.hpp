@@ -36,6 +36,22 @@ public:
     m_dispatcher.publish(col_ev);
   }
 
+  void EndContact(b2Contact *contact) override {
+    b2Fixture *fixtureA = contact->GetFixtureA();
+    b2Fixture *fixtureB = contact->GetFixtureB();
+    if (!fixtureA || !fixtureB) return;
+
+    EntityID idA =
+        static_cast<EntityID>(fixtureA->GetBody()->GetUserData().pointer);
+    EntityID idB =
+        static_cast<EntityID>(fixtureB->GetBody()->GetUserData().pointer);
+
+    bool is_trigger = fixtureA->IsSensor() || fixtureB->IsSensor();
+
+    CollisionEndEvent col_end{idA, idB, is_trigger};
+    m_dispatcher.publish(col_end);
+  }
+
 private:
   EventDispatcher &m_dispatcher;
 };
@@ -44,6 +60,31 @@ class PhysicsSystem {
 public:
   static constexpr float k_p2m = 0.01f;  // Pixels to meters scale factor
   static constexpr float k_m2p = 100.0f; // Meters to pixels scale factor
+
+  static bool is_grounded(EntityManager &em, EntityID id) {
+    auto it = s_b2_bodies.find(id);
+    if (it == s_b2_bodies.end() || !it->second) return false;
+    b2Body *body = it->second;
+
+    for (b2ContactEdge *ce = body->GetContactList(); ce; ce = ce->next) {
+      b2Contact *contact = ce->contact;
+      if (!contact->IsTouching()) continue;
+      if (contact->GetFixtureA()->IsSensor() || contact->GetFixtureB()->IsSensor()) continue;
+
+      b2WorldManifold wm;
+      contact->GetWorldManifold(&wm);
+
+      // Normal points from fixtureA to fixtureB.
+      // If fixtureA is our body and ground (fixtureB) is below us, normal points DOWN (wm.normal.y < -0.4f).
+      // If fixtureB is our body and ground (fixtureA) is below us, normal points UP (wm.normal.y > 0.4f).
+      if (contact->GetFixtureA()->GetBody() == body) {
+        if (wm.normal.y < -0.4f) return true;
+      } else {
+        if (wm.normal.y > 0.4f) return true;
+      }
+    }
+    return false;
+  }
 
   static void set_gravity(const glm::vec2 &gravity) {
     s_gravity = gravity;
@@ -142,7 +183,14 @@ public:
 
           if (it == s_b2_bodies.end()) {
             b2BodyDef bodyDef;
-            bodyDef.type = rb.is_static ? b2_staticBody : b2_dynamicBody;
+            if (rb.body_type == BodyType::Static) {
+              bodyDef.type = b2_staticBody;
+            } else if (rb.body_type == BodyType::Kinematic) {
+              bodyDef.type = b2_kinematicBody;
+            } else {
+              bodyDef.type = b2_dynamicBody;
+            }
+
             bodyDef.position.Set(transform.world_position.x * k_p2m,
                                  transform.world_position.y * k_p2m);
             bodyDef.angle = glm::radians(-transform.world_rotation);
@@ -185,7 +233,11 @@ public:
             body = it->second;
           }
 
-          if (!rb.is_static) {
+          if (rb.body_type == BodyType::Kinematic) {
+            body->SetLinearVelocity(
+                b2Vec2(rb.velocity.x * k_p2m, rb.velocity.y * k_p2m));
+            body->SetAngularVelocity(glm::radians(-rb.angular_velocity));
+          } else if (rb.body_type == BodyType::Dynamic) {
             // Process active force curve envelopes
             for (auto &force : rb.active_forces) {
               if (force.finished) continue;
@@ -236,7 +288,7 @@ public:
       auto &transform = entity_manager.get_component<TransformComponent>(id);
       auto &rb = entity_manager.get_component<RigidBodyComponent>(id);
 
-      if (!rb.is_static) {
+      if (rb.body_type != BodyType::Static) {
         b2Vec2 pos = body->GetPosition();
         b2Vec2 vel = body->GetLinearVelocity();
 

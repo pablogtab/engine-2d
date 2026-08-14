@@ -50,6 +50,10 @@ void PlatformerDemoScene::on_attach() {
         Engine::Texture::create_solid(m_sdl_renderer, 60, 16, 220, 50, 255, 255)
     );
 
+    m_elevator_texture = std::unique_ptr<Engine::Texture>(
+        Engine::Texture::create_solid(m_sdl_renderer, 100, 20, 0, 220, 255, 255)
+    );
+
     // Procedural wheel texture with spokes generated locally for the sandbox demo
     {
         int radius = 24;
@@ -192,7 +196,7 @@ void PlatformerDemoScene::setup_level() {
 
     // Dynamic Physics RigidBody: 0.0f friction on sides prevents wall sticking!
     m_entity_manager.add_component<Engine::RigidBodyComponent>(
-        m_player_id, Engine::RigidBodyComponent{false, 1.0f, 0.0f, 0.0f}
+        m_player_id, Engine::RigidBodyComponent::Dynamic(1.0f, 0.0f, 0.0f, true)
     );
 
     // Player Collider: Category PLAYER, Mask GROUND | COIN | DEFAULT
@@ -201,13 +205,30 @@ void PlatformerDemoScene::setup_level() {
         m_player_id, Engine::ColliderComponent::Box({44.0f, 56.0f}, {0.0f, 0.0f}, false, Layer::PLAYER, player_mask)
     );
 
-    // 6. Create Rolling Physical Wheel Entity (Free 2D Rotation: fixed_rotation = false)
+    // 6. Create Rolling Physical Wheel Entity (Free 2D Rotation: lock_rotation = false)
     Engine::EntityID wheel_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(wheel_id, Engine::TagComponent{"RollingWheel"});
     m_entity_manager.add_component<Engine::TransformComponent>(wheel_id, Engine::TransformComponent{glm::vec3(0.0f, 100.0f, 0.0f)});
     m_entity_manager.add_component<Engine::SpriteComponent>(wheel_id, Engine::SpriteComponent{m_wheel_texture.get(), glm::vec2(48.0f, 48.0f), SDL_Color{255, 255, 255, 255}});
-    m_entity_manager.add_component<Engine::RigidBodyComponent>(wheel_id, Engine::RigidBodyComponent{false, 1.0f, 0.5f, 0.6f, false}); // fixed_rotation = false!
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(wheel_id, Engine::RigidBodyComponent::Dynamic(1.0f, 0.5f, 0.6f, false)); // lock_rotation = false!
     m_entity_manager.add_component<Engine::ColliderComponent>(wheel_id, Engine::ColliderComponent::Circle(24.0f, {0.0f, 0.0f}, false, Layer::DEFAULT, Layer::GROUND | Layer::PLAYER));
+
+    // 7. Create Kinematic Elevator Moving Platform on the Left (X = -480.0)
+    create_elevator({-480.0f, -220.0f}, {110.0f, 22.0f});
+}
+
+void PlatformerDemoScene::create_elevator(const glm::vec2& position, const glm::vec2& size) {
+    m_elevator_id = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(m_elevator_id, Engine::TagComponent{"Elevator"});
+    m_entity_manager.add_component<Engine::TransformComponent>(m_elevator_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(m_elevator_id, Engine::SpriteComponent{m_elevator_texture.get(), size, SDL_Color{0, 230, 255, 255}});
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(m_elevator_id, Engine::RigidBodyComponent::Kinematic(0.9f)); // High surface grip friction
+
+    // Platform Collider: Category GROUND, Mask PLAYER | DEFAULT
+    uint16_t ground_mask = Layer::PLAYER | Layer::DEFAULT;
+    m_entity_manager.add_component<Engine::ColliderComponent>(
+        m_elevator_id, Engine::ColliderComponent::Box(size, {0.0f, 0.0f}, false, Layer::GROUND, ground_mask)
+    );
 }
 
 void PlatformerDemoScene::create_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color) {
@@ -215,7 +236,7 @@ void PlatformerDemoScene::create_platform(const glm::vec2& position, const glm::
     m_entity_manager.add_component<Engine::TagComponent>(platform_id, Engine::TagComponent{"Platform"});
     m_entity_manager.add_component<Engine::TransformComponent>(platform_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
     m_entity_manager.add_component<Engine::SpriteComponent>(platform_id, Engine::SpriteComponent{m_block_texture.get(), size, color});
-    m_entity_manager.add_component<Engine::RigidBodyComponent>(platform_id, Engine::RigidBodyComponent{true}); // Static
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(platform_id, Engine::RigidBodyComponent::Static());
 
     // Platform Collider: Category GROUND, Mask PLAYER | DEFAULT
     uint16_t ground_mask = Layer::PLAYER | Layer::DEFAULT;
@@ -229,7 +250,7 @@ void PlatformerDemoScene::create_launch_pad(const glm::vec2& position) {
     m_entity_manager.add_component<Engine::TagComponent>(pad_id, Engine::TagComponent{"LaunchPad"});
     m_entity_manager.add_component<Engine::TransformComponent>(pad_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
     m_entity_manager.add_component<Engine::SpriteComponent>(pad_id, Engine::SpriteComponent{m_launch_pad_texture.get(), glm::vec2(60.0f, 16.0f), SDL_Color{220, 50, 255, 255}});
-    m_entity_manager.add_component<Engine::RigidBodyComponent>(pad_id, Engine::RigidBodyComponent{true}); // Static sensor
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(pad_id, Engine::RigidBodyComponent::Static()); // Static sensor
 
     // LaunchPad Collider: Category COIN (Trigger), Mask PLAYER, is_trigger = true
     m_entity_manager.add_component<Engine::ColliderComponent>(
@@ -242,7 +263,7 @@ void PlatformerDemoScene::create_coin(const glm::vec2& position) {
     m_entity_manager.add_component<Engine::TagComponent>(coin_id, Engine::TagComponent{"Coin"});
     m_entity_manager.add_component<Engine::TransformComponent>(coin_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
     m_entity_manager.add_component<Engine::SpriteComponent>(coin_id, Engine::SpriteComponent{m_coin_texture.get(), glm::vec2(24.0f, 24.0f), SDL_Color{255, 215, 0, 255}});
-    m_entity_manager.add_component<Engine::RigidBodyComponent>(coin_id, Engine::RigidBodyComponent{true}); // Static sensor
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(coin_id, Engine::RigidBodyComponent::Static()); // Static sensor
 
     // Coin Collider: Category COIN, Mask PLAYER, is_trigger = true
     m_entity_manager.add_component<Engine::ColliderComponent>(
@@ -284,9 +305,12 @@ void PlatformerDemoScene::on_update(float delta_time) {
 
         rb.velocity.x = move_x;
 
-        // Grounded Jump with Vertical Velocity Tolerance Threshold & Coyote Time
-        constexpr float VERTICAL_GROUND_THRESHOLD = 35.0f; // Allows jumping through micro-bounces and settled contact
-        if (m_is_grounded || std::abs(rb.velocity.y) < VERTICAL_GROUND_THRESHOLD) {
+        // Grounded check: Physics contact manifold query OR velocity threshold (supports moving elevator & flat terrain)
+        constexpr float VERTICAL_GROUND_THRESHOLD = 35.0f;
+        bool is_physically_grounded = Engine::PhysicsSystem::is_grounded(m_entity_manager, m_player_id) ||
+                                      (std::abs(rb.velocity.y) < VERTICAL_GROUND_THRESHOLD);
+
+        if (is_physically_grounded) {
             m_coyote_timer = 0.12f; // 120ms coyote time window
         } else {
             m_coyote_timer -= delta_time;
@@ -303,12 +327,31 @@ void PlatformerDemoScene::on_update(float delta_time) {
 
         // Execute Jump if buffered and within coyote window
         if (m_jump_buffer_timer > 0.0f && m_coyote_timer > 0.0f) {
-            rb.velocity.y = 520.0f; // Jump upward impulse
+            rb.velocity.y = 520.0f;
             m_jump_buffer_timer = 0.0f;
             m_coyote_timer = 0.0f;
-            m_is_grounded = false;
             ENGINE_LOG_INFO("[PLATFORMER DEMO] Jump Applied! Velocity Y set to 520.0");
         }
+    }
+
+    // Kinematic Elevator Movement: Clean waypointed ping-pong between bottom floor (Y=-230) and top platform (Y=180)
+    if (m_entity_manager.is_alive(m_elevator_id) &&
+        m_entity_manager.has_component<Engine::RigidBodyComponent>(m_elevator_id) &&
+        m_entity_manager.has_component<Engine::TransformComponent>(m_elevator_id)) {
+        auto& elevator_rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_elevator_id);
+        const auto& elevator_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_elevator_id);
+
+        constexpr float ELEVATOR_BOTTOM_Y = -230.0f;
+        constexpr float ELEVATOR_TOP_Y    = 180.0f;
+        constexpr float ELEVATOR_SPEED    = 130.0f;
+
+        static float s_elevator_dir = 1.0f; // 1.0f = UP, -1.0f = DOWN
+        if (elevator_tx.position.y >= ELEVATOR_TOP_Y) {
+            s_elevator_dir = -1.0f;
+        } else if (elevator_tx.position.y <= ELEVATOR_BOTTOM_Y) {
+            s_elevator_dir = 1.0f;
+        }
+        elevator_rb.velocity.y = s_elevator_dir * ELEVATOR_SPEED;
     }
 
     // 3. Update Systems

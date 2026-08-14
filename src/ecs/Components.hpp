@@ -202,23 +202,41 @@ struct ActiveForce {
     bool finished{false};
 };
 
+enum class BodyType {
+    Dynamic,   // Affected by gravity, forces, and collisions (Player, rolling crates, debris)
+    Static,    // Immovable solid (Ground, walls, level terrain)
+    Kinematic  // Moving by script velocity, unaffected by gravity or forces, pushes dynamic bodies (Elevators, moving platforms)
+};
+
 // RigidBody Component for 2D dynamics, gravity, friction, and velocity physics simulation
 struct RigidBodyComponent {
+    BodyType body_type{BodyType::Dynamic};
     glm::vec2 velocity{0.0f, 0.0f};
     glm::vec2 acceleration{0.0f, 0.0f};
     float angular_velocity{0.0f};   // Rotational velocity (Degrees/sec)
     float mass{1.0f};
     float gravity_scale{1.0f};      // 1.0f = Normal Gravity, 0.0f = Floating / Zero Gravity
     float friction{0.4f};           // Surface friction coefficient (0.0 = Ice, 1.0 = High grip)
-    bool is_static{false};          // True = Immovable solid (Walls, Floors, Terrain)
     bool fixed_rotation{true};     // True = Locked upright (Platformer player), False = Free physics rotation (rolling balls, debris)
     float restitution{0.2f};         // Elasticity / Bounciness factor (0.0 = No bounce, 1.0 = Perfect bounce)
 
     std::vector<ActiveForce> active_forces; // Queue of active force curve envelopes
 
     RigidBodyComponent() = default;
-    explicit RigidBodyComponent(bool static_body, float gravity = 1.0f, float bounciness = 0.2f, float surface_friction = 0.4f, bool lock_rotation = true)
-        : is_static(static_body), fixed_rotation(lock_rotation), gravity_scale(static_body ? 0.0f : gravity), restitution(bounciness), friction(surface_friction) {}
+    explicit RigidBodyComponent(BodyType type, float gravity = 1.0f, float bounciness = 0.2f, float surface_friction = 0.4f, bool lock_rotation = true)
+        : body_type(type), fixed_rotation(lock_rotation), gravity_scale((type == BodyType::Static || type == BodyType::Kinematic) ? 0.0f : gravity), restitution(bounciness), friction(surface_friction) {}
+
+    static RigidBodyComponent Static(float surface_friction = 0.4f, float bounciness = 0.0f) {
+        return RigidBodyComponent(BodyType::Static, 0.0f, bounciness, surface_friction, true);
+    }
+
+    static RigidBodyComponent Dynamic(float gravity = 1.0f, float bounciness = 0.2f, float surface_friction = 0.4f, bool lock_rotation = true) {
+        return RigidBodyComponent(BodyType::Dynamic, gravity, bounciness, surface_friction, lock_rotation);
+    }
+
+    static RigidBodyComponent Kinematic(float surface_friction = 0.8f) {
+        return RigidBodyComponent(BodyType::Kinematic, 0.0f, 0.0f, surface_friction, true);
+    }
 };
 
 } // namespace Engine

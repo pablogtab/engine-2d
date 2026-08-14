@@ -39,6 +39,18 @@ struct CollisionEvent : public IEvent {
     std::type_index get_type_index() const override { return std::type_index(typeid(CollisionEvent)); }
 };
 
+struct CollisionEndEvent : public IEvent {
+    EntityID entity_a;
+    EntityID entity_b;
+    bool is_trigger{false};
+
+    CollisionEndEvent(EntityID a, EntityID b, bool trigger = false)
+        : entity_a(a), entity_b(b), is_trigger(trigger) {}
+
+    const char* get_name() const override { return "CollisionEndEvent"; }
+    std::type_index get_type_index() const override { return std::type_index(typeid(CollisionEndEvent)); }
+};
+
 struct CustomLogEvent : public IEvent {
     std::string message;
 

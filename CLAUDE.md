@@ -25,6 +25,10 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
    - Las librerías de terceros residen en `vendor/` (ej. `vendor/stb/stb_image.h` y `stb_impl.cpp`).
    - Los assets están organizados en `assets/` por tipo (`assets/textures/`, etc.).
 
+5. **Sin Código Legacy ni Retrocompatibilidad en Desarrollo Activo:**
+   - **NO mantener capas de compatibilidad hacia atrás o soporte legacy** mientras el motor esté en desarrollo activo.
+   - Cuando se refactorice o mejore una estructura, API o componente del motor (ej. `BodyType` en lugar de booleanos, nuevas firmas de funciones), **refactorizar inmediatamente todas las escenas y llamadas existentes en el proyecto** para adoptar la nueva API limpia y eliminar cualquier código obsoleto.
+
 ---
 
 ## 🛠️ Build & Run Commands
