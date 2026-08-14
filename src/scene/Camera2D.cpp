@@ -36,11 +36,12 @@ glm::vec2 Camera2D::world_to_screen(const glm::vec3& world_pos) const {
 }
 
 glm::vec2 Camera2D::screen_to_world(const glm::vec2& screen_pos, float z) const {
+    glm::vec2 physical_screen_pos = screen_pos * m_dpi_scale;
     float z_scale = get_z_scale(z);
     float parallax_factor = z_scale;
     glm::vec2 screen_center = m_viewport_size * 0.5f;
 
-    glm::vec2 relative_pos = screen_pos - screen_center;
+    glm::vec2 relative_pos = physical_screen_pos - screen_center;
     glm::vec2 delta = relative_pos / (get_effective_zoom() * z_scale);
 
     float world_x = delta.x + m_position.x * parallax_factor;

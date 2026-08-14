@@ -220,17 +220,7 @@ glm::vec2 Input::get_mouse_scroll() {
 }
 
 glm::vec2 Input::get_mouse_world_position(const Camera2D& camera) {
-    glm::vec2 viewport = camera.get_viewport_size();
-    glm::vec2 screen_centered = s_mouse_pos - (viewport * 0.5f);
-
-    float zoom = camera.get_zoom();
-    float z_scale = camera.get_z_scale(0.0f); // Default Z=0 plane
-
-    glm::vec2 world_pos = glm::vec2(
-        (screen_centered.x / (zoom * z_scale)) + camera.get_position().x,
-        -(screen_centered.y / (zoom * z_scale)) + camera.get_position().y
-    );
-    return world_pos;
+    return camera.screen_to_world(s_mouse_pos, 0.0f);
 }
 
 void Input::map_action(const std::string& action_name, const ActionBinding& binding) {
