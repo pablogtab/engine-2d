@@ -282,37 +282,54 @@ void Renderer2D::end_scene() {
 
     auto t2 = std::chrono::high_resolution_clock::now();
 
-    // 4. Batch flushing by texture ranges
-    size_t batch_start = 0;
-    Texture* current_texture = m_sprite_queue[0].texture;
-
-    for (size_t i = 1; i <= sprite_count; ++i) {
-        Texture* tex = (i < sprite_count) ? m_sprite_queue[i].texture : nullptr;
-        if (tex != current_texture || i == sprite_count) {
-            size_t batch_count = i - batch_start;
-            if (batch_count > 0) {
-                SDL_Texture* sdl_tex = current_texture ? current_texture->get_sdl_texture() : nullptr;
-                SDL_RenderGeometry(
-                    m_sdl_renderer,
-                    sdl_tex,
-                    m_vertex_buffer.data(),
-                    static_cast<int>(m_vertex_buffer.size()),
-                    &m_index_buffer[batch_start * 6],
-                    static_cast<int>(batch_count * 6)
-                );
-                m_draw_calls++;
-                m_rendered_sprites += batch_count;
-            }
-            batch_start = i;
-            current_texture = tex;
+    // 4. Find separation point between World-Space and Screen-Space (Sorted via Bit 63)
+    size_t screen_space_start = sprite_count;
+    for (size_t i = 0; i < sprite_count; ++i) {
+        if (m_sprite_queue[i].is_screen_space) {
+            screen_space_start = i;
+            break;
         }
     }
 
-    // 5. Execute Post-Processing Shader Chain (if active)
+    auto flush_range = [&](size_t start_idx, size_t end_idx) {
+        if (start_idx >= end_idx) return;
+        size_t batch_start = start_idx;
+        Texture* current_texture = m_sprite_queue[start_idx].texture;
+
+        for (size_t i = start_idx + 1; i <= end_idx; ++i) {
+            Texture* tex = (i < end_idx) ? m_sprite_queue[i].texture : nullptr;
+            if (tex != current_texture || i == end_idx) {
+                size_t batch_count = i - batch_start;
+                if (batch_count > 0) {
+                    SDL_Texture* sdl_tex = current_texture ? current_texture->get_sdl_texture() : nullptr;
+                    SDL_RenderGeometry(
+                        m_sdl_renderer,
+                        sdl_tex,
+                        m_vertex_buffer.data(),
+                        static_cast<int>(m_vertex_buffer.size()),
+                        &m_index_buffer[batch_start * 6],
+                        static_cast<int>(batch_count * 6)
+                    );
+                    m_draw_calls++;
+                    m_rendered_sprites += batch_count;
+                }
+                batch_start = i;
+                current_texture = tex;
+            }
+        }
+    };
+
+    // A. Flush World-Space geometry into Capture Target (under Post-Processing)
+    flush_range(0, screen_space_start);
+
+    // B. Execute Post-Processing Shader Chain on World Space and output to final backbuffer
     if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
         m_post_process_pipeline->end_capture_and_process(nullptr);
     }
-    m_post_process_pipeline = nullptr; // Reset per-frame so pipeline never leaks across different scenes!
+    m_post_process_pipeline = nullptr; // Reset per-frame
+
+    // C. Flush Screen-Space HUD / UI directly on top of post-processed image (Crisp & Unaffected)
+    flush_range(screen_space_start, sprite_count);
 
     auto t3 = std::chrono::high_resolution_clock::now();
 
