@@ -38,6 +38,7 @@ private:
     std::unique_ptr<Engine::Texture> m_block_texture;
     std::unique_ptr<Engine::Texture> m_coin_texture;
     std::unique_ptr<Engine::Texture> m_launch_pad_texture;
+    std::unique_ptr<Engine::Texture> m_wheel_texture;
     std::unique_ptr<Engine::Texture> m_circle_debug_texture;
 
     void setup_level();

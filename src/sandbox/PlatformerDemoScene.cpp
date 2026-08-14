@@ -50,6 +50,34 @@ void PlatformerDemoScene::on_attach() {
         Engine::Texture::create_solid(m_sdl_renderer, 60, 16, 220, 50, 255, 255)
     );
 
+    // Procedural wheel texture with spokes generated locally for the sandbox demo
+    {
+        int radius = 24;
+        int diameter = radius * 2;
+        std::vector<uint32_t> pixels(diameter * diameter, 0);
+        uint32_t spoke_color = (255 << 24) | (255 << 16) | (255 << 8) | 255;
+        uint32_t mark_color  = (255 << 24) | (30 << 16)  | (30 << 8)  | 255;
+        for (int y = 0; y < diameter; ++y) {
+            for (int x = 0; x < diameter; ++x) {
+                float dx = x - radius + 0.5f;
+                float dy = y - radius + 0.5f;
+                float dist_sq = dx * dx + dy * dy;
+                if (dist_sq <= radius * radius) {
+                    bool is_spoke = (std::abs(dx) <= 2.5f) || (std::abs(dy) <= 2.5f);
+                    bool is_mark  = (dx > 4.0f && dy < -4.0f && dist_sq < (radius * 0.7f) * (radius * 0.7f));
+                    if (is_spoke) {
+                        pixels[y * diameter + x] = spoke_color;
+                    } else if (is_mark) {
+                        pixels[y * diameter + x] = mark_color;
+                    } else {
+                        pixels[y * diameter + x] = (255 << 24) | (140 << 16) | (0 << 8) | 255;
+                    }
+                }
+            }
+        }
+        m_wheel_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, diameter, diameter, pixels.data());
+    }
+
     m_circle_debug_texture = std::unique_ptr<Engine::Texture>(
         Engine::Texture::create_circle(m_sdl_renderer, 32, 0, 255, 120, 180)
     );
@@ -167,11 +195,19 @@ void PlatformerDemoScene::setup_level() {
         m_player_id, Engine::RigidBodyComponent{false, 1.0f, 0.0f, 0.0f}
     );
 
-    // Player Collider: Category PLAYER, Mask GROUND | COIN
-    uint16_t player_mask = Layer::GROUND | Layer::COIN;
+    // Player Collider: Category PLAYER, Mask GROUND | COIN | DEFAULT
+    uint16_t player_mask = Layer::GROUND | Layer::COIN | Layer::DEFAULT;
     m_entity_manager.add_component<Engine::ColliderComponent>(
         m_player_id, Engine::ColliderComponent::Box({44.0f, 56.0f}, {0.0f, 0.0f}, false, Layer::PLAYER, player_mask)
     );
+
+    // 6. Create Rolling Physical Wheel Entity (Free 2D Rotation: fixed_rotation = false)
+    Engine::EntityID wheel_id = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(wheel_id, Engine::TagComponent{"RollingWheel"});
+    m_entity_manager.add_component<Engine::TransformComponent>(wheel_id, Engine::TransformComponent{glm::vec3(0.0f, 100.0f, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(wheel_id, Engine::SpriteComponent{m_wheel_texture.get(), glm::vec2(48.0f, 48.0f), SDL_Color{255, 255, 255, 255}});
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(wheel_id, Engine::RigidBodyComponent{false, 1.0f, 0.5f, 0.6f, false}); // fixed_rotation = false!
+    m_entity_manager.add_component<Engine::ColliderComponent>(wheel_id, Engine::ColliderComponent::Circle(24.0f, {0.0f, 0.0f}, false, Layer::DEFAULT, Layer::GROUND | Layer::PLAYER));
 }
 
 void PlatformerDemoScene::create_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color) {

@@ -211,13 +211,14 @@ struct RigidBodyComponent {
     float gravity_scale{1.0f};      // 1.0f = Normal Gravity, 0.0f = Floating / Zero Gravity
     float friction{0.4f};           // Surface friction coefficient (0.0 = Ice, 1.0 = High grip)
     bool is_static{false};          // True = Immovable solid (Walls, Floors, Terrain)
+    bool fixed_rotation{true};     // True = Locked upright (Platformer player), False = Free physics rotation (rolling balls, debris)
     float restitution{0.2f};         // Elasticity / Bounciness factor (0.0 = No bounce, 1.0 = Perfect bounce)
 
     std::vector<ActiveForce> active_forces; // Queue of active force curve envelopes
 
     RigidBodyComponent() = default;
-    explicit RigidBodyComponent(bool static_body, float gravity = 1.0f, float bounciness = 0.2f, float surface_friction = 0.4f)
-        : is_static(static_body), gravity_scale(static_body ? 0.0f : gravity), restitution(bounciness), friction(surface_friction) {}
+    explicit RigidBodyComponent(bool static_body, float gravity = 1.0f, float bounciness = 0.2f, float surface_friction = 0.4f, bool lock_rotation = true)
+        : is_static(static_body), fixed_rotation(lock_rotation), gravity_scale(static_body ? 0.0f : gravity), restitution(bounciness), friction(surface_friction) {}
 };
 
 } // namespace Engine

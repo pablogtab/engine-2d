@@ -145,8 +145,8 @@ public:
             bodyDef.type = rb.is_static ? b2_staticBody : b2_dynamicBody;
             bodyDef.position.Set(transform.world_position.x * k_p2m,
                                  transform.world_position.y * k_p2m);
-            bodyDef.angle = glm::radians(transform.world_rotation);
-            bodyDef.fixedRotation = true;
+            bodyDef.angle = glm::radians(-transform.world_rotation);
+            bodyDef.fixedRotation = rb.fixed_rotation;
             bodyDef.userData.pointer = static_cast<uintptr_t>(id);
 
             body = s_b2_world->CreateBody(&bodyDef);
@@ -243,7 +243,32 @@ public:
         transform.position.x = pos.x * k_m2p;
         transform.position.y = pos.y * k_m2p;
         rb.velocity = glm::vec2(vel.x * k_m2p, vel.y * k_m2p);
+
+        if (!rb.fixed_rotation) {
+          transform.rotation = -glm::degrees(body->GetAngle());
+          rb.angular_velocity = -glm::degrees(body->GetAngularVelocity());
+        }
       }
+    }
+  }
+
+  static void set_angular_velocity(EntityManager &em, EntityID id, float degrees_per_sec) {
+    if (!em.has_component<RigidBodyComponent>(id)) return;
+    auto &rb = em.get_component<RigidBodyComponent>(id);
+    rb.angular_velocity = degrees_per_sec;
+    auto it = s_b2_bodies.find(id);
+    if (it != s_b2_bodies.end() && it->second) {
+      it->second->SetAngularVelocity(glm::radians(degrees_per_sec));
+    }
+  }
+
+  static void apply_angular_impulse(EntityManager &em, EntityID id, float impulse) {
+    if (!em.has_component<RigidBodyComponent>(id)) return;
+    auto &rb = em.get_component<RigidBodyComponent>(id);
+    auto it = s_b2_bodies.find(id);
+    if (it != s_b2_bodies.end() && it->second) {
+      it->second->ApplyAngularImpulse(impulse * k_p2m, true);
+      rb.angular_velocity = glm::degrees(it->second->GetAngularVelocity());
     }
   }
 
