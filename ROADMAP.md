@@ -71,10 +71,16 @@ graph TD
 - [x] **5.2 Pipeline de Render Targets & Post-Processing (`PostProcessPipeline`)**:
   - Renderizado a textura intermedia con búferes Ping-Pong en VRAM (`SDL_TEXTUREACCESS_TARGET`).
   - Cadena extensible de pases abstractos (`IPostProcessPass`): Viñeteado radial, Aberración cromática RGB y Destello de pantalla/daño.
-- [x] **5.3 Efectos de Shaders de Materiales / Sprites**:
+- [ ] **5.3 Evolución Profesional de Post-Processing & Shaders GPU**:
+  - *Fragment Shaders Reales*: Bloom de alta intensidad, Blur Gaussiano separable (pase horizontal/vertical), Film Grain, Color Grading LUT y simulación CRT/Scanlines a nivel de píxel.
+  - *Cadena de Downsampling / Mip-chain*: Render targets auxiliares a 1/2 y 1/4 de resolución para optimización de efectos densos (Bloom / Glow ambiental).
+  - *Volúmenes de Post-Proceso 2D (`PostProcessVolume`)*: Triggers espaciales en escena con interpolación suave (*lerp/blend*) de parámetros al entrar a zonas (cuevas oscuras, bajo el agua, fuego).
+  - *Presets & Serialización JSON*: Exportación e importación de perfiles completos de post-proceso (`presets/underwater.json`, `presets/retro_crt.json`).
+  - *Sistema de Tweens & Event FX*: Abstracción unificada de curvas de easing para disparadores de impacto/daño sin duplicar lógica de tiempo.
+- [x] **5.4 Efectos de Shaders de Materiales / Sprites**:
   - *Outline & Glow* (resaltado de siluetas de objetos seleccionables o coleccionables mediante `SpriteComponent`).
   - *Hit Flash* / *Screen Flash* (destello reactivo ante daño o detonaciones).
-- [ ] **5.4 Iluminación 2D Dinámica Básica**:
+- [ ] **5.5 Iluminación 2D Dinámica Básica**:
   - Luces puntuales 2D (*Point Lights*) con radio, color, intensidad y mezcla multiplicativa con mapa de sombras/ambiente.
 
 ---
@@ -115,7 +121,11 @@ graph TD
   - Renderizado del backend ImGui acoplado al loop de `Engine::Application`.
 - [ ] **8.2 Inspector de Entidades & ECS en Vivo**:
   - Panel lateral con jerarquía de entidades activas, desglose de componentes y edición de valores (velocidad, masa, posición, tintes).
-- [ ] **8.3 Debug Viewers & Sintonizadores**:
+- [ ] **8.3 Inspector & Stack de Post-Processing en Vivo**:
+  - Reflexión e inspección visual con `virtual void on_gui()` por pase (sliders de intensidad, color pickers, curvas).
+  - *Pass Factory & Hot Reload*: Añadir, remover, reordenar y alternar pases en caliente desde el menú de la UI.
+  - Gestor de presets visuales integrado en la GUI (Cargar/Guardar perfiles en disco con 1 clic).
+- [ ] **8.4 Debug Viewers & Sintonizadores**:
   - Renderizado de colliders y cajas de colisión (AABB / círculos / raycasts).
   - Sintonizador de partículas en vivo (sliders de tamaño, gravedad, velocidad y color).
   - Monitor de rendimiento (gráfico de frametime, llamadas a GPU, conteo de entidades vivas).
