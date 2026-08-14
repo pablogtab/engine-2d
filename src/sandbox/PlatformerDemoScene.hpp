@@ -6,8 +6,8 @@
 #include "../scene/Scene.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/Texture.hpp"
-#include "../renderer/ParticleSystem2D.hpp"
-#include "../ecs/PhysicsSystem.hpp"
+#include "../particles/ParticleSystem2D.hpp"
+#include "../physics/PhysicsSystem.hpp"
 #include <SDL3/SDL.h>
 #include <memory>
 

@@ -98,16 +98,16 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
 - **Custom Textures**: Any external PNG (`Texture::load_from_file`) or procedural texture can be assigned to `ParticleProps::texture`.
 
 **Architecture Rule — Content Agnosticism:**
-`ParticleSystem2D` is **pure engine**: `emit()`, `update()`, `render()`, `clear()`. It has no knowledge of game concepts (explosions, coins, grapples).
-Game-specific particle recipes live in `Engine::ParticlePresets` (`src/renderer/ParticlePresets.hpp`) — a **header-only, optional helper** that any game can use, extend, or entirely replace with its own.
+`ParticleSystem2D` is **pure engine**: `emit()`, `update()`, `render()`, `clear()`. It has no knowledge of game concepts.
+Game-specific particle recipes live in `Engine::Presets` (`src/particles/ParticlePresets.hpp`) — a **header-only, optional helper** that any game can use, extend, or entirely replace with its own.
 
 ```
-Engine::ParticleSystem2D   ← Pure engine core (pool, kinematics, rendering)
-Engine::ParticlePresets    ← Optional builtins (game-context recipes, header-only)
-Sandbox / Game Code        ← Defines its own presets via ParticleProps directly
+Engine::ParticleSystem2D      ← Pure engine core (pool, kinematics, rendering)
+Engine::Presets::explosion()  ← Optional builtins (game-context recipes, header-only)
+Sandbox / Game Code           ← Calls Engine::Presets:: or defines its own ParticleProps
 ```
 
-The `burst_explosion`, `burst_coin_sparkle`, `burst_grapple_sparks`, and `burst_dust` functions currently live in `ParticleSystem2D` (pending refactor into `ParticlePresets`). **Do not add new game-semantic presets to `ParticleSystem2D` directly.**
+**Do not add game-semantic presets to `ParticleSystem2D` directly.**
 
 ### 5. Procedural Texture System (`Engine::Texture` – Generators)
 **Design Principle**: All procedural generators in the engine are **content-agnostic**. They operate purely on mathematical parameters — they do not know "what" they are generating (grass, fire, smoke, water). The calling code or a future GUI layer decides the semantic meaning.

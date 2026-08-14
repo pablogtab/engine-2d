@@ -1,10 +1,11 @@
 #include "PlatformerDemoScene.hpp"
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
-#include "../ecs/PhysicsSystem.hpp"
+#include "../physics/PhysicsSystem.hpp"
 #include "../ecs/RenderSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
 #include "../renderer/Renderer2D.hpp"
+#include "../particles/ParticlePresets.hpp"
 #include <SDL3/SDL.h>
 #include <cmath>
 
@@ -214,7 +215,7 @@ void PlatformerDemoScene::on_attach() {
                 ENGINE_LOG_INFO("[PLATFORMER DEMO] COIN COLLECTED! Score: {} / {}", m_score, m_total_coins);
                 if (m_entity_manager.has_component<Engine::TransformComponent>(coin_id)) {
                     const auto& coin_tx = m_entity_manager.get_component<Engine::TransformComponent>(coin_id);
-                    m_particle_system.burst_coin_sparkle(glm::vec2(coin_tx.position.x, coin_tx.position.y), 18);
+                    Engine::Presets::sparkle(m_particle_system, glm::vec2(coin_tx.position.x, coin_tx.position.y), 18);
                 }
                 m_entity_manager.destroy_entity(coin_id);
             }
@@ -485,7 +486,7 @@ void PlatformerDemoScene::on_update(float delta_time) {
         );
 
         m_shockwaves.push_back({blast_pos, 0.0f, blast_radius, 0.35f, 0.0f});
-        m_particle_system.burst_explosion(blast_pos, 45, 18);
+        Engine::Presets::explosion(m_particle_system, blast_pos, 45, 18);
         ENGINE_LOG_INFO("[EXPLOSION BLAST] Detonated at ({:.1f}, {:.1f})! Affected {} bodies.",
                         blast_pos.x, blast_pos.y, affected.size());
     }
@@ -554,13 +555,13 @@ void PlatformerDemoScene::on_update(float delta_time) {
             if (m_is_grappling) {
                 detach_grapple();
                 rb.velocity.y = std::max(rb.velocity.y + 260.0f, 480.0f);
-                m_particle_system.burst_dust(glm::vec2(player_tx.position.x, player_tx.position.y - 28.0f), 12);
+                Engine::Presets::dust_puff(m_particle_system, glm::vec2(player_tx.position.x, player_tx.position.y - 28.0f), 12);
                 m_jump_buffer_timer = 0.0f;
                 m_coyote_timer = 0.0f;
                 ENGINE_LOG_INFO("[GRAPPLE JUMP] Grapple Released with Catapult Momentum Boost!");
             } else if (m_coyote_timer > 0.0f) {
                 rb.velocity.y = 520.0f;
-                m_particle_system.burst_dust(glm::vec2(player_tx.position.x, player_tx.position.y - 28.0f), 10);
+                Engine::Presets::dust_puff(m_particle_system, glm::vec2(player_tx.position.x, player_tx.position.y - 28.0f), 10);
                 m_jump_buffer_timer = 0.0f;
                 m_coyote_timer = 0.0f;
                 ENGINE_LOG_INFO("[PLATFORMER DEMO] Jump Applied! Velocity Y set to 520.0");
@@ -725,7 +726,7 @@ void PlatformerDemoScene::attach_grapple(const glm::vec2& target_point) {
     m_entity_manager.add_component<Engine::ColliderComponent>(m_grapple_anchor_id, Engine::ColliderComponent::Circle(7.0f));
 
     // Spawn metal impact ricochet sparks!
-    m_particle_system.burst_grapple_sparks(target_point, 14);
+    Engine::Presets::impact_sparks(m_particle_system, target_point, 14);
 
     if (m_entity_manager.is_alive(m_player_id) && m_entity_manager.has_component<Engine::TransformComponent>(m_player_id)) {
         const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);

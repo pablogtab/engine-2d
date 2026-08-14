@@ -2,8 +2,8 @@
 
 #include "../events/Event.hpp"
 #include "../events/EventDispatcher.hpp"
-#include "Components.hpp"
-#include "EntityManager.hpp"
+#include "../ecs/Components.hpp"
+#include "../ecs/EntityManager.hpp"
 #include <box2d/box2d.h>
 #include <glm/glm.hpp>
 #include <memory>

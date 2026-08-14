@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Renderer2D.hpp"
-#include "Texture.hpp"
+#include "../renderer/Renderer2D.hpp"
+#include "../renderer/Texture.hpp"
 #include "../ecs/Components.hpp"
 #include <vector>
 #include <random>
@@ -50,12 +50,6 @@ public:
     void clear();
 
     void init_default_textures(SDL_Renderer* renderer);
-
-    // High-level gameplay juice presets
-    void burst_explosion(const glm::vec2& pos, int spark_count = 45, int smoke_count = 18);
-    void burst_coin_sparkle(const glm::vec2& pos, int count = 16);
-    void burst_grapple_sparks(const glm::vec2& pos, int count = 12);
-    void burst_dust(const glm::vec2& pos, int count = 8);
 
     Texture* get_default_soft_circle() const { return m_default_soft_circle.get(); }
     Texture* get_default_spark() const { return m_default_spark.get(); }

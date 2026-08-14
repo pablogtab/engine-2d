@@ -1,7 +1,7 @@
 #include "AnimatedSpriteDemoScene.hpp"
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
-#include "../ecs/PhysicsSystem.hpp"
+#include "../physics/PhysicsSystem.hpp"
 #include "../ecs/RenderSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
 #include "../renderer/Renderer2D.hpp"
