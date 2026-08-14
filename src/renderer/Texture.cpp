@@ -97,4 +97,54 @@ Texture* Texture::create_circle(SDL_Renderer* renderer, int radius, uint8_t r, u
     return new Texture(renderer, diameter, diameter, pixels.data());
 }
 
+Texture* Texture::create_soft_circle(SDL_Renderer* renderer, int radius, uint8_t r, uint8_t g, uint8_t b) {
+    int diameter = radius * 2;
+    std::vector<uint32_t> pixels(diameter * diameter, 0);
+    float rad_f = static_cast<float>(radius);
+
+    for (int y = 0; y < diameter; ++y) {
+        for (int x = 0; x < diameter; ++x) {
+            float dx = (x - radius + 0.5f) / rad_f;
+            float dy = (y - radius + 0.5f) / rad_f;
+            float dist = std::sqrt(dx * dx + dy * dy);
+            if (dist < 1.0f) {
+                float alpha_norm = std::pow(1.0f - dist, 1.4f);
+                uint8_t final_a = static_cast<uint8_t>(255.0f * alpha_norm);
+                pixels[y * diameter + x] = (r << 24) | (g << 16) | (b << 8) | final_a;
+            }
+        }
+    }
+    return new Texture(renderer, diameter, diameter, pixels.data());
+}
+
+Texture* Texture::create_spark(SDL_Renderer* renderer, int radius, uint8_t r, uint8_t g, uint8_t b) {
+    int diameter = radius * 2;
+    std::vector<uint32_t> pixels(diameter * diameter, 0);
+    float rad_f = static_cast<float>(radius);
+
+    for (int y = 0; y < diameter; ++y) {
+        for (int x = 0; x < diameter; ++x) {
+            float nx = std::abs(x - radius + 0.5f) / rad_f;
+            float ny = std::abs(y - radius + 0.5f) / rad_f;
+
+            float cross_dist = nx + ny;
+            float center_dist = std::sqrt(nx * nx + ny * ny);
+
+            float intensity = 0.0f;
+            if (cross_dist < 1.0f) {
+                intensity = std::pow(1.0f - cross_dist, 2.0f);
+            }
+            if (center_dist < 0.4f) {
+                intensity = std::max(intensity, (1.0f - center_dist / 0.4f));
+            }
+
+            if (intensity > 0.005f) {
+                uint8_t final_a = static_cast<uint8_t>(std::min(255.0f, 255.0f * intensity));
+                pixels[y * diameter + x] = (r << 24) | (g << 16) | (b << 8) | final_a;
+            }
+        }
+    }
+    return new Texture(renderer, diameter, diameter, pixels.data());
+}
+
 } // namespace Engine

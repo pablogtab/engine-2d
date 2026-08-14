@@ -1,9 +1,11 @@
 #pragma once
 
 #include "Renderer2D.hpp"
+#include "Texture.hpp"
 #include "../ecs/Components.hpp"
 #include <vector>
 #include <random>
+#include <memory>
 
 namespace Engine {
 
@@ -47,14 +49,22 @@ public:
     void render(Renderer2D& renderer);
     void clear();
 
+    void init_default_textures(SDL_Renderer* renderer);
+
     // High-level gameplay juice presets
     void burst_explosion(const glm::vec2& pos, int spark_count = 45, int smoke_count = 18);
     void burst_coin_sparkle(const glm::vec2& pos, int count = 16);
     void burst_grapple_sparks(const glm::vec2& pos, int count = 12);
     void burst_dust(const glm::vec2& pos, int count = 8);
 
+    Texture* get_default_soft_circle() const { return m_default_soft_circle.get(); }
+    Texture* get_default_spark() const { return m_default_spark.get(); }
+
 private:
     float random_range(float min_val, float max_val);
+
+    std::unique_ptr<Texture> m_default_soft_circle;
+    std::unique_ptr<Texture> m_default_spark;
 
     std::vector<Particle> m_particle_pool;
     size_t m_pool_index{0};

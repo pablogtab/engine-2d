@@ -28,6 +28,7 @@ void PlatformerDemoScene::on_attach() {
     m_entity_manager.clear();
     Engine::PhysicsSystem::clear();
     m_particle_system.clear();
+    m_particle_system.init_default_textures(m_sdl_renderer);
     m_score = 0;
     m_total_coins = 0;
 

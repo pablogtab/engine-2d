@@ -19,8 +19,19 @@ float ParticleSystem2D::random_range(float min_val, float max_val) {
     return min_val + (max_val - min_val) * m_dist01(m_rng);
 }
 
+void ParticleSystem2D::init_default_textures(SDL_Renderer* renderer) {
+    if (!m_default_soft_circle) {
+        m_default_soft_circle = std::unique_ptr<Texture>(Texture::create_soft_circle(renderer, 16));
+    }
+    if (!m_default_spark) {
+        m_default_spark = std::unique_ptr<Texture>(Texture::create_spark(renderer, 16));
+    }
+}
+
 void ParticleSystem2D::emit(const ParticleProps& props, int count) {
     if (m_particle_pool.empty()) return;
+
+    Texture* tex = props.texture ? props.texture : m_default_soft_circle.get();
 
     for (int i = 0; i < count; ++i) {
         Particle& p = m_particle_pool[m_pool_index];
@@ -28,7 +39,7 @@ void ParticleSystem2D::emit(const ParticleProps& props, int count) {
         p.position = props.position;
         p.rotation = props.rotation + random_range(-180.0f, 180.0f);
         p.rotation_speed = props.rotation_speed + random_range(-90.0f, 90.0f);
-        p.texture = props.texture;
+        p.texture = tex;
         p.collide_with_world = props.collide_with_world;
         p.bounciness = props.bounciness;
 
@@ -126,39 +137,43 @@ void ParticleSystem2D::clear() {
 }
 
 void ParticleSystem2D::burst_explosion(const glm::vec2& pos, int spark_count, int smoke_count) {
-    // 1. Fiery Bouncing Sparks
+    // 1. Fiery Bouncing Sparks (Diamond spark texture)
+    Texture* spark_tex = m_default_spark ? m_default_spark.get() : m_default_soft_circle.get();
     for (int i = 0; i < spark_count; ++i) {
         float angle = random_range(0.0f, 6.28318f);
         float speed = random_range(180.0f, 580.0f);
 
         ParticleProps spark;
         spark.position = pos;
+        spark.texture = spark_tex;
         spark.velocity = glm::vec2(std::cos(angle) * speed, std::sin(angle) * speed);
         spark.gravity = glm::vec2(0.0f, -650.0f); // Fall with gravity
         spark.collide_with_world = true;          // BOUNCE on terrain/ramps!
         spark.bounciness = random_range(0.45f, 0.70f);
         spark.color_start = SDL_Color{255, 230, 60, 255};
         spark.color_end = SDL_Color{255, 50, 0, 0};
-        spark.size_start = random_range(6.0f, 10.0f);
+        spark.size_start = random_range(7.0f, 12.0f);
         spark.size_end = 1.0f;
         spark.lifetime = random_range(0.45f, 0.95f);
         spark.rotation_speed = random_range(-360.0f, 360.0f);
         emit(spark, 1);
     }
 
-    // 2. Lingering Smoke Plumes
+    // 2. Lingering Smoke Plumes (Soft circular alpha gradient disc)
+    Texture* smoke_tex = m_default_soft_circle.get();
     for (int i = 0; i < smoke_count; ++i) {
         float angle = random_range(0.0f, 6.28318f);
         float speed = random_range(30.0f, 120.0f);
 
         ParticleProps smoke;
         smoke.position = pos + glm::vec2(random_range(-12.0f, 12.0f), random_range(-12.0f, 12.0f));
+        smoke.texture = smoke_tex;
         smoke.velocity = glm::vec2(std::cos(angle) * speed, std::sin(angle) * speed + 35.0f); // Float upward
         smoke.gravity = glm::vec2(0.0f, 20.0f); // Slight upward buoyancy
-        smoke.color_start = SDL_Color{70, 70, 75, 210};
+        smoke.color_start = SDL_Color{70, 70, 75, 200};
         smoke.color_end = SDL_Color{25, 25, 30, 0};
-        smoke.size_start = random_range(10.0f, 16.0f);
-        smoke.size_end = random_range(28.0f, 42.0f); // Expands into billowy clouds
+        smoke.size_start = random_range(14.0f, 22.0f);
+        smoke.size_end = random_range(38.0f, 54.0f); // Expands into billowy soft clouds
         smoke.lifetime = random_range(0.6f, 1.1f);
         smoke.rotation_speed = random_range(-60.0f, 60.0f);
         emit(smoke, 1);
@@ -166,17 +181,19 @@ void ParticleSystem2D::burst_explosion(const glm::vec2& pos, int spark_count, in
 }
 
 void ParticleSystem2D::burst_coin_sparkle(const glm::vec2& pos, int count) {
+    Texture* spark_tex = m_default_spark ? m_default_spark.get() : m_default_soft_circle.get();
     for (int i = 0; i < count; ++i) {
         float angle = random_range(0.0f, 6.28318f);
         float speed = random_range(90.0f, 260.0f);
 
         ParticleProps sparkle;
         sparkle.position = pos;
+        sparkle.texture = spark_tex;
         sparkle.velocity = glm::vec2(std::cos(angle) * speed, std::sin(angle) * speed);
         sparkle.gravity = glm::vec2(0.0f, -120.0f);
         sparkle.color_start = SDL_Color{255, 255, 200, 255}; // Diamond flash
         sparkle.color_end = SDL_Color{255, 190, 0, 0};       // Fade to pure gold
-        sparkle.size_start = random_range(7.0f, 11.0f);
+        sparkle.size_start = random_range(8.0f, 13.0f);
         sparkle.size_end = 0.0f;
         sparkle.lifetime = random_range(0.35f, 0.65f);
         sparkle.rotation_speed = random_range(-240.0f, 240.0f);
@@ -185,17 +202,19 @@ void ParticleSystem2D::burst_coin_sparkle(const glm::vec2& pos, int count) {
 }
 
 void ParticleSystem2D::burst_grapple_sparks(const glm::vec2& pos, int count) {
+    Texture* spark_tex = m_default_spark ? m_default_spark.get() : m_default_soft_circle.get();
     for (int i = 0; i < count; ++i) {
         float angle = random_range(-2.35f, -0.78f); // Downward ricochet spray [-135, -45 deg]
         float speed = random_range(120.0f, 320.0f);
 
         ParticleProps spark;
         spark.position = pos;
+        spark.texture = spark_tex;
         spark.velocity = glm::vec2(std::cos(angle) * speed, std::sin(angle) * speed);
         spark.gravity = glm::vec2(0.0f, -700.0f);
         spark.color_start = SDL_Color{255, 240, 120, 255};
         spark.color_end = SDL_Color{255, 100, 0, 0};
-        spark.size_start = random_range(4.0f, 7.0f);
+        spark.size_start = random_range(5.0f, 9.0f);
         spark.size_end = 0.5f;
         spark.lifetime = random_range(0.2f, 0.45f);
         emit(spark, 1);
@@ -203,6 +222,7 @@ void ParticleSystem2D::burst_grapple_sparks(const glm::vec2& pos, int count) {
 }
 
 void ParticleSystem2D::burst_dust(const glm::vec2& pos, int count) {
+    Texture* dust_tex = m_default_soft_circle.get();
     for (int i = 0; i < count; ++i) {
         float dir_x = random_range(-1.0f, 1.0f);
         float speed_x = dir_x * random_range(40.0f, 110.0f);
@@ -210,12 +230,13 @@ void ParticleSystem2D::burst_dust(const glm::vec2& pos, int count) {
 
         ParticleProps dust;
         dust.position = pos + glm::vec2(random_range(-8.0f, 8.0f), 0.0f);
+        dust.texture = dust_tex;
         dust.velocity = glm::vec2(speed_x, speed_y);
         dust.gravity = glm::vec2(0.0f, -30.0f);
-        dust.color_start = SDL_Color{210, 200, 185, 190};
+        dust.color_start = SDL_Color{210, 200, 185, 180};
         dust.color_end = SDL_Color{160, 150, 140, 0};
-        dust.size_start = random_range(5.0f, 8.0f);
-        dust.size_end = random_range(12.0f, 18.0f);
+        dust.size_start = random_range(6.0f, 10.0f);
+        dust.size_end = random_range(16.0f, 24.0f);
         dust.lifetime = random_range(0.25f, 0.45f);
         emit(dust, 1);
     }
