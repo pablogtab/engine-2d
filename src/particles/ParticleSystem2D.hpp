@@ -33,6 +33,7 @@ struct Particle {
     float bounciness{0.6f};
 
     Texture* texture{nullptr};
+    float z_layer{-0.05f};
     bool active{false};
 };
 

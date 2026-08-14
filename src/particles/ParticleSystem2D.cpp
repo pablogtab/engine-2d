@@ -37,6 +37,7 @@ void ParticleSystem2D::emit(const ParticleProps& props, int count) {
         Particle& p = m_particle_pool[m_pool_index];
         p.active = true;
         p.position = props.position;
+        p.z_layer = props.z_layer;
         p.rotation = props.rotation + random_range(-180.0f, 180.0f);
         p.rotation_speed = props.rotation_speed + random_range(-90.0f, 90.0f);
         p.texture = tex;
@@ -117,7 +118,7 @@ void ParticleSystem2D::render(Renderer2D& renderer) {
 
         renderer.submit_sprite(
             p.texture,
-            glm::vec3(p.position, 5.0f), // Render above terrain/cables
+            glm::vec3(p.position, p.z_layer), // Precise layer sorting
             glm::vec2(p.current_size),
             p.rotation,
             p.current_color,

@@ -92,33 +92,36 @@ public:
         // 2. Lazy creation of 256x256 smooth radial gradient texture
         if (!m_vignette_tex && renderer) {
             constexpr int TEX_SIZE = 256;
-            std::vector<uint32_t> pixels(TEX_SIZE * TEX_SIZE, 0);
+            std::vector<uint8_t> pixels(TEX_SIZE * TEX_SIZE * 4, 255);
 
             for (int y = 0; y < TEX_SIZE; ++y) {
                 float ny = (static_cast<float>(y) + 0.5f) / static_cast<float>(TEX_SIZE) * 2.0f - 1.0f;
                 for (int x = 0; x < TEX_SIZE; ++x) {
                     float nx = (static_cast<float>(x) + 0.5f) / static_cast<float>(TEX_SIZE) * 2.0f - 1.0f;
                     
-                    // Elliptical distance metric with smoothstep falloff
-                    float dist = std::sqrt(nx * nx * 0.9f + ny * ny * 1.1f);
-                    float v = std::clamp((dist - 0.40f) / (1.20f - 0.40f), 0.0f, 1.0f);
+                    // Cinematic corner falloff: center remains unshaded, only outer corners shade
+                    float dist = std::sqrt(nx * nx + ny * ny);
+                    float v = std::clamp((dist - 0.75f) / (1.40f - 0.75f), 0.0f, 1.0f);
                     float smooth_v = v * v * (3.0f - 2.0f * v); // Cubic smoothstep
 
                     uint8_t a = static_cast<uint8_t>(smooth_v * 255.0f);
-                    // Store white pixels with radial alpha
-                    pixels[y * TEX_SIZE + x] = (255 << 24) | (255 << 16) | (255 << 8) | a;
+                    int idx = (y * TEX_SIZE + x) * 4;
+                    pixels[idx + 0] = 255; // R
+                    pixels[idx + 1] = 255; // G
+                    pixels[idx + 2] = 255; // B
+                    pixels[idx + 3] = a;   // A
                 }
             }
 
             m_vignette_tex = SDL_CreateTexture(
                 renderer, 
-                SDL_PIXELFORMAT_RGBA8888, 
+                SDL_PIXELFORMAT_RGBA32, 
                 SDL_TEXTUREACCESS_STATIC, 
                 TEX_SIZE, 
                 TEX_SIZE
             );
             if (m_vignette_tex) {
-                SDL_UpdateTexture(m_vignette_tex, nullptr, pixels.data(), TEX_SIZE * sizeof(uint32_t));
+                SDL_UpdateTexture(m_vignette_tex, nullptr, pixels.data(), TEX_SIZE * 4);
                 SDL_SetTextureBlendMode(m_vignette_tex, SDL_BLENDMODE_BLEND);
                 SDL_SetTextureScaleMode(m_vignette_tex, SDL_SCALEMODE_LINEAR);
             }
@@ -127,15 +130,22 @@ public:
         // 3. Blit smooth continuous radial vignette
         if (m_vignette_tex) {
             SDL_SetTextureColorMod(m_vignette_tex, m_color.r, m_color.g, m_color.b);
-            uint8_t final_a = static_cast<uint8_t>(std::clamp(m_intensity * (static_cast<float>(m_color.a) / 255.0f) * 230.0f, 0.0f, 255.0f));
+            uint8_t final_a = static_cast<uint8_t>(std::clamp(m_intensity * (static_cast<float>(m_color.a) / 255.0f) * 180.0f, 0.0f, 255.0f));
             SDL_SetTextureAlphaMod(m_vignette_tex, final_a);
             SDL_RenderTexture(renderer, m_vignette_tex, nullptr, nullptr);
         }
     }
 
+    void reset() override {
+        if (m_vignette_tex) {
+            SDL_DestroyTexture(m_vignette_tex);
+            m_vignette_tex = nullptr;
+        }
+    }
+
 private:
     bool m_enabled{true};
-    float m_intensity{0.35f};
+    float m_intensity{0.25f};
     SDL_Color m_color{0, 0, 0, 255};
     SDL_Texture* m_vignette_tex{nullptr};
 };

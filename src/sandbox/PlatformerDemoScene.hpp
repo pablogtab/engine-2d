@@ -77,6 +77,12 @@ private:
     std::unique_ptr<Engine::Texture> m_wheel_texture;
     std::unique_ptr<Engine::Texture> m_wrecking_ball_texture;
     std::unique_ptr<Engine::Texture> m_circle_debug_texture;
+    std::unique_ptr<Engine::Texture> m_campfire_logs_texture;
+    std::unique_ptr<Engine::Texture> m_campfire_light_texture;
+    std::unique_ptr<Engine::Texture> m_flame_core_texture;
+
+    glm::vec2 m_campfire_pos{-220.0f, -252.0f};
+    float m_campfire_time{0.0f};
 
     bool m_is_grappling{false};
     Engine::EntityID m_grapple_anchor_id{0};

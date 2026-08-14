@@ -397,6 +397,7 @@ struct ParticleProps {
     float bounciness{0.6f}; // Restitution [0.0 = stick, 1.0 = super bouncy]
 
     Texture* texture{nullptr};
+    float z_layer{-0.05f}; // Z-Depth sorting layer
 };
 
 // ECS Component for Continuous Entity Particle Emitters

@@ -256,6 +256,91 @@ void PlatformerDemoScene::on_attach() {
         Engine::Texture::create_circle(m_sdl_renderer, 32, 0, 255, 120, 180)
     );
 
+    // 13. Procedural Campfire Firewood Logs (Charred rustic wood with glowing amber base)
+    {
+        constexpr int width = 52;
+        constexpr int height = 26;
+        std::vector<uint32_t> pixels(width * height, 0);
+
+        uint32_t bark_dark   = (255 << 24) | (35 << 16) | (20 << 8) | 12;
+        uint32_t bark_mid    = (255 << 24) | (65 << 16) | (38 << 8) | 22;
+        uint32_t wood_core   = (255 << 24) | (95 << 16) | (58 << 8) | 32;
+        uint32_t ember_glow  = (255 << 24) | (255 << 16) | (110 << 8) | 20;
+        uint32_t ash_grey    = (255 << 24) | (70 << 16) | (68 << 8) | 72;
+
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                float nx = (static_cast<float>(x) - width * 0.5f) / (width * 0.5f);
+                float ny = (static_cast<float>(y) - height * 0.3f) / (height * 0.7f);
+
+                // Diagonal log 1 (Left to Right)
+                float d1 = std::abs(ny - nx * 0.45f);
+                // Diagonal log 2 (Right to Left)
+                float d2 = std::abs(ny + nx * 0.45f);
+                // Bottom foundation log
+                float d3 = std::abs(ny + 0.2f);
+
+                if (d1 < 0.35f || d2 < 0.35f || (d3 < 0.25f && std::abs(nx) < 0.85f)) {
+                    if (y < 8 && std::abs(nx) < 0.4f) {
+                        pixels[y * width + x] = ember_glow; // Hot burning embers at center
+                    } else if (y < 12 && std::abs(nx) < 0.5f) {
+                        pixels[y * width + x] = ash_grey;   // Ash ring
+                    } else if ((x + y) % 6 == 0) {
+                        pixels[y * width + x] = bark_dark;  // Bark grooves
+                    } else {
+                        pixels[y * width + x] = (d1 < 0.18f || d2 < 0.18f) ? wood_core : bark_mid;
+                    }
+                }
+            }
+        }
+        m_campfire_logs_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, width, height, pixels.data());
+    }
+
+    // 14. Procedural 2D Dynamic Point Light Mask (Soft Gaussian radial falloff)
+    {
+        constexpr int size = 128;
+        std::vector<uint32_t> pixels(size * size, 0);
+
+        for (int y = 0; y < size; ++y) {
+            float ny = (static_cast<float>(y) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
+            for (int x = 0; x < size; ++x) {
+                float nx = (static_cast<float>(x) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
+                float dist = std::sqrt(nx * nx + ny * ny);
+
+                if (dist < 1.0f) {
+                    float falloff = (1.0f - dist) * (1.0f - dist); // Quadratic soft falloff
+                    uint8_t a = static_cast<uint8_t>(falloff * 255.0f);
+                    pixels[y * size + x] = (255 << 24) | (255 << 16) | (255 << 8) | a;
+                }
+            }
+        }
+        m_campfire_light_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, size, size, pixels.data());
+    }
+
+    // 15. Procedural Incandescent Flame Core (Teardrop shape, white/gold radiant gradient)
+    {
+        constexpr int width = 32;
+        constexpr int height = 48;
+        std::vector<uint32_t> pixels(width * height, 0);
+
+        for (int y = 0; y < height; ++y) {
+            float ny = static_cast<float>(y) / static_cast<float>(height); // 0 at base, 1 at tip
+            float taper = 1.0f - ny * 0.85f; // Tapers toward flame tip
+            for (int x = 0; x < width; ++x) {
+                float nx = (static_cast<float>(x) - width * 0.5f) / (width * 0.5f * std::max(0.12f, taper));
+                float dist_sq = nx * nx + (ny - 0.25f) * (ny - 0.25f) * 1.6f;
+
+                if (dist_sq < 1.0f) {
+                    float falloff = std::pow(1.0f - std::sqrt(dist_sq), 1.2f);
+                    uint8_t a = static_cast<uint8_t>(falloff * 255.0f);
+                    // Pure white with flame alpha falloff (so tinting turns it radiant gold/orange)
+                    pixels[y * width + x] = (255 << 24) | (255 << 16) | (255 << 8) | a;
+                }
+            }
+        }
+        m_flame_core_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, width, height, pixels.data());
+    }
+
     // Register Event Listener for Collectibles, Ground Contact, and Curve Force Launch Pads
     m_event_dispatcher.subscribe<Engine::CollisionEvent>(
         [this](const Engine::CollisionEvent& ev) {
@@ -729,6 +814,10 @@ void PlatformerDemoScene::on_update(float delta_time) {
     // Update Post-Processing Pipeline & Tweens
     m_post_process_pipeline.update(delta_time);
 
+    // Update Campfire Animation & Continuous Emission
+    m_campfire_time += delta_time;
+    Engine::Presets::campfire(m_particle_system, m_campfire_pos + glm::vec2(0.0f, 6.0f));
+
     // Update Particle Engine & Expanding Shockwaves
     m_particle_system.update(delta_time);
 
@@ -939,7 +1028,51 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
         );
     }
 
-    // 4. Render Active 2D Particles (Sparks, Smoke, Dust, Starbursts)
+    // 3.5. Render Campfire Showcase (2D Dynamic Light, Firewood, and Animated Flame Core)
+    {
+        // A. Dynamic 2D Warm Point Light Aura (Flickers and illuminates the ground at Z = -1.0)
+        float flicker = std::sin(m_campfire_time * 14.0f) * 10.0f + std::cos(m_campfire_time * 26.0f) * 6.0f;
+        float light_radius = 240.0f + flicker;
+        uint8_t light_alpha = static_cast<uint8_t>(std::clamp(160.0f + flicker * 2.5f, 110.0f, 210.0f));
+        renderer.submit_sprite(
+            m_campfire_light_texture.get(),
+            glm::vec3(m_campfire_pos + glm::vec2(0.0f, 12.0f), -1.0f),
+            glm::vec2(light_radius, light_radius * 0.80f),
+            0.0f,
+            SDL_Color{255, 130, 25, light_alpha},
+            nullptr,
+            glm::vec2(0.5f, 0.5f),
+            false
+        );
+
+        // B. Rustic Firewood Logs Base (Behind player at Z = -0.2)
+        renderer.submit_sprite(
+            m_campfire_logs_texture.get(),
+            glm::vec3(m_campfire_pos, -0.2f),
+            glm::vec2(52.0f, 26.0f),
+            0.0f,
+            SDL_Color{255, 255, 255, 255},
+            nullptr,
+            glm::vec2(0.5f, 0.5f),
+            false
+        );
+
+        // C. Animated Incandescent Flame Core (Pulsing & swaying at Z = -0.1)
+        float flame_sway = std::sin(m_campfire_time * 16.0f) * 2.0f;
+        float flame_pulse = std::cos(m_campfire_time * 22.0f) * 3.0f;
+        renderer.submit_sprite(
+            m_flame_core_texture.get(),
+            glm::vec3(m_campfire_pos + glm::vec2(flame_sway, 14.0f), -0.1f),
+            glm::vec2(22.0f + flame_pulse, 34.0f - flame_pulse * 0.5f),
+            flame_sway * 2.5f,
+            SDL_Color{255, 225, 75, 245},
+            nullptr,
+            glm::vec2(0.5f, 0.2f),
+            false
+        );
+    }
+
+    // 4. Render Active 2D Particles (Sparks, Smoke, Dust, Starbursts, Campfire Embers)
     m_particle_system.render(renderer);
 
     renderer.end_scene();
