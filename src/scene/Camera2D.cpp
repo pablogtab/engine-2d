@@ -29,7 +29,7 @@ glm::vec2 Camera2D::world_to_screen(const glm::vec3& world_pos) const {
         -(world_pos.y - m_position.y * parallax_factor)
     );
 
-    glm::vec2 relative_pos = delta * m_zoom * z_scale;
+    glm::vec2 relative_pos = delta * get_effective_zoom() * z_scale;
     glm::vec2 screen_center = m_viewport_size * 0.5f;
 
     return relative_pos + screen_center;
@@ -41,7 +41,7 @@ glm::vec2 Camera2D::screen_to_world(const glm::vec2& screen_pos, float z) const 
     glm::vec2 screen_center = m_viewport_size * 0.5f;
 
     glm::vec2 relative_pos = screen_pos - screen_center;
-    glm::vec2 delta = relative_pos / (m_zoom * z_scale);
+    glm::vec2 delta = relative_pos / (get_effective_zoom() * z_scale);
 
     float world_x = delta.x + m_position.x * parallax_factor;
     float world_y = -delta.y + m_position.y * parallax_factor;
@@ -51,7 +51,7 @@ glm::vec2 Camera2D::screen_to_world(const glm::vec2& screen_pos, float z) const 
 
 bool Camera2D::is_visible(const glm::vec3& world_pos, const glm::vec2& size) const {
     glm::vec2 screen_pos = world_to_screen(world_pos);
-    float z_scale = get_z_scale(world_pos.z) * m_zoom;
+    float z_scale = get_z_scale(world_pos.z) * get_effective_zoom();
     glm::vec2 half_size = (size * z_scale) * 0.5f;
 
     float min_x = screen_pos.x - half_size.x;
@@ -64,7 +64,7 @@ bool Camera2D::is_visible(const glm::vec3& world_pos, const glm::vec2& size) con
 }
 
 SDL_FRect Camera2D::get_world_bounds(float z) const {
-    float z_scale = get_z_scale(z) * m_zoom;
+    float z_scale = get_z_scale(z) * get_effective_zoom();
     glm::vec2 half_world_dim = (m_viewport_size / z_scale) * 0.5f;
 
     return SDL_FRect{

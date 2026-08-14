@@ -21,7 +21,7 @@ public:
 
     void update(float delta_time);
     void render(Renderer2D& renderer);
-    void resize(int width, int height);
+    void resize(int width, int height, float dpi_scale = 1.0f);
 
     Scene* get_active_scene() const;
     size_t get_scene_count() const { return m_scenes.size(); }
@@ -34,6 +34,7 @@ private:
     int m_active_index{-1};
     int m_last_width{1280};
     int m_last_height{720};
+    float m_last_dpi_scale{1.0f};
 };
 
 } // namespace Engine

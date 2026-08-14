@@ -15,20 +15,21 @@ Application::Application(const std::string& name, int width, int height) {
     m_renderer->set_thread_pool(&m_thread_pool);
 
     // Register window resize / High-DPI scale change callback
-    m_window->set_resize_callback([this](int w, int h) {
+    m_window->set_resize_callback([this](int w, int h, float dpi) {
         this->on_resize(w, h);
-        this->m_scene_manager.resize(w, h);
+        this->m_scene_manager.resize(w, h, dpi);
     });
 }
 
 void Application::run() {
     on_init();
 
-    // Trigger initial on_resize with current render target pixel size
+    // Trigger initial on_resize with current render target pixel size and DPI scale
     int pixel_w = m_window->get_pixel_width();
     int pixel_h = m_window->get_pixel_height();
+    float dpi   = m_window->get_dpi_scale();
     on_resize(pixel_w, pixel_h);
-    m_scene_manager.resize(pixel_w, pixel_h);
+    m_scene_manager.resize(pixel_w, pixel_h, dpi);
 
     uint64_t last_counter = SDL_GetPerformanceCounter();
     uint64_t frequency = SDL_GetPerformanceFrequency();

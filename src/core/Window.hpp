@@ -26,8 +26,11 @@ public:
     int get_height() const { return m_height; }
     int get_pixel_width() const { return m_pixel_width; }
     int get_pixel_height() const { return m_pixel_height; }
+    float get_dpi_scale() const {
+        return (m_height > 0) ? (static_cast<float>(m_pixel_height) / static_cast<float>(m_height)) : 1.0f;
+    }
 
-    void set_resize_callback(std::function<void(int, int)> callback) {
+    void set_resize_callback(std::function<void(int, int, float)> callback) {
         m_resize_callback = callback;
     }
 
@@ -44,7 +47,7 @@ private:
     int m_pixel_width{0};
     int m_pixel_height{0};
     bool m_should_close{false};
-    std::function<void(int, int)> m_resize_callback;
+    std::function<void(int, int, float)> m_resize_callback;
 };
 
 } // namespace Engine

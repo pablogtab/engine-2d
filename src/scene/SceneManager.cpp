@@ -95,11 +95,12 @@ void SceneManager::render(Renderer2D& renderer) {
     }
 }
 
-void SceneManager::resize(int width, int height) {
+void SceneManager::resize(int width, int height, float dpi_scale) {
     m_last_width = width;
     m_last_height = height;
+    m_last_dpi_scale = dpi_scale;
     if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
-        m_scenes[m_active_index]->on_resize(width, height);
+        m_scenes[m_active_index]->on_resize(width, height, dpi_scale);
     }
 }
 

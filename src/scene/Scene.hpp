@@ -16,6 +16,7 @@ public:
     virtual void on_update(float delta_time) {}
     virtual void on_render(Renderer2D& renderer) {}
     virtual void on_resize(int width, int height) {}
+    virtual void on_resize(int width, int height, float dpi_scale) { on_resize(width, height); }
 
     const std::string& get_name() const { return m_name; }
 

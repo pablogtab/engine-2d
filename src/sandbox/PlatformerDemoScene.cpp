@@ -36,8 +36,10 @@ void PlatformerDemoScene::on_attach() {
     // Set Platformer Downward Gravity (Y = -800.0f pulls downward)
     Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, -800.0f));
 
-    // Initialize Post-Processing Shader Pipeline & All Passes
-    m_post_process_pipeline.init(m_sdl_renderer, 1280, 720);
+    // Initialize Post-Processing Shader Pipeline & All Passes with current physical viewport size
+    m_post_process_pipeline.init(m_sdl_renderer, m_viewport_w, m_viewport_h);
+    m_camera.set_viewport_size(static_cast<float>(m_viewport_w), static_cast<float>(m_viewport_h));
+    m_camera.set_dpi_scale(m_dpi_scale);
     m_post_process_pipeline.clear_passes();
     m_post_process_pipeline.add_pass(std::make_shared<Engine::VignettePass>());
     m_post_process_pipeline.add_pass(std::make_shared<Engine::ChromaticAberrationPass>());
@@ -441,8 +443,12 @@ void PlatformerDemoScene::on_detach() {
     m_post_process_pipeline.destroy_targets();
 }
 
-void PlatformerDemoScene::on_resize(int width, int height) {
+void PlatformerDemoScene::on_resize(int width, int height, float dpi_scale) {
+    m_viewport_w = width;
+    m_viewport_h = height;
+    m_dpi_scale = dpi_scale;
     m_camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
+    m_camera.set_dpi_scale(dpi_scale);
     m_post_process_pipeline.resize(width, height);
 }
 
@@ -691,6 +697,7 @@ void PlatformerDemoScene::on_update(float delta_time) {
     if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_R)) {
         ENGINE_LOG_INFO("[PLATFORMER DEMO] 'R' Key pressed! Resetting level...");
         on_attach();
+        on_resize(m_viewport_w, m_viewport_h, m_dpi_scale);
         return;
     }
 

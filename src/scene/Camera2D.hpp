@@ -17,6 +17,10 @@ public:
     void set_zoom(float zoom) { m_zoom = glm::clamp(zoom, 0.1f, 10.0f); }
     float get_zoom() const { return m_zoom; }
 
+    void set_dpi_scale(float scale) { m_dpi_scale = glm::clamp(scale, 0.1f, 8.0f); }
+    float get_dpi_scale() const { return m_dpi_scale; }
+    float get_effective_zoom() const { return m_zoom * m_dpi_scale; }
+
     void set_viewport_size(float width, float height) {
         m_viewport_size = glm::vec2(width, height);
     }
@@ -44,6 +48,7 @@ private:
     glm::vec2 m_position{0.0f, 0.0f};
     glm::vec2 m_viewport_size{1280.0f, 720.0f};
     float m_zoom{1.0f};
+    float m_dpi_scale{1.0f};
 };
 
 } // namespace Engine

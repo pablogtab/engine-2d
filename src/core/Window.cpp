@@ -136,16 +136,22 @@ void Window::poll_events() {
                  event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
                  event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED ||
                  event.type == SDL_EVENT_WINDOW_RESTORED ||
-                 event.type == SDL_EVENT_WINDOW_MAXIMIZED) {
+                 event.type == SDL_EVENT_WINDOW_MAXIMIZED ||
+                 event.type == SDL_EVENT_WINDOW_EXPOSED) {
             
             int prev_w = m_pixel_width;
             int prev_h = m_pixel_height;
             update_sizes();
             save_state();
 
-            if (m_resize_callback && (m_pixel_width != prev_w || m_pixel_height != prev_h || event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)) {
-                // Pass current render output dimensions to callback
-                m_resize_callback(m_pixel_width, m_pixel_height);
+            if (m_resize_callback && (m_pixel_width != prev_w || m_pixel_height != prev_h || 
+                event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED ||
+                event.type == SDL_EVENT_WINDOW_RESIZED || 
+                event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)) {
+                float dpi = get_dpi_scale();
+                ENGINE_LOG_INFO("[WINDOW DPI/RESIZE] Render target updated: {}x{} (Physical: {}x{}, DPI Scale: {:.2f})",
+                                m_width, m_height, m_pixel_width, m_pixel_height, dpi);
+                m_resize_callback(m_pixel_width, m_pixel_height, dpi);
             }
         }
     }

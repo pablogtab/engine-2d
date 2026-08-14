@@ -164,7 +164,7 @@ void Renderer2D::end_scene() {
 
         // Calculate GPU screen position based on camera parallax and Z-depth
         glm::vec2 screen_pos = m_active_camera->world_to_screen(cmd.position);
-        float z_scale = m_active_camera->get_z_scale(cmd.position.z) * m_active_camera->get_zoom();
+        float z_scale = m_active_camera->get_z_scale(cmd.position.z) * m_active_camera->get_effective_zoom();
 
         glm::vec2 scaled_size = cmd.size * z_scale;
         float min_x = -cmd.pivot.x * scaled_size.x;
