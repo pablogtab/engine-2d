@@ -45,9 +45,77 @@ void PlatformerDemoScene::on_attach() {
         Engine::Texture::create_solid(m_sdl_renderer, 64, 64, 40, 180, 255, 255)
     );
 
-    m_block_texture = std::unique_ptr<Engine::Texture>(
-        Engine::Texture::create_solid(m_sdl_renderer, 64, 64, 120, 90, 60, 255)
-    );
+    // 1. Procedural Atmospheric Sky Backdrop Gradient
+    {
+        Engine::ProceduralTextureDesc sky_desc;
+        sky_desc.type = Engine::ProceduralType::LinearGradient;
+        sky_desc.width = 256;
+        sky_desc.height = 256;
+        sky_desc.color_a = SDL_Color{15, 23, 42, 255};   // Deep midnight slate (#0f172a)
+        sky_desc.color_b = SDL_Color{30, 41, 59, 255};   // Horizon navy (#1e293b)
+        m_sky_bg_texture = std::unique_ptr<Engine::Texture>(
+            Engine::Texture::create_procedural(m_sdl_renderer, sky_desc)
+        );
+    }
+
+    // 2. High-Contrast Tileable Earth & Grass Block (64x64)
+    {
+        int w = 64, h = 64;
+        std::vector<uint32_t> pixels(w * h, 0);
+
+        for (int y = 0; y < h; ++y) {
+            float norm_y = static_cast<float>(y) / static_cast<float>(h);
+            for (int x = 0; x < w; ++x) {
+                float norm_x = static_cast<float>(x) / static_cast<float>(w);
+                float n = std::sin(norm_x * 16.0f) * 0.15f + std::cos(norm_y * 18.0f) * 0.15f;
+
+                if (y < 8) {
+                    // Top vibrant grass trim with jagged blades
+                    bool is_blade = (y >= 5) && ((x % 6 == 0) || (x % 6 == 1));
+                    if (y < 4 || is_blade) {
+                        pixels[y * w + x] = (90 << 24) | (185 << 16) | (45 << 8) | 255;  // #5ab92d Lush emerald grass
+                    } else {
+                        pixels[y * w + x] = (65 << 24) | (140 << 16) | (35 << 8) | 255;  // #418c23 Deep grass root
+                    }
+                } else if (y < 11) {
+                    // Root transition band
+                    pixels[y * w + x] = (95 << 24) | (60 << 16) | (38 << 8) | 255;
+                } else if (y >= h - 2) {
+                    // Bottom dark occlusion rim
+                    pixels[y * w + x] = (38 << 24) | (22 << 16) | (14 << 8) | 255;
+                } else {
+                    // Rich fertile soil with organic noise
+                    uint8_t r = static_cast<uint8_t>(std::clamp(115.0f + n * 28.0f, 85.0f, 145.0f));
+                    uint8_t g = static_cast<uint8_t>(std::clamp(75.0f + n * 18.0f, 55.0f, 95.0f));
+                    uint8_t b = static_cast<uint8_t>(std::clamp(48.0f + n * 14.0f, 32.0f, 65.0f));
+                    pixels[y * w + x] = (r << 24) | (g << 16) | (b << 8) | 255;
+                }
+            }
+        }
+        m_block_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, w, h, pixels.data());
+    }
+
+    // 3. Tileable Polished Wooden Platform (64x24)
+    {
+        int w = 64, h = 24;
+        std::vector<uint32_t> pixels(w * h, 0);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                if (y <= 1) {
+                    pixels[y * w + x] = (225 << 24) | (165 << 16) | (95 << 8) | 255;  // Top highlight bevel
+                } else if (y >= h - 2 || x == 0 || x == w - 1) {
+                    pixels[y * w + x] = (95 << 24) | (52 << 16) | (26 << 8) | 255;   // Dark plank border
+                } else {
+                    float grain = std::sin(static_cast<float>(y) * 1.6f + static_cast<float>(x) * 0.12f) * 12.0f;
+                    uint8_t r = static_cast<uint8_t>(std::clamp(180.0f + grain, 145.0f, 215.0f));
+                    uint8_t g = static_cast<uint8_t>(std::clamp(120.0f + grain * 0.7f, 95.0f, 150.0f));
+                    uint8_t b = static_cast<uint8_t>(std::clamp(68.0f + grain * 0.4f, 52.0f, 88.0f));
+                    pixels[y * w + x] = (r << 24) | (g << 16) | (b << 8) | 255;
+                }
+            }
+        }
+        m_wood_platform_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, w, h, pixels.data());
+    }
 
     m_coin_texture = std::unique_ptr<Engine::Texture>(
         Engine::Texture::create_circle(m_sdl_renderer, 16, 255, 215, 0, 255)
@@ -231,24 +299,36 @@ void PlatformerDemoScene::on_detach() {
 }
 
 void PlatformerDemoScene::setup_level() {
-    // 1. Create Main Ground Platform (Static Solid RigidBody, 1400px wide)
-    create_platform({0.0f, -280.0f}, {1400.0f, 40.0f}, {80, 140, 60, 255});
+    // 0. Atmospheric Sky Backdrop (Far Z Layer = -10.0f for gentle parallax)
+    {
+        Engine::EntityID bg_id = m_entity_manager.create_entity();
+        m_entity_manager.add_component<Engine::TagComponent>(bg_id, Engine::TagComponent{"SkyBackdrop"});
+        m_entity_manager.add_component<Engine::TransformComponent>(
+            bg_id, Engine::TransformComponent{glm::vec3(0.0f, 0.0f, -10.0f)}
+        );
+        m_entity_manager.add_component<Engine::SpriteComponent>(
+            bg_id, Engine::SpriteComponent{m_sky_bg_texture.get(), glm::vec2(3200.0f, 1800.0f), SDL_Color{255, 255, 255, 255}}
+        );
+    }
+
+    // 1. Create Main Ground Platform (Modularly tiled 1400px wide terrain)
+    create_platform({0.0f, -280.0f}, {1400.0f, 40.0f}, {255, 255, 255, 255});
 
     // 2. Left Zone: Kinematic Elevator + Top Observation Deck + Stepping Platforms
     create_elevator({-500.0f, -220.0f}, {110.0f, 22.0f});
-    create_platform({-500.0f, 180.0f}, {140.0f, 24.0f}, {140, 100, 70, 255}); // Top deck
-    create_one_way_platform({-320.0f, -60.0f}, {180.0f, 22.0f}, {160, 110, 75, 255});
-    create_one_way_platform({-320.0f, 80.0f}, {180.0f, 22.0f}, {160, 110, 75, 255});
+    create_platform({-500.0f, 180.0f}, {140.0f, 24.0f}, {255, 255, 255, 255}); // Top deck
+    create_one_way_platform({-320.0f, -60.0f}, {180.0f, 22.0f}, {255, 255, 255, 255});
+    create_one_way_platform({-320.0f, 80.0f}, {180.0f, 22.0f}, {255, 255, 255, 255});
 
     // 3. Center Zone: Solid Ceiling Arch + Swinging Wrecking Ball + Central Launch Pad
-    create_platform({0.0f, 220.0f}, {180.0f, 24.0f}, {90, 95, 105, 255});
+    create_platform({0.0f, 220.0f}, {180.0f, 24.0f}, {255, 255, 255, 255});
     create_wrecking_ball({0.0f, 208.0f}, {55.0f, 80.0f}, 26.0f);
     create_launch_pad({0.0f, -252.0f}); // Trampoline right under the open swing zone!
 
     // 4. Right Zone: Slope Ramp + Raised Deck + Rolling Wheel + High Floating Deck
     create_slope({280.0f, -185.0f}, {180.0f, 150.0f}, true);
-    create_platform({460.0f, -125.0f}, {180.0f, 30.0f}, {140, 100, 70, 255});
-    create_one_way_platform({280.0f, 70.0f}, {180.0f, 22.0f}, {160, 110, 75, 255});
+    create_platform({460.0f, -125.0f}, {180.0f, 30.0f}, {255, 255, 255, 255});
+    create_one_way_platform({280.0f, 70.0f}, {180.0f, 22.0f}, {255, 255, 255, 255});
 
     // 5. Spawn Collectible Coins in exciting reward spots
     std::vector<glm::vec2> coin_positions = {
@@ -353,31 +433,63 @@ void PlatformerDemoScene::create_elevator(const glm::vec2& position, const glm::
 }
 
 void PlatformerDemoScene::create_one_way_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color) {
+    // 1. Single Box2D static collider for exact physics
     Engine::EntityID platform_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(platform_id, Engine::TagComponent{"OneWayPlatform"});
     m_entity_manager.add_component<Engine::TransformComponent>(platform_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
-    m_entity_manager.add_component<Engine::SpriteComponent>(platform_id, Engine::SpriteComponent{m_block_texture.get(), size, color});
     m_entity_manager.add_component<Engine::RigidBodyComponent>(platform_id, Engine::RigidBodyComponent::Static());
 
-    // One-Way Platform Collider: Category GROUND, Mask PLAYER | DEFAULT
     uint16_t ground_mask = Layer::PLAYER | Layer::DEFAULT;
     m_entity_manager.add_component<Engine::ColliderComponent>(
         platform_id, Engine::ColliderComponent::OneWayBox(size, {0.0f, 0.0f}, Layer::GROUND, ground_mask)
     );
+
+    // 2. Modular repeating visual tiles across the width to avoid any stretching!
+    float tile_w = 60.0f;
+    int num_tiles = std::max(1, static_cast<int>(std::round(size.x / tile_w)));
+    float actual_tile_w = size.x / static_cast<float>(num_tiles);
+    float start_x = position.x - size.x * 0.5f + actual_tile_w * 0.5f;
+
+    for (int i = 0; i < num_tiles; ++i) {
+        float tile_x = start_x + static_cast<float>(i) * actual_tile_w;
+        Engine::EntityID tile_id = m_entity_manager.create_entity();
+        m_entity_manager.add_component<Engine::TransformComponent>(
+            tile_id, Engine::TransformComponent{glm::vec3(tile_x, position.y, 0.0f)}
+        );
+        m_entity_manager.add_component<Engine::SpriteComponent>(
+            tile_id, Engine::SpriteComponent{m_wood_platform_texture.get(), glm::vec2(actual_tile_w, size.y), SDL_Color{255, 255, 255, 255}}
+        );
+    }
 }
 
 void PlatformerDemoScene::create_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color) {
+    // 1. Single Box2D static collider for exact physics
     Engine::EntityID platform_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(platform_id, Engine::TagComponent{"Platform"});
     m_entity_manager.add_component<Engine::TransformComponent>(platform_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
-    m_entity_manager.add_component<Engine::SpriteComponent>(platform_id, Engine::SpriteComponent{m_block_texture.get(), size, color});
     m_entity_manager.add_component<Engine::RigidBodyComponent>(platform_id, Engine::RigidBodyComponent::Static());
 
-    // Platform Collider: Category GROUND, Mask PLAYER | DEFAULT
     uint16_t ground_mask = Layer::PLAYER | Layer::DEFAULT;
     m_entity_manager.add_component<Engine::ColliderComponent>(
         platform_id, Engine::ColliderComponent::Box(size, {0.0f, 0.0f}, false, Layer::GROUND, ground_mask)
     );
+
+    // 2. Modular repeating visual tiles across the width to avoid any stretching!
+    float tile_w = 64.0f;
+    int num_tiles = std::max(1, static_cast<int>(std::round(size.x / tile_w)));
+    float actual_tile_w = size.x / static_cast<float>(num_tiles);
+    float start_x = position.x - size.x * 0.5f + actual_tile_w * 0.5f;
+
+    for (int i = 0; i < num_tiles; ++i) {
+        float tile_x = start_x + static_cast<float>(i) * actual_tile_w;
+        Engine::EntityID tile_id = m_entity_manager.create_entity();
+        m_entity_manager.add_component<Engine::TransformComponent>(
+            tile_id, Engine::TransformComponent{glm::vec3(tile_x, position.y, 0.0f)}
+        );
+        m_entity_manager.add_component<Engine::SpriteComponent>(
+            tile_id, Engine::SpriteComponent{m_block_texture.get(), glm::vec2(actual_tile_w, size.y), SDL_Color{255, 255, 255, 255}}
+        );
+    }
 }
 
 void PlatformerDemoScene::create_launch_pad(const glm::vec2& position) {

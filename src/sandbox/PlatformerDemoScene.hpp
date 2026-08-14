@@ -57,6 +57,9 @@ private:
     // Procedural textures
     std::unique_ptr<Engine::Texture> m_player_texture;
     std::unique_ptr<Engine::Texture> m_block_texture;
+    std::unique_ptr<Engine::Texture> m_wood_platform_texture;
+    std::unique_ptr<Engine::Texture> m_stone_platform_texture;
+    std::unique_ptr<Engine::Texture> m_sky_bg_texture;
     std::unique_ptr<Engine::Texture> m_coin_texture;
     std::unique_ptr<Engine::Texture> m_launch_pad_texture;
     std::unique_ptr<Engine::Texture> m_elevator_texture;

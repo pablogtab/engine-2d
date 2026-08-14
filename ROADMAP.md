@@ -1,123 +1,149 @@
 # 🗺️ Roadmap de Desarrollo - Motor de Juegos C++ 2D / 2.5D
 
-Este documento define la hoja de ruta técnica para hacer evolucionar el motor desde un prototipo de renderizado 2.5D hasta un motor de videojuegos completo, modular y listo para producción.
+Este documento define la hoja de ruta técnica para hacer evolucionar el motor hacia un motor de videojuegos 2D/2.5D modular, de alto rendimiento y listo para producción.
 
 ---
 
-## 📊 Estado Actual del Motor
+## 📊 Estado Actual de la Arquitectura
 
 ```mermaid
-graph LR
-    subgraph Actual ["✅ Implementado Actualmente"]
-        A[SDL3 Window & DPI]
-        B[Application & Main Loop]
-        C[Renderer2D Deferred Queue & src_rect]
-        D[Z-Depth & Y-Sorting]
-        E[Camera2D & Parallax]
-        F[Scene Manager]
-        G[stb_image PNG/JPG Asset Loader]
-        H[SpriteSheet & Animation2D]
-        I[Live Watcher dev.sh]
+graph TD
+    subgraph CoreEngine ["✅ Core Engine & Runtime (Completado)"]
+        SDL[SDL3 Window & High-DPI]
+        Renderer[Renderer2D Sprite Batching + Culling O1]
+        Depth[2.5D Z-Depth & Parallax]
+        ECS[ECS EntityManager & Bitmask Signatures]
+        Physics[Box2D v3 + Joints + Collision Matrix]
+        Particles[ParticleSystem2D Zero-Alloc Pool & Bouncing]
+        Events[EventDispatcher Bus]
+        Async[ThreadPool & SIMD Optimizations]
     end
+
+    subgraph Upcoming ["🚀 Próximas Fases Priorizadas"]
+        P1[Fase 5: Pipeline Visual, Shaders & Texturas Procedurales]
+        P2[Fase 6: Game Feel, Tiempo & Cámara Cinemática]
+        P3[Fase 7: Arquitectura de Gameplay & Máquinas de Estado]
+        P4[Fase 8: Tooling & Editor en Vivo Dear ImGui]
+        P5[Fase 9: Audio 2D, Texto & Sistema de Guardado]
+        P6[Fase 10: Tilemaps LDtk/Tiled & Gestión de Niveles]
+    end
+
+    CoreEngine --> Upcoming
 ```
 
 ---
 
-## 🚀 Fases del Roadmap
+## 🏆 Fases Completadas
 
-### 📍 Fase 1: Carga de Assets & Renderizado Avanzado (Completado)
-> **Objetivo**: Permitir el uso de imágenes reales (PNG/JPG), recortar regiones de textura y soportar animaciones 2D.
+### 📍 Fase 1: Carga de Assets & Renderizado 2.5D (Completado)
+- [x] **Cargador de Imágenes Reales (`stb_image`)**: Carga de `.png`, `.jpg`, `.bmp`, `.tga` a texturas GPU.
+- [x] **Sprite Sheets y Animaciones 2D**: `SpriteSheet` y `Animation2D` con control de FPS, clips y bucles.
+- [x] **Cámara 2.5D & Parallax**: Profundidad $Z$, escalado focal y desplazamiento de capas de fondo.
 
-- [x] **1.1 Cargador de Imágenes Reales (`stb_image`)**:
-  - Integración de `stb_image.h` en `Engine::Texture::load_from_file` para cargar archivos `.png`, `.jpg`, `.bmp`, `.tga`.
-- [x] **1.2 Soporte para Sprite Sheets y Animaciones 2D**:
-  - `SpriteCommand` extendido con recorte de región `src_rect`.
-  - Implementación de `Engine::SpriteSheet` y `Engine::Animation2D` (control de tiempo, FPS, clips y bucles).
-- [x] **1.3 Escena Demo de Animación**:
-  - `AnimatedSpriteDemoScene` integrada con un personaje con estados *Idle*, *Run* y *Spin*.
+### 📍 Fase 2: Optimizaciones de Rendimiento Extremo (Completado)
+- [x] **Sprite Batching**: Agrupación de quads por textura vía `SDL_RenderGeometry` (1 sola Draw Call por frame).
+- [x] **Frustum Culling 2D**: Descarte en $O(1)$ (`Camera2D::is_visible`) para objetos fuera del viewport.
+- [x] **Gestor de Recursos (`AssetManager`)**: Caché centralizada para evitar duplicación en RAM/VRAM.
+- [x] **Vectorización SIMD & Multihilo**: Aceleración ARM NEON / SSE2 y batching paralelo con `ThreadPool`.
 
----
+### 📍 Fase 3: Arquitectura ECS & Bus de Eventos (Completado)
+- [x] **Sistema de Entidades & Componentes (`EntityManager`)**: Firmas bitmask de 64 bits, vistas de exclusión, hooks de ciclo de vida (`on_construct`, `on_destroy`).
+- [x] **Bus de Eventos (`EventDispatcher`)**: Comunicación desacoplada síncrona y diferida por fotograma.
+- [x] **Mapeo de Controles (`InputManager`)**: Teclado, ratón y proyección de puntero a coordenadas de mundo.
 
-### 📍 Fase 2: Optimizaciones de Alto Rendimiento (Prioridad Inmediata)
-> **Objetivo**: Eliminar los cuellos de botella GPU/CPU para pasar de 3,000 a +100,000 sprites a 60+ FPS estables.
-
-- [x] **2.1 Sprite Batching / Instancing (Reducción Masiva de Draw Calls)**:
-  - Agrupar la geometría de sprites por textura/atlas en un solo buffer de vértices VBO/VAO (`SDL_RenderGeometry`).
-  - Reducción probada: De 3,000 llamadas individuales a la GPU a **1 sola Draw Call por fotograma** (99.97% de reducción en sobrecarga GPU).
-- [x] **2.2 Frustum Culling 2D (Descarte de Objetos Fuera de Pantalla)**:
-  - Verificación en $O(1)$ (`Camera2D::is_visible`) para descartar sprites fuera del campo de visión antes de encolar u ordenar.
-  - Ahorro probado: Descarte instantáneo de objetos fuera de pantalla sin asignaciones en RAM ni llamadas a GPU.
-- [x] **2.3 Administrador Centralizado de Recursos (`AssetManager`)**:
-  - Sistema de caché con `std::unordered_map<std::string, std::shared_ptr<Texture>>`.
-  - Reutilización inteligente de assets en VRAM para evitar cargas duplicadas de disco.
-- [x] **2.4 Optimización de Memoria RAM & Ordenamiento**:
-  - Pre-asignación de capacidad (`m_sprite_queue.reserve`, `m_vertex_buffer.reserve`) para eliminar asignaciones dinámicas en el bucle principal.
-  - Ordenamiento hiper-rápido usando clave cuantizada entera de 64 bits (`sort_key`), reduciendo comparaciones flotantes en CPU.
-- [x] **2.5 Sistema de Logging Profesional (`Engine::Log`)**:
-  - Implementación de `Engine::Log` con soporte de formateo, timestamps, mutex thread-safe y colores ANSI.
-  - Salida dual a consola y archivo de disco `engine.log`.
-  - Macros `ENGINE_LOG_TRACE`, `ENGINE_LOG_INFO`, `ENGINE_LOG_ERROR` optimizables a código nulo en builds *Release*.
+### 📍 Fase 4: Físicas 2D, Joints & Sistema de Partículas (Completado)
+- [x] **Física Box2D v3 Integrada (`PhysicsSystem`)**: Cuerpos estáticos/dinámicos, fricción, restitución y raycasts.
+- [x] **Matriz de Capas de Colisión**: Bitmasking por categorías (`PLAYER`, `GROUND`, `COIN`, `HAZARD`, `PROJECTILE`).
+- [x] **Articulaciones & Cuerdas Elásticas**: Soporte de `JointType::Rope` con deformación de catenaria por curvas de Bézier.
+- [x] **Motor de Partículas Nativo (`ParticleSystem2D`)**: Pool circular de cero asignaciones en memoria, rebote físico contra el terreno y texturas procedurales suaves (soft-circle y diamond-spark).
+- [x] **Presets Desacoplados (`Engine::Presets`)**: Recetas de gameplay (explosiones, chispas, monedas, polvo) aisladas del núcleo del motor en `src/particles/ParticlePresets.hpp`.
 
 ---
 
-### 📍 Fase 3: Arquitectura de Entidades, Multihilo & Sistema de Entrada (Medio Plazo)
-> **Objetivo**: Desacoplar la lógica del juego del código duro en las escenas mediante componentes, hilos secundarios y mapeo de controles.
+## 🚀 Próximas Fases (Hoja de Ruta Activa)
 
-- [x] **2.6 Envío en Lote Paralelo (`submit_sprites_batch`)**:
-  - `Renderer2D::submit_sprites_batch` realiza el *culling* y empaquetado de claves en paralelo con `ThreadPool`.
-- [x] **2.7 Vectorización SIMD Cross-Platform (`Engine::SIMD`)**:
-  - Abstracción de 128 bits con ARM NEON (Mac/iOS) y SSE2/AVX2 (PC) para transformación de esquinas en 2 instrucciones.
-- [x] **2.8 Modo Bajo Lag / Doble Buffer Configurable (`set_low_latency_mode`)**:
-  - Interruptor configurable para alternar entre 0-lag (juegos competitivos/FPS) y máximo rendimiento (simulaciones masivas).
-- [x] **3.1 Sistema de Entrada (Input Manager)**:
-  - Crear un sistema de acciones mapeables (`"MoveLeft"`, `"Jump"`, `"Pause"`) para Teclado, Ratón y Gamepads (mandos Xbox/PlayStation).
-  - Soporte para eventos de clic y coordenadas del ratón convertidas al mundo 2.5D.
-- [x] **3.2 Sistema de Componentes (ECS & EntityManager — AAA World-Class Standard)**:
-  - Implementar arquitectura ligera `Entity-Component-System` a la medida del motor en C++20.
-  - Componentes fundamentales: `TransformComponent` (2.5D), `SpriteComponent`, `BehaviorComponent`, `TagComponent`, `HierarchyComponent`.
-  - **Firmas por Máscara de Bits (`ComponentMask` / `std::bitset<64>`)**: Coincidencia de componentes en 1 instrucción CPU `AND`.
-  - **Filtros de Exclusión (`exclude<T1, T2...>`)**: Vistas avanzadas que ignoran entidades con tags específicos.
-  - **Hooks de Ciclo de Vida (`on_construct`, `on_destroy`)**: Callbacks automáticos al adjuntar/remover componentes.
-  - **APIs de Alta Expresividad**: `find_by_tag`, `clone_entity`, `destroy_matching`, y desempaquetado de tuplas C++20 (`get_components`).
-- [x] **3.3 Sistema de Eventos Desacoplado (`EventDispatcher`)**:
-  - Bus de eventos fuertemente tipado para comunicación entre sistemas (`CollisionEvent`, `EntityDestroyedEvent`, eventos personalizados).
-  - Emisión síncrona inmediata (`publish`) y diferida al final del fotograma (`queue` / `dispatch_queued`).
+### 📍 Fase 5: Pipeline Visual, Shaders & Texturas Procedurales
+> **Objetivo**: Elevar la calidad visual con post-processing en GPU, efectos de shader y generación matemática de texturas sin dependencias externas.
+
+- [x] **5.1 Texturas Procedurales Parametrizadas (`ProceduralTextureDesc`)**:
+  - Generador matemático agnóstico: `NoiseGradient` (Perlin/Simplex fBm), `Voronoi` (celdas orgánicas), `LinearGradient`, `RadialGradient`, `Checkerboard` y `Custom`.
+  - Estructura serializable (`seed`, `scale`, `octaves`, `color_a`, `color_b`) para conectar a editores o crear terrenos variados sin patrones repetitivos.
+- [ ] **5.2 Pipeline de Render Targets & Post-Processing**:
+  - Renderizado a textura intermedia (*Off-screen Framebuffer / Render Target*).
+  - Pases de pantalla completa para efectos globales: viñeteado, aberración cromática, distorsión de onda expansiva y *Screen Shake* cinemático.
+- [ ] **5.3 Efectos de Shaders de Materiales / Sprites**:
+  - *Hit Flash* (destello blanco/rojo al recibir daño).
+  - *Dissolve / Burn* (efecto de desintegración por ruido al morir entidades).
+  - *Outline / Glow* (resaltado de siluetas de objetos seleccionables o interactivos).
+- [ ] **5.4 Iluminación 2D Dinámica Básica**:
+  - Luces puntuales 2D (*Point Lights*) con radio, color, intensidad y mezcla multiplicativa con mapa de sombras/ambiente.
 
 ---
 
-### 📍 Fase 4: Física 2D & Sistema de Colisiones (Medio Plazo)
-> **Objetivo**: Dotar a los objetos de detección de colisiones, gravedad y respuesta física.
+### 📍 Fase 6: Game Feel, Tiempo & Cámara Cinemática
+> **Objetivo**: Pulir la sensación de juego (*Game Juice*), control del tiempo e independizar la interfaz de usuario.
 
-- [x] **4.1 Motor de Colisiones 2D & Físicas (`PhysicsSystem` — AAA Standard)**:
-  - Formas primarias y compuestas: `ColliderComponent` (Cajas AABB, Círculos, Triángulos, Triggers y Composite Multi-Collider).
-  - Simulación de cuerpos rígidos (`RigidBodyComponent`): Velocidad, Aceleración, Gravedad, Masa, Restitución (Rebote) y Cuerpos Estáticos.
-  - Detección de colisiones acelerada por grilla espacial `SpatialGrid` en $O(1)$.
-  - Resolución física de penetración (MTV) y emisión de `CollisionEvent` al `EventDispatcher`.
-- [ ] **4.2 Integración de Box2D (Opcional / Avanzado)**:
-  - Integración opcional de **Box2D v3.0** para simulación de cuerpos rígidos complejos, fricción y articulaciones.
-
----
-
-### 📍 Fase 5: Audio, Fuentes & Interfaz de Usuario (Largo Plazo)
-> **Objetivo**: Permitir la creación de juegos completos con sonidos, música y UI interactiva.
-
-- [ ] **5.1 Sistema de Audio (`miniaudio` o `SDL_mixer`)**:
-  - Reproducción de efectos de sonido (SFX) en memoria y streaming de música de fondo (Ogg/MP3).
-  - Control de volumen por canales (Master, Música, SFX) y atenuación posicional 2D.
-- [ ] **5.2 Renderizado de Texto & Fuentes (TTF)**:
-  - Carga de fuentes `.ttf` o Bitmap Fonts (`SDL_ttf` o `msdf-atlas-gen`).
-- [ ] **5.3 UI Framework Ligero**:
-  - Componentes de UI: Botones, Barras de vida, Paneles, Texto flotante y Tooltips.
+- [ ] **6.1 Gestión de Tiempo Global (`Engine::Time`)**:
+  - `set_time_scale(scale)`: Pausa limpia (`0.0f`), cámara lenta (*Bullet Time*) o avance rápido.
+  - `hit_stop(duration)`: Micro-congelamiento de fotograma para impactos y golpes críticos.
+  - `delta_time_clamping`: Prevención de atravesar geometrías por caídas de FPS (*spiral of death*).
+- [ ] **6.2 Renderizado en Espacio de Pantalla (`Screen-Space HUD / Canvas`)**:
+  - Modo de envío a `Renderer2D` que ignora la cámara del mundo para barras de vida fijas, contadores de monedas y menús de pausa.
+  - Sistema de anclajes (*Top-Left*, *Center*, *Bottom-Right*) independiente de resolución.
+- [ ] **6.3 Controlador de Cámara Cinemático (*Camera Director*)**:
+  - Seguimiento suavizado (*SmoothDamp / Lerp Follow*) con zona muerta (*Deadzone*).
+  - *Lookahead*: Anticipación de cámara en la dirección de carrera del personaje.
+  - *Camera Bounds*: Restricción de límites para no mostrar zonas vacías fuera del nivel.
+  - *Trauma Screen Shake*: Decaimiento no lineal de vibración de cámara.
 
 ---
 
-### 📍 Fase 6: Herramientas de Depuración & Editor (Avanzado)
-> **Objetivo**: Facilitar la depuración y creación de niveles.
+### 📍 Fase 7: Arquitectura de Gameplay & Máquinas de Estado
+> **Objetivo**: Estructurar la lógica de personajes y enemigos de forma modular y escalable.
 
-- [ ] **6.1 Integración de Dear ImGui**:
-  - Overlay de depuración en tiempo real dentro de la ventana del juego:
-    - Contador de FPS, métricas de GPU y memoria.
-    - Árbol de entidades e inspector de propiedades en vivo.
-    - Controles para mover la cámara y modificar la gravedad o profundidad en caliente.
-- [ ] **6.2 Carga de Mapas Tiled / LDTK**:
-  - Cargador de mapas de baldosas (*tilemaps*) desde editores como Tiled (`.tmx`) o LDTK (`.ldtk`).
+- [ ] **7.1 Máquina de Estados Finitos Genérica (`StateMachine<T>`)**:
+  - Patrón de estados fuertemente tipado con métodos `enter()`, `update()`, `exit()`.
+  - Eliminación de flags booleanos masivos en personajes.
+- [ ] **7.2 Máquina de Estados de Animación**:
+  - Conexión automática entre el estado lógico del personaje (*Idle, Run, Jump, Fall, WallSlide, Grapple*) y sus clips en `Animation2D`.
+
+---
+
+### 📍 Fase 8: Herramientas de Depuración & Editor en Vivo
+> **Objetivo**: Permitir la inspección, calibración y edición en tiempo real dentro del viewport sin recompilar código.
+
+- [ ] **8.1 Integración de Dear ImGui en SDL3**:
+  - Renderizado del backend ImGui acoplado al loop de `Engine::Application`.
+- [ ] **8.2 Inspector de Entidades & ECS en Vivo**:
+  - Panel lateral con jerarquía de entidades activas, desglose de componentes y edición de valores (velocidad, masa, posición, tintes).
+- [ ] **8.3 Debug Viewers & Sintonizadores**:
+  - Renderizado de colliders y cajas de colisión (AABB / círculos / raycasts).
+  - Sintonizador de partículas en vivo (sliders de tamaño, gravedad, velocidad y color).
+  - Monitor de rendimiento (gráfico de frametime, llamadas a GPU, conteo de entidades vivas).
+
+---
+
+### 📍 Fase 9: Sistema de Audio, Texto & Guardado de Partida
+> **Objetivo**: Dotar al motor de sonido espacializado, tipografía nítida y persistencia de datos.
+
+- [ ] **9.1 Sistema de Audio (`miniaudio`)**:
+  - Wrapper ligero y multiplataforma con `miniaudio.h`.
+  - Canales separados: *Master*, *Music* (streaming de pistas en loop) y *SFX* (efectos en memoria).
+  - Atenuación de sonido 2D posicional según la distancia a la cámara o jugador.
+- [ ] **9.2 Renderizado de Texto & Fuentes Tipográficas**:
+  - Carga y rasterización de fuentes TrueType (`.ttf` / `.otf`).
+  - Soporte de texto con alineación, color, escala y renderizado a través de quads batchados en `Renderer2D`.
+- [ ] **9.3 Sistema de Guardado & Configuración (`SaveSystem / PlayerPrefs`)**:
+  - Persistencia de opciones (volumen, resolución, pantalla completa, keybindings).
+  - Guardado de partida y checkpoints en formato binario/JSON.
+
+---
+
+### 📍 Fase 10: Importación de Niveles & Serialización
+> **Objetivo**: Crear niveles visualmente ricos mediante herramientas estándar de la industria.
+
+- [ ] **10.1 Cargador de Mapas LDtk / Tiled**:
+  - Parseo de archivos de nivel `.ldtk` o `.json`/`.tmx`.
+  - Generación automática de capas de tiles, entidades decorativas y colliders estáticos de Box2D.
+- [ ] **10.2 Serialización de Escenas (JSON/YAML)**:
+  - Guardado y carga de entidades y componentes a archivo de configuración de nivel.

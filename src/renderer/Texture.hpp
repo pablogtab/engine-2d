@@ -2,8 +2,32 @@
 
 #include <SDL3/SDL.h>
 #include <string>
+#include <functional>
 
 namespace Engine {
+
+enum class ProceduralType {
+    NoiseGradient,   // Fractal gradient noise (organic terrain, clouds, surfaces)
+    Voronoi,         // Cellular / Dirichlet polygons (cobblestones, scales, stylized tiles)
+    LinearGradient,  // Smooth directional color ramp (vertical / horizontal)
+    RadialGradient,  // Radial color ramp from center out
+    Checkerboard,    // Alternating grid tiles
+    Custom           // User-supplied (x, y) normalized mapping function
+};
+
+struct ProceduralTextureDesc {
+    ProceduralType type{ProceduralType::NoiseGradient};
+    int width{128};
+    int height{128};
+    SDL_Color color_a{255, 255, 255, 255};
+    SDL_Color color_b{0, 0, 0, 255};
+    float scale{0.04f};          // Spatial frequency / zoom factor
+    int octaves{3};              // Fractal detail layers (for noise)
+    float persistence{0.5f};     // Multiplier for octave amplitude
+    int seed{1337};              // Random seed for reproducibility
+    int cell_count{16};          // Point count for Voronoi cells
+    std::function<float(float u, float v)> custom_generator{nullptr};
+};
 
 class Texture {
 public:
@@ -20,7 +44,10 @@ public:
     // File loader (PNG, JPG, BMP, TGA)
     static Texture* load_from_file(SDL_Renderer* renderer, const std::string& filepath);
 
-    // Procedural generators for instant demos without external image dependencies
+    // Content-Agnostic Procedural Generators
+    static Texture* create_procedural(SDL_Renderer* renderer, const ProceduralTextureDesc& desc);
+
+    // Procedural helpers
     static Texture* create_solid(SDL_Renderer* renderer, int width, int height, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
     static Texture* create_grid(SDL_Renderer* renderer, int size, uint8_t r, uint8_t g, uint8_t b);
     static Texture* create_circle(SDL_Renderer* renderer, int radius, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
