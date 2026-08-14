@@ -129,6 +129,10 @@ graph TD
   - Renderizado de colliders y cajas de colisión (AABB / círculos / raycasts).
   - Sintonizador de partículas en vivo (sliders de tamaño, gravedad, velocidad y color).
   - Monitor de rendimiento (gráfico de frametime, llamadas a GPU, conteo de entidades vivas).
+- [ ] **8.5 Consola de Logs Filtrable & Barra de Herramientas Flotante (`F1` / `~`)**:
+  - Ventana de depuración interactiva superpuesta al viewport sin interferir con el gameplay.
+  - Consola con filtrado por categorías mediante checkboxes (*Physics/Pos, Raycasts, Volúmenes, Post-Processing, General*), niveles de severidad y auto-scroll.
+  - Sintonizador de físicas en tiempo real (gravedad, escala de tiempo) y selector rápido de escenas activas.
 
 ---
 
