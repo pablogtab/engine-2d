@@ -21,6 +21,7 @@ set(SOURCES
     src/ecs/EntityManager.cpp
     src/particles/ParticleSystem2D.cpp
     src/renderer/Animation2D.cpp
+    src/renderer/Font.cpp
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp

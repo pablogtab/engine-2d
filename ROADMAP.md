@@ -144,9 +144,10 @@ graph TD
   - Wrapper ligero y multiplataforma con `miniaudio.h`.
   - Canales separados: *Master*, *Music* (streaming de pistas en loop) y *SFX* (efectos en memoria).
   - Atenuación de sonido 2D posicional según la distancia a la cámara o jugador.
-- [ ] **9.2 Renderizado de Texto & Fuentes Tipográficas**:
-  - Carga y rasterización de fuentes TrueType (`.ttf` / `.otf`).
-  - Soporte de texto con alineación, color, escala y renderizado a través de quads batchados en `Renderer2D`.
+- [x] **9.2 Renderizado de Texto & Fuentes Tipográficas (`Font / stb_truetype`)**:
+  - Carga y rasterización de fuentes TrueType (`.ttf` / `.otf`) en atlas de texturas GPU con anti-aliasing.
+  - Métodos `Renderer2D::submit_text()` (espacio de mundo con parallax) y `Renderer2D::submit_screen_text()` (espacio de pantalla / HUD).
+  - Cálculo métrico de cajas de texto (`measure_text`), escalado, alineación y colores personalizables.
 - [ ] **9.3 Sistema de Guardado & Configuración (`SaveSystem / PlayerPrefs`)**:
   - Persistencia de opciones (volumen, resolución, pantalla completa, keybindings).
   - Guardado de partida y checkpoints en formato binario/JSON.

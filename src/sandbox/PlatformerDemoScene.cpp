@@ -6,6 +6,7 @@
 #include "../ecs/RenderSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
 #include "../renderer/Renderer2D.hpp"
+#include "../renderer/Font.hpp"
 #include "../particles/ParticlePresets.hpp"
 #include <SDL3/SDL.h>
 #include <cmath>
@@ -31,6 +32,7 @@ void PlatformerDemoScene::on_attach() {
     Engine::PhysicsSystem::clear();
     m_particle_system.clear();
     m_particle_system.init_default_textures(m_sdl_renderer);
+    m_hud_font = Engine::Font::create_default(m_sdl_renderer, 24.0f);
     m_score = 0;
     m_total_coins = 0;
 
@@ -1197,7 +1199,7 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
         renderer.submit_screen_sprite(
             m_player_texture.get(),
             glm::vec2(24.0f, 24.0f),
-            glm::vec2(150.0f, 42.0f),
+            glm::vec2(165.0f, 44.0f),
             0.0f,
             SDL_Color{14, 18, 28, 220},
             nullptr,
@@ -1208,7 +1210,7 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
         // B. Coin Icon (Radiant Gold)
         renderer.submit_screen_sprite(
             m_coin_texture.get(),
-            glm::vec2(32.0f, 31.0f),
+            glm::vec2(32.0f, 32.0f),
             glm::vec2(28.0f, 28.0f),
             0.0f,
             SDL_Color{255, 215, 0, 255},
@@ -1217,35 +1219,56 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
             1.0f // HUD content Z
         );
 
-        // C. Coin Collection Pip Dots (Gold when collected, Gray when pending)
-        for (int i = 0; i < m_total_coins; ++i) {
-            bool collected = (i < m_score);
-            SDL_Color pip_color = collected ? SDL_Color{255, 225, 40, 255} : SDL_Color{60, 70, 90, 180};
-            renderer.submit_screen_sprite(
-                m_circle_debug_texture.get(),
-                glm::vec2(72.0f + static_cast<float>(i) * 16.0f, 45.0f),
-                glm::vec2(10.0f, 10.0f),
-                0.0f,
-                pip_color,
-                nullptr,
-                glm::vec2(0.5f, 0.5f),
+        // C. Clean Typography Score Counter using TrueType Font
+        if (m_hud_font) {
+            std::string score_str = "x " + std::to_string(m_score) + " / " + std::to_string(m_total_coins);
+            renderer.submit_screen_text(
+                *m_hud_font,
+                score_str,
+                glm::vec2(68.0f, 36.0f),
+                0.80f,
+                SDL_Color{255, 230, 110, 255},
+                glm::vec2(0.0f, 0.0f),
                 2.0f
             );
         }
 
-        // D. Bullet Time Active Indicator (Glowing Cyan Pill)
+        // D. Bullet Time Active Indicator with Crisp Text
         if (Engine::Time::get_time_scale() < 0.9f) {
             renderer.submit_screen_sprite(
                 m_player_texture.get(),
-                glm::vec2(24.0f, 72.0f),
-                glm::vec2(150.0f, 22.0f),
+                glm::vec2(24.0f, 74.0f),
+                glm::vec2(165.0f, 24.0f),
                 0.0f,
-                SDL_Color{0, 200, 255, 220},
+                SDL_Color{0, 180, 240, 220},
                 nullptr,
                 glm::vec2(0.0f, 0.0f),
                 1.0f
             );
+
+            if (m_hud_font) {
+                renderer.submit_screen_text(
+                    *m_hud_font,
+                    "BULLET TIME 0.2X",
+                    glm::vec2(36.0f, 78.0f),
+                    0.55f,
+                    SDL_Color{255, 255, 255, 255},
+                    glm::vec2(0.0f, 0.0f),
+                    2.0f
+                );
+            }
         }
+    }
+
+    // 6. In-World Atmospheric Text Title (Affected by World Camera Parallax)
+    if (m_hud_font) {
+        renderer.submit_text(
+            *m_hud_font,
+            "CROSS-PLATFORM 2D ENGINE",
+            glm::vec3(-150.0f, 300.0f, -0.05f),
+            0.85f,
+            SDL_Color{210, 230, 255, 200}
+        );
     }
 
     renderer.end_scene();

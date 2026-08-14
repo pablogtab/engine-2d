@@ -15,6 +15,7 @@
 #include "../physics/PhysicsSystem.hpp"
 #include "../renderer/SpriteSheet.hpp"
 #include "../renderer/Animation2D.hpp"
+#include "../renderer/Font.hpp"
 #include <SDL3/SDL.h>
 #include <memory>
 
@@ -87,6 +88,7 @@ private:
     std::unique_ptr<Engine::Texture> m_flame_core_texture;
     std::unique_ptr<Engine::Texture> m_knight_spritesheet_texture;
     std::unique_ptr<Engine::SpriteSheet> m_knight_spritesheet;
+    std::unique_ptr<Engine::Font> m_hud_font;
 
     Engine::Animation2D m_anim_idle;
     Engine::Animation2D m_anim_run;

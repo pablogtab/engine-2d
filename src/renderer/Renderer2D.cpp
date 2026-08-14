@@ -1,4 +1,5 @@
 #include "Renderer2D.hpp"
+#include "Font.hpp"
 #include "postprocess/PostProcessPipeline.hpp"
 #include "core/ThreadPool.hpp"
 #include "core/Log.hpp"
@@ -106,6 +107,109 @@ void Renderer2D::submit_screen_sprite(
     cmd.sort_key = (1ULL << 63) | (static_cast<uint64_t>(z_key) << 32) | tex_key;
 
     m_sprite_queue.push_back(cmd);
+}
+
+void Renderer2D::submit_text(
+    const Font& font,
+    const std::string& text,
+    const glm::vec3& world_position,
+    float scale,
+    SDL_Color color,
+    const glm::vec2& pivot
+) {
+    if (text.empty()) return;
+    Texture* atlas = font.get_atlas_texture();
+    if (!atlas) return;
+
+    glm::vec2 text_size = font.measure_text(text, scale);
+    glm::vec2 origin = glm::vec2(world_position.x, world_position.y) - (text_size * pivot);
+
+    float cur_x = origin.x;
+    float cur_y = origin.y;
+
+    for (char c : text) {
+        if (c == '\n') {
+            cur_x = origin.x;
+            cur_y -= font.get_line_height() * scale;
+            continue;
+        }
+
+        const Glyph* g = font.get_glyph(c);
+        if (!g) continue;
+
+        if (g->size.x > 0.0f && g->size.y > 0.0f) {
+            glm::vec3 glyph_pos = glm::vec3(
+                cur_x + g->offset.x * scale,
+                cur_y - g->offset.y * scale - (font.get_font_size() * 0.85f * scale),
+                world_position.z
+            );
+            glm::vec2 glyph_size = g->size * scale;
+
+            submit_sprite(
+                atlas,
+                glyph_pos,
+                glyph_size,
+                0.0f,
+                color,
+                &g->src_rect,
+                glm::vec2(0.0f, 0.0f)
+            );
+        }
+
+        cur_x += g->advance_x * scale;
+    }
+}
+
+void Renderer2D::submit_screen_text(
+    const Font& font,
+    const std::string& text,
+    const glm::vec2& screen_position,
+    float scale,
+    SDL_Color color,
+    const glm::vec2& pivot,
+    float z_layer
+) {
+    if (text.empty()) return;
+    Texture* atlas = font.get_atlas_texture();
+    if (!atlas) return;
+
+    glm::vec2 text_size = font.measure_text(text, scale);
+    glm::vec2 origin = screen_position - (text_size * pivot);
+
+    float cur_x = origin.x;
+    float cur_y = origin.y;
+
+    for (char c : text) {
+        if (c == '\n') {
+            cur_x = origin.x;
+            cur_y += font.get_line_height() * scale;
+            continue;
+        }
+
+        const Glyph* g = font.get_glyph(c);
+        if (!g) continue;
+
+        if (g->size.x > 0.0f && g->size.y > 0.0f) {
+            glm::vec2 glyph_pos = glm::vec2(
+                cur_x + g->offset.x * scale,
+                cur_y + g->offset.y * scale
+            );
+            glm::vec2 glyph_size = g->size * scale;
+
+            submit_screen_sprite(
+                atlas,
+                glyph_pos,
+                glyph_size,
+                0.0f,
+                color,
+                &g->src_rect,
+                glm::vec2(0.0f, 0.0f),
+                z_layer
+            );
+        }
+
+        cur_x += g->advance_x * scale;
+    }
 }
 
 void Renderer2D::submit_sprites_batch(const SpriteCommand* commands, size_t count) {

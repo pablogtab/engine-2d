@@ -10,6 +10,7 @@ namespace Engine {
 
 class ThreadPool;
 class PostProcessPipeline;
+class Font;
 
 struct SpriteCommand {
     Texture* texture{nullptr};
@@ -62,6 +63,23 @@ public:
         float z_layer = 0.0f,
         bool flip_x = false,
         bool flip_y = false
+    );
+    void submit_text(
+        const Font& font,
+        const std::string& text,
+        const glm::vec3& world_position,
+        float scale = 1.0f,
+        SDL_Color color = {255, 255, 255, 255},
+        const glm::vec2& pivot = {0.0f, 0.0f}
+    );
+    void submit_screen_text(
+        const Font& font,
+        const std::string& text,
+        const glm::vec2& screen_position,
+        float scale = 1.0f,
+        SDL_Color color = {255, 255, 255, 255},
+        const glm::vec2& pivot = {0.0f, 0.0f},
+        float z_layer = 1.0f
     );
     void submit_sprites_batch(const SpriteCommand* commands, size_t count);
     void end_scene();
