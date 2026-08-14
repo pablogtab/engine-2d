@@ -52,7 +52,8 @@ public:
                     sprite.size * transform.world_scale,
                     transform.world_rotation,
                     sprite.color,
-                    src_rect_ptr
+                    src_rect_ptr,
+                    transform.world_pivot
                 );
             }
         } else {
@@ -69,7 +70,8 @@ public:
                         sprite.size * transform.world_scale,
                         transform.world_rotation,
                         sprite.color,
-                        src_rect_ptr
+                        src_rect_ptr,
+                        transform.world_pivot
                     );
                 }
             );

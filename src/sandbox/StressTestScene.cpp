@@ -124,6 +124,7 @@ void StressTestScene::on_update(float delta_time) {
           p.position,
           p.size,
           0.0f,
+          glm::vec2{0.5f, 0.5f},
           p.color
       };
     });
@@ -141,6 +142,7 @@ void StressTestScene::on_update(float delta_time) {
           p.position,
           p.size,
           0.0f,
+          glm::vec2{0.5f, 0.5f},
           p.color
       };
     }

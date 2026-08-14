@@ -15,6 +15,7 @@ struct SpriteCommand {
     glm::vec3 position{0.0f}; // X, Y, Z (Depth)
     glm::vec2 size{32.0f, 32.0f};
     float rotation{0.0f};
+    glm::vec2 pivot{0.5f, 0.5f}; // Normalized Pivot Anchor: (0.5, 0.5) = Center, (0.5, 0.0) = Feet
     SDL_Color color{255, 255, 255, 255};
     SDL_FRect src_rect{0.0f, 0.0f, 0.0f, 0.0f};
     uint64_t sort_key{0};
@@ -37,7 +38,8 @@ public:
         const glm::vec2& size, 
         float rotation = 0.0f, 
         SDL_Color color = {255, 255, 255, 255},
-        const SDL_FRect* src_rect = nullptr
+        const SDL_FRect* src_rect = nullptr,
+        const glm::vec2& pivot = {0.5f, 0.5f}
     );
     void submit_sprites_batch(const SpriteCommand* commands, size_t count);
     void end_scene();

@@ -17,6 +17,8 @@ public:
                 transform.world_position = transform.position;
                 transform.world_scale = transform.scale;
                 transform.world_rotation = transform.rotation;
+                transform.world_pivot = transform.pivot;
+                transform.world_skew = transform.skew;
                 transform.world_visible = transform.visible;
             }
         );
@@ -33,7 +35,7 @@ public:
                 }
 
                 if (!has_valid_parent) {
-                    update_entity_hierarchy(entity_manager, id, transform.world_position, transform.world_scale, transform.world_rotation, transform.world_visible);
+                    update_entity_hierarchy(entity_manager, id, transform.world_position, transform.world_scale, transform.world_rotation, transform.world_skew, transform.world_visible);
                 }
             }
         );
@@ -46,6 +48,7 @@ private:
         const glm::vec3& parent_world_pos, 
         const glm::vec2& parent_world_scale, 
         float parent_world_rot,
+        const glm::vec2& parent_world_skew,
         bool parent_world_vis
     ) {
         if (!entity_manager.has_component<HierarchyComponent>(parent_id)) return;
@@ -68,10 +71,12 @@ private:
             child_transform.world_position = parent_world_pos + glm::vec3(rotated_x, rotated_y, child_transform.position.z);
             child_transform.world_scale = parent_world_scale * child_transform.scale;
             child_transform.world_rotation = parent_world_rot + child_transform.rotation;
+            child_transform.world_pivot = child_transform.pivot;
+            child_transform.world_skew = parent_world_skew + child_transform.skew;
             child_transform.world_visible = parent_world_vis && child_transform.visible;
 
             // Recurse down to grandchildren
-            update_entity_hierarchy(entity_manager, child_id, child_transform.world_position, child_transform.world_scale, child_transform.world_rotation, child_transform.world_visible);
+            update_entity_hierarchy(entity_manager, child_id, child_transform.world_position, child_transform.world_scale, child_transform.world_rotation, child_transform.world_skew, child_transform.world_visible);
         }
     }
 };

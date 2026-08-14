@@ -88,11 +88,13 @@ graph LR
 ### 📍 Fase 4: Física 2D & Sistema de Colisiones (Medio Plazo)
 > **Objetivo**: Dotar a los objetos de detección de colisiones, gravedad y respuesta física.
 
-- [ ] **4.1 Motor de Colisiones 2D Ligero (AABB & Círculos)**:
-  - Detección de colisiones Caja contra Caja (AABB), Círculo contra Círculo y Raycasting 2D.
-  - Generación de eventos de colisión (`on_collision_enter`, `on_trigger_overlap`).
+- [x] **4.1 Motor de Colisiones 2D & Físicas (`PhysicsSystem` — AAA Standard)**:
+  - Formas primarias y compuestas: `ColliderComponent` (Cajas AABB, Círculos, Triángulos, Triggers y Composite Multi-Collider).
+  - Simulación de cuerpos rígidos (`RigidBodyComponent`): Velocidad, Aceleración, Gravedad, Masa, Restitución (Rebote) y Cuerpos Estáticos.
+  - Detección de colisiones acelerada por grilla espacial `SpatialGrid` en $O(1)$.
+  - Resolución física de penetración (MTV) y emisión de `CollisionEvent` al `EventDispatcher`.
 - [ ] **4.2 Integración de Box2D (Opcional / Avanzado)**:
-  - Integración opcional de **Box2D v3.0** para simulación de cuerpos rígidos, fricción, restitución y articulaciones.
+  - Integración opcional de **Box2D v3.0** para simulación de cuerpos rígidos complejos, fricción y articulaciones.
 
 ---
 

@@ -33,7 +33,8 @@ void Renderer2D::submit_sprite(
     const glm::vec2& size, 
     float rotation, 
     SDL_Color color,
-    const SDL_FRect* src_rect
+    const SDL_FRect* src_rect,
+    const glm::vec2& pivot
 ) {
     // 2D Frustum Culling Check
     if (m_active_camera && !m_active_camera->is_visible(position, size)) {
@@ -41,7 +42,7 @@ void Renderer2D::submit_sprite(
         return; // Early discard out-of-screen sprite
     }
 
-    SpriteCommand cmd{texture, position, size, rotation, color};
+    SpriteCommand cmd{texture, position, size, rotation, pivot, color};
     if (src_rect) {
         cmd.src_rect = *src_rect;
         cmd.has_src_rect = true;
@@ -152,14 +153,18 @@ void Renderer2D::end_scene() {
         glm::vec2 screen_pos = m_active_camera->world_to_screen(cmd.position);
         float z_scale = m_active_camera->get_z_scale(cmd.position.z) * m_active_camera->get_zoom();
 
-        glm::vec2 half_size = (cmd.size * z_scale) * 0.5f;
+        glm::vec2 scaled_size = cmd.size * z_scale;
+        float min_x = -cmd.pivot.x * scaled_size.x;
+        float max_x = (1.0f - cmd.pivot.x) * scaled_size.x;
+        float min_y = -cmd.pivot.y * scaled_size.y;
+        float max_y = (1.0f - cmd.pivot.y) * scaled_size.y;
 
-        // Corners relative to center (Vectorized via SIMD)
+        // Quad corners relative to pivot anchor (SIMD transformed)
         glm::vec2 corners_rel[4] = {
-            {-half_size.x, -half_size.y},
-            { half_size.x, -half_size.y},
-            { half_size.x,  half_size.y},
-            {-half_size.x,  half_size.y}
+            {min_x, min_y},
+            {max_x, min_y},
+            {max_x, max_y},
+            {min_x, max_y}
         };
 
         glm::vec2 corners[4];
