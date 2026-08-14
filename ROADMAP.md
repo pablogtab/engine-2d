@@ -140,10 +140,10 @@ graph TD
 ### 📍 Fase 9: Sistema de Audio, Texto & Guardado de Partida
 > **Objetivo**: Dotar al motor de sonido espacializado, tipografía nítida y persistencia de datos.
 
-- [ ] **9.1 Sistema de Audio (`miniaudio`)**:
-  - Wrapper ligero y multiplataforma con `miniaudio.h`.
-  - Canales separados: *Master*, *Music* (streaming de pistas en loop) y *SFX* (efectos en memoria).
-  - Atenuación de sonido 2D posicional según la distancia a la cámara o jugador.
+- [x] **9.1 Sistema de Audio (`miniaudio`)**:
+  - Wrapper ligero, multi-hilo y multiplataforma con `miniaudio.h` (macOS/iOS CoreAudio, Windows WASAPI, Linux ALSA, Android AAudio, WebAudio).
+  - Canales de volumen separados: *Master*, *Music* (streaming y bucle continuo) y *SFX* (efectos de sonido polifónicos).
+  - Sintetizador procedural de ondas en tiempo real (*Zero-Asset Arcade SFX* para saltos, monedas, explosiones y ganchos) + reproducción de archivos `.wav`, `.mp3`, `.flac`, `.ogg`.
 - [x] **9.2 Renderizado de Texto & Fuentes Tipográficas (`Font / stb_truetype`)**:
   - Carga y rasterización de fuentes TrueType (`.ttf` / `.otf`) en atlas de texturas GPU con anti-aliasing.
   - Métodos `Renderer2D::submit_text()` (espacio de mundo con parallax) y `Renderer2D::submit_screen_text()` (espacio de pantalla / HUD).

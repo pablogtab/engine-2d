@@ -2,6 +2,7 @@
 #include "Log.hpp"
 #include "Input.hpp"
 #include "Time.hpp"
+#include "../audio/AudioEngine.hpp"
 
 namespace Engine {
 
@@ -10,6 +11,7 @@ Application::Application(const std::string& name, int width, int height) {
     ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{})", name, width, height);
 
     Input::init();
+    AudioEngine::init();
 
     m_window = std::make_unique<Window>(name, width, height);
     m_renderer = std::make_unique<Renderer2D>(m_window->get_sdl_renderer());
@@ -65,6 +67,7 @@ void Application::run() {
     }
 
     on_shutdown();
+    AudioEngine::shutdown();
     Input::shutdown();
     ENGINE_LOG_INFO("Engine Application shutting down.");
     Log::shutdown();

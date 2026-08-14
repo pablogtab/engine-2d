@@ -9,8 +9,22 @@ set -e
 # Ensure Homebrew paths are available
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
+LOCKFILE="/tmp/engine2d_dev.lock"
+if [ -f "$LOCKFILE" ]; then
+    OLD_PID=$(cat "$LOCKFILE" 2>/dev/null || true)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null && [ "$OLD_PID" != "$$" ]; then
+        echo "[DEV] Found another active dev.sh session (PID: $OLD_PID). Closing it..."
+        kill "$OLD_PID" 2>/dev/null || true
+        sleep 0.2
+    fi
+fi
+echo "$$" > "$LOCKFILE"
+
 BUILD_DIR="build"
 EXE="./build/Engine2D"
+
+# Kill any lingering orphaned Engine2D processes before starting
+pkill -f "build/Engine2D" 2>/dev/null || true
 
 # Ensure build directory exists
 if [ ! -d "$BUILD_DIR" ]; then
@@ -27,8 +41,13 @@ stop_app() {
     if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
         echo "[DEV] Stopping previous engine process (PID: $PID)..."
         kill "$PID" 2>/dev/null || true
+        sleep 0.1
+        if kill -0 "$PID" 2>/dev/null; then
+            kill -9 "$PID" 2>/dev/null || true
+        fi
         wait "$PID" 2>/dev/null || true
     fi
+    pkill -f "build/Engine2D" 2>/dev/null || true
 }
 
 start_app() {
@@ -39,7 +58,7 @@ start_app() {
 }
 
 # Cleanup on exit or interrupt (Ctrl+C)
-trap "stop_app; exit 0" INT TERM EXIT
+trap "stop_app; rm -f '$LOCKFILE'; exit 0" INT TERM EXIT
 
 start_app
 

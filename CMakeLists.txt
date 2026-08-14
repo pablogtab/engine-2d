@@ -11,6 +11,7 @@ find_package(glm REQUIRED)
 
 # Source files
 set(SOURCES
+    src/audio/AudioEngine.cpp
     src/core/Application.cpp
     src/core/AssetManager.cpp
     src/core/Input.cpp
@@ -34,6 +35,7 @@ set(SOURCES
     src/sandbox/PlatformerDemoScene.cpp
     src/sandbox/StressTestScene.cpp
     vendor/stb/stb_impl.cpp
+    vendor/miniaudio/miniaudio_impl.cpp
     src/main.cpp
 )
 

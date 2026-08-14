@@ -2,6 +2,8 @@
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
 #include "../core/Time.hpp"
+#include "../audio/AudioEngine.hpp"
+#include "../audio/AudioPresets.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../ecs/RenderSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
@@ -35,6 +37,9 @@ void PlatformerDemoScene::on_attach() {
     m_hud_font = Engine::Font::create_default(m_sdl_renderer, 24.0f);
     m_score = 0;
     m_total_coins = 0;
+
+    // Start Ambient Adventure Music Theme (Streaming Seamless Loop)
+    Engine::AudioEngine::play_music("assets/audio/theme.wav", 0.35f, true);
 
     // Set Platformer Downward Gravity (Y = -800.0f pulls downward)
     Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, -800.0f));
@@ -426,6 +431,7 @@ void PlatformerDemoScene::on_attach() {
 
             if (hit_coin && m_entity_manager.is_alive(coin_id)) {
                 m_score++;
+                Engine::AudioPresets::play_coin(0.75f);
                 ENGINE_LOG_INFO("[PLATFORMER DEMO] COIN COLLECTED! Score: {} / {}", m_score, m_total_coins);
                 Engine::PostProcessTweens::trigger_flash(m_post_process_pipeline, SDL_Color{255, 235, 120, 80}, 0.14f);
                 if (m_entity_manager.has_component<Engine::TransformComponent>(coin_id)) {
@@ -442,6 +448,7 @@ void PlatformerDemoScene::on_attach() {
 
 void PlatformerDemoScene::on_detach() {
     ENGINE_LOG_INFO("[PLATFORMER DEMO] Detaching scene...");
+    Engine::AudioEngine::stop_music();
     m_entity_manager.clear();
     m_post_process_pipeline.destroy_targets();
 }
@@ -711,6 +718,19 @@ void PlatformerDemoScene::on_update(float delta_time) {
         Engine::Time::set_time_scale(1.0f);
     }
 
+    // 'M' Key: Toggle Ambient Background Music
+    if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_M)) {
+        static bool s_music_on = true;
+        s_music_on = !s_music_on;
+        if (s_music_on) {
+            Engine::AudioEngine::play_music("assets/audio/theme.wav", 0.35f, true);
+            ENGINE_LOG_INFO("[AUDIO] Background Music: ON");
+        } else {
+            Engine::AudioEngine::stop_music();
+            ENGINE_LOG_INFO("[AUDIO] Background Music: OFF (Mute)");
+        }
+    }
+
     // Post-Processing Presets (Keys 1 - 6)
     if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_1)) {
         m_base_profile = Engine::PostProcessProfile::PresetDefault();
@@ -812,6 +832,7 @@ void PlatformerDemoScene::on_update(float delta_time) {
 
         m_shockwaves.push_back({blast_pos, 0.0f, blast_radius, 0.35f, 0.0f});
         Engine::Presets::explosion(m_particle_system, blast_pos, 45, 18);
+        Engine::AudioPresets::play_explosion(0.85f);
 
         // Trigger Post-Processing Flash, Bloom Pulse & Chromatic Aberration Punch
         Engine::PostProcessTweens::trigger_explosion_fx(m_post_process_pipeline, 7.5f, 1.2f, SDL_Color{255, 245, 200, 150});
@@ -936,6 +957,7 @@ void PlatformerDemoScene::on_update(float delta_time) {
             } else if (m_coyote_timer > 0.0f) {
                 rb.velocity.y = 520.0f;
                 Engine::Presets::dust_puff(m_particle_system, glm::vec2(player_tx.position.x, player_tx.position.y - 28.0f), 10);
+                Engine::AudioPresets::play_jump(0.6f);
                 m_jump_buffer_timer = 0.0f;
                 m_coyote_timer = 0.0f;
                 ENGINE_LOG_INFO("[PLATFORMER DEMO] Jump Applied! Velocity Y set to 520.0");
@@ -1276,6 +1298,7 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
 
 void PlatformerDemoScene::attach_grapple(const glm::vec2& target_point) {
     detach_grapple();
+    Engine::AudioPresets::play_grapple(0.7f);
 
     m_grapple_anchor_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(m_grapple_anchor_id, Engine::TagComponent{"GrappleAnchor"});
