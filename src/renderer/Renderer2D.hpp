@@ -39,7 +39,8 @@ public:
         float rotation = 0.0f, 
         SDL_Color color = {255, 255, 255, 255},
         const SDL_FRect* src_rect = nullptr,
-        const glm::vec2& pivot = {0.5f, 0.5f}
+        const glm::vec2& pivot = {0.5f, 0.5f},
+        bool is_overlay = false
     );
     void submit_sprites_batch(const SpriteCommand* commands, size_t count);
     void end_scene();

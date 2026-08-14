@@ -47,6 +47,7 @@ void SceneManager::add_scene(std::shared_ptr<Scene> scene) {
 
 void SceneManager::set_active_scene(size_t index) {
     if (index >= m_scenes.size()) return;
+    if (m_active_index == static_cast<int>(index)) return; // Prevent redundant double attach!
 
     if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
         m_scenes[m_active_index]->on_detach();

@@ -34,7 +34,8 @@ void Renderer2D::submit_sprite(
     float rotation, 
     SDL_Color color,
     const SDL_FRect* src_rect,
-    const glm::vec2& pivot
+    const glm::vec2& pivot,
+    bool is_overlay
 ) {
     // 2D Frustum Culling Check
     if (m_active_camera && !m_active_camera->is_visible(position, size)) {
@@ -48,11 +49,15 @@ void Renderer2D::submit_sprite(
         cmd.has_src_rect = true;
     }
 
-    // Fast 64-bit multi-key quantization (Z-depth, Y-position, Texture Pointer)
-    uint32_t z_key = static_cast<uint32_t>(position.z + 10000.0f);
-    uint16_t y_key = static_cast<uint16_t>(position.y + 32768.0f);
-    uint16_t tex_key = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(texture) & 0xFFFF);
-    cmd.sort_key = (static_cast<uint64_t>(z_key) << 32) | (static_cast<uint64_t>(y_key) << 16) | tex_key;
+    if (is_overlay) {
+        cmd.sort_key = 0xFFFFFFFFFFFFFFFFULL; // Force overlay to sort after all game world sprites!
+    } else {
+        // Fast 64-bit multi-key quantization (Z-depth, Y-position, Texture Pointer)
+        uint32_t z_key = static_cast<uint32_t>(position.z + 10000.0f);
+        uint16_t y_key = static_cast<uint16_t>(position.y + 32768.0f);
+        uint16_t tex_key = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(texture) & 0xFFFF);
+        cmd.sort_key = (static_cast<uint64_t>(z_key) << 32) | (static_cast<uint64_t>(y_key) << 16) | tex_key;
+    }
 
     m_sprite_queue.push_back(cmd);
 }
@@ -147,7 +152,6 @@ void Renderer2D::end_scene() {
 
     auto process_sprite = [this](size_t idx) {
         const auto& cmd = m_sprite_queue[idx];
-        if (!cmd.texture) return;
 
         // Calculate GPU screen position based on camera parallax and Z-depth
         glm::vec2 screen_pos = m_active_camera->world_to_screen(cmd.position);
@@ -172,7 +176,7 @@ void Renderer2D::end_scene() {
 
         // Normalize UVs (0.0f to 1.0f)
         float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
-        if (cmd.has_src_rect && cmd.texture->get_width() > 0 && cmd.texture->get_height() > 0) {
+        if (cmd.has_src_rect && cmd.texture && cmd.texture->get_width() > 0 && cmd.texture->get_height() > 0) {
             float tw = static_cast<float>(cmd.texture->get_width());
             float th = static_cast<float>(cmd.texture->get_height());
             u0 = cmd.src_rect.x / tw;
@@ -223,10 +227,11 @@ void Renderer2D::end_scene() {
         Texture* tex = (i < sprite_count) ? m_sprite_queue[i].texture : nullptr;
         if (tex != current_texture || i == sprite_count) {
             size_t batch_count = i - batch_start;
-            if (current_texture != nullptr && batch_count > 0) {
+            if (batch_count > 0) {
+                SDL_Texture* sdl_tex = current_texture ? current_texture->get_sdl_texture() : nullptr;
                 SDL_RenderGeometry(
                     m_sdl_renderer,
-                    current_texture->get_sdl_texture(),
+                    sdl_tex,
                     m_vertex_buffer.data(),
                     static_cast<int>(m_vertex_buffer.size()),
                     &m_index_buffer[batch_start * 6],

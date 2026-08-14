@@ -77,6 +77,44 @@ public:
             );
         }
     }
+
+    // Render debug visualizer overlays for all active physics colliders
+    static void render_debug_colliders(EntityManager& entity_manager, Renderer2D& renderer, Texture* circle_texture = nullptr) {
+        entity_manager.for_each<TransformComponent, ColliderComponent>(
+            [&renderer, circle_texture](EntityID id, const TransformComponent& transform, const ColliderComponent& collider) {
+                if (!transform.world_visible) return;
+
+                for (const auto& shape : collider.shapes) {
+                    glm::vec3 shape_pos = transform.world_position + glm::vec3(shape.offset * transform.world_scale, 0.0f);
+                    SDL_Color col = shape.is_trigger ? SDL_Color{0, 255, 255, 160} : SDL_Color{255, 60, 60, 160};
+
+                    if (shape.type == ColliderShapeType::Box) {
+                        renderer.submit_sprite(
+                            nullptr,
+                            shape_pos,
+                            shape.size * transform.world_scale,
+                            transform.world_rotation,
+                            col,
+                            nullptr,
+                            transform.world_pivot,
+                            true /* is_overlay = true to force render on top! */
+                        );
+                    } else if (shape.type == ColliderShapeType::Circle) {
+                        renderer.submit_sprite(
+                            circle_texture,
+                            shape_pos,
+                            glm::vec2(shape.radius * 2.0f) * transform.world_scale,
+                            transform.world_rotation,
+                            col,
+                            nullptr,
+                            glm::vec2(0.5f, 0.5f),
+                            true /* is_overlay = true to force render on top! */
+                        );
+                    }
+                }
+            }
+        );
+    }
 };
 
 } // namespace Engine

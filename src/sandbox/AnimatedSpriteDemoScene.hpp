@@ -42,6 +42,7 @@ private:
     Engine::EntityID m_player_entity{0};
     Engine::EntityID m_child_orb{0};
     float m_orb_angle{0.0f};
+    bool m_show_debug_colliders{false};
 };
 
 } // namespace Sandbox

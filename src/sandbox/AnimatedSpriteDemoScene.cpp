@@ -78,6 +78,8 @@ Engine::Texture* AnimatedSpriteDemoScene::generate_procedural_spritesheet() {
 }
 
 void AnimatedSpriteDemoScene::on_attach() {
+    m_entity_manager.clear();
+
     // Attempt to load real PNG asset from assets/textures/ folder
     Engine::Texture* file_tex = Engine::Texture::load_from_file(m_sdl_renderer, "assets/textures/player.png");
 
@@ -130,31 +132,54 @@ void AnimatedSpriteDemoScene::on_attach() {
         });
 
     m_event_dispatcher.subscribe<Engine::CollisionEvent>(
-        [](const Engine::CollisionEvent &ev) {
-          ENGINE_LOG_INFO("[PHYSICS EVENT BUS] Collision between Entity #{} and Entity #{} (Trigger: {})", ev.entity_a, ev.entity_b, ev.is_trigger);
+        [this](const Engine::CollisionEvent &ev) {
+          std::string tag_a = m_entity_manager.has_component<Engine::TagComponent>(ev.entity_a) 
+                              ? m_entity_manager.get_component<Engine::TagComponent>(ev.entity_a).tag 
+                              : "Entity_" + std::to_string(ev.entity_a);
+          std::string tag_b = m_entity_manager.has_component<Engine::TagComponent>(ev.entity_b) 
+                              ? m_entity_manager.get_component<Engine::TagComponent>(ev.entity_b).tag 
+                              : "Entity_" + std::to_string(ev.entity_b);
+
+          ENGINE_LOG_INFO("[PHYSICS EVENT BUS] Collision Detected: '{}' (#{}) <---> '{}' (#{}) | Trigger Sensor: {}", 
+                          tag_a, ev.entity_a, tag_b, ev.entity_b, ev.is_trigger ? "YES" : "NO");
         });
 
-    // 3. Instantiate Environment Trees as ECS Entities with Colliders
+    // 3. Instantiate Environment Trees as ECS Entities with Circle Colliders
     Engine::EntityID tree1 = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(tree1, Engine::TagComponent{"Tree_Left"});
     m_entity_manager.add_component<Engine::TransformComponent>(tree1, Engine::TransformComponent{glm::vec3(-200.0f, -80.0f, 0.0f)});
     m_entity_manager.add_component<Engine::SpriteComponent>(tree1, Engine::SpriteComponent{m_tree_texture.get(), glm::vec2(100.0f, 120.0f)});
-    m_entity_manager.add_component<Engine::ColliderComponent>(tree1, Engine::ColliderComponent::Circle(50.0f));
+    m_entity_manager.add_component<Engine::ColliderComponent>(tree1, Engine::ColliderComponent::Circle(50.0f)); // Circular tree collider!
     m_entity_manager.add_component<Engine::RigidBodyComponent>(tree1, Engine::RigidBodyComponent{true}); // Solid static tree
 
     Engine::EntityID tree2 = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(tree2, Engine::TagComponent{"Tree_Right"});
     m_entity_manager.add_component<Engine::TransformComponent>(tree2, Engine::TransformComponent{glm::vec3(180.0f, 100.0f, 0.0f)});
     m_entity_manager.add_component<Engine::SpriteComponent>(tree2, Engine::SpriteComponent{m_tree_texture.get(), glm::vec2(110.0f, 130.0f)});
-    m_entity_manager.add_component<Engine::ColliderComponent>(tree2, Engine::ColliderComponent::Circle(55.0f));
+    m_entity_manager.add_component<Engine::ColliderComponent>(tree2, Engine::ColliderComponent::Circle(55.0f)); // Circular tree collider!
     m_entity_manager.add_component<Engine::RigidBodyComponent>(tree2, Engine::RigidBodyComponent{true});
 
-    // 4. Create Player Entity in ECS with Box Collider
+    // 3.b Solid Box / Square Obstacles
+    Engine::EntityID box1 = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(box1, Engine::TagComponent{"SolidSquare_Left"});
+    m_entity_manager.add_component<Engine::TransformComponent>(box1, Engine::TransformComponent{glm::vec3(-120.0f, 120.0f, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(box1, Engine::SpriteComponent{m_bg_texture.get(), glm::vec2(90.0f, 90.0f), {200, 100, 80, 255}});
+    m_entity_manager.add_component<Engine::ColliderComponent>(box1, Engine::ColliderComponent::Box(glm::vec2(90.0f, 90.0f)));
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(box1, Engine::RigidBodyComponent{true}); // Solid static box
+
+    Engine::EntityID box2 = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(box2, Engine::TagComponent{"SolidSquare_Right"});
+    m_entity_manager.add_component<Engine::TransformComponent>(box2, Engine::TransformComponent{glm::vec3(220.0f, -120.0f, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(box2, Engine::SpriteComponent{m_bg_texture.get(), glm::vec2(110.0f, 80.0f), {80, 120, 200, 255}});
+    m_entity_manager.add_component<Engine::ColliderComponent>(box2, Engine::ColliderComponent::Box(glm::vec2(110.0f, 80.0f)));
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(box2, Engine::RigidBodyComponent{true}); // Solid static box
+
+    // 4. Create Player Entity in ECS with Circle Collider (26px radius matching circular character body)
     m_player_entity = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(m_player_entity, Engine::TagComponent{"HeroPlayer"});
     m_entity_manager.add_component<Engine::TransformComponent>(m_player_entity, Engine::TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
     m_entity_manager.add_component<Engine::SpriteComponent>(m_player_entity, Engine::SpriteComponent{nullptr, glm::vec2(64.0f, 64.0f)});
-    m_entity_manager.add_component<Engine::ColliderComponent>(m_player_entity, Engine::ColliderComponent::Box(glm::vec2(44.0f, 60.0f)));
+    m_entity_manager.add_component<Engine::ColliderComponent>(m_player_entity, Engine::ColliderComponent::Circle(26.0f));
     m_entity_manager.add_component<Engine::RigidBodyComponent>(m_player_entity, Engine::RigidBodyComponent{false, 0.0f, 0.2f}); // Dynamic body
 
   // 5. Create Child Pet/Orb Entity attached to Player (Parent-Child Hierarchy!)
@@ -218,15 +243,32 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
   move_y = std::clamp(move_y, -1.0f, 1.0f);
 
   glm::vec2 move{move_x * speed, move_y * speed};
-
   bool is_moving = (move.x != 0.0f || move.y != 0.0f);
-  if (move.x < 0.0f)
-    m_facing_right = false;
-  if (move.x > 0.0f)
-    m_facing_right = true;
+  if (move.x < 0.0f) m_facing_right = false;
+  if (move.x > 0.0f) m_facing_right = true;
 
-  m_player_pos.x += move.x;
-  m_player_pos.y += move.y;
+  if (m_entity_manager.has_component<Engine::RigidBodyComponent>(m_player_entity)) {
+    auto& rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_player_entity);
+    if (is_moving) {
+      rb.velocity = move * 60.0f; // Kinematic velocity
+    } else if (rb.gravity_scale == 0.0f) {
+      rb.velocity = {0.0f, 0.0f};
+    }
+  } else {
+    m_player_pos.x += move.x;
+    m_player_pos.y += move.y;
+  }
+
+  // L Key: Log exact player position coordinates
+  if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_L)) {
+    ENGINE_LOG_INFO("[PLAYER POSITION LOG] Exact Player Position: X={:.5f}, Y={:.5f}, Z={:.1f}", m_player_pos.x, m_player_pos.y, m_player_pos.z);
+  }
+
+  // G Key: Toggle Visual Debug Collider Overlays
+  if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_G)) {
+    m_show_debug_colliders = !m_show_debug_colliders;
+    ENGINE_LOG_INFO("[DEBUG COLLIDERS OVERLAY] Visual Collider Wireframes: {}", m_show_debug_colliders ? "ON (Red=Solid, Cyan=Trigger)" : "OFF");
+  }
 
   // SPACE / Jump: Impulse physical jump via RigidBodyComponent velocity
   if (Engine::Input::is_action_just_pressed("Jump") || Engine::Input::is_key_just_pressed(SDL_SCANCODE_SPACE)) {
@@ -287,6 +329,44 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
 
     m_entity_manager.add_component<Engine::RigidBodyComponent>(composite_boss, Engine::RigidBodyComponent{true}); // Solid static boss
     ENGINE_LOG_INFO("[COMPOSITE COLLIDER] Spawned Composite Boss #{} with 1 Box + 2 Circle Trigger Wings at ({:.1f}, {:.1f})", composite_boss, mouse_world.x, mouse_world.y);
+  }
+
+  // R Key: Full Scene Reset (Player position, transforms, velocity, camera, and spawned entities)
+  if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_R)) {
+    m_player_pos = glm::vec3(0.0f, 0.0f, 0.0f);
+    m_spin_timer = 0.0f;
+    m_orb_angle = 0.0f;
+
+    if (m_entity_manager.has_component<Engine::TransformComponent>(m_player_entity)) {
+      auto& transform = m_entity_manager.get_component<Engine::TransformComponent>(m_player_entity);
+      transform.position = glm::vec3(0.0f, 0.0f, 0.0f);
+      transform.rotation = 0.0f;
+      transform.scale = glm::vec2(1.0f, 1.0f);
+      transform.pivot = glm::vec2(0.5f, 0.5f);
+      transform.skew = glm::vec2(0.0f, 0.0f);
+      transform.visible = true;
+    }
+
+    if (m_entity_manager.has_component<Engine::RigidBodyComponent>(m_player_entity)) {
+      auto& rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_player_entity);
+      rb.velocity = glm::vec2(0.0f, 0.0f);
+      rb.acceleration = glm::vec2(0.0f, 0.0f);
+    }
+
+    // Purge all dynamically spawned trees, cloned orbs, and composite bosses
+    m_entity_manager.destroy_matching<Engine::TagComponent>([](const Engine::TagComponent& tag) {
+      return tag.tag.starts_with("SpawnedTree_") || tag.tag.starts_with("PlayerPetOrb") || tag.tag.starts_with("CompositeBoss_");
+    });
+
+    // Re-create initial template orb child
+    m_child_orb = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(m_child_orb, Engine::TagComponent{"PlayerPetOrb"});
+    m_entity_manager.add_component<Engine::TransformComponent>(m_child_orb, Engine::TransformComponent{glm::vec3(55.0f, 0.0f, 5.0f), glm::vec2(0.5f, 0.5f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(m_child_orb, Engine::SpriteComponent{m_tree_texture.get(), glm::vec2(50.0f, 50.0f), {100, 220, 100, 255}});
+    m_entity_manager.set_parent(m_child_orb, m_player_entity);
+
+    m_camera.set_position(glm::vec2(0.0f, 0.0f));
+    ENGINE_LOG_INFO("[SCENE RESET] Full Scene Reset triggered! Player position, transforms, and entities restored to defaults.");
   }
 
   // Mouse Position LookAt targeting example
@@ -387,8 +467,23 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
       }
   );
 
-  // Temporarily disabled 2D Physics Step (Uncomment to re-enable gravity and collisions)
-  // Engine::PhysicsSystem::update(m_entity_manager, m_event_dispatcher, delta_time);
+  // Update player SpriteComponent texture & frame rect from Animation2D
+  if (m_entity_manager.has_component<Engine::SpriteComponent>(m_player_entity) && m_current_anim) {
+    auto& sprite = m_entity_manager.get_component<Engine::SpriteComponent>(m_player_entity);
+    sprite.texture = m_current_anim->get_texture();
+    sprite.src_rect = m_current_anim->get_current_frame_rect();
+    sprite.use_src_rect = true;
+    sprite.size = glm::vec2(64.0f, 64.0f);
+  }
+
+  // Execute 2D Physics Step (Gravity, Spatial Hash Broadphase, Collision Resolution & Event Dispatching)
+  Engine::PhysicsSystem::update(m_entity_manager, m_event_dispatcher, delta_time);
+
+  // Sync m_player_pos back from Physics/Transform System so collisions push player back smoothly
+  if (m_entity_manager.has_component<Engine::TransformComponent>(m_player_entity)) {
+    const auto& trans = m_entity_manager.get_component<Engine::TransformComponent>(m_player_entity);
+    m_player_pos = trans.position;
+  }
 
   // Evaluate parent-child hierarchy matrix/vector transforms across all ECS entities
   Engine::TransformSystem::update(m_entity_manager);
@@ -412,28 +507,12 @@ void AnimatedSpriteDemoScene::on_render(Engine::Renderer2D &renderer) {
     }
   }
 
-  // Automated rendering of all ECS Entities (Trees, Environment Objects)
+  // Automated 100% ECS Rendering System (Renders Player, Orbs, Trees, and Obstacles seamlessly in 1 pass!)
   Engine::RenderSystem::render(m_entity_manager, renderer);
 
-  // Player Animated Sprite
-  bool is_player_visible = true;
-  float player_rotation = 0.0f;
-  glm::vec2 player_scale{1.0f, 1.0f};
-  glm::vec2 player_pivot{0.5f, 0.5f};
-
-  if (m_entity_manager.has_component<Engine::TransformComponent>(m_player_entity)) {
-    const auto& trans = m_entity_manager.get_component<Engine::TransformComponent>(m_player_entity);
-    is_player_visible = trans.world_visible;
-    player_rotation = trans.world_rotation;
-    player_scale = trans.world_scale;
-    player_pivot = trans.world_pivot;
-  }
-
-  if (m_current_anim && is_player_visible) {
-    SDL_FRect src_rect = m_current_anim->get_current_frame_rect();
-    renderer.submit_sprite(m_current_anim->get_texture(), m_player_pos,
-                           glm::vec2(64.0f, 64.0f) * player_scale, player_rotation, {255, 255, 255, 255},
-                           &src_rect, player_pivot);
+  // Visual Debug Collider Wireframe Overlays (Press G key to toggle)
+  if (m_show_debug_colliders) {
+    Engine::RenderSystem::render_debug_colliders(m_entity_manager, renderer, m_tree_texture.get());
   }
 
   renderer.end_scene();
