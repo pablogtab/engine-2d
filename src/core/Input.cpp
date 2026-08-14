@@ -184,7 +184,10 @@ glm::vec2 Input::get_mouse_world_position(const Camera2D& camera) {
     float zoom = camera.get_zoom();
     float z_scale = camera.get_z_scale(0.0f); // Default Z=0 plane
 
-    glm::vec2 world_pos = (screen_centered / (zoom * z_scale)) + camera.get_position();
+    glm::vec2 world_pos = glm::vec2(
+        (screen_centered.x / (zoom * z_scale)) + camera.get_position().x,
+        -(screen_centered.y / (zoom * z_scale)) + camera.get_position().y
+    );
     return world_pos;
 }
 

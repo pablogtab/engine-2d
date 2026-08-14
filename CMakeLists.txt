@@ -26,6 +26,7 @@ set(SOURCES
     src/scene/SceneManager.cpp
     src/sandbox/AnimatedSpriteDemoScene.cpp
     src/sandbox/DepthDemoScene.cpp
+    src/sandbox/PlatformerDemoScene.cpp
     src/sandbox/StressTestScene.cpp
     vendor/stb/stb_impl.cpp
     src/main.cpp

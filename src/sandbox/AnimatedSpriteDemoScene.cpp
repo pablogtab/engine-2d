@@ -83,8 +83,20 @@ Engine::Texture *AnimatedSpriteDemoScene::generate_procedural_spritesheet() {
   return new Engine::Texture(m_sdl_renderer, tex_w, tex_h, pixels.data());
 }
 
-void AnimatedSpriteDemoScene::on_attach() {
+void AnimatedSpriteDemoScene::on_detach() {
+  ENGINE_LOG_INFO("[ANIMATED SPRITE DEMO] Detaching scene...");
   m_entity_manager.clear();
+  Engine::PhysicsSystem::clear();
+}
+
+void AnimatedSpriteDemoScene::on_attach() {
+  ENGINE_LOG_INFO(
+      "[ANIMATED SPRITE DEMO] Attaching AnimatedSpriteDemoScene...");
+  m_entity_manager.clear();
+
+  // Reset Physics World & Gravity for Top-Down Navigation Demo (Zero Gravity)
+  Engine::PhysicsSystem::clear();
+  Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, 0.0f));
 
   // Attempt to load real PNG asset from assets/textures/ folder
   Engine::Texture *file_tex = Engine::Texture::load_from_file(
@@ -281,44 +293,39 @@ void AnimatedSpriteDemoScene::on_resize(int width, int height) {
 }
 
 void AnimatedSpriteDemoScene::on_update(float delta_time) {
-  float speed = 250.0f * delta_time;
+  float move_speed = 300.0f;
 
   float move_x = Engine::Input::get_axis("Horizontal");
-  float move_y = -Engine::Input::get_axis(
-      "Vertical"); // Invert because Vertical axis has Up = +1.0f
+  float move_y = Engine::Input::get_axis("Vertical");
 
-  // Arrow keys fallback / addition
+  // Arrow keys fallback / addition (+Y is UP, -Y is DOWN)
   if (Engine::Input::is_key_pressed(SDL_SCANCODE_LEFT))
     move_x -= 1.0f;
   if (Engine::Input::is_key_pressed(SDL_SCANCODE_RIGHT))
     move_x += 1.0f;
   if (Engine::Input::is_key_pressed(SDL_SCANCODE_UP))
-    move_y -= 1.0f;
-  if (Engine::Input::is_key_pressed(SDL_SCANCODE_DOWN))
     move_y += 1.0f;
+  if (Engine::Input::is_key_pressed(SDL_SCANCODE_DOWN))
+    move_y -= 1.0f;
 
   move_x = std::clamp(move_x, -1.0f, 1.0f);
   move_y = std::clamp(move_y, -1.0f, 1.0f);
 
-  glm::vec2 move{move_x * speed, move_y * speed};
-  bool is_moving = (move.x != 0.0f || move.y != 0.0f);
-  if (move.x < 0.0f)
+  glm::vec2 target_velocity{move_x * move_speed, move_y * move_speed};
+  bool is_moving = (target_velocity.x != 0.0f || target_velocity.y != 0.0f);
+  if (target_velocity.x < 0.0f)
     m_facing_right = false;
-  if (move.x > 0.0f)
+  if (target_velocity.x > 0.0f)
     m_facing_right = true;
 
   if (m_entity_manager.has_component<Engine::RigidBodyComponent>(
           m_player_entity)) {
     auto &rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(
         m_player_entity);
-    if (is_moving) {
-      rb.velocity = move * 60.0f; // Kinematic velocity
-    } else if (rb.gravity_scale == 0.0f) {
-      rb.velocity = {0.0f, 0.0f};
-    }
+    rb.velocity = target_velocity;
   } else {
-    m_player_pos.x += move.x;
-    m_player_pos.y += move.y;
+    m_player_pos.x += target_velocity.x * delta_time;
+    m_player_pos.y += target_velocity.y * delta_time;
   }
 
   // L Key: Log exact player position coordinates
@@ -573,13 +580,6 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
     m_current_anim->update(delta_time);
   }
 
-  // Sync player position into ECS TransformComponent
-  if (m_entity_manager.has_component<Engine::TransformComponent>(
-          m_player_entity)) {
-    m_entity_manager.get_component<Engine::TransformComponent>(m_player_entity)
-        .position = m_player_pos;
-  }
-
   // Continuously update all child orb entities' local positions to orbit around
   // the player
   m_orb_angle += 3.5f * delta_time;
@@ -618,14 +618,20 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
   Engine::PhysicsSystem::update(m_entity_manager, m_event_dispatcher,
                                 delta_time);
 
-  // Sync m_player_pos back from Physics/Transform System so collisions push
-  // player back smoothly
+  // Sync m_player_pos back from Physics/Transform System
   if (m_entity_manager.has_component<Engine::TransformComponent>(
           m_player_entity)) {
     const auto &trans =
         m_entity_manager.get_component<Engine::TransformComponent>(
             m_player_entity);
     m_player_pos = trans.position;
+  }
+
+  // Debug Log Player Movement
+  static int s_log_counter = 0;
+  if (is_moving && (++s_log_counter % 20 == 0)) {
+    ENGINE_LOG_INFO("[TOP-DOWN MOVEMENT LOG] Moving Velocity=({:.1f}, {:.1f}) | Position=({:.1f}, {:.1f})",
+                    target_velocity.x, target_velocity.y, m_player_pos.x, m_player_pos.y);
   }
 
   // Evaluate parent-child hierarchy matrix/vector transforms across all ECS

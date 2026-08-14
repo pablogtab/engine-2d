@@ -23,7 +23,13 @@ glm::vec2 Camera2D::world_to_screen(const glm::vec3& world_pos) const {
     // Parallax Factor: Distant layers (Z < 0) move slower
     float parallax_factor = z_scale;
     
-    glm::vec2 relative_pos = (glm::vec2(world_pos.x, world_pos.y) - m_position * parallax_factor) * m_zoom * z_scale;
+    // Cartesian Y-up to Screen Y-down mapping: +Y is UP, -Y is DOWN
+    glm::vec2 delta = glm::vec2(
+        world_pos.x - m_position.x * parallax_factor,
+        -(world_pos.y - m_position.y * parallax_factor)
+    );
+
+    glm::vec2 relative_pos = delta * m_zoom * z_scale;
     glm::vec2 screen_center = m_viewport_size * 0.5f;
 
     return relative_pos + screen_center;

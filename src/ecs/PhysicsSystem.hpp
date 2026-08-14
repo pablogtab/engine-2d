@@ -54,6 +54,12 @@ public:
 
   static const glm::vec2 &get_gravity() { return s_gravity; }
 
+  static void clear() {
+    s_b2_bodies.clear();
+    s_contact_listener.reset();
+    s_b2_world.reset();
+  }
+
   static void update(EntityManager &entity_manager,
                      EventDispatcher &event_dispatcher, float delta_time) {
     if (!s_b2_world) {
@@ -102,6 +108,8 @@ public:
               fixtureDef.density = rb.mass;
               fixtureDef.friction = rb.friction;
               fixtureDef.restitution = rb.restitution;
+              fixtureDef.filter.categoryBits = shape.category_bits;
+              fixtureDef.filter.maskBits = shape.mask_bits;
 
               if (shape.type == ColliderShapeType::Circle) {
                 b2CircleShape circle;
