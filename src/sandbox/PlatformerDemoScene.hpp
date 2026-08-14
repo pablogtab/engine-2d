@@ -6,6 +6,8 @@
 #include "../scene/Scene.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/Texture.hpp"
+#include "../renderer/PostProcessPipeline.hpp"
+#include "../renderer/PostProcessPasses.hpp"
 #include "../particles/ParticleSystem2D.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include <SDL3/SDL.h>
@@ -22,12 +24,17 @@ public:
     void on_detach() override;
     void on_update(float delta_time) override;
     void on_render(Engine::Renderer2D& renderer) override;
+    void on_resize(int width, int height) override;
 
 private:
     SDL_Renderer* m_sdl_renderer{nullptr};
     Engine::Camera2D m_camera;
     Engine::EventDispatcher m_event_dispatcher;
     Engine::ParticleSystem2D m_particle_system{3000};
+    Engine::PostProcessPipeline m_post_process_pipeline;
+    std::shared_ptr<Engine::VignettePass> m_vignette_pass;
+    std::shared_ptr<Engine::ScreenFlashPass> m_flash_pass;
+    std::shared_ptr<Engine::ChromaticAberrationPass> m_chroma_pass;
 
     Engine::EntityID m_player_id{0};
     Engine::EntityID m_elevator_id{0};

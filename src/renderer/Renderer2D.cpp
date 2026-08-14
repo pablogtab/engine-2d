@@ -1,4 +1,5 @@
 #include "Renderer2D.hpp"
+#include "PostProcessPipeline.hpp"
 #include "core/ThreadPool.hpp"
 #include "core/Log.hpp"
 #include "core/SIMD.hpp"
@@ -25,6 +26,10 @@ void Renderer2D::begin_scene(const Camera2D& camera) {
     m_draw_calls = 0;
     m_rendered_sprites = 0;
     m_culled_sprites = 0;
+
+    if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
+        m_post_process_pipeline->begin_capture();
+    }
 }
 
 void Renderer2D::submit_sprite(
@@ -244,6 +249,12 @@ void Renderer2D::end_scene() {
             current_texture = tex;
         }
     }
+
+    // 5. Execute Post-Processing Shader Chain (if active)
+    if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
+        m_post_process_pipeline->end_capture_and_process(nullptr);
+    }
+    m_post_process_pipeline = nullptr; // Reset per-frame so pipeline never leaks across different scenes!
 
     auto t3 = std::chrono::high_resolution_clock::now();
 

@@ -9,6 +9,7 @@
 namespace Engine {
 
 class ThreadPool;
+class PostProcessPipeline;
 
 struct SpriteCommand {
     Texture* texture{nullptr};
@@ -30,6 +31,9 @@ public:
     void set_low_latency_mode(bool low_latency) { m_low_latency_mode = low_latency; }
     bool is_low_latency_mode() const { return m_low_latency_mode; }
 
+    void set_post_process_pipeline(PostProcessPipeline* pipeline) { m_post_process_pipeline = pipeline; }
+    PostProcessPipeline* get_post_process_pipeline() const { return m_post_process_pipeline; }
+
     void reserve_capacity(size_t max_sprites);
     void begin_scene(const Camera2D& camera);
     void submit_sprite(
@@ -49,12 +53,14 @@ public:
     size_t get_rendered_sprite_count() const { return m_rendered_sprites; }
     size_t get_culled_sprite_count() const { return m_culled_sprites; }
     const Camera2D* get_active_camera() const { return m_active_camera; }
+    SDL_Renderer* get_sdl_renderer() const { return m_sdl_renderer; }
 
 private:
     void flush_batch(Texture* texture);
 
     SDL_Renderer* m_sdl_renderer{nullptr};
     ThreadPool* m_thread_pool{nullptr};
+    PostProcessPipeline* m_post_process_pipeline{nullptr};
     const Camera2D* m_active_camera{nullptr};
     std::vector<SpriteCommand> m_sprite_queue;
     std::vector<SpriteCommand> m_sort_temp_buffer;

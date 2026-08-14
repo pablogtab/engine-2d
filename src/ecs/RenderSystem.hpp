@@ -45,16 +45,7 @@ public:
                 if (!transform.world_visible || !sprite.visible || !sprite.texture) continue;
 
                 const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
-
-                renderer.submit_sprite(
-                    sprite.texture,
-                    transform.world_position,
-                    sprite.size * transform.world_scale,
-                    transform.world_rotation,
-                    sprite.color,
-                    src_rect_ptr,
-                    transform.world_pivot
-                );
+                submit_sprite_with_outline(renderer, transform, sprite, src_rect_ptr);
             }
         } else {
             // Fallback for un-camera-bound rendering
@@ -63,20 +54,57 @@ public:
                     if (!transform.world_visible || !sprite.visible || !sprite.texture) return;
 
                     const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
-
-                    renderer.submit_sprite(
-                        sprite.texture,
-                        transform.world_position,
-                        sprite.size * transform.world_scale,
-                        transform.world_rotation,
-                        sprite.color,
-                        src_rect_ptr,
-                        transform.world_pivot
-                    );
+                    submit_sprite_with_outline(renderer, transform, sprite, src_rect_ptr);
                 }
             );
         }
     }
+
+private:
+    static inline void submit_sprite_with_outline(
+        Renderer2D& renderer,
+        const TransformComponent& transform,
+        const SpriteComponent& sprite,
+        const SDL_FRect* src_rect_ptr
+    ) {
+        if (sprite.has_outline && sprite.outline_thickness > 0.0f) {
+            float thick = sprite.outline_thickness;
+            SDL_Color out_col = sprite.outline_color;
+
+            if (sprite.outline_pulse) {
+                static float s_time = 0.0f;
+                s_time += 0.0001f;
+                float pulse = 0.65f + 0.35f * std::sin(s_time * 24.0f);
+                out_col.a = static_cast<uint8_t>(std::clamp(static_cast<float>(out_col.a) * pulse, 0.0f, 255.0f));
+            }
+
+            // Outline Z is slightly behind the main sprite
+            glm::vec3 outline_z = transform.world_position - glm::vec3(0.0f, 0.0f, 0.005f);
+            glm::vec2 size = sprite.size * transform.world_scale;
+
+            // 8-directional dilation for full radial glow border
+            float diag = thick * 0.7071f;
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, -thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot);
+        }
+
+        renderer.submit_sprite(
+            sprite.texture,
+            transform.world_position,
+            sprite.size * transform.world_scale,
+            transform.world_rotation,
+            sprite.color,
+            src_rect_ptr,
+            transform.world_pivot
+        );
+    }
+public:
 
     // Render debug visualizer overlays for all active physics colliders
     static void render_debug_colliders(EntityManager& entity_manager, Renderer2D& renderer, Texture* circle_texture = nullptr) {

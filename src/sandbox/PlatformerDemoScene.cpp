@@ -36,6 +36,17 @@ void PlatformerDemoScene::on_attach() {
     // Set Platformer Downward Gravity (Y = -800.0f pulls downward)
     Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, -800.0f));
 
+    // Initialize Post-Processing Shader Pipeline & Passes
+    m_post_process_pipeline.init(m_sdl_renderer, 1280, 720);
+    m_vignette_pass = std::make_shared<Engine::VignettePass>();
+    m_vignette_pass->set_intensity(0.50f);
+    m_flash_pass = std::make_shared<Engine::ScreenFlashPass>();
+    m_chroma_pass = std::make_shared<Engine::ChromaticAberrationPass>();
+
+    m_post_process_pipeline.add_pass(m_vignette_pass);
+    m_post_process_pipeline.add_pass(m_chroma_pass);
+    m_post_process_pipeline.add_pass(m_flash_pass);
+
     // Wider camera zoom to frame the whole level comfortably
     m_camera.set_zoom(0.76f);
     m_camera.set_position(glm::vec2(0.0f, -20.0f));
@@ -281,6 +292,9 @@ void PlatformerDemoScene::on_attach() {
             if (hit_coin && m_entity_manager.is_alive(coin_id)) {
                 m_score++;
                 ENGINE_LOG_INFO("[PLATFORMER DEMO] COIN COLLECTED! Score: {} / {}", m_score, m_total_coins);
+                if (m_flash_pass) {
+                    m_flash_pass->trigger_flash(SDL_Color{255, 235, 120, 80}, 0.14f);
+                }
                 if (m_entity_manager.has_component<Engine::TransformComponent>(coin_id)) {
                     const auto& coin_tx = m_entity_manager.get_component<Engine::TransformComponent>(coin_id);
                     Engine::Presets::sparkle(m_particle_system, glm::vec2(coin_tx.position.x, coin_tx.position.y), 18);
@@ -296,6 +310,12 @@ void PlatformerDemoScene::on_attach() {
 void PlatformerDemoScene::on_detach() {
     ENGINE_LOG_INFO("[PLATFORMER DEMO] Detaching scene...");
     m_entity_manager.clear();
+    m_post_process_pipeline.destroy_targets();
+}
+
+void PlatformerDemoScene::on_resize(int width, int height) {
+    m_camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
+    m_post_process_pipeline.resize(width, height);
 }
 
 void PlatformerDemoScene::setup_level() {
@@ -509,7 +529,15 @@ void PlatformerDemoScene::create_coin(const glm::vec2& position) {
     Engine::EntityID coin_id = m_entity_manager.create_entity();
     m_entity_manager.add_component<Engine::TagComponent>(coin_id, Engine::TagComponent{"Coin"});
     m_entity_manager.add_component<Engine::TransformComponent>(coin_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
-    m_entity_manager.add_component<Engine::SpriteComponent>(coin_id, Engine::SpriteComponent{m_coin_texture.get(), glm::vec2(24.0f, 24.0f), SDL_Color{255, 215, 0, 255}});
+    
+    auto& sprite = m_entity_manager.add_component<Engine::SpriteComponent>(
+        coin_id, Engine::SpriteComponent{m_coin_texture.get(), glm::vec2(24.0f, 24.0f), SDL_Color{255, 215, 0, 255}}
+    );
+    sprite.has_outline = true;
+    sprite.outline_color = SDL_Color{255, 255, 255, 220}; // Bright golden-white outline
+    sprite.outline_thickness = 2.0f;
+    sprite.outline_pulse = true;
+
     m_entity_manager.add_component<Engine::RigidBodyComponent>(coin_id, Engine::RigidBodyComponent::Static()); // Static sensor
 
     // Coin Collider: Category COIN, Mask PLAYER, is_trigger = true
@@ -567,6 +595,30 @@ void PlatformerDemoScene::on_update(float delta_time) {
         }
     }
 
+    // 2.5 Interactive Object Hover Highlight (Hovering cursor over coins activates outline halo)
+    {
+        glm::vec2 mouse_screen = Engine::Input::get_mouse_position();
+        glm::vec2 mouse_world = m_camera.screen_to_world(mouse_screen);
+
+        m_entity_manager.for_each<Engine::TagComponent, Engine::TransformComponent, Engine::SpriteComponent>(
+            [&mouse_world](Engine::EntityID id, const Engine::TagComponent& tag, const Engine::TransformComponent& tx, Engine::SpriteComponent& sprite) {
+                if (tag.tag == "Coin") {
+                    float dist = glm::distance(mouse_world, glm::vec2(tx.position.x, tx.position.y));
+                    if (dist <= 26.0f) {
+                        sprite.has_outline = true;
+                        sprite.outline_color = SDL_Color{255, 255, 255, 255}; // Radiant white halo on hover!
+                        sprite.outline_thickness = 4.0f;
+                        sprite.outline_pulse = true;
+                        sprite.size = glm::vec2(28.0f, 28.0f);
+                    } else {
+                        sprite.has_outline = false;
+                        sprite.size = glm::vec2(24.0f, 24.0f);
+                    }
+                }
+            }
+        );
+    }
+
     // 3. Right-Click or 'E' key: Fire / Detach Flexible Grappling Rope!
     if (Engine::Input::is_mouse_just_pressed(Engine::MouseButton::RIGHT) ||
         Engine::Input::is_key_just_pressed(SDL_SCANCODE_E)) {
@@ -599,9 +651,22 @@ void PlatformerDemoScene::on_update(float delta_time) {
 
         m_shockwaves.push_back({blast_pos, 0.0f, blast_radius, 0.35f, 0.0f});
         Engine::Presets::explosion(m_particle_system, blast_pos, 45, 18);
+
+        // Trigger Post-Processing Flash & Chromatic Aberration Punch
+        if (m_flash_pass) {
+            m_flash_pass->trigger_flash(SDL_Color{255, 245, 210, 140}, 0.20f);
+        }
+        if (m_chroma_pass) {
+            m_chroma_pass->trigger(6.5f, 0.30f);
+        }
+
         ENGINE_LOG_INFO("[EXPLOSION BLAST] Detonated at ({:.1f}, {:.1f})! Affected {} bodies.",
                         blast_pos.x, blast_pos.y, affected.size());
     }
+
+    // Update Post-Processing Shader Passes
+    if (m_flash_pass) m_flash_pass->update(delta_time);
+    if (m_chroma_pass) m_chroma_pass->update(delta_time);
 
     // Update Particle Engine & Expanding Shockwaves
     m_particle_system.update(delta_time);
@@ -735,6 +800,7 @@ void PlatformerDemoScene::on_update(float delta_time) {
 }
 
 void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
+    renderer.set_post_process_pipeline(&m_post_process_pipeline);
     renderer.begin_scene(m_camera);
     Engine::RenderSystem::render(m_entity_manager, renderer);
 

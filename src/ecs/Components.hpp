@@ -96,6 +96,12 @@ struct SpriteComponent {
     bool visible{true};
     glm::vec2 size{64.0f, 64.0f};
 
+    // Material / Shader Highlighting (Outline & Glow)
+    bool has_outline{false};
+    SDL_Color outline_color{255, 215, 0, 255}; // Golden / Cyan / Red
+    float outline_thickness{2.0f};              // Pixel dilation thickness
+    bool outline_pulse{false};                  // Sinusoidal pulsing glow
+
     SpriteComponent() = default;
     explicit SpriteComponent(Texture* tex, const glm::vec2& sz = {64.0f, 64.0f}, SDL_Color col = {255, 255, 255, 255})
         : texture(tex), color(col), size(sz) {}

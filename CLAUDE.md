@@ -132,3 +132,17 @@ With `ProceduralTextureDesc` containing:
 - **blend_fn**: Optional `std::function<float(float x, float y)>` lambda for custom generators
 
 **GUI Binding Intent**: `ProceduralTextureDesc` is a plain struct — fully serializable to JSON/YAML. A future editor GUI exposes sliders and color pickers that write directly into this struct. The engine regenerates the texture on demand. The GUI does not need to know any math; the engine encapsulates it all.
+
+### 6. Agnostic Post-Processing & Shader Pipeline (`Engine::PostProcessPipeline`)
+**Design Principle**: The engine core does not hardcode visual post-processing presets. It provides an extensible **Render Target & Pass-Chaining Pipeline** (`PostProcessPipeline`) driven by pure abstract contracts (`IPostProcessPass`).
+
+```
+Engine::PostProcessPipeline   ← Pure engine runtime (ping-pong FBOs, pass dispatcher)
+Engine::IPostProcessPass      ← Abstract contract: apply(renderer, source, destination, w, h)
+Engine::PostProcessPasses     ← Decoupled reference passes (Vignette, ChromaticAberration, ScreenFlash)
+Custom User Passes            ← Inherit IPostProcessPass without modifying the engine core
+```
+
+- **Ping-Pong Render Targets**: Dual off-screen hardware textures (`SDL_TEXTUREACCESS_TARGET`) in VRAM. Zero CPU round-trips.
+- **Dynamic Pass Management**: Passes can be registered (`add_pass`), removed, enabled/disabled in real time.
+- **Sprite Outline & Material Highlighting**: Supported directly via `SpriteComponent::has_outline`, `outline_color`, `outline_thickness`, and `outline_pulse` within `RenderSystem`.

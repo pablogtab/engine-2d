@@ -68,13 +68,12 @@ graph TD
 - [x] **5.1 Texturas Procedurales Parametrizadas (`ProceduralTextureDesc`)**:
   - Generador matemático agnóstico: `NoiseGradient` (Perlin/Simplex fBm), `Voronoi` (celdas orgánicas), `LinearGradient`, `RadialGradient`, `Checkerboard` y `Custom`.
   - Estructura serializable (`seed`, `scale`, `octaves`, `color_a`, `color_b`) para conectar a editores o crear terrenos variados sin patrones repetitivos.
-- [ ] **5.2 Pipeline de Render Targets & Post-Processing**:
-  - Renderizado a textura intermedia (*Off-screen Framebuffer / Render Target*).
-  - Pases de pantalla completa para efectos globales: viñeteado, aberración cromática, distorsión de onda expansiva y *Screen Shake* cinemático.
-- [ ] **5.3 Efectos de Shaders de Materiales / Sprites**:
-  - *Hit Flash* (destello blanco/rojo al recibir daño).
-  - *Dissolve / Burn* (efecto de desintegración por ruido al morir entidades).
-  - *Outline / Glow* (resaltado de siluetas de objetos seleccionables o interactivos).
+- [x] **5.2 Pipeline de Render Targets & Post-Processing (`PostProcessPipeline`)**:
+  - Renderizado a textura intermedia con búferes Ping-Pong en VRAM (`SDL_TEXTUREACCESS_TARGET`).
+  - Cadena extensible de pases abstractos (`IPostProcessPass`): Viñeteado radial, Aberración cromática RGB y Destello de pantalla/daño.
+- [x] **5.3 Efectos de Shaders de Materiales / Sprites**:
+  - *Outline & Glow* (resaltado de siluetas de objetos seleccionables o coleccionables mediante `SpriteComponent`).
+  - *Hit Flash* / *Screen Flash* (destello reactivo ante daño o detonaciones).
 - [ ] **5.4 Iluminación 2D Dinámica Básica**:
   - Luces puntuales 2D (*Point Lights*) con radio, color, intensidad y mezcla multiplicativa con mapa de sombras/ambiente.
 
