@@ -19,6 +19,7 @@ set(SOURCES
     src/core/Window.cpp
     src/ecs/EntityManager.cpp
     src/renderer/Animation2D.cpp
+    src/renderer/ParticleSystem2D.cpp
     src/renderer/Renderer2D.cpp
     src/renderer/SpriteSheet.cpp
     src/renderer/Texture.cpp

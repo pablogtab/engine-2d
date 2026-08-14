@@ -366,4 +366,44 @@ struct JointComponent {
     }
 };
 
+// 2D Particle Properties for ParticleSystem2D & Emitters
+struct ParticleProps {
+    glm::vec2 position{0.0f, 0.0f};
+    glm::vec2 velocity{0.0f, 0.0f};
+    glm::vec2 velocity_variation{0.0f, 0.0f};
+    glm::vec2 acceleration{0.0f, 0.0f};
+    glm::vec2 gravity{0.0f, 0.0f};
+
+    SDL_Color color_start{255, 255, 255, 255};
+    SDL_Color color_end{255, 255, 255, 0};
+
+    float size_start{8.0f};
+    float size_end{0.0f};
+    float size_variation{0.0f};
+
+    float lifetime{1.0f};
+    float lifetime_variation{0.0f};
+
+    float rotation{0.0f};
+    float rotation_speed{0.0f}; // Degrees / sec
+
+    bool collide_with_world{false};
+    float bounciness{0.6f}; // Restitution [0.0 = stick, 1.0 = super bouncy]
+
+    Texture* texture{nullptr};
+};
+
+// ECS Component for Continuous Entity Particle Emitters
+struct ParticleEmitter2DComponent {
+    ParticleProps props;
+    float emit_rate{30.0f}; // Particles per second
+    float emit_timer{0.0f};
+    bool active{true};
+    int burst_count{1};
+
+    ParticleEmitter2DComponent() = default;
+    explicit ParticleEmitter2DComponent(const ParticleProps& p, float rate = 30.0f, bool start_active = true)
+        : props(p), emit_rate(rate), active(start_active) {}
+};
+
 } // namespace Engine

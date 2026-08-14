@@ -6,6 +6,7 @@
 #include "../scene/Scene.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/Texture.hpp"
+#include "../renderer/ParticleSystem2D.hpp"
 #include "../ecs/PhysicsSystem.hpp"
 #include <SDL3/SDL.h>
 #include <memory>
@@ -26,6 +27,7 @@ private:
     SDL_Renderer* m_sdl_renderer{nullptr};
     Engine::Camera2D m_camera;
     Engine::EventDispatcher m_event_dispatcher;
+    Engine::ParticleSystem2D m_particle_system{3000};
 
     Engine::EntityID m_player_id{0};
     Engine::EntityID m_elevator_id{0};
