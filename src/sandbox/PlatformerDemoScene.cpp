@@ -931,9 +931,34 @@ void PlatformerDemoScene::on_update(float delta_time) {
     Engine::PhysicsSystem::update(m_entity_manager, m_event_dispatcher, delta_time);
     Engine::TransformSystem::update(m_entity_manager);
 
-    // 4. Smooth Camera Follow (Weighted centering keeps entire arena in view)
+    // 4. Interactive Mouse Wheel Zoom & Smooth Reset on Movement
+    constexpr float DEFAULT_ZOOM = 0.76f;
+    glm::vec2 scroll = Engine::Input::get_mouse_scroll();
+    if (scroll.y != 0.0f) {
+        m_target_zoom += scroll.y * 0.08f;
+        m_target_zoom = std::clamp(m_target_zoom, 0.40f, 2.50f);
+    }
+
+    // Smooth Camera Follow & Zoom Interpolation
     if (m_entity_manager.is_alive(m_player_id)) {
         const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+        const auto& player_rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_player_id);
+
+        // If player moves horizontally or jumps/falls, smoothly reset zoom back to default
+        bool is_moving = (Engine::Input::is_key_pressed(SDL_SCANCODE_A) || Engine::Input::is_key_pressed(SDL_SCANCODE_D) ||
+                          Engine::Input::is_key_pressed(SDL_SCANCODE_LEFT) || Engine::Input::is_key_pressed(SDL_SCANCODE_RIGHT) ||
+                          Engine::Input::is_key_pressed(SDL_SCANCODE_SPACE) || Engine::Input::is_key_pressed(SDL_SCANCODE_W) ||
+                          std::abs(player_rb.velocity.x) > 25.0f || std::abs(player_rb.velocity.y) > 45.0f);
+        if (is_moving) {
+            m_target_zoom = DEFAULT_ZOOM;
+        }
+
+        // Smooth Zoom Lerp
+        float cur_zoom = m_camera.get_zoom();
+        float new_zoom = cur_zoom + (m_target_zoom - cur_zoom) * 5.5f * delta_time;
+        m_camera.set_zoom(new_zoom);
+
+        // Smooth Camera Follow
         glm::vec2 current_cam = m_camera.get_position();
         glm::vec2 target_cam = glm::vec2(player_tx.position.x * 0.45f, player_tx.position.y * 0.35f + 10.0f);
         m_camera.set_position(current_cam + (target_cam - current_cam) * 4.5f * delta_time);

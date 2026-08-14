@@ -42,13 +42,13 @@ private:
     Engine::EntityID m_player_id{0};
     Engine::EntityID m_elevator_id{0};
     float m_elevator_time{0.0f};
-    bool m_show_debug_colliders{true};
+    bool m_show_debug_colliders{false};
     bool m_is_grounded{false};
     float m_coyote_timer{0.0f};
     float m_jump_buffer_timer{0.0f};
     float m_launch_cooldown{0.0f};
     float m_drop_through_timer{0.0f};
-    bool m_enable_laser{true};
+    bool m_enable_laser{false};
     Engine::RaycastHit2D m_last_raycast_hit;
     glm::vec2 m_mouse_world_pos{0.0f, 0.0f};
 
@@ -83,6 +83,7 @@ private:
 
     glm::vec2 m_campfire_pos{-220.0f, -252.0f};
     float m_campfire_time{0.0f};
+    float m_target_zoom{0.76f};
 
     bool m_is_grappling{false};
     Engine::EntityID m_grapple_anchor_id{0};
