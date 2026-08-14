@@ -245,6 +245,96 @@ public:
     return callback.hits;
   }
 
+  // Apply a 2D radial explosion impulse to all dynamic bodies within radius with distance falloff & occlusion
+  static std::vector<EntityID> apply_explosion_force(
+      EntityManager &em,
+      const glm::vec2 &epicenter,
+      float radius,
+      float max_impulse,
+      float upward_modifier = 0.25f,
+      uint16_t mask_bits = CollisionCategory::ALL,
+      bool check_occlusion = true) {
+    if (!s_b2_world) return {};
+
+    class ExplosionQueryCallback : public b2QueryCallback {
+    public:
+      std::vector<b2Body *> bodies;
+      bool ReportFixture(b2Fixture *fixture) override {
+        if (fixture->IsSensor()) return true;
+        b2Body *body = fixture->GetBody();
+        if (body->GetType() == b2_dynamicBody) {
+          if (std::find(bodies.begin(), bodies.end(), body) == bodies.end()) {
+            bodies.push_back(body);
+          }
+        }
+        return true;
+      }
+    };
+
+    float r_meters = radius * k_p2m;
+    b2Vec2 epic_m(epicenter.x * k_p2m, epicenter.y * k_p2m);
+
+    b2AABB aabb;
+    aabb.lowerBound.Set(epic_m.x - r_meters, epic_m.y - r_meters);
+    aabb.upperBound.Set(epic_m.x + r_meters, epic_m.y + r_meters);
+
+    ExplosionQueryCallback query;
+    s_b2_world->QueryAABB(&query, aabb);
+
+    std::vector<EntityID> affected_entities;
+
+    for (b2Body *body : query.bodies) {
+      EntityID id = static_cast<EntityID>(body->GetUserData().pointer);
+      if (id == 0 || !em.is_alive(id)) continue;
+
+      b2Vec2 body_pos = body->GetWorldCenter();
+      b2Vec2 delta = body_pos - epic_m;
+      float dist = delta.Length();
+
+      if (dist > r_meters || dist < 0.0001f) {
+        if (dist < 0.0001f) {
+          delta.Set(0.0f, 1.0f);
+          dist = 0.0001f;
+        } else {
+          continue;
+        }
+      }
+
+      // Check occlusion against solid static geometry
+      if (check_occlusion) {
+        RaycastHit2D hit = raycast(epicenter, glm::vec2(body_pos.x * k_m2p, body_pos.y * k_m2p),
+                                   CollisionCategory::GROUND, true, id);
+        if (hit.hit && hit.distance < (dist * k_m2p - 8.0f)) {
+          // Blocked by solid wall
+          continue;
+        }
+      }
+
+      float falloff = 1.0f - (dist / r_meters);
+
+      glm::vec2 dir(delta.x / dist, delta.y / dist);
+      dir.y += upward_modifier;
+      float dir_len = glm::length(dir);
+      if (dir_len > 0.0001f) {
+        dir /= dir_len;
+      } else {
+        dir = glm::vec2(0.0f, 1.0f);
+      }
+
+      float impulse_mag = max_impulse * falloff;
+      body->ApplyLinearImpulseToCenter(b2Vec2(dir.x * impulse_mag * k_p2m, dir.y * impulse_mag * k_p2m), true);
+
+      if (em.has_component<RigidBodyComponent>(id)) {
+        auto &rb = em.get_component<RigidBodyComponent>(id);
+        rb.velocity = glm::vec2(body->GetLinearVelocity().x * k_m2p, body->GetLinearVelocity().y * k_m2p);
+      }
+
+      affected_entities.push_back(id);
+    }
+
+    return affected_entities;
+  }
+
   static void set_gravity(const glm::vec2 &gravity) {
     s_gravity = gravity;
     if (s_b2_world) {

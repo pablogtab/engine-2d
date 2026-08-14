@@ -39,6 +39,16 @@ private:
     bool m_enable_laser{true};
     Engine::RaycastHit2D m_last_raycast_hit;
     glm::vec2 m_mouse_world_pos{0.0f, 0.0f};
+
+    struct ShockwaveEffect {
+        glm::vec2 center{0.0f, 0.0f};
+        float current_radius{0.0f};
+        float max_radius{240.0f};
+        float lifetime{0.35f};
+        float timer{0.0f};
+    };
+    std::vector<ShockwaveEffect> m_shockwaves;
+
     int m_score{0};
     int m_total_coins{0};
 

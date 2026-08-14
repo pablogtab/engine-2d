@@ -380,6 +380,35 @@ void PlatformerDemoScene::on_update(float delta_time) {
         }
     }
 
+    // 3. Left-Click (or 'F' key): Detonate Radial Physical Explosion at Mouse World Position!
+    if (Engine::Input::is_mouse_just_pressed(Engine::MouseButton::LEFT) ||
+        Engine::Input::is_key_just_pressed(SDL_SCANCODE_F)) {
+        glm::vec2 mouse_screen = Engine::Input::get_mouse_position();
+        glm::vec2 blast_pos = m_camera.screen_to_world(mouse_screen);
+
+        float blast_radius = 240.0f;
+        float blast_impulse = 750.0f; // Forceful, punchy blast impulse
+        auto affected = Engine::PhysicsSystem::apply_explosion_force(
+            m_entity_manager, blast_pos, blast_radius, blast_impulse, 0.35f, Engine::CollisionCategory::ALL, true
+        );
+
+        m_shockwaves.push_back({blast_pos, 0.0f, blast_radius, 0.35f, 0.0f});
+        ENGINE_LOG_INFO("[EXPLOSION BLAST] Detonated at ({:.1f}, {:.1f})! Affected {} bodies.",
+                        blast_pos.x, blast_pos.y, affected.size());
+    }
+
+    // Update Expanding Shockwaves
+    for (auto it = m_shockwaves.begin(); it != m_shockwaves.end();) {
+        it->timer += delta_time;
+        float progress = it->timer / it->lifetime;
+        it->current_radius = it->max_radius * std::sin(progress * 1.57079f); // ease-out expansion
+        if (it->timer >= it->lifetime) {
+            it = m_shockwaves.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
     // 2. Player Controls & Jump Physics
     if (m_entity_manager.is_alive(m_player_id) && m_entity_manager.has_component<Engine::RigidBodyComponent>(m_player_id)) {
         auto& rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_player_id);
@@ -547,6 +576,22 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
                 true
             );
         }
+    }
+
+    // 3. Render Expanding Explosion Shockwave Rings
+    for (const auto& sw : m_shockwaves) {
+        float alpha_factor = 1.0f - (sw.timer / sw.lifetime);
+        uint8_t alpha = static_cast<uint8_t>(200.0f * alpha_factor);
+        renderer.submit_sprite(
+            m_circle_debug_texture.get(),
+            glm::vec3(sw.center, 0.0f),
+            glm::vec2(sw.current_radius * 2.0f),
+            0.0f,
+            SDL_Color{255, 120, 20, alpha},
+            nullptr,
+            glm::vec2(0.5f, 0.5f),
+            true
+        );
     }
 
     renderer.end_scene();
