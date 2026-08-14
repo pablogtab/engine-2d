@@ -162,9 +162,11 @@ inline void dust_puff(ParticleSystem2D& ps, const glm::vec2& pos, int count = 8)
 
 // ---------------------------------------------------------------------------
 // Continuous Campfire: Rising incandescent flame tongues, floating sparks,
-// and gentle dark smoke wisps.
 // ---------------------------------------------------------------------------
-inline void campfire(ParticleSystem2D& ps, const glm::vec2& pos) {
+// Continuous Campfire: Rising incandescent flame tongues, floating sparks,
+// and gentle dark smoke wisps. Scalable via scale parameter.
+// ---------------------------------------------------------------------------
+inline void campfire(ParticleSystem2D& ps, const glm::vec2& pos, float scale = 1.0f) {
     using namespace detail;
 
     Texture* spark_tex = ps.get_default_spark();
@@ -173,39 +175,39 @@ inline void campfire(ParticleSystem2D& ps, const glm::vec2& pos) {
     // 1. Rising Flame Core Tongues (High density, short life, upward buoyancy)
     int flame_count = (dist01(rng) < 0.85f) ? 2 : 1;
     for (int i = 0; i < flame_count; ++i) {
-        float offset_x = rnd(-9.0f, 9.0f);
-        float speed_y = rnd(65.0f, 140.0f);
-        float speed_x = rnd(-14.0f, 14.0f);
+        float offset_x = rnd(-9.0f, 9.0f) * scale;
+        float speed_y = rnd(65.0f, 140.0f) * scale;
+        float speed_x = rnd(-14.0f, 14.0f) * scale;
 
         ParticleProps p;
-        p.position       = pos + glm::vec2(offset_x, rnd(-2.0f, 6.0f));
+        p.position       = pos + glm::vec2(offset_x, rnd(-2.0f, 6.0f) * scale);
         p.texture        = soft_tex;
         p.z_layer        = -0.1f; // Behind player
         p.velocity       = glm::vec2(speed_x, speed_y);
-        p.gravity        = glm::vec2(0.0f, 45.0f); // Upward hot air lift (+Y is UP in Cartesian)
-        p.color_start    = SDL_Color{255, static_cast<uint8_t>(rnd(200.0f, 255.0f)), static_cast<uint8_t>(rnd(40.0f, 90.0f)), 245}; // Incandescent bright gold
-        p.color_end      = SDL_Color{230, static_cast<uint8_t>(rnd(30.0f, 70.0f)), 0, 0};                      // Deep fiery crimson fade
-        p.size_start     = rnd(13.0f, 20.0f);
-        p.size_end       = rnd(2.0f, 5.0f);
-        p.lifetime       = rnd(0.30f, 0.55f);
+        p.gravity        = glm::vec2(0.0f, 45.0f * scale);
+        p.color_start    = SDL_Color{255, static_cast<uint8_t>(rnd(200.0f, 255.0f)), static_cast<uint8_t>(rnd(40.0f, 90.0f)), 245};
+        p.color_end      = SDL_Color{230, static_cast<uint8_t>(rnd(30.0f, 70.0f)), 0, 0};
+        p.size_start     = rnd(13.0f, 20.0f) * scale;
+        p.size_end       = rnd(2.0f, 5.0f) * scale;
+        p.lifetime       = rnd(0.28f, 0.50f);
         p.rotation_speed = rnd(-90.0f, 90.0f);
         ps.emit(p, 1);
     }
 
     // 2. Glowing Embers / Air Sparks (Occasional spark flying high)
     if (dist01(rng) < 0.45f) {
-        float speed_y = rnd(120.0f, 240.0f);
-        float speed_x = rnd(-35.0f, 35.0f);
+        float speed_y = rnd(120.0f, 240.0f) * scale;
+        float speed_x = rnd(-35.0f, 35.0f) * scale;
 
         ParticleProps p;
-        p.position       = pos + glm::vec2(rnd(-10.0f, 10.0f), rnd(4.0f, 12.0f));
+        p.position       = pos + glm::vec2(rnd(-10.0f, 10.0f) * scale, rnd(4.0f, 12.0f) * scale);
         p.texture        = spark_tex;
         p.z_layer        = -0.05f; // Behind player
         p.velocity       = glm::vec2(speed_x, speed_y);
-        p.gravity        = glm::vec2(rnd(-15.0f, 15.0f), 55.0f);
+        p.gravity        = glm::vec2(rnd(-15.0f, 15.0f) * scale, 55.0f * scale);
         p.color_start    = SDL_Color{255, 240, 150, 255};
         p.color_end      = SDL_Color{255, 80, 0, 0};
-        p.size_start     = rnd(4.0f, 7.0f);
+        p.size_start     = rnd(4.0f, 7.0f) * scale;
         p.size_end       = 0.5f;
         p.lifetime       = rnd(0.6f, 1.2f);
         p.rotation_speed = rnd(-200.0f, 200.0f);
@@ -214,19 +216,19 @@ inline void campfire(ParticleSystem2D& ps, const glm::vec2& pos) {
 
     // 3. Wispy Smoke (Drifts high into the night sky)
     if (dist01(rng) < 0.30f) {
-        float speed_y = rnd(45.0f, 90.0f);
-        float speed_x = rnd(-18.0f, 18.0f);
+        float speed_y = rnd(45.0f, 90.0f) * scale;
+        float speed_x = rnd(-18.0f, 18.0f) * scale;
 
         ParticleProps p;
-        p.position       = pos + glm::vec2(rnd(-6.0f, 6.0f), rnd(14.0f, 22.0f));
+        p.position       = pos + glm::vec2(rnd(-6.0f, 6.0f) * scale, rnd(14.0f, 22.0f) * scale);
         p.texture        = soft_tex;
         p.z_layer        = -0.05f; // Behind player
         p.velocity       = glm::vec2(speed_x, speed_y);
-        p.gravity        = glm::vec2(rnd(-10.0f, 10.0f), 15.0f);
+        p.gravity        = glm::vec2(rnd(-10.0f, 10.0f) * scale, 15.0f * scale);
         p.color_start    = SDL_Color{70, 65, 75, 120};
         p.color_end      = SDL_Color{25, 25, 30, 0};
-        p.size_start     = rnd(8.0f, 14.0f);
-        p.size_end       = rnd(30.0f, 46.0f);
+        p.size_start     = rnd(8.0f, 14.0f) * scale;
+        p.size_end       = rnd(30.0f, 46.0f) * scale;
         p.lifetime       = rnd(0.8f, 1.6f);
         p.rotation_speed = rnd(-45.0f, 45.0f);
         ps.emit(p, 1);

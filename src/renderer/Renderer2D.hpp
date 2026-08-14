@@ -21,6 +21,8 @@ struct SpriteCommand {
     SDL_FRect src_rect{0.0f, 0.0f, 0.0f, 0.0f};
     uint64_t sort_key{0};
     bool has_src_rect{false};
+    bool flip_x{false};
+    bool flip_y{false};
 };
 
 class Renderer2D {
@@ -44,7 +46,9 @@ public:
         SDL_Color color = {255, 255, 255, 255},
         const SDL_FRect* src_rect = nullptr,
         const glm::vec2& pivot = {0.5f, 0.5f},
-        bool is_overlay = false
+        bool is_overlay = false,
+        bool flip_x = false,
+        bool flip_y = false
     );
     void submit_sprites_batch(const SpriteCommand* commands, size_t count);
     void end_scene();

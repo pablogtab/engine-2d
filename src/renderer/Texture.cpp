@@ -38,7 +38,16 @@ Texture* Texture::load_from_file(SDL_Renderer* renderer, const std::string& file
         return nullptr;
     }
 
-    Texture* tex = new Texture(renderer, w, h, reinterpret_cast<const uint32_t*>(data));
+    std::vector<uint32_t> pixels(w * h);
+    for (int i = 0; i < w * h; ++i) {
+        uint8_t r = data[i * 4 + 0];
+        uint8_t g = data[i * 4 + 1];
+        uint8_t b = data[i * 4 + 2];
+        uint8_t a = data[i * 4 + 3];
+        pixels[i] = (r << 24) | (g << 16) | (b << 8) | a;
+    }
+
+    Texture* tex = new Texture(renderer, w, h, pixels.data());
     stbi_image_free(data);
 
     ENGINE_LOG_INFO("Loaded texture asset: '{}' ({}x{} px)", filepath, w, h);

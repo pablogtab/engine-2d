@@ -40,7 +40,9 @@ void Renderer2D::submit_sprite(
     SDL_Color color,
     const SDL_FRect* src_rect,
     const glm::vec2& pivot,
-    bool is_overlay
+    bool is_overlay,
+    bool flip_x,
+    bool flip_y
 ) {
     // 2D Frustum Culling Check
     if (m_active_camera && !m_active_camera->is_visible(position, size)) {
@@ -53,6 +55,8 @@ void Renderer2D::submit_sprite(
         cmd.src_rect = *src_rect;
         cmd.has_src_rect = true;
     }
+    cmd.flip_x = flip_x;
+    cmd.flip_y = flip_y;
 
     if (is_overlay) {
         cmd.sort_key = 0xFFFFFFFFFFFFFFFFULL; // Force overlay to sort after all game world sprites!
@@ -188,6 +192,13 @@ void Renderer2D::end_scene() {
             v0 = cmd.src_rect.y / th;
             u1 = (cmd.src_rect.x + cmd.src_rect.w) / tw;
             v1 = (cmd.src_rect.y + cmd.src_rect.h) / th;
+        }
+
+        if (cmd.flip_x) {
+            std::swap(u0, u1);
+        }
+        if (cmd.flip_y) {
+            std::swap(v0, v1);
         }
 
         SDL_FColor col{

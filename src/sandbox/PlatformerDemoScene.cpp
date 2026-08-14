@@ -341,6 +341,28 @@ void PlatformerDemoScene::on_attach() {
         m_flame_core_texture = std::make_unique<Engine::Texture>(m_sdl_renderer, width, height, pixels.data());
     }
 
+    // 16. Animated Knight Character Spritesheet & Animation Clips
+    m_knight_spritesheet_texture = std::unique_ptr<Engine::Texture>(
+        Engine::Texture::load_from_file(m_sdl_renderer, "assets/textures/knight_sheet.png")
+    );
+    if (m_knight_spritesheet_texture && m_knight_spritesheet_texture->get_width() > 0) {
+        m_knight_spritesheet = std::make_unique<Engine::SpriteSheet>(m_knight_spritesheet_texture.get(), 8, 3);
+
+        // Row 0: Idle (8 frames)
+        m_anim_idle = Engine::Animation2D(m_knight_spritesheet.get(), 0, 7, 8.0f, true);
+
+        // Row 1: Run (6 frames: frames 8..13)
+        m_anim_run = Engine::Animation2D(m_knight_spritesheet.get(), 8, 13, 11.0f, true);
+
+        // Row 2: Jump (frames 16..19) & Fall (frames 20..23)
+        m_anim_jump = Engine::Animation2D(m_knight_spritesheet.get(), 16, 19, 8.0f, false);
+        m_anim_fall = Engine::Animation2D(m_knight_spritesheet.get(), 20, 23, 8.0f, true);
+
+        m_current_player_anim = &m_anim_idle;
+        m_current_player_anim->play();
+        ENGINE_LOG_INFO("[PLATFORMER DEMO] Animated Knight Spritesheet loaded: {}x{}", m_knight_spritesheet_texture->get_width(), m_knight_spritesheet_texture->get_height());
+    }
+
     // Register Event Listener for Collectibles, Ground Contact, and Curve Force Launch Pads
     m_event_dispatcher.subscribe<Engine::CollisionEvent>(
         [this](const Engine::CollisionEvent& ev) {
@@ -476,9 +498,17 @@ void PlatformerDemoScene::setup_level() {
     m_entity_manager.add_component<Engine::TransformComponent>(
         m_player_id, Engine::TransformComponent{glm::vec3(-150.0f, -200.0f, 0.0f)}
     );
-    m_entity_manager.add_component<Engine::SpriteComponent>(
-        m_player_id, Engine::SpriteComponent{m_player_texture.get(), glm::vec2(44.0f, 56.0f), SDL_Color{50, 180, 255, 255}}
-    );
+    
+    Engine::SpriteComponent player_sprite{
+        m_knight_spritesheet_texture ? m_knight_spritesheet_texture.get() : m_player_texture.get(),
+        glm::vec2(56.0f, 56.0f),
+        SDL_Color{255, 255, 255, 255}
+    };
+    if (m_knight_spritesheet) {
+        player_sprite.use_src_rect = true;
+        player_sprite.src_rect = m_anim_idle.get_current_frame_rect();
+    }
+    m_entity_manager.add_component<Engine::SpriteComponent>(m_player_id, player_sprite);
 
     // Dynamic Physics RigidBody: 0.0f friction on sides prevents wall sticking!
     m_entity_manager.add_component<Engine::RigidBodyComponent>(
@@ -488,7 +518,7 @@ void PlatformerDemoScene::setup_level() {
     // Player Collider: Category PLAYER, Mask GROUND | COIN | DEFAULT
     uint16_t player_mask = Layer::GROUND | Layer::COIN | Layer::DEFAULT;
     m_entity_manager.add_component<Engine::ColliderComponent>(
-        m_player_id, Engine::ColliderComponent::Box({44.0f, 56.0f}, {0.0f, 0.0f}, false, Layer::PLAYER, player_mask)
+        m_player_id, Engine::ColliderComponent::Box({42.0f, 52.0f}, {0.0f, 0.0f}, false, Layer::PLAYER, player_mask)
     );
 
     // 7. Create Rolling Physical Wheel Entity on Raised Platform (Rolls down slope!)
@@ -814,9 +844,9 @@ void PlatformerDemoScene::on_update(float delta_time) {
     // Update Post-Processing Pipeline & Tweens
     m_post_process_pipeline.update(delta_time);
 
-    // Update Campfire Animation & Continuous Emission
+    // Update Campfire Animation & Continuous Emission (Scalable via m_campfire_scale)
     m_campfire_time += delta_time;
-    Engine::Presets::campfire(m_particle_system, m_campfire_pos + glm::vec2(0.0f, 6.0f));
+    Engine::Presets::campfire(m_particle_system, m_campfire_pos + glm::vec2(0.0f, 6.0f * m_campfire_scale), m_campfire_scale);
 
     // Update Particle Engine & Expanding Shockwaves
     m_particle_system.update(delta_time);
@@ -903,6 +933,52 @@ void PlatformerDemoScene::on_update(float delta_time) {
             m_drop_through_timer -= delta_time;
             if (m_drop_through_timer <= 0.0f) {
                 Engine::PhysicsSystem::set_ignore_one_way(m_player_id, false);
+            }
+        }
+
+        // 2.5. Animation State Machine (Idle, Run, Jump, Fall, Grapple + Flip X)
+        if (m_knight_spritesheet_texture && m_entity_manager.has_component<Engine::SpriteComponent>(m_player_id)) {
+            auto& player_sprite = m_entity_manager.get_component<Engine::SpriteComponent>(m_player_id);
+
+            // Direction / Flip X
+            if (move_x > 0.0f || rb.velocity.x > 15.0f) {
+                m_player_facing_right = true;
+            } else if (move_x < 0.0f || rb.velocity.x < -15.0f) {
+                m_player_facing_right = false;
+            }
+            player_sprite.flip_x = !m_player_facing_right;
+
+            // FSM State selection
+            Engine::Animation2D* next_anim = &m_anim_idle;
+            if (m_is_grappling) {
+                next_anim = &m_anim_jump; // heroic swinging pose
+            } else if (!is_physically_grounded && std::abs(rb.velocity.y) > 25.0f) {
+                if (rb.velocity.y > 0.0f) {
+                    next_anim = &m_anim_jump;
+                } else {
+                    next_anim = &m_anim_fall;
+                }
+            } else if (std::abs(rb.velocity.x) > 20.0f) {
+                next_anim = &m_anim_run;
+            } else {
+                next_anim = &m_anim_idle;
+            }
+
+            if (m_current_player_anim != next_anim) {
+                m_current_player_anim = next_anim;
+                if (m_current_player_anim) {
+                    m_current_player_anim->reset();
+                    m_current_player_anim->play();
+                }
+            }
+
+            if (m_current_player_anim) {
+                m_current_player_anim->update(delta_time);
+                player_sprite.use_src_rect = true;
+                player_sprite.src_rect = m_current_player_anim->get_current_frame_rect();
+                player_sprite.texture = m_knight_spritesheet_texture.get();
+                player_sprite.size = glm::vec2(56.0f, 56.0f);
+                player_sprite.color = SDL_Color{255, 255, 255, 255};
             }
         }
     }
@@ -1056,13 +1132,13 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
     // 3.5. Render Campfire Showcase (2D Dynamic Light, Firewood, and Animated Flame Core)
     {
         // A. Dynamic 2D Warm Point Light Aura (Flickers and illuminates the ground at Z = -1.0)
-        float flicker = std::sin(m_campfire_time * 14.0f) * 10.0f + std::cos(m_campfire_time * 26.0f) * 6.0f;
-        float light_radius = 240.0f + flicker;
-        uint8_t light_alpha = static_cast<uint8_t>(std::clamp(160.0f + flicker * 2.5f, 110.0f, 210.0f));
+        float flicker = (std::sin(m_campfire_time * 14.0f) * 10.0f + std::cos(m_campfire_time * 26.0f) * 6.0f) * m_campfire_scale;
+        float light_radius = 240.0f * m_campfire_scale + flicker;
+        uint8_t light_alpha = static_cast<uint8_t>(std::clamp(150.0f + flicker * 2.0f, 90.0f, 200.0f));
         renderer.submit_sprite(
             m_campfire_light_texture.get(),
-            glm::vec3(m_campfire_pos + glm::vec2(0.0f, 12.0f), -1.0f),
-            glm::vec2(light_radius, light_radius * 0.80f),
+            glm::vec3(m_campfire_pos + glm::vec2(0.0f, 12.0f * m_campfire_scale), -1.0f),
+            glm::vec2(light_radius, light_radius * 0.75f),
             0.0f,
             SDL_Color{255, 130, 25, light_alpha},
             nullptr,
@@ -1074,7 +1150,7 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
         renderer.submit_sprite(
             m_campfire_logs_texture.get(),
             glm::vec3(m_campfire_pos, -0.2f),
-            glm::vec2(52.0f, 26.0f),
+            glm::vec2(52.0f, 26.0f) * m_campfire_scale,
             0.0f,
             SDL_Color{255, 255, 255, 255},
             nullptr,
@@ -1083,13 +1159,13 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
         );
 
         // C. Animated Incandescent Flame Core (Pulsing & swaying at Z = -0.1)
-        float flame_sway = std::sin(m_campfire_time * 16.0f) * 2.0f;
-        float flame_pulse = std::cos(m_campfire_time * 22.0f) * 3.0f;
+        float flame_sway = std::sin(m_campfire_time * 16.0f) * 2.0f * m_campfire_scale;
+        float flame_pulse = std::cos(m_campfire_time * 22.0f) * 3.0f * m_campfire_scale;
         renderer.submit_sprite(
             m_flame_core_texture.get(),
-            glm::vec3(m_campfire_pos + glm::vec2(flame_sway, 14.0f), -0.1f),
-            glm::vec2(22.0f + flame_pulse, 34.0f - flame_pulse * 0.5f),
-            flame_sway * 2.5f,
+            glm::vec3(m_campfire_pos + glm::vec2(flame_sway, 14.0f * m_campfire_scale), -0.1f),
+            glm::vec2(22.0f * m_campfire_scale + flame_pulse, 34.0f * m_campfire_scale - flame_pulse * 0.5f),
+            flame_sway * 2.0f,
             SDL_Color{255, 225, 75, 245},
             nullptr,
             glm::vec2(0.5f, 0.2f),

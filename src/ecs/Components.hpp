@@ -102,6 +102,9 @@ struct SpriteComponent {
     float outline_thickness{2.0f};              // Pixel dilation thickness
     bool outline_pulse{false};                  // Sinusoidal pulsing glow
 
+    bool flip_x{false};
+    bool flip_y{false};
+
     SpriteComponent() = default;
     explicit SpriteComponent(Texture* tex, const glm::vec2& sz = {64.0f, 64.0f}, SDL_Color col = {255, 255, 255, 255})
         : texture(tex), color(col), size(sz) {}

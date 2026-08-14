@@ -13,6 +13,8 @@
 #include "../renderer/postprocess/PostProcessTweens.hpp"
 #include "../particles/ParticleSystem2D.hpp"
 #include "../physics/PhysicsSystem.hpp"
+#include "../renderer/SpriteSheet.hpp"
+#include "../renderer/Animation2D.hpp"
 #include <SDL3/SDL.h>
 #include <memory>
 
@@ -80,9 +82,19 @@ private:
     std::unique_ptr<Engine::Texture> m_campfire_logs_texture;
     std::unique_ptr<Engine::Texture> m_campfire_light_texture;
     std::unique_ptr<Engine::Texture> m_flame_core_texture;
+    std::unique_ptr<Engine::Texture> m_knight_spritesheet_texture;
+    std::unique_ptr<Engine::SpriteSheet> m_knight_spritesheet;
+
+    Engine::Animation2D m_anim_idle;
+    Engine::Animation2D m_anim_run;
+    Engine::Animation2D m_anim_jump;
+    Engine::Animation2D m_anim_fall;
+    Engine::Animation2D* m_current_player_anim{nullptr};
+    bool m_player_facing_right{true};
 
     glm::vec2 m_campfire_pos{-220.0f, -252.0f};
     float m_campfire_time{0.0f};
+    float m_campfire_scale{0.65f};
     float m_target_zoom{0.76f};
 
     bool m_is_grappling{false};
