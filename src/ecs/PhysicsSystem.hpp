@@ -15,6 +15,80 @@ namespace Engine {
 // Forward declaration
 class PhysicsSystem;
 
+// Raycast hit result structure
+struct RaycastHit2D {
+    bool hit{false};
+    EntityID entity_id{0};
+    glm::vec2 point{0.0f, 0.0f};   // Impact position in world coordinates (pixels)
+    glm::vec2 normal{0.0f, 0.0f};  // Surface normal vector at impact point
+    float fraction{0.0f};          // Normalized fraction along the ray [0, 1]
+    float distance{0.0f};          // Distance in pixels from ray origin to impact point
+};
+
+class RayCastClosestCallback : public b2RayCastCallback {
+public:
+    uint16_t mask_bits{CollisionCategory::ALL};
+    bool ignore_sensors{true};
+    EntityID ignore_entity{0};
+
+    bool hit{false};
+    EntityID hit_entity{0};
+    b2Vec2 hit_point{0.0f, 0.0f};
+    b2Vec2 hit_normal{0.0f, 0.0f};
+    float hit_fraction{1.0f};
+
+    float ReportFixture(b2Fixture* fixture, const b2Vec2& point, const b2Vec2& normal, float fraction) override {
+        if (ignore_sensors && fixture->IsSensor()) return -1.0f;
+
+        b2Filter filter = fixture->GetFilterData();
+        if ((filter.categoryBits & mask_bits) == 0) return -1.0f;
+
+        EntityID id = static_cast<EntityID>(fixture->GetBody()->GetUserData().pointer);
+        if (id == ignore_entity) return -1.0f;
+
+        hit = true;
+        hit_entity = id;
+        hit_point = point;
+        hit_normal = normal;
+        hit_fraction = fraction;
+
+        return fraction; // Clip ray to closest hit
+    }
+};
+
+class RayCastAllCallback : public b2RayCastCallback {
+public:
+    uint16_t mask_bits{CollisionCategory::ALL};
+    bool ignore_sensors{true};
+    EntityID ignore_entity{0};
+    glm::vec2 origin_px{0.0f, 0.0f};
+    std::vector<RaycastHit2D> hits;
+
+    float ReportFixture(b2Fixture* fixture, const b2Vec2& point, const b2Vec2& normal, float fraction) override {
+        if (ignore_sensors && fixture->IsSensor()) return -1.0f;
+
+        b2Filter filter = fixture->GetFilterData();
+        if ((filter.categoryBits & mask_bits) == 0) return -1.0f;
+
+        EntityID id = static_cast<EntityID>(fixture->GetBody()->GetUserData().pointer);
+        if (id == ignore_entity) return -1.0f;
+
+        glm::vec2 pt_px(point.x * 100.0f, point.y * 100.0f);
+        float dist = glm::distance(origin_px, pt_px);
+
+        hits.push_back({
+            true,
+            id,
+            pt_px,
+            glm::vec2(normal.x, normal.y),
+            fraction,
+            dist
+        });
+
+        return 1.0f; // Continue ray to find all hits
+    }
+};
+
 // Contact listener for Box2D collision events
 class PhysicsContactListener : public b2ContactListener {
 public:
@@ -102,6 +176,73 @@ public:
       }
     }
     return false;
+  }
+
+  // Cast a ray from origin to destination and return the closest hit result
+  static RaycastHit2D raycast(const glm::vec2 &origin, const glm::vec2 &destination,
+                              uint16_t mask_bits = CollisionCategory::ALL,
+                              bool ignore_sensors = true, EntityID ignore_entity = 0) {
+    if (!s_b2_world) return {};
+
+    RayCastClosestCallback callback;
+    callback.mask_bits = mask_bits;
+    callback.ignore_sensors = ignore_sensors;
+    callback.ignore_entity = ignore_entity;
+
+    b2Vec2 p1(origin.x * k_p2m, origin.y * k_p2m);
+    b2Vec2 p2(destination.x * k_p2m, destination.y * k_p2m);
+
+    s_b2_world->RayCast(&callback, p1, p2);
+
+    if (callback.hit) {
+      glm::vec2 pt(callback.hit_point.x * k_m2p, callback.hit_point.y * k_m2p);
+      float dist = glm::distance(origin, pt);
+      return {
+          true,
+          callback.hit_entity,
+          pt,
+          glm::vec2(callback.hit_normal.x, callback.hit_normal.y),
+          callback.hit_fraction,
+          dist
+      };
+    }
+    return {};
+  }
+
+  // Cast a ray along a direction vector with a maximum distance
+  static RaycastHit2D raycast_direction(const glm::vec2 &origin, const glm::vec2 &direction,
+                                        float max_distance,
+                                        uint16_t mask_bits = CollisionCategory::ALL,
+                                        bool ignore_sensors = true, EntityID ignore_entity = 0) {
+    float len = glm::length(direction);
+    glm::vec2 norm_dir = (len > 0.0001f) ? (direction / len) : glm::vec2(1.0f, 0.0f);
+    glm::vec2 dest = origin + norm_dir * max_distance;
+    return raycast(origin, dest, mask_bits, ignore_sensors, ignore_entity);
+  }
+
+  // Cast a ray from origin to destination and return all hit results sorted closest to furthest
+  static std::vector<RaycastHit2D> raycast_all(const glm::vec2 &origin, const glm::vec2 &destination,
+                                               uint16_t mask_bits = CollisionCategory::ALL,
+                                               bool ignore_sensors = true, EntityID ignore_entity = 0) {
+    if (!s_b2_world) return {};
+
+    RayCastAllCallback callback;
+    callback.mask_bits = mask_bits;
+    callback.ignore_sensors = ignore_sensors;
+    callback.ignore_entity = ignore_entity;
+    callback.origin_px = origin;
+
+    b2Vec2 p1(origin.x * k_p2m, origin.y * k_p2m);
+    b2Vec2 p2(destination.x * k_p2m, destination.y * k_p2m);
+
+    s_b2_world->RayCast(&callback, p1, p2);
+
+    std::sort(callback.hits.begin(), callback.hits.end(),
+              [](const RaycastHit2D &a, const RaycastHit2D &b) {
+                return a.fraction < b.fraction;
+              });
+
+    return callback.hits;
   }
 
   static void set_gravity(const glm::vec2 &gravity) {

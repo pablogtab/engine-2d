@@ -343,10 +343,41 @@ void PlatformerDemoScene::on_update(float delta_time) {
         return;
     }
 
-    // 1. Toggle Debug Overlay with 'G' key
+    // 1. Toggle Debug Overlay with 'G' key & Toggle Laser Aim with 'L' key
     if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_G)) {
         m_show_debug_colliders = !m_show_debug_colliders;
         ENGINE_LOG_INFO("[PLATFORMER DEMO] Debug Wireframe Overlay: {}", m_show_debug_colliders ? "ON" : "OFF");
+    }
+    if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_L)) {
+        m_enable_laser = !m_enable_laser;
+        ENGINE_LOG_INFO("[PLATFORMER DEMO] Laser Raycast Aim: {}", m_enable_laser ? "ON" : "OFF");
+    }
+
+    // 2. Real-time 2D Raycast Laser Pointer (Casts from Player to Mouse World Position)
+    if (m_enable_laser && m_entity_manager.is_alive(m_player_id)) {
+        glm::vec2 mouse_screen = Engine::Input::get_mouse_position();
+        m_mouse_world_pos = m_camera.screen_to_world(mouse_screen);
+
+        const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+        glm::vec2 player_center(player_tx.position.x, player_tx.position.y);
+
+        glm::vec2 ray_dir = m_mouse_world_pos - player_center;
+        m_last_raycast_hit = Engine::PhysicsSystem::raycast_direction(
+            player_center, ray_dir, 1000.0f, Engine::CollisionCategory::ALL, true, m_player_id
+        );
+
+        // Periodic diagnostic log for active hits (every 60 frames)
+        static int s_ray_log_counter = 0;
+        if (m_last_raycast_hit.hit && (++s_ray_log_counter % 60 == 0)) {
+            std::string tag_name = "Object";
+            if (m_entity_manager.has_component<Engine::TagComponent>(m_last_raycast_hit.entity_id)) {
+                tag_name = m_entity_manager.get_component<Engine::TagComponent>(m_last_raycast_hit.entity_id).tag;
+            }
+            ENGINE_LOG_INFO("[RAYCAST HIT] Target='{}' (ID {}) | Dist={:.1f}px | Pt=({:.1f}, {:.1f}) | Norm=({:.2f}, {:.2f})",
+                            tag_name, m_last_raycast_hit.entity_id, m_last_raycast_hit.distance,
+                            m_last_raycast_hit.point.x, m_last_raycast_hit.point.y,
+                            m_last_raycast_hit.normal.x, m_last_raycast_hit.normal.y);
+        }
     }
 
     // 2. Player Controls & Jump Physics
@@ -453,6 +484,69 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
 
     if (m_show_debug_colliders) {
         Engine::RenderSystem::render_debug_colliders(m_entity_manager, renderer, m_circle_debug_texture.get());
+    }
+
+    // 2D Raycast Laser Pointer Visuals
+    if (m_enable_laser && m_entity_manager.is_alive(m_player_id)) {
+        const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+        glm::vec2 player_center(player_tx.position.x, player_tx.position.y);
+
+        glm::vec2 hit_pt;
+        if (m_last_raycast_hit.hit) {
+            hit_pt = m_last_raycast_hit.point;
+        } else {
+            glm::vec2 dir = m_mouse_world_pos - player_center;
+            float dir_len = glm::length(dir);
+            hit_pt = player_center + ((dir_len > 0.001f) ? (dir / dir_len) : glm::vec2(1.0f, 0.0f)) * 1000.0f;
+        }
+
+        // 1. Draw glowing red laser beam line
+        glm::vec2 delta = hit_pt - player_center;
+        float beam_len = glm::length(delta);
+        if (beam_len > 0.001f) {
+            float beam_angle = -glm::degrees(std::atan2(delta.y, delta.x));
+            glm::vec2 beam_mid = (player_center + hit_pt) * 0.5f;
+            renderer.submit_sprite(
+                nullptr,
+                glm::vec3(beam_mid, 0.0f),
+                glm::vec2(beam_len, 2.5f),
+                beam_angle,
+                SDL_Color{255, 50, 50, 220},
+                nullptr,
+                glm::vec2(0.5f, 0.5f),
+                true
+            );
+        }
+
+        // 2. If ray hits a surface: draw glowing impact reticle and cyan surface normal indicator
+        if (m_last_raycast_hit.hit) {
+            // Impact Dot
+            renderer.submit_sprite(
+                m_circle_debug_texture.get(),
+                glm::vec3(m_last_raycast_hit.point, 0.0f),
+                glm::vec2(14.0f, 14.0f),
+                0.0f,
+                SDL_Color{255, 230, 0, 255},
+                nullptr,
+                glm::vec2(0.5f, 0.5f),
+                true
+            );
+
+            // Cyan Surface Normal Vector Line (24px length)
+            glm::vec2 norm_end = m_last_raycast_hit.point + m_last_raycast_hit.normal * 24.0f;
+            glm::vec2 norm_mid = (m_last_raycast_hit.point + norm_end) * 0.5f;
+            float norm_angle = -glm::degrees(std::atan2(m_last_raycast_hit.normal.y, m_last_raycast_hit.normal.x));
+            renderer.submit_sprite(
+                nullptr,
+                glm::vec3(norm_mid, 0.0f),
+                glm::vec2(24.0f, 2.5f),
+                norm_angle,
+                SDL_Color{0, 255, 255, 255},
+                nullptr,
+                glm::vec2(0.5f, 0.5f),
+                true
+            );
+        }
     }
 
     renderer.end_scene();

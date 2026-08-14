@@ -6,6 +6,7 @@
 #include "../scene/Scene.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/Texture.hpp"
+#include "../ecs/PhysicsSystem.hpp"
 #include <SDL3/SDL.h>
 #include <memory>
 
@@ -35,6 +36,9 @@ private:
     float m_jump_buffer_timer{0.0f};
     float m_launch_cooldown{0.0f};
     float m_drop_through_timer{0.0f};
+    bool m_enable_laser{true};
+    Engine::RaycastHit2D m_last_raycast_hit;
+    glm::vec2 m_mouse_world_pos{0.0f, 0.0f};
     int m_score{0};
     int m_total_coins{0};
 

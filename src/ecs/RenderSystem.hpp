@@ -132,7 +132,7 @@ public:
                                 glm::vec2 delta = pB - pA;
                                 float length = glm::length(delta);
                                 if (length > 0.001f) {
-                                    float angle = glm::degrees(std::atan2(delta.y, delta.x));
+                                    float angle = -glm::degrees(std::atan2(delta.y, delta.x));
                                     glm::vec2 mid = (pA + pB) * 0.5f;
 
                                     renderer.submit_sprite(

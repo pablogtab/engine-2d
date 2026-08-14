@@ -28,6 +28,9 @@ public:
     // Z > 0: Foreground (moves faster, scales up)
     glm::vec2 world_to_screen(const glm::vec3& world_pos) const;
 
+    // Converts screen pixel coordinates back into 2.5D world coordinates
+    glm::vec2 screen_to_world(const glm::vec2& screen_pos, float z = 0.0f) const;
+
     // Returns visual scale factor produced by Z distance
     float get_z_scale(float z) const;
 
