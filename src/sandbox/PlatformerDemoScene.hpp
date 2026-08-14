@@ -34,6 +34,7 @@ private:
     float m_coyote_timer{0.0f};
     float m_jump_buffer_timer{0.0f};
     float m_launch_cooldown{0.0f};
+    float m_drop_through_timer{0.0f};
     int m_score{0};
     int m_total_coins{0};
 
@@ -49,6 +50,7 @@ private:
 
     void setup_level();
     void create_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color);
+    void create_one_way_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color);
     void create_slope(const glm::vec2& position, const glm::vec2& size, bool slope_up_right = true);
     void create_elevator(const glm::vec2& position, const glm::vec2& size);
     void create_coin(const glm::vec2& position);

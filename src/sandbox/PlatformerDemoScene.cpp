@@ -188,14 +188,14 @@ void PlatformerDemoScene::on_detach() {
 }
 
 void PlatformerDemoScene::setup_level() {
-    // 1. Create Main Ground Platform (Static RigidBody)
+    // 1. Create Main Ground Platform (Static Solid RigidBody)
     create_platform({0.0f, -280.0f}, {1200.0f, 40.0f}, {80, 140, 60, 255});
 
-    // 2. Create Floating Platforms
-    create_platform({-350.0f, -120.0f}, {280.0f, 30.0f}, {140, 100, 70, 255});
-    create_platform({0.0f, 20.0f}, {260.0f, 30.0f}, {140, 100, 70, 255});
-    create_platform({380.0f, 150.0f}, {280.0f, 30.0f}, {140, 100, 70, 255});
-    create_platform({-200.0f, 240.0f}, {220.0f, 30.0f}, {140, 100, 70, 255});
+    // 2. Create Floating One-Way (Jump-Through) Platforms
+    create_one_way_platform({-350.0f, -120.0f}, {280.0f, 24.0f}, {160, 110, 75, 255});
+    create_one_way_platform({0.0f, 20.0f}, {260.0f, 24.0f}, {160, 110, 75, 255});
+    create_one_way_platform({380.0f, 150.0f}, {280.0f, 24.0f}, {160, 110, 75, 255});
+    create_one_way_platform({-200.0f, 240.0f}, {220.0f, 24.0f}, {160, 110, 75, 255});
 
     // 3. Create Premiere Bezier Launch Pad Trigger on Floor
     create_launch_pad({150.0f, -252.0f});
@@ -274,6 +274,20 @@ void PlatformerDemoScene::create_elevator(const glm::vec2& position, const glm::
     uint16_t ground_mask = Layer::PLAYER | Layer::DEFAULT;
     m_entity_manager.add_component<Engine::ColliderComponent>(
         m_elevator_id, Engine::ColliderComponent::Box(size, {0.0f, 0.0f}, false, Layer::GROUND, ground_mask)
+    );
+}
+
+void PlatformerDemoScene::create_one_way_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color) {
+    Engine::EntityID platform_id = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(platform_id, Engine::TagComponent{"OneWayPlatform"});
+    m_entity_manager.add_component<Engine::TransformComponent>(platform_id, Engine::TransformComponent{glm::vec3(position, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(platform_id, Engine::SpriteComponent{m_block_texture.get(), size, color});
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(platform_id, Engine::RigidBodyComponent::Static());
+
+    // One-Way Platform Collider: Category GROUND, Mask PLAYER | DEFAULT
+    uint16_t ground_mask = Layer::PLAYER | Layer::DEFAULT;
+    m_entity_manager.add_component<Engine::ColliderComponent>(
+        platform_id, Engine::ColliderComponent::OneWayBox(size, {0.0f, 0.0f}, Layer::GROUND, ground_mask)
     );
 }
 
@@ -377,6 +391,17 @@ void PlatformerDemoScene::on_update(float delta_time) {
             m_jump_buffer_timer = 0.0f;
             m_coyote_timer = 0.0f;
             ENGINE_LOG_INFO("[PLATFORMER DEMO] Jump Applied! Velocity Y set to 520.0");
+        }
+
+        // Drop-Down / Passthrough Mechanic (Pressing S or Down Arrow to drop through one-way platforms)
+        if (Engine::Input::is_key_pressed(SDL_SCANCODE_S) || Engine::Input::is_key_pressed(SDL_SCANCODE_DOWN)) {
+            m_drop_through_timer = 0.25f;
+            Engine::PhysicsSystem::set_ignore_one_way(m_player_id, true);
+        } else if (m_drop_through_timer > 0.0f) {
+            m_drop_through_timer -= delta_time;
+            if (m_drop_through_timer <= 0.0f) {
+                Engine::PhysicsSystem::set_ignore_one_way(m_player_id, false);
+            }
         }
     }
 

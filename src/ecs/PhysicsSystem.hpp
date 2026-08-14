@@ -8,8 +8,12 @@
 #include <glm/glm.hpp>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Engine {
+
+// Forward declaration
+class PhysicsSystem;
 
 // Contact listener for Box2D collision events
 class PhysicsContactListener : public b2ContactListener {
@@ -52,6 +56,8 @@ public:
     m_dispatcher.publish(col_end);
   }
 
+  void PreSolve(b2Contact *contact, const b2Manifold *oldManifold) override;
+
 private:
   EventDispatcher &m_dispatcher;
 };
@@ -60,6 +66,18 @@ class PhysicsSystem {
 public:
   static constexpr float k_p2m = 0.01f;  // Pixels to meters scale factor
   static constexpr float k_m2p = 100.0f; // Meters to pixels scale factor
+
+  static void set_ignore_one_way(EntityID id, bool ignore) {
+    if (ignore) {
+      s_ignore_one_way.insert(id);
+    } else {
+      s_ignore_one_way.erase(id);
+    }
+  }
+
+  static bool is_ignoring_one_way(EntityID id) {
+    return s_ignore_one_way.contains(id);
+  }
 
   static bool is_grounded(EntityManager &em, EntityID id) {
     auto it = s_b2_bodies.find(id);
@@ -97,6 +115,7 @@ public:
 
   static void clear() {
     s_b2_bodies.clear();
+    s_ignore_one_way.clear();
     s_contact_listener.reset();
     s_b2_world.reset();
   }
@@ -207,6 +226,7 @@ public:
               fixtureDef.restitution = rb.restitution;
               fixtureDef.filter.categoryBits = shape.category_bits;
               fixtureDef.filter.maskBits = shape.mask_bits;
+              fixtureDef.userData.pointer = shape.is_one_way ? 1 : 0;
 
               if (shape.type == ColliderShapeType::Circle) {
                 b2CircleShape circle;
@@ -343,6 +363,45 @@ private:
   static inline std::unique_ptr<PhysicsContactListener> s_contact_listener{
       nullptr};
   static inline std::unordered_map<EntityID, b2Body *> s_b2_bodies;
+  static inline std::unordered_set<EntityID> s_ignore_one_way;
 };
+
+inline void PhysicsContactListener::PreSolve(b2Contact *contact, const b2Manifold *oldManifold) {
+  b2Fixture *fixtureA = contact->GetFixtureA();
+  b2Fixture *fixtureB = contact->GetFixtureB();
+  if (!fixtureA || !fixtureB) return;
+
+  bool is_one_way_A = (fixtureA->GetUserData().pointer == 1);
+  bool is_one_way_B = (fixtureB->GetUserData().pointer == 1);
+
+  if (!is_one_way_A && !is_one_way_B) return;
+
+  b2Fixture *platform_fixture = is_one_way_A ? fixtureA : fixtureB;
+  b2Fixture *other_fixture    = is_one_way_A ? fixtureB : fixtureA;
+
+  b2Body *other_body = other_fixture->GetBody();
+  if (other_body->GetType() != b2_dynamicBody) return;
+
+  EntityID other_id = static_cast<EntityID>(other_body->GetUserData().pointer);
+  if (PhysicsSystem::is_ignoring_one_way(other_id)) {
+    contact->SetEnabled(false);
+    return;
+  }
+
+  b2AABB platform_aabb;
+  platform_fixture->GetShape()->ComputeAABB(&platform_aabb, platform_fixture->GetBody()->GetTransform(), 0);
+  float platform_top_y = platform_aabb.upperBound.y;
+
+  b2AABB other_aabb;
+  other_fixture->GetShape()->ComputeAABB(&other_aabb, other_body->GetTransform(), 0);
+  float other_bottom_y = other_aabb.lowerBound.y;
+
+  float other_vel_y = other_body->GetLinearVelocity().y;
+
+  // Pass through if body's feet are below the platform top (with 0.05m tolerance) OR moving upward (+Y)
+  if (other_bottom_y < platform_top_y - 0.05f || other_vel_y > 0.05f) {
+    contact->SetEnabled(false);
+  }
+}
 
 } // namespace Engine

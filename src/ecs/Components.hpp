@@ -137,6 +137,7 @@ struct ColliderShape {
     float radius{16.0f};            // Radius for Circle shape
     std::vector<glm::vec2> vertices; // Local vertex array for Polygon / Slope shapes (up to 8 in Box2D)
     bool is_trigger{false};         // True = Trigger sensor (no solid physical response)
+    bool is_one_way{false};         // True = Pass through from below, solid from above (One-Way Platform)
     uint16_t category_bits{CollisionCategory::DEFAULT}; // Layer this shape belongs to
     uint16_t mask_bits{CollisionCategory::ALL};         // Mask of layers this shape can collide with
 };
@@ -151,6 +152,12 @@ struct ColliderComponent {
     static ColliderComponent Box(const glm::vec2& size, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
         ColliderComponent comp;
         comp.add_box(size, offset, is_trigger, category, mask);
+        return comp;
+    }
+
+    static ColliderComponent OneWayBox(const glm::vec2& size, const glm::vec2& offset = {0.0f, 0.0f}, uint16_t category = CollisionCategory::GROUND, uint16_t mask = CollisionCategory::ALL) {
+        ColliderComponent comp;
+        comp.add_one_way_box(size, offset, category, mask);
         return comp;
     }
 
@@ -174,17 +181,22 @@ struct ColliderComponent {
 
     // Chainable composite shape builders
     ColliderComponent& add_box(const glm::vec2& size, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
-        shapes.push_back({ColliderShapeType::Box, offset, size, 0.0f, {}, is_trigger, category, mask});
+        shapes.push_back({ColliderShapeType::Box, offset, size, 0.0f, {}, is_trigger, false, category, mask});
+        return *this;
+    }
+
+    ColliderComponent& add_one_way_box(const glm::vec2& size, const glm::vec2& offset = {0.0f, 0.0f}, uint16_t category = CollisionCategory::GROUND, uint16_t mask = CollisionCategory::ALL) {
+        shapes.push_back({ColliderShapeType::Box, offset, size, 0.0f, {}, false, true, category, mask});
         return *this;
     }
 
     ColliderComponent& add_circle(float radius, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
-        shapes.push_back({ColliderShapeType::Circle, offset, {0,0}, radius, {}, is_trigger, category, mask});
+        shapes.push_back({ColliderShapeType::Circle, offset, {0,0}, radius, {}, is_trigger, false, category, mask});
         return *this;
     }
 
     ColliderComponent& add_polygon(const std::vector<glm::vec2>& vertices, const glm::vec2& offset = {0.0f, 0.0f}, bool is_trigger = false, uint16_t category = CollisionCategory::DEFAULT, uint16_t mask = CollisionCategory::ALL) {
-        shapes.push_back({ColliderShapeType::Polygon, offset, {0,0}, 0.0f, vertices, is_trigger, category, mask});
+        shapes.push_back({ColliderShapeType::Polygon, offset, {0,0}, 0.0f, vertices, is_trigger, false, category, mask});
         return *this;
     }
 
