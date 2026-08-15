@@ -20,7 +20,6 @@ std::unordered_map<std::string, AxisBinding> Input::s_axes;
 SDL_Gamepad* Input::s_gamepad = nullptr;
 float Input::s_deadzone = 8000.0f; // Standard SDL3 gamepad deadzone
 bool Input::s_game_input_enabled = true;
-bool Input::s_override_mouse_pos = false;
 
 void Input::init() {
     s_current_keys.clear();
@@ -31,7 +30,6 @@ void Input::init() {
     s_mouse_delta = glm::vec2(0.0f);
     s_mouse_scroll = glm::vec2(0.0f);
     s_game_input_enabled = true;
-    s_override_mouse_pos = false;
 
     // Auto-detect and open first connected gamepad
     int count = 0;
@@ -88,7 +86,6 @@ bool Input::is_game_input_enabled() {
 
 void Input::set_custom_mouse_position(const glm::vec2& pos) {
     s_mouse_pos = pos;
-    s_override_mouse_pos = true;
 }
 
 void Input::reset_states() {
@@ -130,10 +127,8 @@ void Input::process_event(const SDL_Event& event) {
             break;
 
         case SDL_EVENT_MOUSE_MOTION:
-            if (!s_override_mouse_pos) {
-                s_mouse_pos.x = event.motion.x;
-                s_mouse_pos.y = event.motion.y;
-            }
+            s_mouse_pos.x = event.motion.x;
+            s_mouse_pos.y = event.motion.y;
             s_mouse_delta.x += event.motion.xrel;
             s_mouse_delta.y += event.motion.yrel;
             break;

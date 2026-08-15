@@ -116,7 +116,6 @@ private:
     static SDL_Gamepad* s_gamepad;
     static float s_deadzone;
     static bool s_game_input_enabled;
-    static bool s_override_mouse_pos;
 };
 
 } // namespace Engine
