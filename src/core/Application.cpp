@@ -45,31 +45,24 @@ Application::Application(const std::string& name, int width, int height) {
         console_panel->add_log(timestamp, level, message);
     });
 
-    // Event routing: Pass events through EditorLayer first, then to Game Input if not captured
+    // Event routing: Pass events through EditorLayer and Input Manager (isolated via Viewport focus)
     m_window->set_event_callback([this](const SDL_Event& event) {
         if (this->m_editor_layer) {
             this->m_editor_layer->process_event(event);
         }
-
-        bool mouse_event = (event.type == SDL_EVENT_MOUSE_MOTION ||
-                            event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-                            event.type == SDL_EVENT_MOUSE_BUTTON_UP ||
-                            event.type == SDL_EVENT_MOUSE_WHEEL);
-        bool key_event = (event.type == SDL_EVENT_KEY_DOWN ||
-                          event.type == SDL_EVENT_KEY_UP ||
-                          event.type == SDL_EVENT_TEXT_INPUT);
-
-        bool captured = (mouse_event && this->m_editor_layer && this->m_editor_layer->want_capture_mouse()) ||
-                        (key_event && this->m_editor_layer && this->m_editor_layer->want_capture_keyboard());
-
-        if (!captured) {
-            Input::process_event(event);
-        }
+        Input::process_event(event);
     });
 
     // Register window resize / High-DPI scale change callback
     m_window->set_resize_callback([this](int w, int h, float dpi) {
         this->on_resize(w, h);
+        if (this->m_editor_layer && this->m_editor_layer->is_visible()) {
+            auto* vp = this->m_editor_layer->get_viewport_panel();
+            if (vp) {
+                this->m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
+                return;
+            }
+        }
         this->m_scene_manager.resize(w, h, dpi);
     });
 }
@@ -79,15 +72,26 @@ Application::~Application() {}
 void Application::run() {
     on_init();
 
-    // Trigger initial on_resize with current render target pixel size and DPI scale
+    // Trigger initial on_resize
     int pixel_w = m_window->get_pixel_width();
     int pixel_h = m_window->get_pixel_height();
     float dpi   = m_window->get_dpi_scale();
     on_resize(pixel_w, pixel_h);
-    m_scene_manager.resize(pixel_w, pixel_h, dpi);
+
+    if (m_editor_layer && m_editor_layer->is_visible()) {
+        auto* vp = m_editor_layer->get_viewport_panel();
+        if (vp) {
+            m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
+        } else {
+            m_scene_manager.resize(pixel_w, pixel_h, dpi);
+        }
+    } else {
+        m_scene_manager.resize(pixel_w, pixel_h, dpi);
+    }
 
     uint64_t last_counter = SDL_GetPerformanceCounter();
     uint64_t frequency = SDL_GetPerformanceFrequency();
+    bool last_editor_visible = m_editor_layer ? m_editor_layer->is_visible() : false;
 
     while (m_running && !m_window->is_should_close()) {
         uint64_t current_counter = SDL_GetPerformanceCounter();
@@ -102,10 +106,37 @@ void Application::run() {
         Input::update();
         m_window->poll_events();
 
+        // Handle Editor visibility change (F1 key toggle)
+        if (m_editor_layer) {
+            bool is_vis = m_editor_layer->is_visible();
+            if (is_vis != last_editor_visible) {
+                last_editor_visible = is_vis;
+                if (is_vis) {
+                    auto* vp = m_editor_layer->get_viewport_panel();
+                    if (vp) m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
+                } else {
+                    m_scene_manager.resize(m_window->get_pixel_width(), m_window->get_pixel_height(), m_window->get_dpi_scale());
+                }
+            }
+        }
+
         // 2. Begin Editor Frame (DockSpace & MenuBar)
         if (m_editor_layer) {
             m_editor_layer->begin_frame();
             m_editor_layer->render_dockspace();
+        }
+
+        // Configure Input isolation based on Viewport focus/hover state
+        if (m_editor_layer && m_editor_layer->is_visible()) {
+            auto* vp = m_editor_layer->get_viewport_panel();
+            if (vp) {
+                bool can_play = (vp->get_play_state() == EditorPlayState::Play);
+                bool focused = vp->is_viewport_focused() || vp->is_viewport_hovered();
+                Input::set_game_input_enabled(can_play && focused);
+                Input::set_custom_mouse_position(vp->get_viewport_mouse_pos());
+            }
+        } else {
+            Input::set_game_input_enabled(true);
         }
 
         // 3. Update Application logic & active Scene (scaled delta time)

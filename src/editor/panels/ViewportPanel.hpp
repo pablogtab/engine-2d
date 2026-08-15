@@ -2,6 +2,7 @@
 
 #include "../EditorPanel.hpp"
 #include <SDL3/SDL.h>
+#include <glm/glm.hpp>
 #include <string>
 
 namespace Engine {
@@ -31,6 +32,7 @@ public:
 
     [[nodiscard]] bool is_viewport_hovered() const { return m_is_hovered; }
     [[nodiscard]] bool is_viewport_focused() const { return m_is_focused; }
+    [[nodiscard]] const glm::vec2& get_viewport_mouse_pos() const { return m_viewport_mouse_pos; }
 
     void set_scene_manager(SceneManager* sm) { m_scene_manager = sm; }
 
@@ -49,6 +51,7 @@ private:
     EditorPlayState m_play_state{EditorPlayState::Play};
     bool m_is_hovered{false};
     bool m_is_focused{false};
+    glm::vec2 m_viewport_mouse_pos{0.0f, 0.0f};
 };
 
 } // namespace Engine

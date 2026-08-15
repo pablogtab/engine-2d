@@ -89,6 +89,12 @@ public:
     static void map_axis(const std::string& axis_name, const AxisBinding& binding);
     static float get_axis(const std::string& axis_name);
 
+    // Input Enable / Viewport Isolation Control (For Editor Integration)
+    static void set_game_input_enabled(bool enabled);
+    static bool is_game_input_enabled();
+    static void set_custom_mouse_position(const glm::vec2& pos);
+    static void reset_states();
+
     // Gamepad Status
     static bool is_gamepad_connected();
     static float get_gamepad_axis_value(GamepadAxis axis);
@@ -109,6 +115,8 @@ private:
 
     static SDL_Gamepad* s_gamepad;
     static float s_deadzone;
+    static bool s_game_input_enabled;
+    static bool s_override_mouse_pos;
 };
 
 } // namespace Engine

@@ -154,6 +154,19 @@ void ViewportPanel::on_gui() {
 
             m_is_hovered = ImGui::IsItemHovered();
             m_is_focused = ImGui::IsWindowFocused();
+
+            // Calculate precise mouse position relative to the internal 1920x1080 game texture
+            ImVec2 img_min = ImGui::GetItemRectMin();
+            ImVec2 img_max = ImGui::GetItemRectMax();
+            ImVec2 img_size = ImVec2(img_max.x - img_min.x, img_max.y - img_min.y);
+            ImVec2 mouse_pos = ImGui::GetMousePos();
+
+            if (img_size.x > 0.0f && img_size.y > 0.0f) {
+                float norm_x = (mouse_pos.x - img_min.x) / img_size.x;
+                float norm_y = (mouse_pos.y - img_min.y) / img_size.y;
+                m_viewport_mouse_pos = glm::vec2(norm_x * static_cast<float>(m_internal_width), 
+                                                 norm_y * static_cast<float>(m_internal_height));
+            }
         }
     }
     ImGui::End();

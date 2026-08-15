@@ -19,6 +19,8 @@ std::unordered_map<std::string, AxisBinding> Input::s_axes;
 
 SDL_Gamepad* Input::s_gamepad = nullptr;
 float Input::s_deadzone = 8000.0f; // Standard SDL3 gamepad deadzone
+bool Input::s_game_input_enabled = true;
+bool Input::s_override_mouse_pos = false;
 
 void Input::init() {
     s_current_keys.clear();
@@ -28,6 +30,8 @@ void Input::init() {
     s_mouse_pos = glm::vec2(0.0f);
     s_mouse_delta = glm::vec2(0.0f);
     s_mouse_scroll = glm::vec2(0.0f);
+    s_game_input_enabled = true;
+    s_override_mouse_pos = false;
 
     // Auto-detect and open first connected gamepad
     int count = 0;
@@ -71,29 +75,34 @@ void Input::shutdown() {
     }
 }
 
+void Input::set_game_input_enabled(bool enabled) {
+    if (!enabled && s_game_input_enabled) {
+        reset_states();
+    }
+    s_game_input_enabled = enabled;
+}
+
+bool Input::is_game_input_enabled() {
+    return s_game_input_enabled;
+}
+
+void Input::set_custom_mouse_position(const glm::vec2& pos) {
+    s_mouse_pos = pos;
+    s_override_mouse_pos = true;
+}
+
+void Input::reset_states() {
+    for (auto& [k, v] : s_current_keys) v = false;
+    for (auto& [k, v] : s_previous_keys) v = false;
+    for (auto& [b, v] : s_current_mouse) v = false;
+    for (auto& [b, v] : s_previous_mouse) v = false;
+    s_mouse_delta = glm::vec2(0.0f);
+    s_mouse_scroll = glm::vec2(0.0f);
+}
+
 void Input::update() {
     s_previous_keys = s_current_keys;
     s_previous_mouse = s_current_mouse;
-
-    // Synchronize keys with direct hardware state to prevent missed key-up events
-    int num_keys = 0;
-    const bool* sdl_key_state = SDL_GetKeyboardState(&num_keys);
-    if (sdl_key_state) {
-        for (auto& [k, state] : s_current_keys) {
-            if (k >= 0 && k < num_keys) {
-                state = sdl_key_state[k];
-            }
-        }
-    }
-
-    // Synchronize mouse buttons with direct hardware state
-    float mx = 0.0f, my = 0.0f;
-    SDL_MouseButtonFlags mouse_mask = SDL_GetMouseState(&mx, &my);
-    s_current_mouse[SDL_BUTTON_LEFT] = (mouse_mask & SDL_BUTTON_LMASK) != 0;
-    s_current_mouse[SDL_BUTTON_MIDDLE] = (mouse_mask & SDL_BUTTON_MMASK) != 0;
-    s_current_mouse[SDL_BUTTON_RIGHT] = (mouse_mask & SDL_BUTTON_RMASK) != 0;
-    s_mouse_pos = glm::vec2(mx, my);
-
     s_mouse_delta = glm::vec2(0.0f);
     s_mouse_scroll = glm::vec2(0.0f);
 }
@@ -117,25 +126,14 @@ void Input::process_event(const SDL_Event& event) {
             break;
 
         case SDL_EVENT_WINDOW_FOCUS_LOST:
-            // Release all active keys and buttons when window loses focus
-            for (auto& [k, v] : s_current_keys) v = false;
-            for (auto& [b, v] : s_current_mouse) v = false;
+            reset_states();
             break;
-
-        case SDL_EVENT_WINDOW_FOCUS_GAINED: {
-            int num_keys = 0;
-            const bool* sdl_keys = SDL_GetKeyboardState(&num_keys);
-            if (sdl_keys) {
-                for (auto& [k, v] : s_current_keys) {
-                    if (k >= 0 && k < num_keys) v = sdl_keys[k];
-                }
-            }
-            break;
-        }
 
         case SDL_EVENT_MOUSE_MOTION:
-            s_mouse_pos.x = event.motion.x;
-            s_mouse_pos.y = event.motion.y;
+            if (!s_override_mouse_pos) {
+                s_mouse_pos.x = event.motion.x;
+                s_mouse_pos.y = event.motion.y;
+            }
             s_mouse_delta.x += event.motion.xrel;
             s_mouse_delta.y += event.motion.yrel;
             break;
@@ -165,45 +163,50 @@ void Input::process_event(const SDL_Event& event) {
 }
 
 bool Input::is_key_pressed(KeyCode key) {
-    int num_keys = 0;
-    const bool* sdl_state = SDL_GetKeyboardState(&num_keys);
-    if (sdl_state && key >= 0 && key < num_keys) {
-        return sdl_state[key];
-    }
+    if (!s_game_input_enabled) return false;
     auto it = s_current_keys.find(key);
     return it != s_current_keys.end() && it->second;
 }
 
 bool Input::is_key_just_pressed(KeyCode key) {
-    bool curr = is_key_pressed(key);
-    auto it = s_previous_keys.find(key);
-    bool prev = (it != s_previous_keys.end()) ? it->second : false;
+    if (!s_game_input_enabled) return false;
+    auto it_curr = s_current_keys.find(key);
+    bool curr = (it_curr != s_current_keys.end()) && it_curr->second;
+    auto it_prev = s_previous_keys.find(key);
+    bool prev = (it_prev != s_previous_keys.end()) && it_prev->second;
     return curr && !prev;
 }
 
 bool Input::is_key_just_released(KeyCode key) {
-    bool curr = is_key_pressed(key);
-    auto it = s_previous_keys.find(key);
-    bool prev = (it != s_previous_keys.end()) ? it->second : false;
+    if (!s_game_input_enabled) return false;
+    auto it_curr = s_current_keys.find(key);
+    bool curr = (it_curr != s_current_keys.end()) && it_curr->second;
+    auto it_prev = s_previous_keys.find(key);
+    bool prev = (it_prev != s_previous_keys.end()) && it_prev->second;
     return !curr && prev;
 }
 
 bool Input::is_mouse_pressed(MouseButton button) {
+    if (!s_game_input_enabled) return false;
     auto it = s_current_mouse.find(static_cast<uint8_t>(button));
     return it != s_current_mouse.end() && it->second;
 }
 
 bool Input::is_mouse_just_pressed(MouseButton button) {
-    bool curr = is_mouse_pressed(button);
-    auto it = s_previous_mouse.find(static_cast<uint8_t>(button));
-    bool prev = (it != s_previous_mouse.end()) ? it->second : false;
+    if (!s_game_input_enabled) return false;
+    auto it_curr = s_current_mouse.find(static_cast<uint8_t>(button));
+    bool curr = (it_curr != s_current_mouse.end()) && it_curr->second;
+    auto it_prev = s_previous_mouse.find(static_cast<uint8_t>(button));
+    bool prev = (it_prev != s_previous_mouse.end()) && it_prev->second;
     return curr && !prev;
 }
 
 bool Input::is_mouse_just_released(MouseButton button) {
-    bool curr = is_mouse_pressed(button);
-    auto it = s_previous_mouse.find(static_cast<uint8_t>(button));
-    bool prev = (it != s_previous_mouse.end()) ? it->second : false;
+    if (!s_game_input_enabled) return false;
+    auto it_curr = s_current_mouse.find(static_cast<uint8_t>(button));
+    bool curr = (it_curr != s_current_mouse.end()) && it_curr->second;
+    auto it_prev = s_previous_mouse.find(static_cast<uint8_t>(button));
+    bool prev = (it_prev != s_previous_mouse.end()) && it_prev->second;
     return !curr && prev;
 }
 
