@@ -352,6 +352,19 @@ public:
     s_b2_world.reset();
   }
 
+  static void set_position(EntityManager &em, EntityID id, const glm::vec2 &position) {
+    if (em.has_component<TransformComponent>(id)) {
+      auto &tx = em.get_component<TransformComponent>(id);
+      tx.position.x = position.x;
+      tx.position.y = position.y;
+    }
+    auto it = s_b2_bodies.find(id);
+    if (it != s_b2_bodies.end() && it->second) {
+      float current_angle = it->second->GetAngle();
+      it->second->SetTransform(b2Vec2(position.x * k_p2m, position.y * k_p2m), current_angle);
+    }
+  }
+
   static void set_velocity(EntityManager &em, EntityID id, const glm::vec2 &velocity) {
     if (!em.has_component<RigidBodyComponent>(id)) return;
     auto &rb = em.get_component<RigidBodyComponent>(id);

@@ -150,9 +150,10 @@ graph TD
   - Carga y rasterización de fuentes TrueType (`.ttf` / `.otf`) en atlas de texturas GPU con anti-aliasing.
   - Métodos `Renderer2D::submit_text()` (espacio de mundo con parallax) y `Renderer2D::submit_screen_text()` (espacio de pantalla / HUD).
   - Cálculo métrico de cajas de texto (`measure_text`), escalado, alineación y colores personalizables.
-- [ ] **9.3 Sistema de Guardado & Configuración (`SaveSystem / PlayerPrefs`)**:
-  - Persistencia de opciones (volumen, resolución, pantalla completa, keybindings).
-  - Guardado de partida y checkpoints en formato binario/JSON.
+- [x] **9.3 Sistema de Guardado, FileSystem & Configuración (`SaveSystem / PlayerPrefs / FileSystem`)**:
+  - `FileSystem`: Capa de I/O y montaje de rutas virtuales (`assets://`, `save://`, `pref://`).
+  - `SaveSystem`: Soporte dual para **JSON** (mapas, niveles, presets) y **Binario .sav** con Magic Header `"E2DS"`, versión de esquema y checksum CRC32 (opcional Base64).
+  - `PlayerPrefs`: Almacén clave-valor en memoria con sincronización a disco para opciones de usuario.
 
 ---
 

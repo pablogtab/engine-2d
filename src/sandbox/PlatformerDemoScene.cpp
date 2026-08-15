@@ -10,6 +10,10 @@
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/Font.hpp"
 #include "../particles/ParticlePresets.hpp"
+#include "../core/FileSystem.hpp"
+#include "../core/SaveSystem.hpp"
+#include "../core/PlayerPrefs.hpp"
+#include "../core/BinarySerializer.hpp"
 #include <SDL3/SDL.h>
 #include <cmath>
 
@@ -38,8 +42,17 @@ void PlatformerDemoScene::on_attach() {
     m_score = 0;
     m_total_coins = 0;
 
-    // Start Ambient Adventure Music Theme (Streaming Seamless Loop)
-    Engine::AudioEngine::play_music("assets/audio/theme.wav", 0.35f, true);
+    // Initialize FileSystem (virtual paths: assets://, save://) and PlayerPrefs
+    Engine::FileSystem::init("Engine2D", "PlatformerSandbox", true);
+    Engine::PlayerPrefs::init("save://preferences.json");
+
+    // Restore user audio preference
+    bool music_enabled = Engine::PlayerPrefs::get_bool("music_enabled", true);
+    if (music_enabled) {
+        Engine::AudioEngine::play_music("assets/audio/theme.wav", 0.35f, true);
+    } else {
+        Engine::AudioEngine::stop_music();
+    }
 
     // Set Platformer Downward Gravity (Y = -800.0f pulls downward)
     Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, -800.0f));
@@ -58,7 +71,16 @@ void PlatformerDemoScene::on_attach() {
     m_post_process_pipeline.add_pass(std::make_shared<Engine::ScanlinesCRTPass>());
     m_post_process_pipeline.add_pass(std::make_shared<Engine::ScreenFlashPass>());
 
-    m_base_profile = Engine::PostProcessProfile::PresetDefault();
+    // Restore user post-processing preset preference (1 = Default, 2 = CRT, etc.)
+    int saved_preset = Engine::PlayerPrefs::get_int("post_process_preset", 1);
+    switch (saved_preset) {
+        case 2: m_base_profile = Engine::PostProcessProfile::PresetRetroCRT(); break;
+        case 3: m_base_profile = Engine::PostProcessProfile::PresetUnderwater(); break;
+        case 4: m_base_profile = Engine::PostProcessProfile::PresetCinematic(); break;
+        case 5: m_base_profile = Engine::PostProcessProfile::PresetNightVision(); break;
+        case 6: m_base_profile = Engine::PostProcessProfile::PresetDreamyBloom(); break;
+        default: m_base_profile = Engine::PostProcessProfile::PresetDefault(); break;
+    }
     m_base_profile.apply_to_pipeline(m_post_process_pipeline);
 
     // Setup 2D Spatial Post-Process Atmospheric Volumes
@@ -431,6 +453,14 @@ void PlatformerDemoScene::on_attach() {
                 m_score++;
                 Engine::AudioPresets::play_coin(0.75f);
                 ENGINE_LOG_INFO("[PLATFORMER DEMO] COIN COLLECTED! Score: {} / {}", m_score, m_total_coins);
+
+                // Update and persist High Score in PlayerPrefs
+                int high_score = Engine::PlayerPrefs::get_int("high_score", 0);
+                if (m_score > high_score) {
+                    Engine::PlayerPrefs::set_int("high_score", m_score);
+                    Engine::PlayerPrefs::save();
+                }
+
                 Engine::PostProcessTweens::trigger_flash(m_post_process_pipeline, SDL_Color{255, 235, 120, 80}, 0.14f);
                 if (m_entity_manager.has_component<Engine::TransformComponent>(coin_id)) {
                     const auto& coin_tx = m_entity_manager.get_component<Engine::TransformComponent>(coin_id);
@@ -737,38 +767,105 @@ void PlatformerDemoScene::on_update(float delta_time) {
         Engine::Time::set_time_scale(1.0f);
     }
 
-    // 'M' Key: Toggle Ambient Background Music
+    // 'M' Key: Toggle Ambient Background Music & Persist in PlayerPrefs
     if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_M)) {
-        static bool s_music_on = true;
-        s_music_on = !s_music_on;
-        if (s_music_on) {
+        bool music_on = !Engine::PlayerPrefs::get_bool("music_enabled", true);
+        Engine::PlayerPrefs::set_bool("music_enabled", music_on);
+        Engine::PlayerPrefs::save();
+
+        if (music_on) {
             Engine::AudioEngine::play_music("assets/audio/theme.wav", 0.35f, true);
-            ENGINE_LOG_INFO("[AUDIO] Background Music: ON");
+            ENGINE_LOG_INFO("[AUDIO] Background Music: ON (Saved to PlayerPrefs)");
         } else {
             Engine::AudioEngine::stop_music();
-            ENGINE_LOG_INFO("[AUDIO] Background Music: OFF (Mute)");
+            ENGINE_LOG_INFO("[AUDIO] Background Music: OFF / Mute (Saved to PlayerPrefs)");
         }
     }
 
-    // Post-Processing Presets (Keys 1 - 6)
+    // Post-Processing Presets (Keys 1 - 6) & Persist in PlayerPrefs
     if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_1)) {
         m_base_profile = Engine::PostProcessProfile::PresetDefault();
+        Engine::PlayerPrefs::set_int("post_process_preset", 1);
+        Engine::PlayerPrefs::save();
         ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'Default' profile.");
     } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_2)) {
         m_base_profile = Engine::PostProcessProfile::PresetRetroCRT();
+        Engine::PlayerPrefs::set_int("post_process_preset", 2);
+        Engine::PlayerPrefs::save();
         ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'RetroCRT' scanline profile.");
     } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_3)) {
         m_base_profile = Engine::PostProcessProfile::PresetUnderwater();
+        Engine::PlayerPrefs::set_int("post_process_preset", 3);
+        Engine::PlayerPrefs::save();
         ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'Underwater' profile.");
     } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_4)) {
         m_base_profile = Engine::PostProcessProfile::PresetCinematic();
+        Engine::PlayerPrefs::set_int("post_process_preset", 4);
+        Engine::PlayerPrefs::save();
         ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'Cinematic' film-grain profile.");
     } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_5)) {
         m_base_profile = Engine::PostProcessProfile::PresetNightVision();
+        Engine::PlayerPrefs::set_int("post_process_preset", 5);
+        Engine::PlayerPrefs::save();
         ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'NightVision' high-gain profile.");
     } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_6)) {
         m_base_profile = Engine::PostProcessProfile::PresetDreamyBloom();
+        Engine::PlayerPrefs::set_int("post_process_preset", 6);
+        Engine::PlayerPrefs::save();
         ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'DreamyBloom' profile.");
+    }
+
+    // --- F5: QuickSave (Binary save with Magic 'E2DS' Header + CRC32 Checksum) ---
+    if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_F5)) {
+        if (m_entity_manager.is_alive(m_player_id)) {
+            const auto& p_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+            const auto& p_rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_player_id);
+
+            Engine::BinaryWriter writer;
+            writer.write_vec2(glm::vec2(p_tx.position.x, p_tx.position.y));
+            writer.write_vec2(p_rb.velocity);
+            writer.write_bool(m_player_ctx.player_facing_right);
+            writer.write_i32(m_score);
+            writer.write_i32(m_total_coins);
+
+            bool ok = Engine::SaveSystem::save_file("save://quicksave.sav", writer, true);
+            if (ok) {
+                Engine::PostProcessTweens::trigger_flash(m_post_process_pipeline, SDL_Color{80, 255, 120, 140}, 0.22f);
+                Engine::Presets::sparkle(m_particle_system, glm::vec2(p_tx.position.x, p_tx.position.y), 24);
+                Engine::AudioPresets::play_coin(0.9f);
+                ENGINE_LOG_INFO("[QUICKSAVE] Saved game to 'save://quicksave.sav'! Score: {}/{}", m_score, m_total_coins);
+            }
+        }
+    }
+
+    // --- F9: QuickLoad (Binary load with integrity checksum validation) ---
+    if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_F9)) {
+        Engine::BinaryReader reader;
+        bool ok = Engine::SaveSystem::load_file("save://quicksave.sav", reader);
+        if (ok && m_entity_manager.is_alive(m_player_id)) {
+            glm::vec2 saved_pos = reader.read_vec2();
+            glm::vec2 saved_vel = reader.read_vec2();
+            bool facing_right = reader.read_bool();
+            int saved_score = reader.read_i32();
+            int saved_total = reader.read_i32();
+
+            auto& p_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+            p_tx.position = glm::vec3(saved_pos, 0.0f);
+            Engine::PhysicsSystem::set_position(m_entity_manager, m_player_id, saved_pos);
+            Engine::PhysicsSystem::set_velocity(m_entity_manager, m_player_id, saved_vel);
+
+            m_player_ctx.player_facing_right = facing_right;
+            m_score = saved_score;
+            (void)saved_total;
+
+            m_camera_controller.snap_to_target();
+            m_player_fsm.transition<PlayerIdleState>();
+
+            Engine::PostProcessTweens::trigger_flash(m_post_process_pipeline, SDL_Color{80, 220, 255, 150}, 0.25f);
+            Engine::Presets::sparkle(m_particle_system, saved_pos, 28);
+            Engine::AudioPresets::play_jump(0.8f);
+            ENGINE_LOG_INFO("[QUICKLOAD] Restored game from 'save://quicksave.sav'! Score: {}", m_score);
+        }
     }
 
     // 1. Toggle Debug Overlay with 'G' key & Toggle Laser Aim with 'L' key
@@ -1181,7 +1278,35 @@ void PlatformerDemoScene::on_render(Engine::Renderer2D& renderer) {
             );
         }
 
-        // D. Bullet Time Active Indicator with Crisp Text
+        // D. High Score Indicator (from PlayerPrefs)
+        int high_score = Engine::PlayerPrefs::get_int("high_score", 0);
+        if (m_hud_font && high_score > 0) {
+            std::string hs_str = "BEST: " + std::to_string(high_score);
+            renderer.submit_screen_text(
+                *m_hud_font,
+                hs_str,
+                glm::vec2(200.0f, 36.0f),
+                0.70f,
+                SDL_Color{255, 180, 50, 220},
+                glm::vec2(0.0f, 0.0f),
+                2.0f
+            );
+        }
+
+        // E. QuickSave / QuickLoad Controls Hint (Bottom Left)
+        if (m_hud_font) {
+            renderer.submit_screen_text(
+                *m_hud_font,
+                "F5: QuickSave | F9: QuickLoad | M: Mute",
+                glm::vec2(24.0f, static_cast<float>(m_viewport_h) - 34.0f),
+                0.55f,
+                SDL_Color{180, 200, 225, 180},
+                glm::vec2(0.0f, 0.0f),
+                2.0f
+            );
+        }
+
+        // F. Bullet Time Active Indicator with Crisp Text
         if (Engine::Time::get_time_scale() < 0.9f) {
             renderer.submit_screen_sprite(
                 m_player_texture.get(),

@@ -14,8 +14,12 @@ set(SOURCES
     src/audio/AudioEngine.cpp
     src/core/Application.cpp
     src/core/AssetManager.cpp
+    src/core/BinarySerializer.cpp
+    src/core/FileSystem.cpp
     src/core/Input.cpp
     src/core/Log.cpp
+    src/core/PlayerPrefs.cpp
+    src/core/SaveSystem.cpp
     src/core/ThreadPool.cpp
     src/core/Time.cpp
     src/core/Window.cpp
