@@ -131,8 +131,13 @@ void Application::run() {
             auto* vp = m_editor_layer->get_viewport_panel();
             if (vp) {
                 bool can_play = (vp->get_play_state() == EditorPlayState::Play);
-                bool focused = vp->is_viewport_focused() || vp->is_viewport_hovered();
-                Input::set_game_input_enabled(can_play && focused);
+                bool viewport_focused = vp->is_viewport_focused();
+                bool viewport_hovered = vp->is_viewport_hovered();
+                bool imgui_typing = m_editor_layer->want_text_input();
+
+                // Game receives input when over/focused on Viewport and not actively typing in an ImGui text box
+                bool allow_game_input = can_play && (viewport_focused || viewport_hovered) && !imgui_typing;
+                Input::set_game_input_enabled(allow_game_input);
                 Input::set_custom_mouse_position(vp->get_viewport_mouse_pos());
             }
         } else {

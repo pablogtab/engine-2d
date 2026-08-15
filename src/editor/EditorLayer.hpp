@@ -23,6 +23,7 @@ public:
     void process_event(const SDL_Event& event);
     [[nodiscard]] bool want_capture_mouse() const;
     [[nodiscard]] bool want_capture_keyboard() const;
+    [[nodiscard]] bool want_text_input() const;
 
     // Visibility toggles
     [[nodiscard]] bool is_visible() const { return m_visible; }

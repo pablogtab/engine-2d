@@ -78,6 +78,11 @@ bool EditorLayer::want_capture_keyboard() const {
     return ImGui::GetIO().WantCaptureKeyboard;
 }
 
+bool EditorLayer::want_text_input() const {
+    if (!m_initialized || !m_visible) return false;
+    return ImGui::GetIO().WantTextInput;
+}
+
 void EditorLayer::begin_frame() {
     if (!m_initialized || !m_visible) return;
 

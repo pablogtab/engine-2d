@@ -153,7 +153,13 @@ void ViewportPanel::on_gui() {
             ImGui::Image(reinterpret_cast<ImTextureID>(m_viewport_texture), ImVec2(draw_w, draw_h));
 
             m_is_hovered = ImGui::IsItemHovered();
-            m_is_focused = ImGui::IsWindowFocused();
+            m_is_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+
+            // Auto-focus Viewport window upon clicking inside the canvas
+            if (m_is_hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right))) {
+                ImGui::SetWindowFocus();
+                m_is_focused = true;
+            }
 
             // Calculate precise mouse position relative to the internal 1920x1080 game texture
             ImVec2 img_min = ImGui::GetItemRectMin();
