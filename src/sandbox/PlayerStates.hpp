@@ -168,17 +168,10 @@ public:
     std::string get_name() const override { return "Jump"; }
 
     void on_enter(PlayerContext& ctx) override {
-        // Grace period: Box2D contact resolution lags ~1 physics step, so is_grounded()
-        // returns true for 1-2 frames after the jump impulse is applied.
-        // We skip the landing check for 100ms to let the body physically leave the ground.
-        m_grace_timer = 0.10f;
         if (ctx.anim_jump) { ctx.anim_jump->reset(); ctx.anim_jump->play(); }
     }
 
     void on_update(PlayerContext& ctx, float dt) override;
-
-private:
-    float m_grace_timer{0.0f};
 };
 
 // ---------------------------------------------------------------------------
@@ -310,16 +303,14 @@ inline void PlayerJumpState::on_update(PlayerContext& ctx, float dt) {
 
     auto& rb = ctx.entity_manager->get_component<Engine::RigidBodyComponent>(ctx.player_id);
 
-    // Decay grace timer — skip landing/fall checks while it's active
-    m_grace_timer -= dt;
-
     // Air control
     const float move_x = PlayerStateHelper::get_move_x();
     rb.velocity.x = move_x;
     PlayerStateHelper::update_facing(ctx, move_x, rb.velocity.x);
     PlayerStateHelper::handle_drop_through(ctx, dt);
 
-    if (m_grace_timer <= 0.0f) {
+    // Grace period check (100ms) using the FSM's built-in state timer
+    if (ctx.fsm && ctx.fsm->get_state_time() > 0.10f) {
         // Transition to Fall when apex reached
         if (rb.velocity.y < 0.0f) {
             ctx.fsm->transition<PlayerFallState>(ctx);

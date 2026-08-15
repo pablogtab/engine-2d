@@ -29,6 +29,7 @@ set(SOURCES
     src/renderer/SpriteSheet.cpp
     src/renderer/Texture.cpp
     src/scene/Camera2D.cpp
+    src/scene/CameraController2D.cpp
     src/scene/SceneManager.cpp
     src/sandbox/AnimatedSpriteDemoScene.cpp
     src/sandbox/DepthDemoScene.cpp

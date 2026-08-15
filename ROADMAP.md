@@ -95,20 +95,22 @@ graph TD
 - [x] **6.2 Renderizado en Espacio de Pantalla (`Screen-Space HUD / Canvas`)**:
   - `Renderer2D::submit_screen_sprite()` con Bit 63 de prioridad en Sort Key para garantizar ordenamiento sobre el mundo.
   - Ignora la traslación y zoom de la cámara para HUDs, contadores de monedas y menús de pausa fijos en pantalla.
-- [ ] **6.3 Controlador de Cámara Cinemático (*Camera Director*)**:
+- [x] **6.3 Controlador de Cámara Cinemático / Director 2D (`CameraController2D`)**:
   - Seguimiento suavizado (*SmoothDamp / Lerp Follow*) con zona muerta (*Deadzone*).
-  - *Lookahead*: Anticipación de cámara en la dirección de carrera del personaje.
-  - *Camera Bounds*: Restricción de límites para no mostrar zonas vacías fuera del nivel.
-  - *Trauma Screen Shake*: Decaimiento no lineal de vibración de cámara (impactos, explosiones).
+  - *Lookahead*: Anticipación de cámara en la dirección de carrera del personaje según velocidad.
+  - *Camera Bounds*: Restricción de límites AABB para no mostrar zonas vacías fuera del nivel.
+  - *Trauma Screen Shake*: Decaimiento no lineal cuadrático ($\text{shake} = \text{trauma}^2$) para explosiones e impactos.
 
 ---
 
 ### 📍 Fase 7: Arquitectura de Gameplay & Máquinas de Estado
 > **Objetivo**: Estructurar la lógica de personajes y enemigos de forma modular y escalable.
 
-- [x] **7.1 Máquina de Estados Finitos Genérica (`StateMachine<T>`)**:
-  - Patrón de estados fuertemente tipado con métodos `enter()`, `update()`, `exit()`.
-  - Eliminación de flags booleanos masivos en personajes.
+- [x] **7.1 Máquina de Estados Finitos Genérica (`StateMachine<T>`) & Pushdown Automaton**:
+  - Patrón de estados fuertemente tipado con métodos `on_enter()`, `on_update()`, `on_exit()`, `on_pause()`, `on_resume()`.
+  - Pila de estados transitorios (`push<T>()` / `pop()`) para efectos temporales (menús, aturdimiento, cinemáticas).
+  - Cronómetro de vida por estado integrado (`get_state_time()`) y binding opcional de contexto (`bind_context`).
+  - Eliminación de flags booleanos masivos en personajes y entidades.
 - [x] **7.2 Máquina de Estados de Animación**:
   - Conexión automática entre el estado lógico del personaje (*Idle, Run, Jump, Fall, Grapple*) y sus clips en `Animation2D`.
   - Inversión horizontal en GPU (*Flip X*) y anclaje de spritesheet por celda.

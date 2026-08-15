@@ -84,6 +84,16 @@ void PlatformerDemoScene::on_attach() {
     m_camera.set_zoom(0.76f);
     m_camera.set_position(glm::vec2(0.0f, -20.0f));
 
+    // Setup Camera Controller (Smooth follow, Deadzone, Bounds, Trauma Shake)
+    m_camera_controller.bind_camera(&m_camera);
+    m_camera_controller.set_follow_speed(4.5f);
+    m_camera_controller.set_deadzone(glm::vec2(25.0f, 20.0f));
+    m_camera_controller.enable_deadzone(true);
+    m_camera_controller.set_bounds(glm::vec2(-850.0f, -420.0f), glm::vec2(850.0f, 480.0f));
+    m_camera_controller.enable_bounds(true);
+    m_camera_controller.set_shake_parameters(22.0f, 1.8f, 28.0f);
+    m_camera_controller.snap_to_target();
+
     // Generate Procedural Textures
     m_player_texture = std::unique_ptr<Engine::Texture>(
         Engine::Texture::create_solid(m_sdl_renderer, 64, 64, 40, 180, 255, 255)
@@ -397,6 +407,7 @@ void PlatformerDemoScene::on_attach() {
 
                 // Apply fixed consistent spring bounce impulse (200.0 px/s height reach)
                 Engine::PhysicsSystem::apply_impulse(m_entity_manager, m_player_id, glm::vec2(0.0f, 200.0f));
+                m_camera_controller.add_trauma(0.20f);
                 ENGINE_LOG_INFO("[TRAMPOLINE BOUNCE] Fixed Consistent Spring Launch Applied! Velocity Y set to 200.0");
             }
 
@@ -449,7 +460,9 @@ void PlatformerDemoScene::on_attach() {
     m_player_ctx.player_facing_right   = true;
     m_player_ctx.launch_cooldown       = 0.0f;
     m_player_ctx.is_grappling          = false;
-    m_player_fsm.change_state(std::make_unique<PlayerIdleState>(), m_player_ctx);
+
+    m_player_fsm.bind_context(m_player_ctx);
+    m_player_fsm.transition<PlayerIdleState>();
 }
 
 void PlatformerDemoScene::on_detach() {
@@ -840,6 +853,9 @@ void PlatformerDemoScene::on_update(float delta_time) {
         Engine::Presets::explosion(m_particle_system, blast_pos, 45, 18);
         Engine::AudioPresets::play_explosion(0.85f);
 
+        // Add punchy trauma screen shake to CameraController2D
+        m_camera_controller.add_trauma(0.65f);
+
         // Trigger Post-Processing Flash, Bloom Pulse & Chromatic Aberration Punch
         Engine::PostProcessTweens::trigger_explosion_fx(m_post_process_pipeline, 7.5f, 1.2f, SDL_Color{255, 245, 200, 150});
 
@@ -980,10 +996,13 @@ void PlatformerDemoScene::on_update(float delta_time) {
         float new_zoom = cur_zoom + (m_target_zoom - cur_zoom) * 5.5f * delta_time;
         m_camera.set_zoom(new_zoom);
 
-        // Smooth Camera Follow
-        glm::vec2 current_cam = m_camera.get_position();
+        // Update CameraController2D with player target and velocity
         glm::vec2 target_cam = glm::vec2(player_tx.position.x * 0.45f, player_tx.position.y * 0.35f + 10.0f);
-        m_camera.set_position(current_cam + (target_cam - current_cam) * 4.5f * delta_time);
+        m_camera_controller.set_target(target_cam);
+        m_camera_controller.set_target_velocity(player_rb.velocity);
+        m_camera_controller.update(delta_time);
+    } else {
+        m_camera_controller.update(delta_time);
     }
 }
 
@@ -1228,7 +1247,7 @@ void PlatformerDemoScene::attach_grapple(const glm::vec2& target_point) {
         // Update FSM context and transition to Grapple state
         m_player_ctx.grapple_anchor_id = anchor_id;
         m_player_ctx.is_grappling      = true;
-        m_player_fsm.change_state(std::make_unique<PlayerGrappleState>(), m_player_ctx);
+        m_player_fsm.transition<PlayerGrappleState>();
 
         ENGINE_LOG_INFO("[GRAPPLE ROPE] Attached rope to ({:.1f}, {:.1f}) with max_length={:.1f}px!",
                         target_point.x, target_point.y, rope_length);
@@ -1247,7 +1266,7 @@ void PlatformerDemoScene::detach_grapple() {
         }
         m_player_ctx.is_grappling = false;
         // Transition back to fall (player will naturally land or jump)
-        m_player_fsm.change_state(std::make_unique<PlayerFallState>(), m_player_ctx);
+        m_player_fsm.transition<PlayerFallState>();
         ENGINE_LOG_INFO("[GRAPPLE ROPE] Detached and removed grapple rope!");
     }
 }

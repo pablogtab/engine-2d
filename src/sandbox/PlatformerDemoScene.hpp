@@ -3,6 +3,7 @@
 #include "../events/EventDispatcher.hpp"
 #include "../events/Event.hpp"
 #include "../scene/Camera2D.hpp"
+#include "../scene/CameraController2D.hpp"
 #include "../scene/Scene.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/Texture.hpp"
@@ -37,6 +38,7 @@ public:
 private:
     SDL_Renderer* m_sdl_renderer{nullptr};
     Engine::Camera2D m_camera;
+    Engine::CameraController2D m_camera_controller;
     int m_viewport_w{1280};
     int m_viewport_h{720};
     float m_dpi_scale{1.0f};
