@@ -1,19 +1,14 @@
 #pragma once
 
 #include "../EditorPanel.hpp"
+#include "../../scene/SceneManager.hpp"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <string>
 
 namespace Engine {
 
-enum class EditorPlayState {
-    Edit = 0,
-    Play,
-    Pause
-};
-
-class SceneManager;
+using EditorPlayState = ScenePlayState;
 
 class ViewportPanel : public EditorPanel {
 public:
@@ -27,8 +22,7 @@ public:
     void end_render();
 
     [[nodiscard]] SDL_Texture* get_viewport_texture() const { return m_viewport_texture; }
-    [[nodiscard]] EditorPlayState get_play_state() const { return m_play_state; }
-    void set_play_state(EditorPlayState state) { m_play_state = state; }
+    [[nodiscard]] ScenePlayState get_play_state() const { return m_scene_manager ? m_scene_manager->get_play_state() : ScenePlayState::Edit; }
 
     [[nodiscard]] bool is_viewport_hovered() const { return m_is_hovered; }
     [[nodiscard]] bool is_viewport_focused() const { return m_is_focused; }

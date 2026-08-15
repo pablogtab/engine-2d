@@ -85,46 +85,57 @@ graph TD
 
 ## 🚀 Próximos Módulos Detallados (Hoja de Ruta Activa)
 
-### 📍 Módulo 5: Calibrador de Post-Processing & Gizmos de Transform en Viewport
-> **Objetivo**: Poder editar y ajustar visualmente el juego directamente dentro del visor y ajustar la estética sin tocar código.
-
-- [ ] **5.1 `PostProcessTunerPanel`**:
-  - Panel desacoplado con controles deslizantes para calibrar en vivo:
-    - *Bloom:* Umbral (*Threshold*), Intensidad y Radio de difusión.
-    - *Chromatic Aberration:* Separación de canales RGB en píxeles.
-    - *Vignette:* Radio, Suavidad y Color.
-    - *CRT & Scanlines:* Densidad de líneas y distorsión de tubo.
-    - *Film Grain & Color Grading:* Exposición, Contraste, Saturación y Tinte.
-  - Guardado/Carga de presets en formato `.json` a la carpeta `assets/presets/`.
-- [ ] **5.2 Gizmos de Transformación 2D en el Viewport**:
-  - Al seleccionar una entidad en la Jerarquía o Viewport, dibujar el Gizmo de traslación (flechas X/Y roja y verde).
-  - Posibilidad de hacer clic y arrastrar entidades en el visor con el ratón.
-  - Selección de entidades por clic directo (*Raycast Entity Picking*).
-
----
-
-### 📍 Módulo 6: Serialización de Escenas (`.scene`) & Explorador de Assets
+### 📍 Módulo 6: Serialización de Escenas (`.scene`) & Explorador de Assets (✅ Completado)
 > **Objetivo**: Eliminar la creación de niveles por código C++ y permitir guardar/abrir escenas creadas visualmente.
 
-- [ ] **6.1 `SceneSerializer` (JSON & Binario)**:
-  - Serializador y deserializador completo de todas las entidades y componentes del ECS.
-  - Integración con el menú superior:
-    - **`File -> New Scene` (Ctrl+N):** Crea una escena en blanco lista para editar.
-    - **`File -> Save Scene` (Ctrl+S):** Serializa las entidades al archivo `.scene`.
-    - **`File -> Open Scene` (Ctrl+O):** Carga un archivo `.scene` e instancia sus entidades en el Viewport.
-- [ ] **6.2 `AssetBrowserPanel` (Explorador de Recursos)**:
-  - Panel inferior acoplado con navegador de carpetas (`assets/textures`, `assets/scenes`, `assets/audio`).
-  - Miniaturas de archivos y soporte para arrastrar texturas directamente al Inspector para cambiar sprites.
+- [x] **6.1 `SceneSerializer` (JSON en Disco y en Memoria)**:
+  - Serializador y deserializador completo de todas las entidades y componentes del ECS (`Tag`, `Transform`, `Sprite`, `RigidBody`, `Collider`).
+  - Serialización a `std::string` en memoria para instantáneas en 0ms.
+  - Integración con el menú superior: **`File -> New Scene`**, **`File -> Save Scene`**, **`File -> Save Scene As...`**.
+- [x] **6.2 `AssetBrowserPanel` (Explorador de Recursos)**:
+  - Panel inferior acoplado con navegador de carpetas (`assets/scenes`, `assets/textures`, `assets/audio`).
+  - Doble clic para abrir carpetas y cargar escenas instantáneamente.
+  - Menú contextual para crear carpetas, escenas y abrir en el explorador del sistema operativo.
+- [x] **6.3 Arquitectura de 2 Fases (Edit Mode vs Play Mode al estilo Unity)**:
+  - `Edit Mode`: Cero físicas, cero destrucción y edición estática protegida.
+  - `Play Mode`: Snapshot en memoria instantáneo y ejecución dinámica de Box2D.
+  - `Stop Mode`: Restauración 100% fiel de la escena original desde memoria.
 
 ---
 
-### 📍 Módulo 7: Importación de Tilemaps (LDtk / Tiled) & Colisiones Optimizadas
+### 📍 Módulo 5 (Siguiente): Cámara 2D en Editor, Gizmos Visuales & Calibrador de Post-Processing
+> **Objetivo**: Navegación libre por el escenario con el ratón, visualización de la cámara de juego y manipulación directa en el visor.
+
+- [ ] **5.1 Cámara 2D del Editor (Navegación en Viewport)**:
+  - **Pan Libre:** Desplazamiento del visor arrastrando con el botón central o botón derecho del ratón.
+  - **Zoom Suave:** Rueda del ratón para acercar / alejar el visor ($0.1\times$ a $5.0\times$).
+  - **Botón `Focus on Entity` ('F'):** Centra la cámara del visor sobre la entidad seleccionada.
+- [ ] **5.2 `Camera2DComponent` & Gizmo Visual de Cámara de Juego**:
+  - Componente ECS para entidades de cámara (Zoom, Deadzones, Target Follow).
+  - Dibujado del rectángulo/marco (*Frustum Frame*) en el Viewport para ver exactamente qué ve la cámara del juego.
+- [ ] **5.3 Gizmos de Transformación & Raycast Picking en Viewport**:
+  - Flechas de traslación ($X$ roja, $Y$ verde) sobre la entidad seleccionada.
+  - Clic directo sobre cualquier sprite en el Viewport para seleccionarlo en la Jerarquía y en el Inspector.
+- [ ] **5.4 `PostProcessTunerPanel`**:
+  - Calibrador visual de Bloom, Aberración Cromática, Viñeta, CRT y Grano de Película con guardado de presets JSON.
+
+---
+
+### 📍 Módulo 7: Tilemaps, Paleta de Baldosas (Pasto/Tierra) & Fusión de Colisiones
+> **Objetivo**: Pintar niveles con pasto, tierra, plataformas y generar colisionadores automáticamente.
+
+- [ ] **7.1 Tilemap Component & Tilesets PNG**:
+  - Texturas reales en `assets/textures/tiles/` (`grass_top.png`, `dirt_block.png`, `stone_brick.png`, `wood_platform.png`).
+  - Renderizado por batching eficiente de grillas de baldosas ($16\times 16$, $32\times 32$, $64\times 64$).
+- [ ] **7.2 Tilemap Palette Panel (Pincel de Baldosas)**:
+  - Panel para seleccionar baldosas de un tileset y pintarlas con clic en el Viewport (Pincel, Rectángulo, Borrador).
+- [ ] **7.3 Fusión de Colisiones (Composite Box2D Colliders)**:
+  - Une automáticamente baldosas adyacentes en un solo cuerpo estático Box2D continuo para optimizar físicas y evitar atascos en bordes. Optimizadas
 > **Objetivo**: Construir niveles gigantescos rápidamente con herramientas estándar de la industria.
 
 - [ ] **7.1 Parser de Tilemaps LDtk / Tiled (`.ldtk` / `.json`)**:
   - Carga de capas de tiles, autotiling y capas de objetos decorativos.
   - Renderizado optimizado por chunks para mapas de gran escala.
-- [ ] **7.2 Fusión Automática de Colisiones (*Collision Merging*)**:
   - Agrupación automática de tiles sólidos continuos en una sola caja/polígono de Box2D para máximo rendimiento.
 
 ---

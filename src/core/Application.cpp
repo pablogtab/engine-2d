@@ -30,6 +30,7 @@ Application::Application(const std::string& name, int width, int height) {
     m_editor_layer = std::make_unique<EditorLayer>();
     m_editor_layer->init(m_window->get_sdl_window(), m_window->get_sdl_renderer());
     m_editor_layer->set_scene_manager(&m_scene_manager);
+    m_scene_manager.set_renderer(m_window->get_sdl_renderer());
 
     auto viewport_panel = std::make_shared<ViewportPanel>(m_window->get_sdl_renderer(), &m_scene_manager, 1920, 1080);
     auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager, m_window->get_sdl_renderer());

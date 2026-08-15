@@ -61,17 +61,16 @@ void ViewportPanel::on_gui() {
     if (ImGui::Begin(m_name.c_str(), &is_open, flags)) {
         // --- 1. Top Viewport Control Bar ---
         if (ImGui::BeginMenuBar()) {
-            bool is_play = (m_play_state == EditorPlayState::Play);
-            bool is_pause = (m_play_state == EditorPlayState::Pause);
-            bool is_edit = (m_play_state == EditorPlayState::Edit);
+            bool is_play = m_scene_manager ? m_scene_manager->is_playing() : false;
+            bool is_pause = m_scene_manager ? m_scene_manager->is_paused() : false;
+            bool is_edit = m_scene_manager ? m_scene_manager->is_editing() : true;
 
             // Play Button
             if (is_play) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.7f, 0.3f, 1.0f));
             }
             if (ImGui::Button(" > Play ")) {
-                m_play_state = EditorPlayState::Play;
-                Time::set_time_scale(1.0f);
+                if (m_scene_manager) m_scene_manager->start_play();
             }
             if (is_play) ImGui::PopStyleColor();
 
@@ -82,8 +81,7 @@ void ViewportPanel::on_gui() {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.65f, 0.15f, 1.0f));
             }
             if (ImGui::Button(" || Pause ")) {
-                m_play_state = EditorPlayState::Pause;
-                Time::set_time_scale(0.0f);
+                if (m_scene_manager) m_scene_manager->pause_play();
             }
             if (is_pause) ImGui::PopStyleColor();
 
@@ -94,8 +92,7 @@ void ViewportPanel::on_gui() {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.25f, 0.25f, 1.0f));
             }
             if (ImGui::Button(" [] Stop ")) {
-                m_play_state = EditorPlayState::Edit;
-                Time::set_time_scale(0.0f);
+                if (m_scene_manager) m_scene_manager->stop_play();
             }
             if (is_edit) ImGui::PopStyleColor();
 

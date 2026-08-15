@@ -3,7 +3,6 @@
 #include "../core/Log.hpp"
 #include "../ecs/Components.hpp"
 #include <nlohmann/json.hpp>
-#include <fstream>
 
 using json = nlohmann::json;
 
@@ -12,10 +11,10 @@ namespace Engine {
 SceneSerializer::SceneSerializer(Scene* scene, SDL_Renderer* renderer)
     : m_scene(scene), m_renderer(renderer) {}
 
-bool SceneSerializer::serialize(const std::string& filepath) {
+std::string SceneSerializer::serialize_to_string() {
     if (!m_scene) {
         ENGINE_LOG_ERROR("[SERIALIZER] Cannot serialize: Scene pointer is null");
-        return false;
+        return "";
     }
 
     json root;
@@ -110,26 +109,30 @@ bool SceneSerializer::serialize(const std::string& filepath) {
     });
 
     root["entities"] = entities_array;
+    return root.dump(4);
+}
 
-    std::string json_text = root.dump(4);
+bool SceneSerializer::serialize(const std::string& filepath) {
+    std::string json_text = serialize_to_string();
+    if (json_text.empty()) return false;
+
     if (!FileSystem::write_text(filepath, json_text)) {
         ENGINE_LOG_ERROR("[SERIALIZER] Failed to write scene to '{}'", filepath);
         return false;
     }
 
-    ENGINE_LOG_INFO("[SERIALIZER] Successfully saved scene '{}' ({} entities) to '{}'", m_scene->get_name(), entities_array.size(), filepath);
+    ENGINE_LOG_INFO("[SERIALIZER] Successfully saved scene '{}' to '{}'", m_scene->get_name(), filepath);
     return true;
 }
 
-bool SceneSerializer::deserialize(const std::string& filepath) {
+bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
     if (!m_scene) {
         ENGINE_LOG_ERROR("[SERIALIZER] Cannot deserialize: Scene pointer is null");
         return false;
     }
 
-    std::string json_text = FileSystem::read_text(filepath);
     if (json_text.empty()) {
-        ENGINE_LOG_ERROR("[SERIALIZER] Scene file not found or empty: '{}'", filepath);
+        ENGINE_LOG_ERROR("[SERIALIZER] JSON text is empty");
         return false;
     }
 
@@ -184,6 +187,9 @@ bool SceneSerializer::deserialize(const std::string& filepath) {
                         if (!tex_path.empty() && m_renderer) {
                             sc.texture = Texture::load_from_file(m_renderer, tex_path);
                         }
+                    }
+                    if (!sc.texture && m_renderer) {
+                        sc.texture = Texture::create_solid(m_renderer, 8, 8, 255, 255, 255, 255);
                     }
                     if (sp_j.contains("size") && sp_j["size"].is_array() && sp_j["size"].size() >= 2) {
                         sc.size = glm::vec2(sp_j["size"][0].get<float>(), sp_j["size"][1].get<float>());
@@ -265,12 +271,25 @@ bool SceneSerializer::deserialize(const std::string& filepath) {
             }
         }
 
-        ENGINE_LOG_INFO("[SERIALIZER] Successfully loaded scene '{}' from '{}'", m_scene->get_name(), filepath);
         return true;
     } catch (const std::exception& e) {
-        ENGINE_LOG_ERROR("[SERIALIZER] Exception parsing scene JSON from '{}': {}", filepath, e.what());
+        ENGINE_LOG_ERROR("[SERIALIZER] Exception parsing scene JSON: {}", e.what());
         return false;
     }
+}
+
+bool SceneSerializer::deserialize(const std::string& filepath) {
+    std::string json_text = FileSystem::read_text(filepath);
+    if (json_text.empty()) {
+        ENGINE_LOG_ERROR("[SERIALIZER] Scene file not found or empty: '{}'", filepath);
+        return false;
+    }
+
+    bool success = deserialize_from_string(json_text);
+    if (success) {
+        ENGINE_LOG_INFO("[SERIALIZER] Successfully loaded scene '{}' from '{}'", m_scene->get_name(), filepath);
+    }
+    return success;
 }
 
 } // namespace Engine

@@ -4,8 +4,15 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <SDL3/SDL.h>
 
 namespace Engine {
+
+enum class ScenePlayState {
+    Edit,
+    Play,
+    Pause
+};
 
 class SceneManager {
 public:
@@ -18,6 +25,19 @@ public:
     void previous_scene();
 
     void restore_state();
+
+    // Two-Phase Play Mode lifecycle
+    void start_play();
+    void pause_play();
+    void resume_play();
+    void stop_play();
+
+    [[nodiscard]] ScenePlayState get_play_state() const { return m_play_state; }
+    [[nodiscard]] bool is_playing() const { return m_play_state == ScenePlayState::Play; }
+    [[nodiscard]] bool is_paused() const { return m_play_state == ScenePlayState::Pause; }
+    [[nodiscard]] bool is_editing() const { return m_play_state == ScenePlayState::Edit; }
+
+    void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
 
     void update(float delta_time);
     void render(Renderer2D& renderer);
@@ -36,6 +56,10 @@ private:
     int m_last_width{1280};
     int m_last_height{720};
     float m_last_dpi_scale{1.0f};
+
+    ScenePlayState m_play_state{ScenePlayState::Edit};
+    std::string m_snapshot_json;
+    SDL_Renderer* m_renderer{nullptr};
 };
 
 } // namespace Engine

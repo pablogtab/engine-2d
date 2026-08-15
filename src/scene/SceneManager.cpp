@@ -1,5 +1,8 @@
 #include "SceneManager.hpp"
+#include "SceneSerializer.hpp"
 #include "../core/Log.hpp"
+#include "../core/Time.hpp"
+#include "../ecs/TransformSystem.hpp"
 #include <fstream>
 
 namespace Engine {
@@ -70,7 +73,7 @@ void SceneManager::set_active_scene(size_t index) {
 
     m_active_index = static_cast<int>(index);
     m_scenes[m_active_index]->on_attach();
-    m_scenes[m_active_index]->on_resize(m_last_width, m_last_height);
+    m_scenes[m_active_index]->on_resize(m_last_width, m_last_height, m_last_dpi_scale);
 
     save_state();
 
@@ -96,6 +99,67 @@ void SceneManager::previous_scene() {
     if (m_scenes.empty()) return;
     size_t prev_idx = (m_active_index - 1 + m_scenes.size()) % m_scenes.size();
     set_active_scene(prev_idx);
+}
+
+void SceneManager::start_play() {
+    if (m_play_state == ScenePlayState::Pause) {
+        resume_play();
+        return;
+    }
+
+    Scene* active_scene = get_active_scene();
+    if (!active_scene) return;
+
+    // 1. Take in-memory snapshot of authoring scene state
+    SceneSerializer serializer(active_scene, m_renderer);
+    m_snapshot_json = serializer.serialize_to_string();
+
+    // 2. Attach runtime physics simulation
+    active_scene->on_detach();
+    active_scene->on_attach();
+    active_scene->on_resize(m_last_width, m_last_height, m_last_dpi_scale);
+
+    m_play_state = ScenePlayState::Play;
+    Time::set_time_scale(1.0f);
+    ENGINE_LOG_INFO("[SCENE PLAY] Started Play simulation (Memory snapshot taken).");
+}
+
+void SceneManager::pause_play() {
+    if (m_play_state != ScenePlayState::Play) return;
+
+    m_play_state = ScenePlayState::Pause;
+    Time::set_time_scale(0.0f);
+    ENGINE_LOG_INFO("[SCENE PLAY] Simulation Paused.");
+}
+
+void SceneManager::resume_play() {
+    if (m_play_state != ScenePlayState::Pause) return;
+
+    m_play_state = ScenePlayState::Play;
+    Time::set_time_scale(1.0f);
+    ENGINE_LOG_INFO("[SCENE PLAY] Simulation Resumed.");
+}
+
+void SceneManager::stop_play() {
+    if (m_play_state == ScenePlayState::Edit) return;
+
+    Scene* active_scene = get_active_scene();
+    if (active_scene) {
+        active_scene->on_detach();
+
+        // Restore pristine authoring state from memory snapshot
+        if (!m_snapshot_json.empty()) {
+            SceneSerializer serializer(active_scene, m_renderer);
+            serializer.deserialize_from_string(m_snapshot_json);
+        }
+
+        TransformSystem::update(active_scene->get_entity_manager());
+        active_scene->on_resize(m_last_width, m_last_height, m_last_dpi_scale);
+    }
+
+    m_play_state = ScenePlayState::Edit;
+    Time::set_time_scale(0.0f);
+    ENGINE_LOG_INFO("[SCENE PLAY] Stopped Simulation: Authoring snapshot restored cleanly.");
 }
 
 void SceneManager::update(float delta_time) {

@@ -1,0 +1,467 @@
+{
+    "scene_name": "PlatformerDemo",
+    "version": 1,
+    "entities": [
+        {
+            "id": 1,
+            "tag": "Background_Sky",
+            "transform": {
+                "position": [0.0, 0.0, -50.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [3840.0, 2160.0],
+                "color": [18, 24, 38, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            }
+        },
+        {
+            "id": 2,
+            "tag": "Player_Knight",
+            "transform": {
+                "position": [-180.0, -180.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "assets/textures/knight_sheet.png",
+                "size": [64.0, 64.0],
+                "color": [255, 255, 255, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": true,
+                "src_rect": [0.0, 0.0, 64.0, 64.0]
+            },
+            "rigidbody": {
+                "type": "Dynamic",
+                "mass": 1.0,
+                "gravity_scale": 1.0,
+                "friction": 0.3,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [44.0, 58.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 2,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 3,
+            "tag": "Terrain_Main_Ground",
+            "transform": {
+                "position": [0.0, -280.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [1600.0, 48.0],
+                "color": [68, 148, 82, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.8,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [1600.0, 48.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 4,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 4,
+            "tag": "Platform_Left_Top",
+            "transform": {
+                "position": [-520.0, 180.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [160.0, 24.0],
+                "color": [186, 126, 72, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.6,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [160.0, 24.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 4,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 5,
+            "tag": "Platform_Mid_Left_OneWay",
+            "transform": {
+                "position": [-340.0, -50.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [200.0, 22.0],
+                "color": [207, 147, 91, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.6,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [200.0, 22.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": true,
+                    "category_bits": 4,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 6,
+            "tag": "Platform_Center_Crown",
+            "transform": {
+                "position": [0.0, 230.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [220.0, 24.0],
+                "color": [158, 99, 50, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.6,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [220.0, 24.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 4,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 7,
+            "tag": "Platform_Right_Deck",
+            "transform": {
+                "position": [480.0, -110.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [200.0, 28.0],
+                "color": [176, 116, 68, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.7,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [200.0, 28.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 4,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 8,
+            "tag": "Moving_Elevator_Platform",
+            "transform": {
+                "position": [-400.0, -120.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [120.0, 20.0],
+                "color": [0, 210, 255, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Kinematic",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.9,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [120.0, 20.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 4,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 9,
+            "tag": "Trampoline_Spring_Pad",
+            "transform": {
+                "position": [200.0, -240.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [64.0, 18.0],
+                "color": [255, 60, 165, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.2,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [64.0, 18.0],
+                    "radius": 16.0,
+                    "is_trigger": true,
+                    "is_one_way": false,
+                    "category_bits": 8,
+                    "mask_bits": 2
+                }
+            ]
+        },
+        {
+            "id": 10,
+            "tag": "Collectible_Coin_1",
+            "transform": {
+                "position": [-520.0, 230.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [28.0, 28.0],
+                "color": [255, 215, 0, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.0,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Circle",
+                    "offset": [0.0, 0.0],
+                    "size": [28.0, 28.0],
+                    "radius": 14.0,
+                    "is_trigger": true,
+                    "is_one_way": false,
+                    "category_bits": 8,
+                    "mask_bits": 2
+                }
+            ]
+        },
+        {
+            "id": 11,
+            "tag": "Collectible_Coin_2",
+            "transform": {
+                "position": [-340.0, 140.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [28.0, 28.0],
+                "color": [255, 215, 0, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.0,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Circle",
+                    "offset": [0.0, 0.0],
+                    "size": [28.0, 28.0],
+                    "radius": 14.0,
+                    "is_trigger": true,
+                    "is_one_way": false,
+                    "category_bits": 8,
+                    "mask_bits": 2
+                }
+            ]
+        },
+        {
+            "id": 12,
+            "tag": "Collectible_Coin_3",
+            "transform": {
+                "position": [480.0, -50.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "",
+                "size": [28.0, 28.0],
+                "color": [255, 215, 0, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.0,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Circle",
+                    "offset": [0.0, 0.0],
+                    "size": [28.0, 28.0],
+                    "radius": 14.0,
+                    "is_trigger": true,
+                    "is_one_way": false,
+                    "category_bits": 8,
+                    "mask_bits": 2
+                }
+            ]
+        }
+    ]
+}
