@@ -1,6 +1,11 @@
 #include "EditorLayer.hpp"
 #include "EditorTheme.hpp"
 #include "../core/Log.hpp"
+#include "../scene/SceneManager.hpp"
+#include "../scene/GenericScene.hpp"
+#include "../scene/SceneSerializer.hpp"
+#include "panels/ViewportPanel.hpp"
+#include <filesystem>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -40,23 +45,16 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
 void EditorLayer::shutdown() {
     if (!m_initialized) return;
 
-    m_panels.clear();
-    m_viewport_panel = nullptr;
     ImGui_ImplSDLRenderer3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
 
     m_initialized = false;
-    m_window = nullptr;
-    m_renderer = nullptr;
     ENGINE_LOG_INFO("[EDITOR] Dear ImGui shutdown cleanly.");
 }
 
 void EditorLayer::process_event(const SDL_Event& event) {
-    if (!m_initialized) return;
-
-    // Toggle editor visibility with F1 or Tilde
-    if (event.type == SDL_EVENT_KEY_DOWN) {
+    if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
         if (event.key.scancode == SDL_SCANCODE_F1 || event.key.scancode == SDL_SCANCODE_GRAVE) {
             toggle_visibility();
             ENGINE_LOG_INFO("[EDITOR] Toggled visibility: {}", m_visible ? "ON" : "OFF");
@@ -106,8 +104,55 @@ void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
     ImGui::DockBuilderDockWindow("Entity Inspector", dock_right_id);
     ImGui::DockBuilderDockWindow("Engine & Metrics", dock_right_id);
     ImGui::DockBuilderDockWindow("Console & Logs", dock_down_id);
+    ImGui::DockBuilderDockWindow("Asset Browser", dock_down_id);
 
     ImGui::DockBuilderFinish(dockspace_id);
+}
+
+void EditorLayer::create_new_scene(const std::string& name) {
+    if (!m_scene_manager) return;
+    auto new_scene = std::make_shared<GenericScene>(name);
+    m_scene_manager->add_scene(new_scene);
+    m_scene_manager->set_active_scene(name);
+    if (m_viewport_panel) {
+        m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
+    }
+    ENGINE_LOG_INFO("[EDITOR] Created new blank scene: '{}'", name);
+}
+
+void EditorLayer::save_active_scene(const std::string& custom_path) {
+    if (!m_scene_manager) return;
+    auto active_scene = m_scene_manager->get_active_scene();
+    if (!active_scene) {
+        ENGINE_LOG_WARN("[EDITOR] No active scene to save.");
+        return;
+    }
+
+    std::string path = custom_path;
+    if (path.empty()) {
+        std::filesystem::create_directories("assets/scenes");
+        path = "assets/scenes/" + active_scene->get_name() + ".scene";
+    }
+
+    SceneSerializer serializer(active_scene, m_renderer);
+    serializer.serialize(path);
+}
+
+void EditorLayer::load_scene(const std::string& path) {
+    if (!m_scene_manager) return;
+    std::filesystem::path p(path);
+    std::string scene_name = p.stem().string();
+
+    auto new_scene = std::make_shared<GenericScene>(scene_name);
+    SceneSerializer serializer(new_scene.get(), m_renderer);
+    if (serializer.deserialize(path)) {
+        m_scene_manager->add_scene(new_scene);
+        m_scene_manager->set_active_scene(scene_name);
+        if (m_viewport_panel) {
+            m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
+        }
+        ENGINE_LOG_INFO("[EDITOR] Loaded scene '{}' from '{}'", scene_name, path);
+    }
 }
 
 void EditorLayer::render_dockspace() {
@@ -146,19 +191,46 @@ void EditorLayer::render_dockspace() {
     }
 
     ImGui::End();
+
+    // Modal popup: Save Scene As
+    if (m_show_save_as_popup) {
+        ImGui::OpenPopup("Save Scene As");
+        m_show_save_as_popup = false;
+    }
+
+    if (ImGui::BeginPopupModal("Save Scene As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Enter Scene Filename (saved in assets/scenes/):");
+        ImGui::InputText("##saveasname", m_save_as_buf, sizeof(m_save_as_buf));
+        ImGui::Spacing();
+
+        if (ImGui::Button("Save", ImVec2(120, 0))) {
+            std::string fname = m_save_as_buf;
+            if (!fname.empty()) {
+                if (fname.find(".scene") == std::string::npos) fname += ".scene";
+                std::filesystem::create_directories("assets/scenes");
+                save_active_scene("assets/scenes/" + fname);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 void EditorLayer::render_main_menu_bar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
-                ENGINE_LOG_INFO("[EDITOR] 'New Scene' triggered.");
-            }
-            if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) {
-                ENGINE_LOG_INFO("[EDITOR] 'Open Scene' triggered.");
+                create_new_scene("New Scene");
             }
             if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
-                ENGINE_LOG_INFO("[EDITOR] 'Save Scene' triggered.");
+                save_active_scene();
+            }
+            if (ImGui::MenuItem("Save Scene As...")) {
+                m_show_save_as_popup = true;
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4")) {

@@ -37,6 +37,21 @@ void SceneManager::restore_state() {
 void SceneManager::add_scene(std::shared_ptr<Scene> scene) {
     if (!scene) return;
     
+    // Check if scene with same name already exists: replace it instead of duplicating!
+    for (size_t i = 0; i < m_scenes.size(); ++i) {
+        if (m_scenes[i] && m_scenes[i]->get_name() == scene->get_name()) {
+            if (m_active_index == static_cast<int>(i)) {
+                m_scenes[i]->on_detach();
+            }
+            m_scenes[i] = scene;
+            if (m_active_index == static_cast<int>(i)) {
+                m_scenes[i]->on_attach();
+                m_scenes[i]->on_resize(m_last_width, m_last_height, m_last_dpi_scale);
+            }
+            return;
+        }
+    }
+
     m_scenes.push_back(scene);
     
     // Automatically activate first registered scene

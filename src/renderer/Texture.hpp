@@ -40,6 +40,8 @@ public:
     SDL_Texture* get_sdl_texture() const { return m_texture; }
     int get_width() const { return m_width; }
     int get_height() const { return m_height; }
+    const std::string& get_filepath() const { return m_filepath; }
+    void set_filepath(const std::string& path) { m_filepath = path; }
 
     // File loader (PNG, JPG, BMP, TGA)
     static Texture* load_from_file(SDL_Renderer* renderer, const std::string& filepath);
@@ -58,6 +60,7 @@ private:
     SDL_Texture* m_texture{nullptr};
     int m_width{0};
     int m_height{0};
+    std::string m_filepath{""};
 };
 
 } // namespace Engine

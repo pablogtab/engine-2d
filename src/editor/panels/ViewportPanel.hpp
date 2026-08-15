@@ -48,7 +48,7 @@ private:
     int m_internal_width{1920};
     int m_internal_height{1080};
 
-    EditorPlayState m_play_state{EditorPlayState::Play};
+    EditorPlayState m_play_state{EditorPlayState::Edit};
     bool m_is_hovered{false};
     bool m_is_focused{false};
     glm::vec2 m_viewport_mouse_pos{0.0f, 0.0f};

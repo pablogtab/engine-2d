@@ -763,8 +763,6 @@ void PlatformerDemoScene::on_update(float delta_time) {
     // Bullet-Time / Slow Motion (Hold Left Shift or Q for 0.20x time scale)
     if (Engine::Input::is_key_pressed(SDL_SCANCODE_LSHIFT) || Engine::Input::is_key_pressed(SDL_SCANCODE_Q)) {
         Engine::Time::set_time_scale(0.20f);
-    } else {
-        Engine::Time::set_time_scale(1.0f);
     }
 
     // 'M' Key: Toggle Ambient Background Music & Persist in PlayerPrefs

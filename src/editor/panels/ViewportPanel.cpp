@@ -26,6 +26,7 @@ ViewportPanel::ViewportPanel(SDL_Renderer* renderer, SceneManager* scene_manager
             ENGINE_LOG_ERROR("[VIEWPORT] Failed to create Render Target Texture: {}", SDL_GetError());
         }
     }
+    Time::set_time_scale(0.0f); // Default to Edit Mode (paused) on launch
 }
 
 ViewportPanel::~ViewportPanel() {
@@ -68,7 +69,7 @@ void ViewportPanel::on_gui() {
             if (is_play) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.7f, 0.3f, 1.0f));
             }
-            if (ImGui::Button(" ▶ Play ")) {
+            if (ImGui::Button(" > Play ")) {
                 m_play_state = EditorPlayState::Play;
                 Time::set_time_scale(1.0f);
             }
@@ -80,7 +81,7 @@ void ViewportPanel::on_gui() {
             if (is_pause) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.65f, 0.15f, 1.0f));
             }
-            if (ImGui::Button(" ⏸ Pause ")) {
+            if (ImGui::Button(" || Pause ")) {
                 m_play_state = EditorPlayState::Pause;
                 Time::set_time_scale(0.0f);
             }
@@ -92,7 +93,7 @@ void ViewportPanel::on_gui() {
             if (is_edit) {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.25f, 0.25f, 1.0f));
             }
-            if (ImGui::Button(" ⏹ Stop ")) {
+            if (ImGui::Button(" [] Stop ")) {
                 m_play_state = EditorPlayState::Edit;
                 Time::set_time_scale(0.0f);
             }
@@ -111,11 +112,13 @@ void ViewportPanel::on_gui() {
                 if (ImGui::BeginCombo("##scene_selector", current_name.c_str())) {
                     const auto& scenes = m_scene_manager->get_scenes();
                     for (size_t i = 0; i < scenes.size(); ++i) {
+                        ImGui::PushID(static_cast<int>(i));
                         bool is_selected = (current_idx == static_cast<int>(i));
                         if (ImGui::Selectable(scenes[i]->get_name().c_str(), is_selected)) {
                             m_scene_manager->set_active_scene(i);
                         }
                         if (is_selected) ImGui::SetItemDefaultFocus();
+                        ImGui::PopID();
                     }
                     ImGui::EndCombo();
                 }

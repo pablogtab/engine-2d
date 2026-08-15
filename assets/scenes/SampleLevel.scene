@@ -1,0 +1,166 @@
+{
+    "scene_name": "SampleLevel",
+    "version": 1,
+    "entities": [
+        {
+            "id": 1,
+            "tag": "Player_Knight",
+            "transform": {
+                "position": [0.0, 0.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "assets/textures/player.png",
+                "size": [64.0, 64.0],
+                "color": [255, 255, 255, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Dynamic",
+                "mass": 1.0,
+                "gravity_scale": 1.0,
+                "friction": 0.3,
+                "restitution": 0.1,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [48.0, 60.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 2,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 2,
+            "tag": "Ground_Main",
+            "transform": {
+                "position": [0.0, -250.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "assets/textures/player.png",
+                "size": [900.0, 36.0],
+                "color": [75, 145, 95, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.8,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [900.0, 36.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 4,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 3,
+            "tag": "Floating_Platform_L",
+            "transform": {
+                "position": [-220.0, -100.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "assets/textures/player.png",
+                "size": [180.0, 24.0],
+                "color": [180, 120, 70, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.6,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [180.0, 24.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 4,
+                    "mask_bits": 65535
+                }
+            ]
+        },
+        {
+            "id": 4,
+            "tag": "Floating_Platform_R",
+            "transform": {
+                "position": [220.0, -40.0, 0.0],
+                "scale": [1.0, 1.0],
+                "rotation": 0.0,
+                "pivot": [0.5, 0.5],
+                "visible": true
+            },
+            "sprite": {
+                "texture": "assets/textures/player.png",
+                "size": [180.0, 24.0],
+                "color": [180, 120, 70, 255],
+                "flip_x": false,
+                "flip_y": false,
+                "visible": true,
+                "use_src_rect": false
+            },
+            "rigidbody": {
+                "type": "Static",
+                "mass": 0.0,
+                "gravity_scale": 0.0,
+                "friction": 0.6,
+                "restitution": 0.0,
+                "fixed_rotation": true
+            },
+            "collider": [
+                {
+                    "type": "Box",
+                    "offset": [0.0, 0.0],
+                    "size": [180.0, 24.0],
+                    "radius": 16.0,
+                    "is_trigger": false,
+                    "is_one_way": false,
+                    "category_bits": 4,
+                    "mask_bits": 65535
+                }
+            ]
+        }
+    ]
+}

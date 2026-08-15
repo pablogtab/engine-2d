@@ -1,0 +1,44 @@
+{
+    "entities": [
+        {
+            "id": 1,
+            "sprite": {
+                "color": [
+                    255,
+                    255,
+                    255,
+                    255
+                ],
+                "flip_x": false,
+                "flip_y": false,
+                "size": [
+                    64.0,
+                    64.0
+                ],
+                "texture": "",
+                "use_src_rect": false,
+                "visible": true
+            },
+            "tag": "SPRITE RANDOM",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
+        }
+    ],
+    "scene_name": "New Scene",
+    "version": 1
+}

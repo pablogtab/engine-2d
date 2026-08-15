@@ -2,14 +2,15 @@
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
+#include "../../renderer/Texture.hpp"
 #include <imgui.h>
 #include <cstring>
 #include <algorithm>
 
 namespace Engine {
 
-SceneHierarchyPanel::SceneHierarchyPanel(SceneManager* scene_manager)
-    : m_scene_manager(scene_manager) {}
+SceneHierarchyPanel::SceneHierarchyPanel(SceneManager* scene_manager, SDL_Renderer* renderer)
+    : m_scene_manager(scene_manager), m_renderer(renderer) {}
 
 void SceneHierarchyPanel::on_gui() {
     if (!is_open) return;
@@ -95,8 +96,12 @@ void SceneHierarchyPanel::on_gui() {
         // --- Bottom Actions Bar ---
         if (ImGui::Button(" + Add Entity ", ImVec2(100, 24))) {
             EntityID new_id = em.create_entity();
-            em.add_component<TagComponent>(new_id, TagComponent{"GameObject"});
-            em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f)});
+            em.add_component<TagComponent>(new_id, TagComponent{"Entity_" + std::to_string(new_id)});
+            em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
+            
+            Texture* tex = m_renderer ? Texture::create_solid(m_renderer, 8, 8, 255, 255, 255, 255) : nullptr;
+            em.add_component<SpriteComponent>(new_id, SpriteComponent{tex, glm::vec2(64.0f, 64.0f), SDL_Color{255, 255, 255, 255}});
+
             m_selected_entity = new_id;
         }
         ImGui::SameLine();
@@ -111,3 +116,4 @@ void SceneHierarchyPanel::on_gui() {
 }
 
 } // namespace Engine
+

@@ -49,6 +49,7 @@ Texture* Texture::load_from_file(SDL_Renderer* renderer, const std::string& file
     }
 
     Texture* tex = new Texture(renderer, w, h, pixels.data());
+    tex->m_filepath = filepath;
     stbi_image_free(data);
 
     ENGINE_LOG_INFO("Loaded texture asset: '{}' ({}x{} px)", filepath, w, h);

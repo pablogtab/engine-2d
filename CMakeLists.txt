@@ -35,6 +35,8 @@ set(SOURCES
     src/scene/Camera2D.cpp
     src/scene/CameraController2D.cpp
     src/scene/SceneManager.cpp
+    src/scene/GenericScene.cpp
+    src/scene/SceneSerializer.cpp
     src/sandbox/AnimatedSpriteDemoScene.cpp
     src/sandbox/DepthDemoScene.cpp
     src/sandbox/PlatformerDemoScene.cpp
@@ -46,6 +48,7 @@ set(SOURCES
     src/editor/panels/InspectorPanel.cpp
     src/editor/panels/ConsolePanel.cpp
     src/editor/panels/StatsPanel.cpp
+    src/editor/panels/AssetBrowserPanel.cpp
     vendor/imgui/imgui.cpp
     vendor/imgui/imgui_draw.cpp
     vendor/imgui/imgui_tables.cpp

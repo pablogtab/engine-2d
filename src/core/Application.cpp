@@ -9,6 +9,9 @@
 #include "../editor/panels/InspectorPanel.hpp"
 #include "../editor/panels/ConsolePanel.hpp"
 #include "../editor/panels/StatsPanel.hpp"
+#include "../editor/panels/AssetBrowserPanel.hpp"
+#include "../scene/GenericScene.hpp"
+#include "../scene/SceneSerializer.hpp"
 
 namespace Engine {
 
@@ -26,18 +29,36 @@ Application::Application(const std::string& name, int width, int height) {
     // Initialize Editor Layer & Modular Panels
     m_editor_layer = std::make_unique<EditorLayer>();
     m_editor_layer->init(m_window->get_sdl_window(), m_window->get_sdl_renderer());
+    m_editor_layer->set_scene_manager(&m_scene_manager);
 
     auto viewport_panel = std::make_shared<ViewportPanel>(m_window->get_sdl_renderer(), &m_scene_manager, 1920, 1080);
-    auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager);
-    auto inspector_panel = std::make_shared<InspectorPanel>(&m_scene_manager, hierarchy_panel.get());
+    auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager, m_window->get_sdl_renderer());
+    auto inspector_panel = std::make_shared<InspectorPanel>(&m_scene_manager, hierarchy_panel.get(), m_window->get_sdl_renderer());
     auto console_panel = std::make_shared<ConsolePanel>();
     auto stats_panel = std::make_shared<StatsPanel>();
+    auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");
+
+    asset_browser->set_on_load_scene_callback([this](const std::string& scene_path) {
+        std::filesystem::path p(scene_path);
+        std::string scene_name = p.stem().string();
+        auto new_scene = std::make_shared<GenericScene>(scene_name);
+        SceneSerializer serializer(new_scene.get(), m_window->get_sdl_renderer());
+        if (serializer.deserialize(scene_path)) {
+            m_scene_manager.add_scene(new_scene);
+            m_scene_manager.set_active_scene(scene_name);
+            if (m_editor_layer && m_editor_layer->is_visible()) {
+                auto* vp = m_editor_layer->get_viewport_panel();
+                if (vp) m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
+            }
+        }
+    });
 
     m_editor_layer->set_viewport_panel(viewport_panel.get());
     m_editor_layer->register_panel(viewport_panel);
     m_editor_layer->register_panel(hierarchy_panel);
     m_editor_layer->register_panel(inspector_panel);
     m_editor_layer->register_panel(console_panel);
+    m_editor_layer->register_panel(asset_browser);
     m_editor_layer->register_panel(stats_panel);
 
     // Connect Log stream to in-game ConsolePanel
@@ -145,8 +166,24 @@ void Application::run() {
         }
 
         // 3. Update Application logic & active Scene (scaled delta time)
+        bool is_playing = true;
+        if (m_editor_layer && m_editor_layer->is_visible()) {
+            auto* vp = m_editor_layer->get_viewport_panel();
+            if (vp) {
+                is_playing = (vp->get_play_state() == EditorPlayState::Play);
+            }
+        }
+
         on_update(dt);
-        m_scene_manager.update(dt);
+        if (is_playing) {
+            m_scene_manager.update(dt);
+        } else {
+            // In Edit / Paused mode: update transforms only for live inspector preview, but ZERO physics!
+            auto* active_scene = m_scene_manager.get_active_scene();
+            if (active_scene) {
+                TransformSystem::update(active_scene->get_entity_manager());
+            }
+        }
 
         // 4. Render Game Scene into Viewport Render Target (if editor is active) or to window
         ViewportPanel* vp = m_editor_layer ? m_editor_layer->get_viewport_panel() : nullptr;
