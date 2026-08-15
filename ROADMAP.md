@@ -17,15 +17,19 @@ graph TD
         Particles[ParticleSystem2D Zero-Alloc Pool & Bouncing]
         Events[EventDispatcher Bus]
         Async[ThreadPool & SIMD Optimizations]
+        PostFX[PostProcessPipeline Multi-Pass & Volúmenes 2D]
+        Camera[CameraController2D Smooth Follow & Trauma Shake]
+        FSM[StateMachine & Pushdown Automaton]
+        Audio[AudioEngine miniaudio & Ondas Sintetizadas]
+        Font[Font stb_truetype & Screen HUD]
+        Storage[FileSystem Virtual Mounts & SaveSystem CRC32/Base64]
     end
 
     subgraph Upcoming ["🚀 Próximas Fases Priorizadas"]
-        P1[Fase 5: Pipeline Visual, Shaders & Texturas Procedurales]
-        P2[Fase 6: Game Feel, Tiempo & Cámara Cinemática]
-        P3[Fase 7: Arquitectura de Gameplay & Máquinas de Estado]
-        P4[Fase 8: Tooling & Editor en Vivo Dear ImGui]
-        P5[Fase 9: Audio 2D, Texto & Sistema de Guardado]
-        P6[Fase 10: Tilemaps LDtk/Tiled & Gestión de Niveles]
+        P8[⭐ Siguiente: Fase 8 - Editor en Vivo Dear ImGui & Tooling]
+        P10[Fase 10: Tilemaps LDtk / Tiled & Serialización de Escenas]
+        P11[Fase 11: Iluminación 2D Dinámica & Sombras Poligonales]
+        P12[Fase 12: Scripting Runtime Lua / C# Binding]
     end
 
     CoreEngine --> Upcoming
@@ -35,133 +39,103 @@ graph TD
 
 ## 🏆 Fases Completadas
 
-### 📍 Fase 1: Carga de Assets & Renderizado 2.5D (Completado)
+### 📍 Fase 1: Carga de Assets & Renderizado 2.5D
 - [x] **Cargador de Imágenes Reales (`stb_image`)**: Carga de `.png`, `.jpg`, `.bmp`, `.tga` a texturas GPU.
 - [x] **Sprite Sheets y Animaciones 2D**: `SpriteSheet` y `Animation2D` con control de FPS, clips y bucles.
 - [x] **Cámara 2.5D & Parallax**: Profundidad $Z$, escalado focal y desplazamiento de capas de fondo.
 
-### 📍 Fase 2: Optimizaciones de Rendimiento Extremo (Completado)
+### 📍 Fase 2: Optimizaciones de Rendimiento Extremo
 - [x] **Sprite Batching**: Agrupación de quads por textura vía `SDL_RenderGeometry` (1 sola Draw Call por frame).
 - [x] **Frustum Culling 2D**: Descarte en $O(1)$ (`Camera2D::is_visible`) para objetos fuera del viewport.
 - [x] **Gestor de Recursos (`AssetManager`)**: Caché centralizada para evitar duplicación en RAM/VRAM.
 - [x] **Vectorización SIMD & Multihilo**: Aceleración ARM NEON / SSE2 y batching paralelo con `ThreadPool`.
 
-### 📍 Fase 3: Arquitectura ECS & Bus de Eventos (Completado)
+### 📍 Fase 3: Arquitectura ECS & Bus de Eventos
 - [x] **Sistema de Entidades & Componentes (`EntityManager`)**: Firmas bitmask de 64 bits, vistas de exclusión, hooks de ciclo de vida (`on_construct`, `on_destroy`).
 - [x] **Bus de Eventos (`EventDispatcher`)**: Comunicación desacoplada síncrona y diferida por fotograma.
 - [x] **Mapeo de Controles (`InputManager`)**: Teclado, ratón y proyección de puntero a coordenadas de mundo.
 
-### 📍 Fase 4: Físicas 2D, Joints & Sistema de Partículas (Completado)
+### 📍 Fase 4: Físicas 2D, Joints & Sistema de Partículas
 - [x] **Física Box2D v3 Integrada (`PhysicsSystem`)**: Cuerpos estáticos/dinámicos, fricción, restitución y raycasts.
 - [x] **Matriz de Capas de Colisión**: Bitmasking por categorías (`PLAYER`, `GROUND`, `COIN`, `HAZARD`, `PROJECTILE`).
 - [x] **Articulaciones & Cuerdas Elásticas**: Soporte de `JointType::Rope` con deformación de catenaria por curvas de Bézier.
 - [x] **Motor de Partículas Nativo (`ParticleSystem2D`)**: Pool circular de cero asignaciones en memoria, rebote físico contra el terreno y texturas procedurales suaves (soft-circle y diamond-spark).
 - [x] **Presets Desacoplados (`Engine::Presets`)**: Recetas de gameplay (explosiones, chispas, monedas, polvo) aisladas del núcleo del motor en `src/particles/ParticlePresets.hpp`.
 
+### 📍 Fase 5: Pipeline Visual, Shaders & Post-Processing
+- [x] **Texturas Procedurales Parametrizadas (`ProceduralTextureDesc`)**: Generación matemática (`NoiseGradient` Simplex/Perlin fBm, `Voronoi`, degradados y patrones).
+- [x] **Pipeline de Post-Processing (`PostProcessPipeline`)**: Render targets auxiliares, pases modulares (`Bloom`, `GaussianBlur`, `ChromaticAberration`, `Vignette`, `ColorGrading LUT`, `FilmGrain`, `ScanlinesCRT`, `ScreenFlash`).
+- [x] **Mip-chain & Downsampling**: Render targets a 1/2 y 1/4 de resolución para optimización de efectos intensivos.
+- [x] **Volúmenes de Post-Proceso 2D (`PostProcessVolume`)**: Triggers de escena con interpolación suave (*lerp/blend*) al entrar a zonas climáticas/atmosféricas.
+- [x] **Sistema de Tweens & Event FX**: Interpoladores con curvas de easing para destellos, transiciones y efectos visuales reactivos.
+
+### 📍 Fase 6: Game Feel, Tiempo & Cámara Cinemática
+- [x] **Gestión de Tiempo Global (`Engine::Time`)**: Escala de tiempo para pausa limpia, *Bullet Time* / cámara lenta, y clamping contra caídas de framerate.
+- [x] **Renderizado en Espacio de Pantalla (`Screen-Space Canvas / HUD`)**: Ordenamiento prioritario (`submit_screen_sprite`, `submit_screen_text`) desacoplado de la cámara.
+- [x] **Controlador de Cámara Cinemático (`CameraController2D`)**: *SmoothDamp Follow*, *Deadzone*, *Lookahead* direccional, límites de mapa AABB y *Trauma Screen Shake* no lineal cuadrático.
+
+### 📍 Fase 7: Arquitectura de Gameplay & Máquinas de Estado
+- [x] **Máquina de Estados Finitos (`StateMachine<T>`) & Pushdown Automaton**: Estados fuertemente tipados con hooks de ciclo de vida y pila transitoria para estados temporales.
+- [x] **Máquina de Estados de Animación**: Sincronización automática entre estados de juego y clips de animación con soporte de *Flip X*.
+
+### 📍 Fase 9: Sistema de Audio, Tipografía & Persistencia
+- [x] **Sistema de Audio Multiplataforma (`miniaudio`)**: Canales independientes (*Master*, *Music*, *SFX*), reproductor de archivos `.wav`, `.mp3`, `.ogg`, `.flac` y sintetizador procedural de ondas en tiempo real.
+- [x] **Renderizado de Texto & Fuentes TrueType (`Font / stb_truetype`)**: Rasterización en atlas GPU, métricas de caja de texto y dibujo en espacio de mundo y HUD.
+- [x] **Sistema de Guardado, FileSystem & Configuración (`SaveSystem / PlayerPrefs / FileSystem`)**:
+  - `FileSystem`: Rutas virtuales (`assets://`, `save://`, `pref://`) con I/O multiplataforma seguro.
+  - `SaveSystem`: Soporte para serialización binaria `.sav` con cabecera mágica `"E2DS"`, integridad CRC32, codificación Base64 y serialización JSON para configuraciones.
+  - `PlayerPrefs`: Almacén de opciones en memoria con sincronización persistente a disco.
+
 ---
 
 ## 🚀 Próximas Fases (Hoja de Ruta Activa)
 
-### 📍 Fase 5: Pipeline Visual, Shaders & Texturas Procedurales
-> **Objetivo**: Elevar la calidad visual con post-processing en GPU, efectos de shader y generación matemática de texturas sin dependencias externas.
+### 📍 ⭐ Fase 8: Herramientas de Depuración & Editor en Vivo (Siguiente Gran Hito)
+> **Objetivo**: Integrar una interfaz gráfica completa dentro del motor para inspeccionar entidades, modificar valores en tiempo real, calibrar post-processing y depurar visualmente sin recompilar.
 
-- [x] **5.1 Texturas Procedurales Parametrizadas (`ProceduralTextureDesc`)**:
-  - Generador matemático agnóstico: `NoiseGradient` (Perlin/Simplex fBm), `Voronoi` (celdas orgánicas), `LinearGradient`, `RadialGradient`, `Checkerboard` y `Custom`.
-  - Estructura serializable (`seed`, `scale`, `octaves`, `color_a`, `color_b`) para conectar a editores o crear terrenos variados sin patrones repetitivos.
-- [x] **5.2 Pipeline de Render Targets & Post-Processing (`PostProcessPipeline`)**:
-  - Renderizado a textura intermedia con búferes Ping-Pong en VRAM (`SDL_TEXTUREACCESS_TARGET`).
-  - Cadena extensible de pases abstractos (`IPostProcessPass`): Viñeteado radial, Aberración cromática RGB y Destello de pantalla/daño.
-- [x] **5.3 Evolución Profesional de Post-Processing & Shaders GPU**:
-  - *Fragment Shaders Reales*: Bloom de alta intensidad, Blur Gaussiano separable (pase horizontal/vertical), Film Grain, Color Grading LUT y simulación CRT/Scanlines a nivel de píxel.
-  - *Cadena de Downsampling / Mip-chain*: Render targets auxiliares a 1/2 y 1/4 de resolución para optimización de efectos densos (Bloom / Glow ambiental).
-  - *Volúmenes de Post-Proceso 2D (`PostProcessVolume`)*: Triggers espaciales en escena con interpolación suave (*lerp/blend*) de parámetros al entrar a zonas (cuevas oscuras, bajo el agua, fuego).
-  - *Presets & Serialización JSON*: Exportación e importación de perfiles completos de post-proceso (`presets/underwater.json`, `presets/retro_crt.json`).
-  - *Sistema de Tweens & Event FX*: Abstracción unificada de curvas de easing para disparadores de impacto/daño sin duplicar lógica de tiempo.
-- [x] **5.4 Efectos de Shaders de Materiales / Sprites**:
-  - *Outline & Glow* (resaltado de siluetas de objetos seleccionables o coleccionables mediante `SpriteComponent`).
-  - *Hit Flash* / *Screen Flash* (destello reactivo ante daño o detonaciones).
-- [x] **5.5 Iluminación 2D Dinámica Básica**:
-  - Luces puntuales 2D (*Point Lights*) con radio, color, intensidad y mezcla multiplicativa con mapa de sombras/ambiente (demostrado en la hoguera con titilación sinusoidal).
-
----
-
-### 📍 Fase 6: Game Feel, Tiempo & Cámara Cinemática
-> **Objetivo**: Pulir la sensación de juego (*Game Juice*), control del tiempo e independizar la interfaz de usuario.
-
-- [x] **6.1 Gestión de Tiempo Global (`Engine::Time`)**:
-  - `set_time_scale(scale)`: Pausa limpia (`0.0f`), cámara lenta (*Bullet Time*) o avance rápido.
-  - `delta_time_clamping`: Prevención de atravesar geometrías por caídas de FPS (*spiral of death*).
-  - Métodos puros del motor: `get_delta_time()`, `get_real_delta_time()`, `get_time()`, `get_frame_count()`.
-- [x] **6.2 Renderizado en Espacio de Pantalla (`Screen-Space HUD / Canvas`)**:
-  - `Renderer2D::submit_screen_sprite()` con Bit 63 de prioridad en Sort Key para garantizar ordenamiento sobre el mundo.
-  - Ignora la traslación y zoom de la cámara para HUDs, contadores de monedas y menús de pausa fijos en pantalla.
-- [x] **6.3 Controlador de Cámara Cinemático / Director 2D (`CameraController2D`)**:
-  - Seguimiento suavizado (*SmoothDamp / Lerp Follow*) con zona muerta (*Deadzone*).
-  - *Lookahead*: Anticipación de cámara en la dirección de carrera del personaje según velocidad.
-  - *Camera Bounds*: Restricción de límites AABB para no mostrar zonas vacías fuera del nivel.
-  - *Trauma Screen Shake*: Decaimiento no lineal cuadrático ($\text{shake} = \text{trauma}^2$) para explosiones e impactos.
-
----
-
-### 📍 Fase 7: Arquitectura de Gameplay & Máquinas de Estado
-> **Objetivo**: Estructurar la lógica de personajes y enemigos de forma modular y escalable.
-
-- [x] **7.1 Máquina de Estados Finitos Genérica (`StateMachine<T>`) & Pushdown Automaton**:
-  - Patrón de estados fuertemente tipado con métodos `on_enter()`, `on_update()`, `on_exit()`, `on_pause()`, `on_resume()`.
-  - Pila de estados transitorios (`push<T>()` / `pop()`) para efectos temporales (menús, aturdimiento, cinemáticas).
-  - Cronómetro de vida por estado integrado (`get_state_time()`) y binding opcional de contexto (`bind_context`).
-  - Eliminación de flags booleanos masivos en personajes y entidades.
-- [x] **7.2 Máquina de Estados de Animación**:
-  - Conexión automática entre el estado lógico del personaje (*Idle, Run, Jump, Fall, Grapple*) y sus clips en `Animation2D`.
-  - Inversión horizontal en GPU (*Flip X*) y anclaje de spritesheet por celda.
-
----
-
-### 📍 Fase 8: Herramientas de Depuración & Editor en Vivo
-> **Objetivo**: Permitir la inspección, calibración y edición en tiempo real dentro del viewport sin recompilar código.
-
-- [ ] **8.1 Integración de Dear ImGui en SDL3**:
-  - Renderizado del backend ImGui acoplado al loop de `Engine::Application`.
+- [ ] **8.1 Integración de Dear ImGui con backend SDL3**:
+  - Inicialización y renderizado del bucle de Dear ImGui integrado en `Engine::Application`.
+  - Soporte de estilos oscuros modernos (*Dark Modern Theme*) y escalado High-DPI.
 - [ ] **8.2 Inspector de Entidades & ECS en Vivo**:
-  - Panel lateral con jerarquía de entidades activas, desglose de componentes y edición de valores (velocidad, masa, posición, tintes).
-- [ ] **8.3 Inspector & Stack de Post-Processing en Vivo**:
-  - Reflexión e inspección visual con `virtual void on_gui()` por pase (sliders de intensidad, color pickers, curvas).
-  - *Pass Factory & Hot Reload*: Añadir, remover, reordenar y alternar pases en caliente desde el menú de la UI.
-  - Gestor de presets visuales integrado en la GUI (Cargar/Guardar perfiles en disco con 1 clic).
-- [ ] **8.4 Debug Viewers & Sintonizadores**:
-  - Renderizado de colliders y cajas de colisión (AABB / círculos / raycasts).
-  - Sintonizador de partículas en vivo (sliders de tamaño, gravedad, velocidad y color).
-  - Monitor de rendimiento (gráfico de frametime, llamadas a GPU, conteo de entidades vivas).
-- [ ] **8.5 Consola de Logs Filtrable & Barra de Herramientas Flotante (`F1` / `~`)**:
-  - Ventana de depuración interactiva superpuesta al viewport sin interferir con el gameplay.
-  - Consola con filtrado por categorías mediante checkboxes (*Physics/Pos, Raycasts, Volúmenes, Post-Processing, General*), niveles de severidad y auto-scroll.
-  - Sintonizador de físicas en tiempo real (gravedad, escala de tiempo) y selector rápido de escenas activas.
+  - Ventana de jerarquía con lista de todas las entidades vivas en la escena actual.
+  - Panel inspector para ver y modificar componentes en caliente (posición, velocidad, masa, fricción, tintes de color, estados de FSM).
+- [ ] **8.3 Editor & Calibrador de Post-Processing en Tiempo Real**:
+  - Sliders y selectores de color para ajustar en vivo parámetros de Bloom, Blur, Aberración Cromática, Vignette y Color Grading.
+  - Botón para guardar el perfil actual a archivo JSON o cargarlo con 1 clic.
+- [ ] **8.4 Gizmos de Depuración Visual & Consola en Pantalla (`~` / `F1`)**:
+  - Visualización interactiva de colliders de Box2D, radios de volúmenes, raycasts y límites de cámara.
+  - Consola de logs integrada en pantalla con filtros por categoría (*Physics, Audio, PostProcess, ECS*) y niveles de severidad.
+- [ ] **8.5 Monitor de Rendimiento & Profiler**:
+  - Gráficas de FPS, frametime, consumo de memoria de texturas y cantidad de entidades vivas.
 
 ---
 
-### 📍 Fase 9: Sistema de Audio, Texto & Guardado de Partida
-> **Objetivo**: Dotar al motor de sonido espacializado, tipografía nítida y persistencia de datos.
+### 📍 Fase 10: Importación de Niveles & Tilemaps (LDtk / Tiled)
+> **Objetivo**: Diseñar niveles visualmente complejos en editores de mapas estándar de la industria y cargarlos automáticamente en el motor.
 
-- [x] **9.1 Sistema de Audio (`miniaudio`)**:
-  - Wrapper ligero, multi-hilo y multiplataforma con `miniaudio.h` (macOS/iOS CoreAudio, Windows WASAPI, Linux ALSA, Android AAudio, WebAudio).
-  - Canales de volumen separados: *Master*, *Music* (streaming y bucle continuo) y *SFX* (efectos de sonido polifónicos).
-  - Sintetizador procedural de ondas en tiempo real (*Zero-Asset Arcade SFX* para saltos, monedas, explosiones y ganchos) + reproducción de archivos `.wav`, `.mp3`, `.flac`, `.ogg`.
-- [x] **9.2 Renderizado de Texto & Fuentes Tipográficas (`Font / stb_truetype`)**:
-  - Carga y rasterización de fuentes TrueType (`.ttf` / `.otf`) en atlas de texturas GPU con anti-aliasing.
-  - Métodos `Renderer2D::submit_text()` (espacio de mundo con parallax) y `Renderer2D::submit_screen_text()` (espacio de pantalla / HUD).
-  - Cálculo métrico de cajas de texto (`measure_text`), escalado, alineación y colores personalizables.
-- [x] **9.3 Sistema de Guardado, FileSystem & Configuración (`SaveSystem / PlayerPrefs / FileSystem`)**:
-  - `FileSystem`: Capa de I/O y montaje de rutas virtuales (`assets://`, `save://`, `pref://`).
-  - `SaveSystem`: Soporte dual para **JSON** (mapas, niveles, presets) y **Binario .sav** con Magic Header `"E2DS"`, versión de esquema y checksum CRC32 (opcional Base64).
-  - `PlayerPrefs`: Almacén clave-valor en memoria con sincronización a disco para opciones de usuario.
+- [ ] **10.1 Cargador de Tilemaps LDtk / Tiled (`.ldtk` / `.tmx` / `.json`)**:
+  - Parser eficiente de capas de tiles, capas de autotiling y capas de objetos decorativos.
+  - Renderizado optimizado por chunks para mapas gigantescos.
+- [ ] **10.2 Generación Automática de Colisiones 2D**:
+  - Fusión de tiles sólidos adyacentes en polígonos/cajas continuas (*Collision Merging / Polygon Convex Hull*) para optimizar el rendimiento de Box2D.
+- [ ] **10.3 Serialización Completa de Escenas**:
+  - Exportación y carga de niveles enteros en JSON/YAML con todas sus entidades y estados.
 
 ---
 
-### 📍 Fase 10: Importación de Niveles & Serialización
-> **Objetivo**: Crear niveles visualmente ricos mediante herramientas estándar de la industria.
+### 📍 Fase 11: Iluminación 2D Dinámica & Sombras Poligonales
+> **Objetivo**: Iluminación 2D atmosférica con cálculo de penumbras y oclusión de sombras.
 
-- [ ] **10.1 Cargador de Mapas LDtk / Tiled**:
-  - Parseo de archivos de nivel `.ldtk` o `.json`/`.tmx`.
-  - Generación automática de capas de tiles, entidades decorativas y colliders estáticos de Box2D.
-- [ ] **10.2 Serialización de Escenas (JSON/YAML)**:
-  - Guardado y carga de entidades y componentes a archivo de configuración de nivel.
+- [ ] **11.1 Sistema de Luces 2D (`Light2DComponent`)**:
+  - Luces puntuales (*Point Lights*), luces cónicas (*Spotlights*) y luz ambiental global.
+- [ ] **11.2 Shadow Casters 2D**:
+  - Extrusión de sombras poligonales en GPU a partir de bordes de colliders y geometrías estáticas.
+
+---
+
+### 📍 Fase 12: Capa de Scripting Runtime (Lua / C#)
+> **Objetivo**: Escribir comportamientos de juego y lógica de misiones sin recompilar el código C++.
+
+- [ ] **12.1 Integración de Lua VM / Sol2**:
+  - Binding del ECS, inputs, audio y física a scripts `.lua`.
+  - Recarga en caliente (*Hot Reloading*) de scripts al modificarlos en disco.
