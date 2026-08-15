@@ -5,6 +5,7 @@ bin/
 dist/
 .cache/
 compile_commands.json
+saves/
 
 # Logs & runtime locks
 *.log

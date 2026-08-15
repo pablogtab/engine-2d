@@ -39,68 +39,52 @@ static constexpr char s_base64_chars[] =
     "0123456789+/";
 
 std::string Base64::encode(const uint8_t* data, size_t length) {
+    if (!data || length == 0) return "";
+
     std::string ret;
     ret.reserve(((length + 2) / 3) * 4);
 
-    size_t i = 0;
-    while (i < length) {
-        uint32_t octet_a = i < length ? data[i++] : 0;
-        uint32_t octet_b = i < length ? data[i++] : 0;
-        uint32_t octet_c = i < length ? data[i++] : 0;
+    for (size_t i = 0; i < length; i += 3) {
+        uint32_t octet_a = data[i];
+        uint32_t octet_b = (i + 1 < length) ? data[i + 1] : 0;
+        uint32_t octet_c = (i + 2 < length) ? data[i + 2] : 0;
 
-        uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
+        uint32_t triple = (octet_a << 16) | (octet_b << 8) | octet_c;
 
         ret.push_back(s_base64_chars[(triple >> 18) & 0x3F]);
         ret.push_back(s_base64_chars[(triple >> 12) & 0x3F]);
-        ret.push_back((i > length + 1) ? '=' : s_base64_chars[(triple >> 6) & 0x3F]);
-        ret.push_back((i > length) ? '=' : s_base64_chars[triple & 0x3F]);
+        ret.push_back((i + 1 < length) ? s_base64_chars[(triple >> 6) & 0x3F] : '=');
+        ret.push_back((i + 2 < length) ? s_base64_chars[triple & 0x3F] : '=');
     }
     return ret;
 }
 
 std::vector<uint8_t> Base64::decode(std::string_view base64_str) {
-    auto is_base64 = [](char c) -> bool {
-        return (isalnum(c) || (c == '+') || (c == '/'));
-    };
-
-    auto b64_index = [](char c) -> uint8_t {
+    auto b64_index = [](char c) -> int {
         if (c >= 'A' && c <= 'Z') return c - 'A';
         if (c >= 'a' && c <= 'z') return c - 'a' + 26;
         if (c >= '0' && c <= '9') return c - '0' + 52;
         if (c == '+') return 62;
         if (c == '/') return 63;
-        return 0;
+        return -1;
     };
 
     std::vector<uint8_t> ret;
-    int in_len = static_cast<int>(base64_str.size());
-    int i = 0, in_ = 0;
-    uint8_t char_array_4[4], char_array_3[3];
+    ret.reserve(base64_str.size() * 3 / 4);
 
-    while (in_len-- && (base64_str[in_] != '=') && is_base64(base64_str[in_])) {
-        char_array_4[i++] = base64_str[in_]; in_++;
-        if (i == 4) {
-            for (i = 0; i < 4; i++) {
-                char_array_4[i] = b64_index(char_array_4[i]);
-            }
-            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+    uint32_t buffer = 0;
+    int bits = 0;
 
-            for (i = 0; i < 3; i++) ret.push_back(char_array_3[i]);
-            i = 0;
+    for (char c : base64_str) {
+        if (c == '=') break;
+        int val = b64_index(c);
+        if (val < 0) continue; // Skip whitespace / newline / unrecognized
+        buffer = (buffer << 6) | static_cast<uint32_t>(val);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            ret.push_back(static_cast<uint8_t>((buffer >> bits) & 0xFF));
         }
-    }
-
-    if (i) {
-        for (int j = i; j < 4; j++) char_array_4[j] = 0;
-        for (int j = 0; j < 4; j++) char_array_4[j] = b64_index(char_array_4[j]);
-
-        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-        char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
-
-        for (int j = 0; (j < i - 1); j++) ret.push_back(char_array_3[j]);
     }
 
     return ret;
@@ -149,7 +133,49 @@ BinaryReader::BinaryReader(const uint8_t* data, size_t size)
     : m_data(data), m_size(size), m_cursor(0) {}
 
 BinaryReader::BinaryReader(const std::vector<uint8_t>& buffer)
-    : m_data(buffer.data()), m_size(buffer.size()), m_cursor(0) {}
+    : m_owned_buffer(buffer), m_data(m_owned_buffer.data()), m_size(m_owned_buffer.size()), m_cursor(0) {}
+
+BinaryReader::BinaryReader(std::vector<uint8_t>&& buffer)
+    : m_owned_buffer(std::move(buffer)), m_data(m_owned_buffer.data()), m_size(m_owned_buffer.size()), m_cursor(0) {}
+
+BinaryReader::BinaryReader(const BinaryReader& other)
+    : m_owned_buffer(other.m_owned_buffer),
+      m_data(other.m_owned_buffer.empty() ? other.m_data : m_owned_buffer.data()),
+      m_size(other.m_size),
+      m_cursor(other.m_cursor) {}
+
+BinaryReader::BinaryReader(BinaryReader&& other) noexcept
+    : m_owned_buffer(std::move(other.m_owned_buffer)),
+      m_data(m_owned_buffer.empty() ? other.m_data : m_owned_buffer.data()),
+      m_size(other.m_size),
+      m_cursor(other.m_cursor) {
+    other.m_data = nullptr;
+    other.m_size = 0;
+    other.m_cursor = 0;
+}
+
+BinaryReader& BinaryReader::operator=(const BinaryReader& other) {
+    if (this != &other) {
+        m_owned_buffer = other.m_owned_buffer;
+        m_data = m_owned_buffer.empty() ? other.m_data : m_owned_buffer.data();
+        m_size = other.m_size;
+        m_cursor = other.m_cursor;
+    }
+    return *this;
+}
+
+BinaryReader& BinaryReader::operator=(BinaryReader&& other) noexcept {
+    if (this != &other) {
+        m_owned_buffer = std::move(other.m_owned_buffer);
+        m_data = m_owned_buffer.empty() ? other.m_data : m_owned_buffer.data();
+        m_size = other.m_size;
+        m_cursor = other.m_cursor;
+        other.m_data = nullptr;
+        other.m_size = 0;
+        other.m_cursor = 0;
+    }
+    return *this;
+}
 
 uint8_t  BinaryReader::read_u8()  { return _read_pod<uint8_t>(); }
 int8_t   BinaryReader::read_i8()  { return _read_pod<int8_t>(); }

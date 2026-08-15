@@ -99,8 +99,18 @@ bool SaveSystem::load_file(const std::string& path, BinaryReader& out_reader) {
     }
 
     std::vector<uint8_t> raw_bytes = FileSystem::read_bytes(path);
-    if (raw_bytes.size() < sizeof(SaveHeader)) {
-        // Try decoding Base64 if raw bytes are text
+    if (raw_bytes.empty()) {
+        ENGINE_LOG_ERROR("[SAVESYSTEM] Corrupted save file (empty): '{}'", path);
+        return false;
+    }
+
+    // Check if the stream starts directly with the binary magic header "E2DS"
+    bool is_raw_binary = (raw_bytes.size() >= sizeof(SaveHeader) &&
+                          raw_bytes[0] == 'E' && raw_bytes[1] == '2' &&
+                          raw_bytes[2] == 'D' && raw_bytes[3] == 'S');
+
+    // If not raw binary, try decoding it as Base64 text
+    if (!is_raw_binary) {
         std::string text = FileSystem::read_text(path);
         if (!text.empty()) {
             raw_bytes = Base64::decode(text);
@@ -108,7 +118,7 @@ bool SaveSystem::load_file(const std::string& path, BinaryReader& out_reader) {
     }
 
     if (raw_bytes.size() < sizeof(SaveHeader)) {
-        ENGINE_LOG_ERROR("[SAVESYSTEM] Corrupted save file (too small): '{}'", path);
+        ENGINE_LOG_ERROR("[SAVESYSTEM] Corrupted save file (too small or invalid encoding): '{}'", path);
         return false;
     }
 
@@ -139,8 +149,9 @@ bool SaveSystem::load_file(const std::string& path, BinaryReader& out_reader) {
         return false;
     }
 
-    // 3. Initialize BinaryReader over the validated payload buffer
-    out_reader = BinaryReader(payload_ptr, actual_payload_size);
+    // 3. Initialize BinaryReader with an owned copy of the validated payload buffer
+    std::vector<uint8_t> payload(payload_ptr, payload_ptr + actual_payload_size);
+    out_reader = BinaryReader(std::move(payload));
     ENGINE_LOG_INFO("[SAVESYSTEM] Loaded save '{}' (Version: {}, Size: {} bytes, CRC32: 0x{:08X})",
                     path, header.version, header.payload_size, header.checksum);
     return true;
@@ -153,7 +164,11 @@ SaveHeader SaveSystem::read_slot_header(int slot_id) {
     }
 
     std::vector<uint8_t> bytes = FileSystem::read_bytes(path);
-    if (bytes.size() < sizeof(SaveHeader)) {
+    bool is_raw_binary = (bytes.size() >= sizeof(SaveHeader) &&
+                          bytes[0] == 'E' && bytes[1] == '2' &&
+                          bytes[2] == 'D' && bytes[3] == 'S');
+
+    if (!is_raw_binary) {
         std::string text = FileSystem::read_text(path);
         bytes = Base64::decode(text);
     }
@@ -161,7 +176,9 @@ SaveHeader SaveSystem::read_slot_header(int slot_id) {
     if (bytes.size() >= sizeof(SaveHeader)) {
         SaveHeader h;
         std::memcpy(&h, bytes.data(), sizeof(SaveHeader));
-        return h;
+        if (h.magic[0] == 'E' && h.magic[1] == '2' && h.magic[2] == 'D' && h.magic[3] == 'S') {
+            return h;
+        }
     }
     return {};
 }

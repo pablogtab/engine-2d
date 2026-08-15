@@ -90,6 +90,12 @@ public:
     BinaryReader() = default;
     BinaryReader(const uint8_t* data, size_t size);
     explicit BinaryReader(const std::vector<uint8_t>& buffer);
+    explicit BinaryReader(std::vector<uint8_t>&& buffer);
+
+    BinaryReader(const BinaryReader& other);
+    BinaryReader(BinaryReader&& other) noexcept;
+    BinaryReader& operator=(const BinaryReader& other);
+    BinaryReader& operator=(BinaryReader&& other) noexcept;
 
     [[nodiscard]] uint8_t  read_u8();
     [[nodiscard]] int8_t   read_i8();
@@ -122,7 +128,7 @@ private:
     template<typename T>
     T _read_pod() {
         static_assert(std::is_trivially_copyable_v<T>, "Type must be trivially copyable for _read_pod");
-        if (m_cursor + sizeof(T) > m_size) {
+        if (!m_data || m_cursor + sizeof(T) > m_size) {
             return T{};
         }
         T val;
@@ -131,6 +137,7 @@ private:
         return val;
     }
 
+    std::vector<uint8_t> m_owned_buffer;
     const uint8_t* m_data{nullptr};
     size_t m_size{0};
     size_t m_cursor{0};
