@@ -106,7 +106,7 @@ graph TD
 ### 📍 Fase 7: Arquitectura de Gameplay & Máquinas de Estado
 > **Objetivo**: Estructurar la lógica de personajes y enemigos de forma modular y escalable.
 
-- [ ] **7.1 Máquina de Estados Finitos Genérica (`StateMachine<T>`)**:
+- [x] **7.1 Máquina de Estados Finitos Genérica (`StateMachine<T>`)**:
   - Patrón de estados fuertemente tipado con métodos `enter()`, `update()`, `exit()`.
   - Eliminación de flags booleanos masivos en personajes.
 - [x] **7.2 Máquina de Estados de Animación**:

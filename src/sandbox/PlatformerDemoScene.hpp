@@ -16,6 +16,8 @@
 #include "../renderer/SpriteSheet.hpp"
 #include "../renderer/Animation2D.hpp"
 #include "../renderer/Font.hpp"
+#include "../core/StateMachine.hpp"
+#include "PlayerStates.hpp"
 #include <SDL3/SDL.h>
 #include <memory>
 
@@ -49,11 +51,7 @@ private:
     Engine::EntityID m_elevator_id{0};
     float m_elevator_time{0.0f};
     bool m_show_debug_colliders{false};
-    bool m_is_grounded{false};
-    float m_coyote_timer{0.0f};
-    float m_jump_buffer_timer{0.0f};
-    float m_launch_cooldown{0.0f};
-    float m_drop_through_timer{0.0f};
+    float m_launch_cooldown{0.0f};  // Managed here; shared with FSM ctx on each frame
     bool m_enable_laser{false};
     Engine::RaycastHit2D m_last_raycast_hit;
     glm::vec2 m_mouse_world_pos{0.0f, 0.0f};
@@ -69,6 +67,10 @@ private:
 
     int m_score{0};
     int m_total_coins{0};
+
+    // --- Player FSM ---
+    Engine::StateMachine<PlayerContext> m_player_fsm;
+    PlayerContext m_player_ctx;
 
     // Procedural textures
     std::unique_ptr<Engine::Texture> m_player_texture;
@@ -94,16 +96,11 @@ private:
     Engine::Animation2D m_anim_run;
     Engine::Animation2D m_anim_jump;
     Engine::Animation2D m_anim_fall;
-    Engine::Animation2D* m_current_player_anim{nullptr};
-    bool m_player_facing_right{true};
 
     glm::vec2 m_campfire_pos{-220.0f, -252.0f};
     float m_campfire_time{0.0f};
     float m_campfire_scale{0.65f};
     float m_target_zoom{0.76f};
-
-    bool m_is_grappling{false};
-    Engine::EntityID m_grapple_anchor_id{0};
 
     void setup_level();
     void create_platform(const glm::vec2& position, const glm::vec2& size, SDL_Color color);

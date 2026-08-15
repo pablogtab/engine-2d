@@ -368,26 +368,13 @@ void PlatformerDemoScene::on_attach() {
         m_anim_jump = Engine::Animation2D(m_knight_spritesheet.get(), 16, 19, 8.0f, false);
         m_anim_fall = Engine::Animation2D(m_knight_spritesheet.get(), 20, 23, 8.0f, true);
 
-        m_current_player_anim = &m_anim_idle;
-        m_current_player_anim->play();
         ENGINE_LOG_INFO("[PLATFORMER DEMO] Animated Knight Spritesheet loaded: {}x{}", m_knight_spritesheet_texture->get_width(), m_knight_spritesheet_texture->get_height());
     }
 
     // Register Event Listener for Collectibles, Ground Contact, and Curve Force Launch Pads
     m_event_dispatcher.subscribe<Engine::CollisionEvent>(
         [this](const Engine::CollisionEvent& ev) {
-            // Check Ground Contact for Player (Normal pointing UP from floor to feet)
-            if (ev.entity_a == m_player_id || ev.entity_b == m_player_id) {
-                if (!ev.is_trigger) {
-                    glm::vec2 n = ev.contact_point;
-                    // If normal points upward (+Y in Cartesian Y-up)
-                    if (ev.entity_a == m_player_id && n.y > 0.4f) {
-                        m_is_grounded = true;
-                    } else if (ev.entity_b == m_player_id && n.y < -0.4f) {
-                        m_is_grounded = true;
-                    }
-                }
-            }
+            // Ground contact is now checked per-frame by the FSM states via PhysicsSystem::is_grounded().
 
             // Launch Pad Premiere Cubic Bezier Force Launch Trigger (Single-shot cooldown)
             bool hit_pad = false;
@@ -444,6 +431,25 @@ void PlatformerDemoScene::on_attach() {
     );
 
     setup_level();
+
+    // Initialize Player FSM context and start in Idle state
+    m_player_ctx = PlayerContext{};
+    m_player_ctx.entity_manager        = &m_entity_manager;
+    m_player_ctx.player_id             = m_player_id;
+    m_player_ctx.elevator_id           = m_elevator_id;
+    m_player_ctx.grapple_anchor_id     = 0;
+    m_player_ctx.fsm                   = &m_player_fsm;
+    m_player_ctx.particle_system       = &m_particle_system;
+    m_player_ctx.post_process_pipeline = &m_post_process_pipeline;
+    m_player_ctx.anim_idle             = &m_anim_idle;
+    m_player_ctx.anim_run              = &m_anim_run;
+    m_player_ctx.anim_jump             = &m_anim_jump;
+    m_player_ctx.anim_fall             = &m_anim_fall;
+    m_player_ctx.knight_spritesheet    = m_knight_spritesheet ? m_knight_spritesheet.get() : nullptr;
+    m_player_ctx.player_facing_right   = true;
+    m_player_ctx.launch_cooldown       = 0.0f;
+    m_player_ctx.is_grappling          = false;
+    m_player_fsm.change_state(std::make_unique<PlayerIdleState>(), m_player_ctx);
 }
 
 void PlatformerDemoScene::on_detach() {
@@ -803,7 +809,7 @@ void PlatformerDemoScene::on_update(float delta_time) {
     // 3. Right-Click or 'E' key: Fire / Detach Flexible Grappling Rope!
     if (Engine::Input::is_mouse_just_pressed(Engine::MouseButton::RIGHT) ||
         Engine::Input::is_key_just_pressed(SDL_SCANCODE_E)) {
-        if (m_is_grappling) {
+        if (m_player_ctx.is_grappling) {
             detach_grapple();
         } else if (m_entity_manager.is_alive(m_player_id)) {
             glm::vec2 mouse_screen = Engine::Input::get_mouse_position();
@@ -900,126 +906,27 @@ void PlatformerDemoScene::on_update(float delta_time) {
         }
     }
 
-    // 2. Player Controls & Jump Physics
-    if (m_entity_manager.is_alive(m_player_id) && m_entity_manager.has_component<Engine::RigidBodyComponent>(m_player_id)) {
-        auto& rb = m_entity_manager.get_component<Engine::RigidBodyComponent>(m_player_id);
-        const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
+    // 2. Player FSM update (movement, jump, animation, grapple)
+    if (m_entity_manager.is_alive(m_player_id)) {
+        // Sync scene-level launch_cooldown into context (controlled by collision event)
+        m_player_ctx.launch_cooldown = m_launch_cooldown;
 
-        float move_speed = 320.0f;
-        float move_x = 0.0f;
-
-        if (Engine::Input::is_key_pressed(SDL_SCANCODE_A) || Engine::Input::is_key_pressed(SDL_SCANCODE_LEFT)) {
-            move_x -= move_speed;
-        }
-        if (Engine::Input::is_key_pressed(SDL_SCANCODE_D) || Engine::Input::is_key_pressed(SDL_SCANCODE_RIGHT)) {
-            move_x += move_speed;
-        }
-
-        if (m_is_grappling) {
-            // Dynamic swinging force: allow the player to pump the pendulum with A/D!
-            if (move_x != 0.0f) {
-                rb.velocity.x += (move_x > 0.0f ? 600.0f : -600.0f) * delta_time;
-                rb.velocity.x = std::clamp(rb.velocity.x, -550.0f, 550.0f);
+        // If the grapple state set is_grappling=false from inside a state (catapult jump),
+        // detach the physics rope now that we're back on the scene side.
+        if (!m_player_ctx.is_grappling && m_player_ctx.grapple_anchor_id != 0) {
+            // The grapple rope was released from within the FSM — clean up physics side
+            Engine::PhysicsSystem::destroy_joint(m_player_id);
+            if (m_entity_manager.has_component<Engine::JointComponent>(m_player_id)) {
+                m_entity_manager.remove_component<Engine::JointComponent>(m_player_id);
             }
-        } else {
-            rb.velocity.x = move_x;
+            if (m_entity_manager.is_alive(m_player_ctx.grapple_anchor_id)) {
+                m_entity_manager.destroy_entity(m_player_ctx.grapple_anchor_id);
+            }
+            m_player_ctx.grapple_anchor_id = 0;
+            ENGINE_LOG_INFO("[GRAPPLE ROPE] Detached and removed grapple rope!");
         }
 
-        // Grounded check: Physics contact manifold query OR velocity threshold (supports moving elevator & flat terrain)
-        constexpr float VERTICAL_GROUND_THRESHOLD = 35.0f;
-        bool is_physically_grounded = Engine::PhysicsSystem::is_grounded(m_entity_manager, m_player_id) ||
-                                      (std::abs(rb.velocity.y) < VERTICAL_GROUND_THRESHOLD);
-
-        if (is_physically_grounded) {
-            m_coyote_timer = 0.12f; // 120ms coyote time window
-        } else {
-            m_coyote_timer -= delta_time;
-        }
-
-        // Jump Input Buffering
-        if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_SPACE) ||
-            Engine::Input::is_key_just_pressed(SDL_SCANCODE_W) ||
-            Engine::Input::is_key_just_pressed(SDL_SCANCODE_UP)) {
-            m_jump_buffer_timer = 0.12f; // 120ms jump buffer
-        } else {
-            m_jump_buffer_timer -= delta_time;
-        }
-
-        // Execute Jump if buffered and within coyote window (OR release grapple catapult jump!)
-        if (m_jump_buffer_timer > 0.0f) {
-            if (m_is_grappling) {
-                detach_grapple();
-                rb.velocity.y = std::max(rb.velocity.y + 260.0f, 480.0f);
-                Engine::Presets::dust_puff(m_particle_system, glm::vec2(player_tx.position.x, player_tx.position.y - 28.0f), 12);
-                m_jump_buffer_timer = 0.0f;
-                m_coyote_timer = 0.0f;
-                ENGINE_LOG_INFO("[GRAPPLE JUMP] Grapple Released with Catapult Momentum Boost!");
-            } else if (m_coyote_timer > 0.0f) {
-                rb.velocity.y = 520.0f;
-                Engine::Presets::dust_puff(m_particle_system, glm::vec2(player_tx.position.x, player_tx.position.y - 28.0f), 10);
-                Engine::AudioPresets::play_jump(0.6f);
-                m_jump_buffer_timer = 0.0f;
-                m_coyote_timer = 0.0f;
-                ENGINE_LOG_INFO("[PLATFORMER DEMO] Jump Applied! Velocity Y set to 520.0");
-            }
-        }
-
-        // Drop-Down / Passthrough Mechanic (Pressing S or Down Arrow to drop through one-way platforms)
-        if (Engine::Input::is_key_pressed(SDL_SCANCODE_S) || Engine::Input::is_key_pressed(SDL_SCANCODE_DOWN)) {
-            m_drop_through_timer = 0.25f;
-            Engine::PhysicsSystem::set_ignore_one_way(m_player_id, true);
-        } else if (m_drop_through_timer > 0.0f) {
-            m_drop_through_timer -= delta_time;
-            if (m_drop_through_timer <= 0.0f) {
-                Engine::PhysicsSystem::set_ignore_one_way(m_player_id, false);
-            }
-        }
-
-        // 2.5. Animation State Machine (Idle, Run, Jump, Fall, Grapple + Flip X)
-        if (m_knight_spritesheet_texture && m_entity_manager.has_component<Engine::SpriteComponent>(m_player_id)) {
-            auto& player_sprite = m_entity_manager.get_component<Engine::SpriteComponent>(m_player_id);
-
-            // Direction / Flip X
-            if (move_x > 0.0f || rb.velocity.x > 15.0f) {
-                m_player_facing_right = true;
-            } else if (move_x < 0.0f || rb.velocity.x < -15.0f) {
-                m_player_facing_right = false;
-            }
-            player_sprite.flip_x = !m_player_facing_right;
-
-            // FSM State selection
-            Engine::Animation2D* next_anim = &m_anim_idle;
-            if (m_is_grappling) {
-                next_anim = &m_anim_jump; // heroic swinging pose
-            } else if (!is_physically_grounded && std::abs(rb.velocity.y) > 25.0f) {
-                if (rb.velocity.y > 0.0f) {
-                    next_anim = &m_anim_jump;
-                } else {
-                    next_anim = &m_anim_fall;
-                }
-            } else if (std::abs(rb.velocity.x) > 20.0f) {
-                next_anim = &m_anim_run;
-            } else {
-                next_anim = &m_anim_idle;
-            }
-
-            if (m_current_player_anim != next_anim) {
-                m_current_player_anim = next_anim;
-                if (m_current_player_anim) {
-                    m_current_player_anim->reset();
-                    m_current_player_anim->play();
-                }
-            }
-
-            if (m_current_player_anim) {
-                m_current_player_anim->update(delta_time);
-                player_sprite.use_src_rect = true;
-                player_sprite.src_rect = m_current_player_anim->get_current_frame_rect();
-                player_sprite.texture = m_knight_spritesheet_texture.get();
-                player_sprite.size = glm::vec2(56.0f, 56.0f);
-                player_sprite.color = SDL_Color{255, 255, 255, 255};
-            }
-        }
+        m_player_fsm.update(m_player_ctx, delta_time);
     }
 
     // Kinematic Elevator Movement: Clean waypointed ping-pong between bottom floor (Y=-230) and top platform (Y=180)
@@ -1300,12 +1207,12 @@ void PlatformerDemoScene::attach_grapple(const glm::vec2& target_point) {
     detach_grapple();
     Engine::AudioPresets::play_grapple(0.7f);
 
-    m_grapple_anchor_id = m_entity_manager.create_entity();
-    m_entity_manager.add_component<Engine::TagComponent>(m_grapple_anchor_id, Engine::TagComponent{"GrappleAnchor"});
-    m_entity_manager.add_component<Engine::TransformComponent>(m_grapple_anchor_id, Engine::TransformComponent{glm::vec3(target_point, 0.0f)});
-    m_entity_manager.add_component<Engine::SpriteComponent>(m_grapple_anchor_id, Engine::SpriteComponent{m_circle_debug_texture.get(), glm::vec2(14.0f, 14.0f), SDL_Color{255, 230, 0, 255}});
-    m_entity_manager.add_component<Engine::RigidBodyComponent>(m_grapple_anchor_id, Engine::RigidBodyComponent::Static());
-    m_entity_manager.add_component<Engine::ColliderComponent>(m_grapple_anchor_id, Engine::ColliderComponent::Circle(7.0f));
+    Engine::EntityID anchor_id = m_entity_manager.create_entity();
+    m_entity_manager.add_component<Engine::TagComponent>(anchor_id, Engine::TagComponent{"GrappleAnchor"});
+    m_entity_manager.add_component<Engine::TransformComponent>(anchor_id, Engine::TransformComponent{glm::vec3(target_point, 0.0f)});
+    m_entity_manager.add_component<Engine::SpriteComponent>(anchor_id, Engine::SpriteComponent{m_circle_debug_texture.get(), glm::vec2(14.0f, 14.0f), SDL_Color{255, 230, 0, 255}});
+    m_entity_manager.add_component<Engine::RigidBodyComponent>(anchor_id, Engine::RigidBodyComponent::Static());
+    m_entity_manager.add_component<Engine::ColliderComponent>(anchor_id, Engine::ColliderComponent::Circle(7.0f));
 
     // Spawn metal impact ricochet sparks!
     Engine::Presets::impact_sparks(m_particle_system, target_point, 14);
@@ -1314,27 +1221,33 @@ void PlatformerDemoScene::attach_grapple(const glm::vec2& target_point) {
         const auto& player_tx = m_entity_manager.get_component<Engine::TransformComponent>(m_player_id);
         float rope_length = glm::distance(glm::vec2(player_tx.position.x, player_tx.position.y), target_point);
 
-        // Attach Slack Rope Joint to Player!
         m_entity_manager.add_component<Engine::JointComponent>(
-            m_player_id, Engine::JointComponent::Rope(m_grapple_anchor_id, rope_length)
+            m_player_id, Engine::JointComponent::Rope(anchor_id, rope_length)
         );
-        m_is_grappling = true;
+
+        // Update FSM context and transition to Grapple state
+        m_player_ctx.grapple_anchor_id = anchor_id;
+        m_player_ctx.is_grappling      = true;
+        m_player_fsm.change_state(std::make_unique<PlayerGrappleState>(), m_player_ctx);
+
         ENGINE_LOG_INFO("[GRAPPLE ROPE] Attached rope to ({:.1f}, {:.1f}) with max_length={:.1f}px!",
                         target_point.x, target_point.y, rope_length);
     }
 }
 
 void PlatformerDemoScene::detach_grapple() {
-    if (m_is_grappling) {
+    if (m_player_ctx.is_grappling || m_player_ctx.grapple_anchor_id != 0) {
         Engine::PhysicsSystem::destroy_joint(m_player_id);
         if (m_entity_manager.is_alive(m_player_id) && m_entity_manager.has_component<Engine::JointComponent>(m_player_id)) {
             m_entity_manager.remove_component<Engine::JointComponent>(m_player_id);
         }
-        if (m_grapple_anchor_id != 0 && m_entity_manager.is_alive(m_grapple_anchor_id)) {
-            m_entity_manager.destroy_entity(m_grapple_anchor_id);
-            m_grapple_anchor_id = 0;
+        if (m_player_ctx.grapple_anchor_id != 0 && m_entity_manager.is_alive(m_player_ctx.grapple_anchor_id)) {
+            m_entity_manager.destroy_entity(m_player_ctx.grapple_anchor_id);
+            m_player_ctx.grapple_anchor_id = 0;
         }
-        m_is_grappling = false;
+        m_player_ctx.is_grappling = false;
+        // Transition back to fall (player will naturally land or jump)
+        m_player_fsm.change_state(std::make_unique<PlayerFallState>(), m_player_ctx);
         ENGINE_LOG_INFO("[GRAPPLE ROPE] Detached and removed grapple rope!");
     }
 }
