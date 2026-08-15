@@ -39,6 +39,19 @@ set(SOURCES
     src/sandbox/DepthDemoScene.cpp
     src/sandbox/PlatformerDemoScene.cpp
     src/sandbox/StressTestScene.cpp
+    src/editor/EditorTheme.cpp
+    src/editor/EditorLayer.cpp
+    src/editor/panels/ViewportPanel.cpp
+    src/editor/panels/SceneHierarchyPanel.cpp
+    src/editor/panels/InspectorPanel.cpp
+    src/editor/panels/ConsolePanel.cpp
+    src/editor/panels/StatsPanel.cpp
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
+    vendor/imgui/backends/imgui_impl_sdl3.cpp
+    vendor/imgui/backends/imgui_impl_sdlrenderer3.cpp
     vendor/stb/stb_impl.cpp
     vendor/miniaudio/miniaudio_impl.cpp
     src/main.cpp
@@ -55,6 +68,7 @@ add_executable(Engine2D ${SOURCES})
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
 

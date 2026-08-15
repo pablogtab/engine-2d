@@ -141,6 +141,7 @@ public:
     void clear();
 
     size_t get_living_entity_count() const { return m_living_entities.size(); }
+    [[nodiscard]] const std::vector<EntityID>& get_living_entities() const { return m_living_entities; }
 
 private:
     template<typename T>

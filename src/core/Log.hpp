@@ -19,9 +19,12 @@ enum class LogLevel {
 
 class Log {
 public:
+    using LogCallback = std::function<void(const std::string& timestamp, const std::string& level, const std::string& message)>;
+
     static void init(const std::string& filename = "engine.log");
     static void shutdown();
     static void set_level(LogLevel level);
+    static void set_callback(LogCallback callback);
 
     static void trace(const std::string& msg);
     static void debug(const std::string& msg);

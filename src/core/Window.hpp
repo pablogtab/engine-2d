@@ -34,6 +34,10 @@ public:
         m_resize_callback = callback;
     }
 
+    void set_event_callback(std::function<void(const SDL_Event&)> callback) {
+        m_event_callback = callback;
+    }
+
 private:
     void update_sizes();
     void save_state();
@@ -48,6 +52,7 @@ private:
     int m_pixel_height{0};
     bool m_should_close{false};
     std::function<void(int, int, float)> m_resize_callback;
+    std::function<void(const SDL_Event&)> m_event_callback;
 };
 
 } // namespace Engine

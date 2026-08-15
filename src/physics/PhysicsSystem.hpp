@@ -178,19 +178,22 @@ public:
     return false;
   }
 
-  // Cast a ray from origin to destination and return the closest hit result
   static RaycastHit2D raycast(const glm::vec2 &origin, const glm::vec2 &destination,
                               uint16_t mask_bits = CollisionCategory::ALL,
                               bool ignore_sensors = true, EntityID ignore_entity = 0) {
     if (!s_b2_world) return {};
 
+    b2Vec2 p1(origin.x * k_p2m, origin.y * k_p2m);
+    b2Vec2 p2(destination.x * k_p2m, destination.y * k_p2m);
+
+    if (b2DistanceSquared(p1, p2) <= 0.000001f) {
+      return {};
+    }
+
     RayCastClosestCallback callback;
     callback.mask_bits = mask_bits;
     callback.ignore_sensors = ignore_sensors;
     callback.ignore_entity = ignore_entity;
-
-    b2Vec2 p1(origin.x * k_p2m, origin.y * k_p2m);
-    b2Vec2 p2(destination.x * k_p2m, destination.y * k_p2m);
 
     s_b2_world->RayCast(&callback, p1, p2);
 
@@ -209,15 +212,15 @@ public:
     return {};
   }
 
-  // Cast a ray along a direction vector with a maximum distance
+  // Cast a ray in a given direction with max distance
   static RaycastHit2D raycast_direction(const glm::vec2 &origin, const glm::vec2 &direction,
-                                        float max_distance,
+                                        float max_distance = 1000.0f,
                                         uint16_t mask_bits = CollisionCategory::ALL,
                                         bool ignore_sensors = true, EntityID ignore_entity = 0) {
     float len = glm::length(direction);
-    glm::vec2 norm_dir = (len > 0.0001f) ? (direction / len) : glm::vec2(1.0f, 0.0f);
-    glm::vec2 dest = origin + norm_dir * max_distance;
-    return raycast(origin, dest, mask_bits, ignore_sensors, ignore_entity);
+    if (len <= 0.000001f || max_distance <= 0.000001f) return {};
+    glm::vec2 norm_dir = direction / len;
+    return raycast(origin, origin + norm_dir * max_distance, mask_bits, ignore_sensors, ignore_entity);
   }
 
   // Cast a ray from origin to destination and return all hit results sorted closest to furthest

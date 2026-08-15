@@ -10,6 +10,12 @@ LogLevel Log::s_level = LogLevel::TRACE;
 std::ofstream Log::s_file_stream;
 std::mutex Log::s_mutex;
 bool Log::s_initialized = false;
+static Log::LogCallback s_log_callback = nullptr;
+
+void Log::set_callback(LogCallback callback) {
+    std::lock_guard<std::mutex> lock(s_mutex);
+    s_log_callback = std::move(callback);
+}
 
 void Log::init(const std::string& filename) {
     std::lock_guard<std::mutex> lock(s_mutex);
@@ -99,6 +105,11 @@ void Log::log(LogLevel level, const std::string& message) {
     if (s_file_stream.is_open()) {
         s_file_stream << "[" << timestamp << "] [" << lvl_str << "] " << message << "\n";
         s_file_stream.flush();
+    }
+
+    // 3. In-Editor Console Callback
+    if (s_log_callback) {
+        s_log_callback(timestamp, lvl_str, message);
     }
 }
 

@@ -26,6 +26,7 @@ public:
     Scene* get_active_scene() const;
     size_t get_scene_count() const { return m_scenes.size(); }
     int get_active_index() const { return m_active_index; }
+    [[nodiscard]] const std::vector<std::shared_ptr<Scene>>& get_scenes() const { return m_scenes; }
 
 private:
     void save_state();

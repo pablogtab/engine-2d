@@ -121,7 +121,11 @@ void Window::update_sizes() {
 void Window::poll_events() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        Input::process_event(event);
+        if (m_event_callback) {
+            m_event_callback(event);
+        } else {
+            Input::process_event(event);
+        }
 
         if (event.type == SDL_EVENT_QUIT) {
             m_should_close = true;

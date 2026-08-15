@@ -12,7 +12,7 @@ namespace Engine {
 class Application {
 public:
     Application(const std::string& name = "2D Engine", int width = 1280, int height = 720);
-    virtual ~Application() = default;
+    virtual ~Application();
 
     void run();
 
@@ -21,6 +21,7 @@ public:
     ThreadPool& get_thread_pool() { return m_thread_pool; }
     Window& get_window() { return *m_window; }
     Renderer2D* get_renderer() { return m_renderer.get(); }
+    class EditorLayer* get_editor_layer() { return m_editor_layer.get(); }
 
 protected:
     virtual void on_init() {}
@@ -32,6 +33,7 @@ protected:
 private:
     std::unique_ptr<Window> m_window;
     std::unique_ptr<Renderer2D> m_renderer;
+    std::unique_ptr<class EditorLayer> m_editor_layer;
     SceneManager m_scene_manager;
     AssetManager m_asset_manager;
     ThreadPool m_thread_pool;

@@ -426,13 +426,16 @@ void Renderer2D::end_scene() {
     // A. Flush World-Space geometry into Capture Target (under Post-Processing)
     flush_range(0, screen_space_start);
 
-    // B. Execute Post-Processing Shader Chain on World Space and output to final backbuffer
+    // B. Execute Post-Processing Shader Chain on World Space and output to custom render target (or backbuffer)
     if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
-        m_post_process_pipeline->end_capture_and_process(nullptr);
+        m_post_process_pipeline->end_capture_and_process(m_custom_render_target);
     }
     m_post_process_pipeline = nullptr; // Reset per-frame
 
     // C. Flush Screen-Space HUD / UI directly on top of post-processed image (Crisp & Unaffected)
+    if (m_custom_render_target) {
+        SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
+    }
     flush_range(screen_space_start, sprite_count);
 
     auto t3 = std::chrono::high_resolution_clock::now();
