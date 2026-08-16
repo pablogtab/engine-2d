@@ -110,6 +110,19 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
     });
 
     sm.register_shortcut({
+        .id = "editor.delete",
+        .display_name = "Delete Selected Entities",
+        .category = "Editing",
+        .primary_key = ImGuiKey_Backspace,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = false,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = nullptr
+    });
+
+    sm.register_shortcut({
         .id = "editor.focus_camera",
         .display_name = "Focus Camera on Selection",
         .category = "Camera",

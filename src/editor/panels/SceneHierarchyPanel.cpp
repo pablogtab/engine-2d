@@ -1,5 +1,6 @@
 #include "SceneHierarchyPanel.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../shortcuts/ShortcutManager.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
@@ -129,6 +130,26 @@ void SceneHierarchyPanel::on_gui() {
                 } else {
                     for (EntityID s_id : to_delete) em.destroy_entity(s_id);
                     m_selection->clear();
+                }
+            }
+        }
+
+        // Keyboard Shortcut via ShortcutManager: editor.delete
+        if (!io.WantTextInput && ShortcutManager::get().is_triggered("editor.delete") && 
+            (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows))) {
+            if (m_selection && !m_selection->empty()) {
+                std::vector<EntityID> to_delete;
+                for (EntityID s_id : m_selection->get_selected()) {
+                    if (em.is_alive(s_id)) to_delete.push_back(s_id);
+                }
+
+                if (!to_delete.empty()) {
+                    if (m_command_history) {
+                        m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete));
+                    } else {
+                        for (EntityID s_id : to_delete) em.destroy_entity(s_id);
+                        m_selection->clear();
+                    }
                 }
             }
         }

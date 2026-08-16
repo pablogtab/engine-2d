@@ -711,100 +711,42 @@
             }
         },
         {
-            "id": 12,
-            "tag": "Tilemap",
-            "tilemap": {
-                "category_bits": 4,
+            "collider": [
+                {
+                    "category_bits": 4,
+                    "is_one_way": false,
+                    "is_trigger": false,
+                    "mask_bits": 65535,
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "radius": 0.0,
+                    "size": [
+                        448.0,
+                        32.0
+                    ],
+                    "type": "Box"
+                }
+            ],
+            "id": 13,
+            "rigidbody": {
+                "fixed_rotation": true,
                 "friction": 0.6000000238418579,
-                "generate_colliders": true,
-                "is_one_way": false,
-                "is_trigger": false,
-                "mask_bits": 65535,
+                "gravity_scale": 0.0,
+                "mass": 1.0,
                 "restitution": 0.0,
-                "tile_pixel_size": 32,
-                "tile_size": 32.0,
-                "tiles": [
-                    {
-                        "id": 1,
-                        "x": -1,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": -2,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": 2,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": 1,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": -3,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": 0,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": -4,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": -7,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": -5,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": -6,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": 4,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": -8,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": 3,
-                        "y": -2
-                    },
-                    {
-                        "id": 1,
-                        "x": -9,
-                        "y": -2
-                    }
-                ],
-                "tileset_path": "assets/textures/tilesets/terrain_tileset.png"
+                "type": "Static"
             },
+            "tag": "Tilemap_Composite_Collider #1",
             "transform": {
                 "pivot": [
                     0.5,
                     0.5
                 ],
                 "position": [
-                    0.0,
-                    0.0,
+                    -64.0,
+                    48.0,
                     0.0
                 ],
                 "rotation": 0.0,

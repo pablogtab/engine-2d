@@ -36,7 +36,16 @@ bool ShortcutManager::is_triggered(const std::string& action_id) {
 
     if (!mod_match) return false;
 
-    return ImGui::IsKeyPressed(b.primary_key, false);
+    bool key_pressed = ImGui::IsKeyPressed(b.primary_key, false);
+    if (!key_pressed && action_id == "editor.delete") {
+        if (b.primary_key == ImGuiKey_Backspace) {
+            key_pressed = ImGui::IsKeyPressed(ImGuiKey_Delete, false);
+        } else if (b.primary_key == ImGuiKey_Delete) {
+            key_pressed = ImGui::IsKeyPressed(ImGuiKey_Backspace, false);
+        }
+    }
+
+    return key_pressed;
 }
 
 std::string ShortcutManager::get_label(const std::string& action_id) const {

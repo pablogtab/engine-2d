@@ -1,6 +1,7 @@
 #include "ViewportPanel.hpp"
 #include "TilemapPalettePanel.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
+#include "../commands/EntityCommands.hpp"
 #include "../../scene/GenericScene.hpp"
 #include "../../core/Log.hpp"
 #include "../../core/Time.hpp"
@@ -325,6 +326,24 @@ void ViewportPanel::on_gui() {
 
                 if (!cloned_ids.empty()) {
                     m_selection->set_selection(cloned_ids);
+                }
+            }
+
+            // --- 8. Delete Selected Entities ---
+            if (is_editing && (m_is_focused || m_is_hovered) && !io.WantTextInput && ShortcutManager::get().is_triggered("editor.delete") && m_selection && !m_selection->empty() && active_scene) {
+                EntityManager& em = active_scene->get_entity_manager();
+                std::vector<EntityID> to_delete;
+                for (EntityID s_id : m_selection->get_selected()) {
+                    if (em.is_alive(s_id)) to_delete.push_back(s_id);
+                }
+
+                if (!to_delete.empty()) {
+                    if (m_command_history) {
+                        m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete));
+                    } else {
+                        for (EntityID s_id : to_delete) em.destroy_entity(s_id);
+                        m_selection->clear();
+                    }
                 }
             }
         }
