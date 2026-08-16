@@ -43,39 +43,81 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
     // 4. Register Default Actions in ShortcutManager
     auto& sm = ShortcutManager::get();
     sm.register_shortcut({
-        "editor.undo", "Undo Action", "Editing",
-        ImGuiKey_Z, true, true, false, false, true,
-        [this]() { if (m_command_history) m_command_history->undo(); }
+        .id = "editor.undo",
+        .display_name = "Undo Action",
+        .category = "Editing",
+        .primary_key = ImGuiKey_Z,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = false,
+        .mod_alt = false,
+        .enable_repeat = true,
+        .callback = [this]() { if (m_command_history) m_command_history->undo(); }
     });
 
     sm.register_shortcut({
-        "editor.redo", "Redo Action", "Editing",
-        ImGuiKey_Z, true, true, true, false, true,
-        [this]() { if (m_command_history) m_command_history->redo(); }
+        .id = "editor.redo",
+        .display_name = "Redo Action",
+        .category = "Editing",
+        .primary_key = ImGuiKey_Z,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = true,
+        .mod_alt = false,
+        .enable_repeat = true,
+        .callback = [this]() { if (m_command_history) m_command_history->redo(); }
     });
 
     sm.register_shortcut({
-        "editor.save_scene", "Save Scene", "File",
-        ImGuiKey_S, true, true, false, false, false,
-        [this]() { save_active_scene(); }
+        .id = "editor.save_scene",
+        .display_name = "Save Scene",
+        .category = "File",
+        .primary_key = ImGuiKey_S,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = false,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = [this]() { save_active_scene(); }
     });
 
     sm.register_shortcut({
-        "editor.new_scene", "New Scene", "File",
-        ImGuiKey_N, true, true, false, false, false,
-        [this]() { create_new_scene("New Scene"); }
+        .id = "editor.new_scene",
+        .display_name = "New Scene",
+        .category = "File",
+        .primary_key = ImGuiKey_N,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = false,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = [this]() { create_new_scene("New Scene"); }
     });
 
     sm.register_shortcut({
-        "editor.duplicate", "Duplicate Entities", "Editing",
-        ImGuiKey_D, true, true, false, false, false,
-        nullptr
+        .id = "editor.duplicate",
+        .display_name = "Duplicate Entities",
+        .category = "Editing",
+        .primary_key = ImGuiKey_D,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = false,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = nullptr
     });
 
     sm.register_shortcut({
-        "editor.focus_camera", "Focus Camera on Selection", "Camera",
-        ImGuiKey_F, false, false, false, false, false,
-        nullptr
+        .id = "editor.focus_camera",
+        .display_name = "Focus Camera on Selection",
+        .category = "Camera",
+        .primary_key = ImGuiKey_F,
+        .mod_cmd = false,
+        .mod_ctrl = false,
+        .mod_shift = false,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = nullptr
     });
 
     sm.load_from_file("config/shortcuts.json");

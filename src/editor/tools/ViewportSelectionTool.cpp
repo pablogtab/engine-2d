@@ -77,8 +77,8 @@ void ViewportSelectionTool::handle_selection_input(
     if (m_is_box_selecting && !io.MouseDown[ImGuiMouseButton_Left]) {
         m_is_box_selecting = false;
         float drag_dist = std::hypot(mouse_pos.x - m_box_select_start.x, mouse_pos.y - m_box_select_start.y);
-        bool is_shift_strict = io.KeyShift;
-        bool is_additive = io.KeyCtrl || io.KeySuper;
+        bool is_additive = io.KeyShift || io.KeyCtrl || io.KeySuper; // Shift or Cmd/Ctrl = Additive multi-selection
+        bool is_alt_strict = io.KeyAlt;                             // Alt/Option = Strict Inclusion (100% contained)
 
         float scale_x = img_size.x / camera.get_viewport_size().x;
         float scale_y = img_size.y / camera.get_viewport_size().y;
@@ -103,7 +103,7 @@ void ViewportSelectionTool::handle_selection_input(
                 glm::vec2 half = sp.size * tx.world_scale * 0.5f;
                 glm::vec2 pos = glm::vec2(tx.position.x, tx.position.y);
 
-                if (is_shift_strict) {
+                if (is_alt_strict) {
                     // Strict Inclusion (100% inside box)
                     if (pos.x - half.x >= w_min_x && pos.x + half.x <= w_max_x &&
                         pos.y - half.y >= w_min_y && pos.y + half.y <= w_max_y) {
@@ -146,7 +146,7 @@ void ViewportSelectionTool::handle_selection_input(
                 }
             });
 
-            selection.select(hit_entity, is_additive || is_shift_strict);
+            selection.select(hit_entity, is_additive);
         }
     }
 

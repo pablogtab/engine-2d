@@ -23,12 +23,11 @@ bool ShortcutManager::is_triggered(const std::string& action_id) {
     if (b.primary_key == ImGuiKey_None) return false;
 
     ImGuiIO& io = ImGui::GetIO();
-    bool has_cmd = io.KeySuper;
+    bool has_cmd = io.KeySuper || io.KeyCtrl; // Cmd on Mac (Super), Ctrl on Win
     bool has_ctrl = io.KeyCtrl;
     bool has_shift = io.KeyShift;
     bool has_alt = io.KeyAlt;
 
-    // Check modifier match
     bool mod_match = true;
     if (b.mod_cmd && !has_cmd) mod_match = false;
     if (b.mod_ctrl && !has_ctrl) mod_match = false;
@@ -48,15 +47,20 @@ std::string ShortcutManager::get_label(const std::string& action_id) const {
     if (b.primary_key == ImGuiKey_None) return "";
 
     std::string result = "";
-    if (b.mod_cmd) result += "Cmd+";
-    if (b.mod_ctrl) result += "Ctrl+";
+    if (b.mod_cmd) {
+#ifdef __APPLE__
+        result += "Cmd+";
+#else
+        result += "Ctrl+";
+#endif
+    }
+    if (b.mod_ctrl && !b.mod_cmd) result += "Ctrl+";
     if (b.mod_shift) result += "Shift+";
     if (b.mod_alt) result += "Alt+";
 
     const char* key_name = ImGui::GetKeyName(b.primary_key);
     if (key_name) {
         std::string name_str = key_name;
-        // Clean up ImGui key prefixes if needed
         if (name_str.rfind("ImGuiKey_", 0) == 0) {
             name_str = name_str.substr(9);
         }
@@ -89,7 +93,7 @@ void ShortcutManager::update(float dt, bool want_text_input) {
     for (auto& [id, b] : m_shortcuts) {
         if (b.primary_key == ImGuiKey_None) continue;
 
-        bool has_cmd = io.KeySuper;
+        bool has_cmd = io.KeySuper || io.KeyCtrl; // Cmd on Mac (Super), Ctrl on Win
         bool has_ctrl = io.KeyCtrl;
         bool has_shift = io.KeyShift;
         bool has_alt = io.KeyAlt;

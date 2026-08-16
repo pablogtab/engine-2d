@@ -14,8 +14,8 @@ struct ShortcutBinding {
     std::string category;      // e.g. "Editing", "Camera", "General"
     
     ImGuiKey primary_key{ImGuiKey_None};
-    bool mod_cmd{false};       // macOS Command key (Super)
-    bool mod_ctrl{false};      // Windows / Linux Ctrl key
+    bool mod_cmd{false};       // Command key on Mac (Super) / Ctrl on Win/Linux
+    bool mod_ctrl{false};      // Raw Ctrl key
     bool mod_shift{false};
     bool mod_alt{false};
     

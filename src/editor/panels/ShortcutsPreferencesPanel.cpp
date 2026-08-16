@@ -89,8 +89,8 @@ void ShortcutsPreferencesPanel::on_gui() {
                                 
                                 ShortcutManager::get().rebind(
                                     id, key,
-                                    io.KeySuper,
-                                    io.KeyCtrl,
+                                    io.KeySuper || io.KeyCtrl,
+                                    false,
                                     io.KeyShift,
                                     io.KeyAlt
                                 );
