@@ -105,6 +105,30 @@ void ViewportPanel::on_gui() {
         }
 
         ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f);
+        if (m_scene_manager && m_scene_manager->get_scene_count() > 0) {
+            ImGui::SetNextItemWidth(260.0f);
+            Scene* current_sc = m_scene_manager->get_active_scene();
+            std::string preview_name = current_sc ? ("🎬 " + current_sc->get_name()) : "Select Scene";
+            if (ImGui::BeginCombo("##viewport_scene_select", preview_name.c_str())) {
+                const auto& scenes = m_scene_manager->get_scenes();
+                for (size_t i = 0; i < scenes.size(); ++i) {
+                    if (!scenes[i]) continue;
+                    bool is_sel = (m_scene_manager->get_active_index() == static_cast<int>(i));
+                    std::string item_name = std::to_string(i + 1) + ". " + scenes[i]->get_name();
+                    if (ImGui::Selectable(item_name.c_str(), is_sel)) {
+                        m_scene_manager->set_active_scene(i);
+                        m_scene_manager->resize(m_internal_width, m_internal_height, 1.0f);
+                    }
+                    if (is_sel) {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        }
+
+        ImGui::SameLine();
         ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 250.0f);
         ImGui::TextColored(ImVec4(0.55f, 0.60f, 0.70f, 1.0f), "Mode: %s | FPS: %.0f", 
             (play_state == ScenePlayState::Edit ? "EDIT" : (play_state == ScenePlayState::Play ? "PLAY" : "PAUSED")),

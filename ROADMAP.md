@@ -153,19 +153,19 @@ graph TD
 
 ---
 
-### 📍 Módulo 9 (Siguiente): Sistema de Animación 2D (Sprite Animator & Clips)
+### 📍 Módulo 9: Sistema de Animación 2D & Sprite Animator (✅ Completado)
 > **Objetivo**: Dar vida fluida al caballero, enemigos y objetos interactivos con recorte dinámico de spritesheets y máquinas de estado.
 
-- [ ] **9.1 `AnimationComponent` & Clips de Spritesheet**:
+- [x] **9.1 `AnimationComponent` & Clips de Spritesheet**:
   - Estructura `AnimationClip` (Nombre, Frame inicial, Total frames, FPS, Loop/Once).
   - Recorte dinámico de coordenadas UV sobre el spritesheet cargado (ej. `assets/textures/knight_sheet.png`).
-- [ ] **9.2 `SpriteAnimationSystem`**:
+- [x] **9.2 `SpriteAnimationSystem`**:
   - Sistema de actualización de frames en tiempo real desacoplado (`dt` y escala de tiempo).
   - Transiciones automáticas de animación según estado físico (`Idle` al estar quieto, `Run` al moverse, `Jump` al subir, `Fall` al caer).
-- [ ] **9.3 Inspector de Animaciones en Editor**:
+- [x] **9.3 Inspector de Animaciones en Editor**:
   - Previsualización en vivo dentro del panel **Entity Inspector** con botones de Play/Pause, selector de animación y control deslizante de FPS.
-- [ ] **9.4 Serialización en `.scene`**:
-  - Guardado y carga de clips y animación activa por defecto.
+- [x] **9.4 Serialización en `.scene`**:
+  - Guardado y carga de clips y animación activa por defecto en formato JSON.
 
 ---
 

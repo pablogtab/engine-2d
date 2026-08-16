@@ -114,6 +114,44 @@ std::string SceneSerializer::serialize_to_string() {
             entity_json["camera"] = cam_json;
         }
 
+        // AnimationComponent
+        if (em.has_component<AnimationComponent>(id)) {
+            auto& anim = em.get_component<AnimationComponent>(id);
+            json anim_json;
+            anim_json["columns"] = anim.columns;
+            anim_json["rows"] = anim.rows;
+            anim_json["frame_width"] = anim.frame_width;
+            anim_json["frame_height"] = anim.frame_height;
+            anim_json["spacing_x"] = anim.spacing_x;
+            anim_json["spacing_y"] = anim.spacing_y;
+            anim_json["margin_x"] = anim.margin_x;
+            anim_json["margin_y"] = anim.margin_y;
+            anim_json["active_clip_index"] = anim.active_clip_index;
+            anim_json["is_playing"] = anim.is_playing;
+
+            json clips_arr = json::array();
+            for (const auto& clip : anim.clips) {
+                json c_j;
+                c_j["name"] = clip.name;
+                c_j["start_frame"] = clip.start_frame;
+                c_j["frame_count"] = clip.frame_count;
+                c_j["fps"] = clip.fps;
+                c_j["loop"] = clip.loop;
+
+                if (!clip.custom_frames.empty()) {
+                    json frames_arr = json::array();
+                    for (const auto& f : clip.custom_frames) {
+                        frames_arr.push_back({ {"x", f.x}, {"y", f.y}, {"w", f.w}, {"h", f.h} });
+                    }
+                    c_j["custom_frames"] = frames_arr;
+                }
+
+                clips_arr.push_back(c_j);
+            }
+            anim_json["clips"] = clips_arr;
+            entity_json["animation"] = anim_json;
+        }
+
         // RigidBodyComponent
         if (em.has_component<RigidBodyComponent>(id)) {
             auto& rb = em.get_component<RigidBodyComponent>(id);
@@ -315,6 +353,49 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                         cam.bounds = glm::vec4(c_j["bounds"][0].get<float>(), c_j["bounds"][1].get<float>(), c_j["bounds"][2].get<float>(), c_j["bounds"][3].get<float>());
                     }
                     em.add_component<CameraComponent>(id, cam);
+                }
+
+                // AnimationComponent
+                if (entity_json.contains("animation") && entity_json["animation"].is_object()) {
+                    const auto& a_j = entity_json["animation"];
+                    AnimationComponent anim;
+                    if (a_j.contains("columns")) anim.columns = a_j["columns"].get<int>();
+                    if (a_j.contains("rows")) anim.rows = a_j["rows"].get<int>();
+                    if (a_j.contains("frame_width")) anim.frame_width = a_j["frame_width"].get<float>();
+                    if (a_j.contains("frame_height")) anim.frame_height = a_j["frame_height"].get<float>();
+                    if (a_j.contains("spacing_x")) anim.spacing_x = a_j["spacing_x"].get<float>();
+                    if (a_j.contains("spacing_y")) anim.spacing_y = a_j["spacing_y"].get<float>();
+                    if (a_j.contains("margin_x")) anim.margin_x = a_j["margin_x"].get<float>();
+                    if (a_j.contains("margin_y")) anim.margin_y = a_j["margin_y"].get<float>();
+                    if (a_j.contains("active_clip_index")) anim.active_clip_index = a_j["active_clip_index"].get<int>();
+                    if (a_j.contains("is_playing")) anim.is_playing = a_j["is_playing"].get<bool>();
+
+                    if (a_j.contains("clips") && a_j["clips"].is_array()) {
+                        for (const auto& c_j : a_j["clips"]) {
+                            std::string name = c_j.value("name", "Default");
+                            int start = c_j.value("start_frame", 0);
+                            int count = c_j.value("frame_count", 1);
+                            float fps = c_j.value("fps", 10.0f);
+                            bool loop = c_j.value("loop", true);
+                            
+                            AnimationClip clip(name, start, count, fps, loop);
+                            if (c_j.contains("custom_frames") && c_j["custom_frames"].is_array()) {
+                                for (const auto& f_j : c_j["custom_frames"]) {
+                                    clip.custom_frames.push_back(SDL_FRect{
+                                        f_j.value("x", 0.0f),
+                                        f_j.value("y", 0.0f),
+                                        f_j.value("w", 0.0f),
+                                        f_j.value("h", 0.0f)
+                                    });
+                                }
+                            }
+                            anim.clips.push_back(clip);
+                        }
+                    }
+                    if (auto* c = anim.get_active_clip()) {
+                        anim.current_frame = c->start_frame;
+                    }
+                    em.add_component<AnimationComponent>(id, anim);
                 }
 
                 // RigidBodyComponent

@@ -19,6 +19,7 @@ public:
 
     void set_selection(std::shared_ptr<EditorSelection> selection) { m_selection = selection; }
     void set_renderer(struct SDL_Renderer* renderer) { m_renderer = renderer; }
+    void set_animation_studio(class SpriteAnimationStudioPanel* studio) { m_anim_studio = studio; }
 
 private:
     void draw_components(EntityManager& em, EntityID entity);
@@ -27,6 +28,7 @@ private:
     SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     struct SDL_Renderer* m_renderer{nullptr};
+    class SpriteAnimationStudioPanel* m_anim_studio{nullptr};
 };
 
 } // namespace Engine

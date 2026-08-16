@@ -433,6 +433,54 @@ void EditorLayer::render_main_menu_bar() {
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("🎮 Demos")) {
+            if (m_scene_manager) {
+                const auto& scenes = m_scene_manager->get_scenes();
+                int active_idx = m_scene_manager->get_active_index();
+
+                if (ImGui::MenuItem("🔄 Next Demo Scene", "TAB")) {
+                    m_scene_manager->next_scene();
+                    if (m_viewport_panel) {
+                        m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
+                    }
+                }
+                if (ImGui::MenuItem("⏮️ Previous Demo Scene", "Shift+TAB")) {
+                    m_scene_manager->previous_scene();
+                    if (m_viewport_panel) {
+                        m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
+                    }
+                }
+                ImGui::Separator();
+
+                for (size_t i = 0; i < scenes.size(); ++i) {
+                    if (!scenes[i]) continue;
+                    bool is_selected = (active_idx == static_cast<int>(i));
+                    std::string label;
+                    if (scenes[i]->get_name() == "PlatformerDemo") {
+                        label = "1. 🎮 Platformer Level (Authoring Scene)";
+                    } else if (scenes[i]->get_name() == "2D Platformer & Collision Layer Matrix") {
+                        label = "2. 🏃 2D Platformer & Collision Layers (C++ Sandbox)";
+                    } else if (scenes[i]->get_name() == "2D Animated Sprites & Asset Loader") {
+                        label = "3. 🧙 Top-Down Animated Sprites";
+                    } else if (scenes[i]->get_name() == "2.5D Depth & Parallax Test") {
+                        label = "4. 🌌 2.5D Depth & Parallax Test";
+                    } else if (scenes[i]->get_name() == "GPU/CPU Stress Test") {
+                        label = "5. ⚡ GPU/CPU Stress Test (3,000 Sprites)";
+                    } else {
+                        label = std::to_string(i + 1) + ". " + scenes[i]->get_name();
+                    }
+
+                    if (ImGui::MenuItem(label.c_str(), nullptr, is_selected)) {
+                        m_scene_manager->set_active_scene(i);
+                        if (m_viewport_panel) {
+                            m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
+                        }
+                    }
+                }
+            }
+            ImGui::EndMenu();
+        }
+
         if (ImGui::BeginMenu("Panels")) {
             for (auto& panel : m_panels) {
                 if (panel) {

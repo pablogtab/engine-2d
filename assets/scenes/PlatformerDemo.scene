@@ -1,6 +1,48 @@
 {
     "entities": [
         {
+            "animation": {
+                "active_clip_index": 0,
+                "clips": [
+                    {
+                        "fps": 8.0,
+                        "frame_count": 8,
+                        "loop": true,
+                        "name": "Idle",
+                        "start_frame": 0
+                    },
+                    {
+                        "fps": 6.0,
+                        "frame_count": 6,
+                        "loop": true,
+                        "name": "Run",
+                        "start_frame": 8
+                    },
+                    {
+                        "fps": 4.0,
+                        "frame_count": 4,
+                        "loop": true,
+                        "name": "Jump",
+                        "start_frame": 16
+                    },
+                    {
+                        "fps": 8.0,
+                        "frame_count": 4,
+                        "loop": true,
+                        "name": "Fall",
+                        "start_frame": 20
+                    }
+                ],
+                "columns": 8,
+                "frame_height": 96.0,
+                "frame_width": 96.0,
+                "is_playing": true,
+                "margin_x": 0.0,
+                "margin_y": 0.0,
+                "rows": 3,
+                "spacing_x": 0.0,
+                "spacing_y": 0.0
+            },
             "collider": [
                 {
                     "category_bits": 2,
@@ -42,10 +84,10 @@
                     64.0
                 ],
                 "src_rect": [
+                    192.0,
                     0.0,
-                    0.0,
-                    64.0,
-                    64.0
+                    96.0,
+                    96.0
                 ],
                 "texture": "assets/textures/knight_sheet.png",
                 "use_src_rect": true,
@@ -409,7 +451,7 @@
                     "type": "Box"
                 }
             ],
-            "id": 8,
+            "id": 7,
             "rigidbody": {
                 "fixed_rotation": true,
                 "friction": 0.20000000298023224,
@@ -473,7 +515,7 @@
                     "type": "Circle"
                 }
             ],
-            "id": 9,
+            "id": 8,
             "rigidbody": {
                 "fixed_rotation": true,
                 "friction": 0.0,
@@ -537,7 +579,7 @@
                     "type": "Circle"
                 }
             ],
-            "id": 10,
+            "id": 9,
             "rigidbody": {
                 "fixed_rotation": true,
                 "friction": 0.0,
@@ -601,7 +643,7 @@
                     "type": "Circle"
                 }
             ],
-            "id": 11,
+            "id": 10,
             "rigidbody": {
                 "fixed_rotation": true,
                 "friction": 0.0,
@@ -665,7 +707,7 @@
                     "type": "Box"
                 }
             ],
-            "id": 7,
+            "id": 11,
             "rigidbody": {
                 "fixed_rotation": true,
                 "friction": 0.8999999761581421,

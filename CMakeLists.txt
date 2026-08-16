@@ -30,6 +30,7 @@ set(SOURCES
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp
+    src/renderer/SpriteAnimationSystem.cpp
     src/renderer/SpriteSheet.cpp
     src/renderer/Texture.cpp
     src/scene/Camera2D.cpp
@@ -52,6 +53,7 @@ set(SOURCES
     src/editor/panels/PostProcessTunerPanel.cpp
     src/editor/panels/ShortcutsPreferencesPanel.cpp
     src/editor/panels/TilemapPalettePanel.cpp
+    src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/gizmos/TransformGizmo2D.cpp
     src/editor/tools/ViewportCameraController.cpp
     src/editor/tools/ViewportSelectionTool.cpp

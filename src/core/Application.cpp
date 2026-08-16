@@ -15,6 +15,7 @@
 #include "../editor/panels/PostProcessTunerPanel.hpp"
 #include "../editor/panels/ShortcutsPreferencesPanel.hpp"
 #include "../editor/panels/TilemapPalettePanel.hpp"
+#include "../editor/panels/SpriteAnimationStudioPanel.hpp"
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "../ecs/TransformSystem.hpp"
@@ -71,6 +72,9 @@ Application::Application(const std::string& name, int width, int height) {
         }
     });
 
+    auto anim_studio_panel = std::make_shared<SpriteAnimationStudioPanel>(&m_scene_manager, selection);
+    inspector_panel->set_animation_studio(anim_studio_panel.get());
+
     viewport_panel->set_palette_panel(palette_panel.get());
     m_editor_layer->set_viewport_panel(viewport_panel.get());
     m_editor_layer->register_panel(viewport_panel);
@@ -82,6 +86,7 @@ Application::Application(const std::string& name, int width, int height) {
     m_editor_layer->register_panel(postprocess_panel);
     m_editor_layer->register_panel(shortcuts_panel);
     m_editor_layer->register_panel(palette_panel);
+    m_editor_layer->register_panel(anim_studio_panel);
 
     // Connect Log stream to in-game ConsolePanel
     Log::set_callback([console_panel](const std::string& timestamp, const std::string& level, const std::string& message) {
@@ -167,6 +172,20 @@ void Application::run() {
         if (m_editor_layer) {
             m_editor_layer->begin_frame();
             m_editor_layer->render_dockspace();
+        }
+
+        // Handle TAB / Shift+TAB for cycling demo scenes when in game mode or not typing in an ImGui input field
+        bool is_imgui_typing = m_editor_layer && m_editor_layer->is_visible() && m_editor_layer->want_text_input();
+        if (!is_imgui_typing && Input::is_key_just_pressed(SDL_SCANCODE_TAB)) {
+            if (Input::is_key_pressed(SDL_SCANCODE_LSHIFT) || Input::is_key_pressed(SDL_SCANCODE_RSHIFT)) {
+                m_scene_manager.previous_scene();
+            } else {
+                m_scene_manager.next_scene();
+            }
+            if (m_editor_layer && m_editor_layer->is_visible()) {
+                auto* vp = m_editor_layer->get_viewport_panel();
+                if (vp) m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
+            }
         }
 
         // Configure Input isolation based on Viewport focus/hover state

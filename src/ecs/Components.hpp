@@ -139,6 +139,97 @@ struct CameraComponent {
     CameraComponent() = default;
 };
 
+// Animation Clip definition for 2D Spritesheets
+struct AnimationClip {
+    std::string name{"Default"};
+    int start_frame{0};
+    int frame_count{1};
+    float fps{10.0f};
+    bool loop{true};
+
+    // Support for arbitrary frame rectangles (non-uniform / non-contiguous / texture atlas)
+    std::vector<SDL_FRect> custom_frames;
+
+    AnimationClip() = default;
+    AnimationClip(const std::string& clip_name, int start, int count, float rate = 10.0f, bool looping = true)
+        : name(clip_name), start_frame(start), frame_count(count), fps(rate), loop(looping) {}
+
+    int get_total_frames() const {
+        return custom_frames.empty() ? frame_count : static_cast<int>(custom_frames.size());
+    }
+};
+
+// Animation Component for 2D spritesheet animation playback
+struct AnimationComponent {
+    int columns{1};
+    int rows{1};
+    float frame_width{64.0f};
+    float frame_height{64.0f};
+    float spacing_x{0.0f};
+    float spacing_y{0.0f};
+    float margin_x{0.0f};
+    float margin_y{0.0f};
+
+    std::vector<AnimationClip> clips;
+    int active_clip_index{0};
+
+    int current_frame{0};
+    float timer{0.0f};
+    bool is_playing{true};
+    bool is_finished{false};
+
+    AnimationComponent() = default;
+
+    void add_clip(const std::string& name, int start_frame, int frame_count, float fps = 10.0f, bool loop = true) {
+        clips.emplace_back(name, start_frame, frame_count, fps, loop);
+    }
+
+    AnimationClip* get_active_clip() {
+        if (clips.empty() || active_clip_index < 0 || active_clip_index >= static_cast<int>(clips.size())) return nullptr;
+        return &clips[active_clip_index];
+    }
+
+    const AnimationClip* get_active_clip() const {
+        if (clips.empty() || active_clip_index < 0 || active_clip_index >= static_cast<int>(clips.size())) return nullptr;
+        return &clips[active_clip_index];
+    }
+
+    SDL_FRect get_frame_rect(int frame_index, const AnimationClip* clip = nullptr) const {
+        if (!clip) clip = get_active_clip();
+        if (clip && !clip->custom_frames.empty()) {
+            if (frame_index >= 0 && frame_index < static_cast<int>(clip->custom_frames.size())) {
+                return clip->custom_frames[frame_index];
+            }
+            return clip->custom_frames[0];
+        }
+
+        int col = columns > 0 ? (frame_index % columns) : 0;
+        int row = columns > 0 ? (frame_index / columns) : 0;
+        return SDL_FRect{
+            margin_x + static_cast<float>(col) * (frame_width + spacing_x),
+            margin_y + static_cast<float>(row) * (frame_height + spacing_y),
+            frame_width,
+            frame_height
+        };
+    }
+
+    bool play_clip(const std::string& clip_name) {
+        for (size_t i = 0; i < clips.size(); ++i) {
+            if (clips[i].name == clip_name) {
+                if (active_clip_index != static_cast<int>(i)) {
+                    active_clip_index = static_cast<int>(i);
+                    current_frame = clips[i].start_frame;
+                    timer = 0.0f;
+                    is_finished = false;
+                }
+                is_playing = true;
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
 namespace CollisionCategory {
     constexpr uint16_t NONE    = 0x0000;
     constexpr uint16_t DEFAULT = 0x0001; // 1 << 0 (Default layer)
