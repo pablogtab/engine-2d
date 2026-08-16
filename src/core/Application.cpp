@@ -10,6 +10,7 @@
 #include "../editor/panels/ConsolePanel.hpp"
 #include "../editor/panels/StatsPanel.hpp"
 #include "../editor/panels/AssetBrowserPanel.hpp"
+#include "../editor/panels/PostProcessTunerPanel.hpp"
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
 
@@ -38,6 +39,9 @@ Application::Application(const std::string& name, int width, int height) {
     auto console_panel = std::make_shared<ConsolePanel>();
     auto stats_panel = std::make_shared<StatsPanel>();
     auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");
+    auto postprocess_panel = std::make_shared<PostProcessTunerPanel>();
+
+    viewport_panel->set_hierarchy_panel(hierarchy_panel.get());
 
     asset_browser->set_on_load_scene_callback([this](const std::string& scene_path) {
         std::filesystem::path p(scene_path);
@@ -61,6 +65,7 @@ Application::Application(const std::string& name, int width, int height) {
     m_editor_layer->register_panel(console_panel);
     m_editor_layer->register_panel(asset_browser);
     m_editor_layer->register_panel(stats_panel);
+    m_editor_layer->register_panel(postprocess_panel);
 
     // Connect Log stream to in-game ConsolePanel
     Log::set_callback([console_panel](const std::string& timestamp, const std::string& level, const std::string& message) {

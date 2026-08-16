@@ -2,15 +2,19 @@
 #include "../core/Log.hpp"
 #include "../core/Input.hpp"
 #include "../audio/AudioPresets.hpp"
+#include <algorithm>
 
 namespace Engine {
 
 GenericScene::GenericScene(std::string name, float width, float height)
-    : Scene(std::move(name)), m_camera(width, height) {
+    : Scene(std::move(name)), m_camera(width, height), m_editor_camera(width, height) {
     m_camera_controller.bind_camera(&m_camera);
     m_camera_controller.set_follow_speed(6.0f);
     m_camera_controller.enable_deadzone(false);
     m_camera_controller.enable_bounds(false);
+
+    m_editor_camera.set_position(glm::vec2(0.0f, 0.0f));
+    m_editor_camera.set_zoom(1.0f);
 }
 
 void GenericScene::on_attach() {
@@ -22,6 +26,22 @@ void GenericScene::on_attach() {
 void GenericScene::on_detach() {
     ENGINE_LOG_INFO("[SCENE] Detached generic scene: '{}'", get_name());
     Engine::PhysicsSystem::clear();
+}
+
+void GenericScene::pan_editor_camera(const glm::vec2& delta_pixels) {
+    float zoom = m_editor_camera.get_zoom();
+    if (zoom <= 0.001f) zoom = 1.0f;
+    glm::vec2 current_pos = m_editor_camera.get_position();
+    m_editor_camera.set_position(current_pos + glm::vec2(-delta_pixels.x, delta_pixels.y) / zoom);
+}
+
+void GenericScene::zoom_editor_camera(float zoom_factor) {
+    float new_zoom = std::clamp(m_editor_camera.get_zoom() * zoom_factor, 0.1f, 5.0f);
+    m_editor_camera.set_zoom(new_zoom);
+}
+
+void GenericScene::focus_editor_camera(const glm::vec2& target_pos) {
+    m_editor_camera.set_position(target_pos);
 }
 
 void GenericScene::on_update(float delta_time) {
@@ -106,7 +126,8 @@ void GenericScene::on_update(float delta_time) {
 }
 
 void GenericScene::on_render(Renderer2D& renderer) {
-    renderer.begin_scene(m_camera);
+    Camera2D& active_cam = m_is_editing ? m_editor_camera : m_camera;
+    renderer.begin_scene(active_cam);
 
     m_entity_manager.for_each<Engine::TransformComponent, Engine::SpriteComponent>(
         [&](Engine::EntityID entity, Engine::TransformComponent& transform, Engine::SpriteComponent& sprite) {
@@ -138,6 +159,8 @@ void GenericScene::on_resize(int width, int height, float dpi_scale) {
     m_dpi_scale = dpi_scale;
     m_camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
     m_camera.set_dpi_scale(dpi_scale);
+    m_editor_camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
+    m_editor_camera.set_dpi_scale(dpi_scale);
 }
 
 } // namespace Engine

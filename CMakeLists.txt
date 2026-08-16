@@ -49,6 +49,8 @@ set(SOURCES
     src/editor/panels/ConsolePanel.cpp
     src/editor/panels/StatsPanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp
+    src/editor/panels/PostProcessTunerPanel.cpp
+    src/editor/gizmos/TransformGizmo2D.cpp
     vendor/imgui/imgui.cpp
     vendor/imgui/imgui_draw.cpp
     vendor/imgui/imgui_tables.cpp

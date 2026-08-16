@@ -28,6 +28,10 @@ void Renderer2D::begin_scene(const Camera2D& camera) {
     m_rendered_sprites = 0;
     m_culled_sprites = 0;
 
+    if (m_custom_render_target) {
+        SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
+    }
+
     if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
         m_post_process_pipeline->begin_capture();
     }

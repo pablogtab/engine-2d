@@ -50,6 +50,7 @@ public:
     static Texture* create_procedural(SDL_Renderer* renderer, const ProceduralTextureDesc& desc);
 
     // Procedural helpers
+    static Texture* get_white(SDL_Renderer* renderer);
     static Texture* create_solid(SDL_Renderer* renderer, int width, int height, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
     static Texture* create_grid(SDL_Renderer* renderer, int size, uint8_t r, uint8_t g, uint8_t b);
     static Texture* create_circle(SDL_Renderer* renderer, int radius, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);

@@ -41,7 +41,11 @@ void SceneHierarchyPanel::on_gui() {
         EntityManager& em = active_scene->get_entity_manager();
         const auto& living_entities = em.get_living_entities();
 
-        ImGui::TextDisabled("Entities: %zu alive", living_entities.size());
+        if (m_selected_entities.size() > 1) {
+            ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Selected: %zu entities", m_selected_entities.size());
+        } else {
+            ImGui::TextDisabled("Entities: %zu alive", living_entities.size());
+        }
         ImGui::Separator();
 
         // --- Entity List ---
@@ -49,6 +53,9 @@ void SceneHierarchyPanel::on_gui() {
 
         std::string filter_str = m_search_filter;
         std::transform(filter_str.begin(), filter_str.end(), filter_str.begin(), ::tolower);
+
+        ImGuiIO& io = ImGui::GetIO();
+        bool is_multi_key = io.KeyCtrl || io.KeyShift;
 
         for (EntityID id : living_entities) {
             if (!em.is_alive(id)) continue;
@@ -71,21 +78,25 @@ void SceneHierarchyPanel::on_gui() {
                                       ImGuiTreeNodeFlags_NoTreePushOnOpen |
                                       ImGuiTreeNodeFlags_SpanAvailWidth;
 
-            if (m_selected_entity == id) {
+            if (m_selected_entities.contains(id)) {
                 flags |= ImGuiTreeNodeFlags_Selected;
             }
 
-            bool opened = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<uintptr_t>(id)), flags, "%s", label.c_str());
+            ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<uintptr_t>(id)), flags, "%s", label.c_str());
             if (ImGui::IsItemClicked()) {
-                m_selected_entity = id;
+                select_entity(id, is_multi_key);
             }
 
             // Right-click context menu per entity
             if (ImGui::BeginPopupContextItem()) {
-                m_selected_entity = id;
+                if (!m_selected_entities.contains(id)) {
+                    select_entity(id, false);
+                }
                 if (ImGui::MenuItem("Delete Entity")) {
-                    em.destroy_entity(id);
-                    if (m_selected_entity == id) m_selected_entity = 0;
+                    for (EntityID s_id : m_selected_entities) {
+                        em.destroy_entity(s_id);
+                    }
+                    m_selected_entities.clear();
                 }
                 ImGui::EndPopup();
             }
@@ -99,16 +110,19 @@ void SceneHierarchyPanel::on_gui() {
             em.add_component<TagComponent>(new_id, TagComponent{"Entity_" + std::to_string(new_id)});
             em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
             
-            Texture* tex = m_renderer ? Texture::create_solid(m_renderer, 8, 8, 255, 255, 255, 255) : nullptr;
+            Texture* tex = Texture::get_white(m_renderer);
             em.add_component<SpriteComponent>(new_id, SpriteComponent{tex, glm::vec2(64.0f, 64.0f), SDL_Color{255, 255, 255, 255}});
 
-            m_selected_entity = new_id;
+            set_selected_entity(new_id);
         }
         ImGui::SameLine();
-        if (m_selected_entity != 0 && em.is_alive(m_selected_entity)) {
-            if (ImGui::Button(" Delete ", ImVec2(70, 24))) {
-                em.destroy_entity(m_selected_entity);
-                m_selected_entity = 0;
+        if (!m_selected_entities.empty()) {
+            std::string del_label = m_selected_entities.size() > 1 ? " Delete (" + std::to_string(m_selected_entities.size()) + ") " : " Delete ";
+            if (ImGui::Button(del_label.c_str(), ImVec2(90, 24))) {
+                for (EntityID s_id : m_selected_entities) {
+                    em.destroy_entity(s_id);
+                }
+                m_selected_entities.clear();
             }
         }
     }
@@ -116,4 +130,3 @@ void SceneHierarchyPanel::on_gui() {
 }
 
 } // namespace Engine
-

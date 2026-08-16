@@ -2,6 +2,7 @@
 
 #include "../EditorPanel.hpp"
 #include "../../scene/SceneManager.hpp"
+#include "../gizmos/TransformGizmo2D.hpp"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <string>
@@ -9,6 +10,7 @@
 namespace Engine {
 
 using EditorPlayState = ScenePlayState;
+class SceneHierarchyPanel;
 
 class ViewportPanel : public EditorPanel {
 public:
@@ -29,6 +31,7 @@ public:
     [[nodiscard]] const glm::vec2& get_viewport_mouse_pos() const { return m_viewport_mouse_pos; }
 
     void set_scene_manager(SceneManager* sm) { m_scene_manager = sm; }
+    void set_hierarchy_panel(SceneHierarchyPanel* hp) { m_hierarchy_panel = hp; }
 
     int get_internal_width() const { return m_internal_width; }
     int get_internal_height() const { return m_internal_height; }
@@ -37,15 +40,19 @@ private:
     std::string m_name{"Scene Viewport"};
     SDL_Renderer* m_renderer{nullptr};
     SceneManager* m_scene_manager{nullptr};
+    SceneHierarchyPanel* m_hierarchy_panel{nullptr};
     SDL_Texture* m_viewport_texture{nullptr};
 
     int m_internal_width{1920};
     int m_internal_height{1080};
 
-    EditorPlayState m_play_state{EditorPlayState::Edit};
     bool m_is_hovered{false};
     bool m_is_focused{false};
     glm::vec2 m_viewport_mouse_pos{0.0f, 0.0f};
+
+    TransformGizmo2D m_gizmo;
+    bool m_is_box_selecting{false};
+    ImVec2 m_box_select_start{0.0f, 0.0f};
 };
 
 } // namespace Engine

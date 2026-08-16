@@ -31,13 +31,35 @@ void InspectorPanel::on_gui() {
             return;
         }
 
-        EntityID selected_id = m_hierarchy_panel->get_selected_entity();
+        const auto& selected_set = m_hierarchy_panel->get_selected_entities();
         EntityManager& em = active_scene->get_entity_manager();
 
-        if (selected_id == 0 || !em.is_alive(selected_id)) {
+        if (selected_set.empty()) {
             ImGui::TextDisabled("No Entity Selected.");
             ImGui::Separator();
-            ImGui::TextWrapped("Select an entity from the Scene Hierarchy panel to inspect and edit its components.");
+            ImGui::TextWrapped("Select an entity from the Scene Hierarchy panel or drag-select in the Viewport to inspect components.");
+            ImGui::End();
+            return;
+        }
+
+        if (selected_set.size() > 1) {
+            ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Multi-Selection: %zu Entities", selected_set.size());
+            ImGui::Separator();
+            ImGui::TextWrapped("You have %zu entities selected. Use the Viewport Gizmo to translate them together as a group.", selected_set.size());
+            ImGui::Spacing();
+            if (ImGui::Button(" Delete All Selected ", ImVec2(180, 26))) {
+                for (EntityID id : selected_set) {
+                    em.destroy_entity(id);
+                }
+                m_hierarchy_panel->clear_selection();
+            }
+            ImGui::End();
+            return;
+        }
+
+        EntityID selected_id = *selected_set.begin();
+        if (!em.is_alive(selected_id)) {
+            m_hierarchy_panel->clear_selection();
             ImGui::End();
             return;
         }

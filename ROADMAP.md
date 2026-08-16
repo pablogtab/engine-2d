@@ -103,25 +103,24 @@ graph TD
 
 ---
 
-### 📍 Módulo 5 (Siguiente): Cámara 2D en Editor, Gizmos Visuales & Calibrador de Post-Processing
+### 📍 Módulo 5: Cámara 2D en Editor, Gizmos Visuales & Calibrador de Post-Processing (✅ Completado)
 > **Objetivo**: Navegación libre por el escenario con el ratón, visualización de la cámara de juego y manipulación directa en el visor.
 
-- [ ] **5.1 Cámara 2D del Editor (Navegación en Viewport)**:
+- [x] **5.1 Cámara 2D del Editor (Navegación en Viewport)**:
   - **Pan Libre:** Desplazamiento del visor arrastrando con el botón central o botón derecho del ratón.
   - **Zoom Suave:** Rueda del ratón para acercar / alejar el visor ($0.1\times$ a $5.0\times$).
   - **Botón `Focus on Entity` ('F'):** Centra la cámara del visor sobre la entidad seleccionada.
-- [ ] **5.2 `Camera2DComponent` & Gizmo Visual de Cámara de Juego**:
-  - Componente ECS para entidades de cámara (Zoom, Deadzones, Target Follow).
-  - Dibujado del rectángulo/marco (*Frustum Frame*) en el Viewport para ver exactamente qué ve la cámara del juego.
-- [ ] **5.3 Gizmos de Transformación & Raycast Picking en Viewport**:
-  - Flechas de traslación ($X$ roja, $Y$ verde) sobre la entidad seleccionada.
+- [x] **5.2 `Camera2D` Frustum Gizmo (Marco de Cámara de Juego)**:
+  - Dibujado del rectángulo/marco (*Frustum Frame*) en el Viewport para ver exactamente qué ve la cámara del juego ($1920\times 1080$).
+- [x] **5.3 Gizmos de Transformación & Raycast Picking en Viewport**:
+  - Flechas de traslación ($X$ roja, $Y$ verde) y caja central para arrastrar entidades en vivo con el ratón.
   - Clic directo sobre cualquier sprite en el Viewport para seleccionarlo en la Jerarquía y en el Inspector.
-- [ ] **5.4 `PostProcessTunerPanel`**:
-  - Calibrador visual de Bloom, Aberración Cromática, Viñeta, CRT y Grano de Película con guardado de presets JSON.
+- [x] **5.4 `PostProcessTunerPanel`**:
+  - Calibrador visual de Bloom, Aberración Cromática, Viñeta, CRT y Grano de Película con guardado/carga de presets JSON.
 
 ---
 
-### 📍 Módulo 7: Tilemaps, Paleta de Baldosas (Pasto/Tierra) & Fusión de Colisiones
+### 📍 Módulo 7 (Siguiente): Tilemaps, Paleta de Baldosas (Pasto/Tierra) & Fusión de Colisiones
 > **Objetivo**: Pintar niveles con pasto, tierra, plataformas y generar colisionadores automáticamente.
 
 - [ ] **7.1 Tilemap Component & Tilesets PNG**:
@@ -130,39 +129,49 @@ graph TD
 - [ ] **7.2 Tilemap Palette Panel (Pincel de Baldosas)**:
   - Panel para seleccionar baldosas de un tileset y pintarlas con clic en el Viewport (Pincel, Rectángulo, Borrador).
 - [ ] **7.3 Fusión de Colisiones (Composite Box2D Colliders)**:
-  - Une automáticamente baldosas adyacentes en un solo cuerpo estático Box2D continuo para optimizar físicas y evitar atascos en bordes. Optimizadas
-> **Objetivo**: Construir niveles gigantescos rápidamente con herramientas estándar de la industria.
-
-- [ ] **7.1 Parser de Tilemaps LDtk / Tiled (`.ldtk` / `.json`)**:
-  - Carga de capas de tiles, autotiling y capas de objetos decorativos.
-  - Renderizado optimizado por chunks para mapas de gran escala.
-  - Agrupación automática de tiles sólidos continuos en una sola caja/polígono de Box2D para máximo rendimiento.
+  - Une automáticamente baldosas adyacentes en un solo cuerpo estático Box2D continuo para optimizar físicas y evitar atascos en bordes.
 
 ---
 
-### 📍 Módulo 8: Iluminación 2D Dinámica & Sombras Poligonales
+### 📍 Módulo 8: Sistema de Deshacer / Rehacer (Undo / Redo - Ctrl+Z / Ctrl+Y)
+> **Objetivo**: Historial de comandos en el Editor para revertir y rehacer cualquier acción de diseño.
+
+- [ ] **8.1 Command Pattern & UndoStack**:
+  - Pila de comandos con límite configurable (ej. 100 pasos).
+  - Acciones atómicas:
+    - **`MoveEntityCommand`:** Deshacer/rehacer movimiento con Gizmos o sliders del Inspector.
+    - **`CreateEntityCommand` / `DeleteEntityCommand`:** Revertir creación o borrado accidental de entidades.
+    - **`ModifyComponentCommand`:** Revertir cambios de color, tamaño, masa o restitución.
+- [ ] **8.2 Atajos de Teclado & Menú `Edit`**:
+  - **`Ctrl + Z` (Cmd+Z en Mac):** Deshacer (*Undo*).
+  - **`Ctrl + Y` / `Ctrl + Shift + Z` (Cmd+Shift+Z en Mac):** Rehacer (*Redo*).
+  - Menú superior **`Edit -> Undo`** y **`Edit -> Redo`** con tooltip de la acción a revertir (ej. *"Undo Move Platform_1"*).
+
+---
+
+### 📍 Módulo 9: Iluminación 2D Dinámica & Sombras Poligonales
 > **Objetivo**: Iluminación 2D atmosférica con cálculo de penumbras y oclusión de sombras.
 
-- [ ] **8.1 `Light2DComponent` & Render Pass de Luz**:
+- [ ] **9.1 `Light2DComponent` & Render Pass de Luz**:
   - Luces puntuales (*Point Lights*), antorchas y luz ambiental con mezcla multiplicativa en textura offscreen.
-- [ ] **8.2 Shadow Casters 2D**:
+- [ ] **9.2 Shadow Casters 2D**:
   - Extrusión de sombras poligonales en GPU a partir de bordes de colliders y geometrías estáticas.
 
 ---
 
-### 📍 Módulo 9: Capa de Scripting Runtime (Lua & Hot-Reload)
+### 📍 Módulo 10: Capa de Scripting Runtime (Lua & Hot-Reload)
 > **Objetivo**: Escribir comportamientos de juego y lógica de personajes sin recompilar C++.
 
-- [ ] **9.1 Integración de Lua VM / Sol2**:
+- [ ] **10.1 Integración de Lua VM / Sol2**:
   - Binding del ECS, inputs, audio y físicas a scripts `.lua`.
   - Componente `ScriptComponent` asignable a cualquier entidad en el Inspector.
   - Recarga en caliente (*Hot-Reloading*) al modificar el archivo `.lua` en disco.
 
 ---
 
-### 📍 Módulo 10: Exportador de Proyecto ("Build Standalone Game")
+### 📍 Módulo 11: Exportador de Proyecto ("Build Standalone Game")
 > **Objetivo**: Empaquetar y compilar el juego final en un ejecutable limpio sin editor.
 
-- [ ] **10.1 Pipeline de Exportación**:
+- [ ] **11.1 Pipeline de Exportación**:
   - Menú **`Build -> Build Game Standalone`**.
   - Empaquetado automático de assets y generación del binario final del juego para macOS / Windows / Linux.

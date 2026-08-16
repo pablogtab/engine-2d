@@ -189,7 +189,7 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                         }
                     }
                     if (!sc.texture && m_renderer) {
-                        sc.texture = Texture::create_solid(m_renderer, 8, 8, 255, 255, 255, 255);
+                        sc.texture = Texture::get_white(m_renderer);
                     }
                     if (sp_j.contains("size") && sp_j["size"].is_array() && sp_j["size"].size() >= 2) {
                         sc.size = glm::vec2(sp_j["size"][0].get<float>(), sp_j["size"][1].get<float>());

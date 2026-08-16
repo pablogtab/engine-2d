@@ -38,7 +38,12 @@ public:
     void set_post_process_pipeline(PostProcessPipeline* pipeline) { m_post_process_pipeline = pipeline; }
     PostProcessPipeline* get_post_process_pipeline() const { return m_post_process_pipeline; }
 
-    void set_custom_render_target(SDL_Texture* target) { m_custom_render_target = target; }
+    void set_custom_render_target(SDL_Texture* target) { 
+        m_custom_render_target = target; 
+        if (m_sdl_renderer) {
+            SDL_SetRenderTarget(m_sdl_renderer, target);
+        }
+    }
     SDL_Texture* get_custom_render_target() const { return m_custom_render_target; }
 
     void reserve_capacity(size_t max_sprites);
