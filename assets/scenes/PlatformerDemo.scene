@@ -393,70 +393,6 @@
         {
             "collider": [
                 {
-                    "category_bits": 4,
-                    "is_one_way": false,
-                    "is_trigger": false,
-                    "mask_bits": 65535,
-                    "offset": [
-                        0.0,
-                        0.0
-                    ],
-                    "radius": 16.0,
-                    "size": [
-                        120.0,
-                        20.0
-                    ],
-                    "type": "Box"
-                }
-            ],
-            "id": 7,
-            "rigidbody": {
-                "fixed_rotation": true,
-                "friction": 0.8999999761581421,
-                "gravity_scale": 0.0,
-                "mass": 0.0,
-                "restitution": 0.0,
-                "type": "Kinematic"
-            },
-            "sprite": {
-                "color": [
-                    0,
-                    210,
-                    255,
-                    255
-                ],
-                "flip_x": false,
-                "flip_y": false,
-                "size": [
-                    120.0,
-                    20.0
-                ],
-                "texture": "",
-                "use_src_rect": false,
-                "visible": true
-            },
-            "tag": "Moving_Elevator_Platform",
-            "transform": {
-                "pivot": [
-                    0.5,
-                    0.5
-                ],
-                "position": [
-                    -400.0,
-                    -120.0,
-                    0.0
-                ],
-                "rotation": 0.0,
-                "scale": [
-                    1.0,
-                    1.0
-                ],
-                "visible": true
-            }
-        },
-        {
-            "collider": [
-                {
                     "category_bits": 8,
                     "is_one_way": false,
                     "is_trigger": true,
@@ -721,32 +657,49 @@
                         0.0,
                         0.0
                     ],
-                    "radius": 0.0,
+                    "radius": 16.0,
                     "size": [
-                        448.0,
-                        32.0
+                        120.0,
+                        20.0
                     ],
                     "type": "Box"
                 }
             ],
-            "id": 13,
+            "id": 7,
             "rigidbody": {
                 "fixed_rotation": true,
-                "friction": 0.6000000238418579,
+                "friction": 0.8999999761581421,
                 "gravity_scale": 0.0,
-                "mass": 1.0,
+                "mass": 0.0,
                 "restitution": 0.0,
-                "type": "Static"
+                "type": "Kinematic"
             },
-            "tag": "Tilemap_Composite_Collider #1",
+            "sprite": {
+                "color": [
+                    0,
+                    210,
+                    255,
+                    255
+                ],
+                "flip_x": false,
+                "flip_y": false,
+                "size": [
+                    120.0,
+                    20.0
+                ],
+                "texture": "",
+                "use_src_rect": false,
+                "visible": true
+            },
+            "tag": "Moving_Elevator_Platform",
             "transform": {
                 "pivot": [
                     0.5,
                     0.5
                 ],
                 "position": [
-                    -64.0,
-                    48.0,
+                    -400.0,
+                    -120.0,
                     0.0
                 ],
                 "rotation": 0.0,

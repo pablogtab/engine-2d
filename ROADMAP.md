@@ -120,16 +120,21 @@ graph TD
 
 ---
 
-### 📍 Módulo 7 (Siguiente): Tilemaps, Paleta de Baldosas (Pasto/Tierra) & Fusión de Colisiones
+### 📍 Módulo 7: Tilemaps, Paleta de Baldosas & Fusión de Colisiones (✅ Completado)
 > **Objetivo**: Pintar niveles con pasto, tierra, plataformas y generar colisionadores automáticamente.
 
-- [ ] **7.1 Tilemap Component & Tilesets PNG**:
-  - Texturas reales en `assets/textures/tiles/` (`grass_top.png`, `dirt_block.png`, `stone_brick.png`, `wood_platform.png`).
+- [x] **7.1 Tilemap Component & Sparse Dynamic Grid**:
+  - Grilla dispersa infinita (`unordered_map<int64_t, uint16_t>`), tamaño inicial 0 que se expande orgánicamente al pintar.
   - Renderizado por batching eficiente de grillas de baldosas ($16\times 16$, $32\times 32$, $64\times 64$).
-- [ ] **7.2 Tilemap Palette Panel (Pincel de Baldosas)**:
-  - Panel para seleccionar baldosas de un tileset y pintarlas con clic en el Viewport (Pincel, Rectángulo, Borrador).
-- [ ] **7.3 Fusión de Colisiones (Composite Box2D Colliders)**:
-  - Une automáticamente baldosas adyacentes en un solo cuerpo estático Box2D continuo para optimizar físicas y evitar atascos en bordes.
+- [x] **7.2 Tilemap Palette Studio & Pinceles**:
+  - Panel visual interactivo con zoom (`32px` a `72px`), Drag-and-Drop de texturas de tileset y herramientas (*Pincel*, *Box Fill* con previsualización en tiempo real, *Borrador*).
+  - **Random Variation Pool:** Pincel y relleno de variaciones aleatorias con pesos ponderados (`%`) para romper la monotonía del terreno.
+- [x] **7.3 Fusión de Colisiones (Composite Box2D Colliders)**:
+  - Algoritmo voraz (*Greedy 2D Box Merging*) que une automáticamente baldosas contiguas en cajas estáticas de Box2D.
+  - Emparentado en la jerarquía y propiedades físicas configurables (*Trigger*, *One-Way Platform*, *Fricción*, *Restitución*, *Capas de Colisión*).
+- [x] **7.4 Historial Undo/Redo & Persistencia en Escenas**:
+  - `PaintTilesCommand` con soporte completo de `Cmd+Z` / `Cmd+Shift+Z`.
+  - Serialización y deserialización automática en archivos `.scene`.
 
 ---
 
@@ -148,29 +153,45 @@ graph TD
 
 ---
 
-### 📍 Módulo 9: Iluminación 2D Dinámica & Sombras Poligonales
+### 📍 Módulo 9 (Siguiente): Sistema de Animación 2D (Sprite Animator & Clips)
+> **Objetivo**: Dar vida fluida al caballero, enemigos y objetos interactivos con recorte dinámico de spritesheets y máquinas de estado.
+
+- [ ] **9.1 `AnimationComponent` & Clips de Spritesheet**:
+  - Estructura `AnimationClip` (Nombre, Frame inicial, Total frames, FPS, Loop/Once).
+  - Recorte dinámico de coordenadas UV sobre el spritesheet cargado (ej. `assets/textures/knight_sheet.png`).
+- [ ] **9.2 `SpriteAnimationSystem`**:
+  - Sistema de actualización de frames en tiempo real desacoplado (`dt` y escala de tiempo).
+  - Transiciones automáticas de animación según estado físico (`Idle` al estar quieto, `Run` al moverse, `Jump` al subir, `Fall` al caer).
+- [ ] **9.3 Inspector de Animaciones en Editor**:
+  - Previsualización en vivo dentro del panel **Entity Inspector** con botones de Play/Pause, selector de animación y control deslizante de FPS.
+- [ ] **9.4 Serialización en `.scene`**:
+  - Guardado y carga de clips y animación activa por defecto.
+
+---
+
+### 📍 Módulo 10: Iluminación 2D Dinámica & Sombras Poligonales
 > **Objetivo**: Iluminación 2D atmosférica con cálculo de penumbras y oclusión de sombras.
 
-- [ ] **9.1 `Light2DComponent` & Render Pass de Luz**:
+- [ ] **10.1 `Light2DComponent` & Render Pass de Luz**:
   - Luces puntuales (*Point Lights*), antorchas y luz ambiental con mezcla multiplicativa en textura offscreen.
-- [ ] **9.2 Shadow Casters 2D**:
+- [ ] **10.2 Shadow Casters 2D**:
   - Extrusión de sombras poligonales en GPU a partir de bordes de colliders y geometrías estáticas.
 
 ---
 
-### 📍 Módulo 10: Capa de Scripting Runtime (Lua & Hot-Reload)
+### 📍 Módulo 11: Capa de Scripting Runtime (Lua & Hot-Reload)
 > **Objetivo**: Escribir comportamientos de juego y lógica de personajes sin recompilar C++.
 
-- [ ] **10.1 Integración de Lua VM / Sol2**:
+- [ ] **11.1 Integración de Lua VM / Sol2**:
   - Binding del ECS, inputs, audio y físicas a scripts `.lua`.
   - Componente `ScriptComponent` asignable a cualquier entidad en el Inspector.
   - Recarga en caliente (*Hot-Reloading*) al modificar el archivo `.lua` en disco.
 
 ---
 
-### 📍 Módulo 11: Exportador de Proyecto ("Build Standalone Game")
+### 📍 Módulo 12: Exportador de Proyecto ("Build Standalone Game")
 > **Objetivo**: Empaquetar y compilar el juego final en un ejecutable limpio sin editor.
 
-- [ ] **11.1 Pipeline de Exportación**:
+- [ ] **12.1 Pipeline de Exportación**:
   - Menú **`Build -> Build Game Standalone`**.
   - Empaquetado automático de assets y generación del binario final del juego para macOS / Windows / Linux.
