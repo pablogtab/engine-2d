@@ -1,4 +1,5 @@
 #include "ViewportPanel.hpp"
+#include "../shortcuts/ShortcutManager.hpp"
 #include "../../scene/GenericScene.hpp"
 #include "../../core/Log.hpp"
 #include "../../core/Time.hpp"
@@ -217,8 +218,8 @@ void ViewportPanel::on_gui() {
                 );
             }
 
-            // --- 7. Duplicate Selected Entities (Ctrl + D / Cmd + D) ---
-            if (is_editing && m_is_hovered && (io.KeyCtrl || io.KeySuper) && ImGui::IsKeyPressed(ImGuiKey_D) && m_selection && !m_selection->empty() && active_scene) {
+            // --- 7. Duplicate Selected Entities ---
+            if (is_editing && m_is_hovered && ShortcutManager::get().is_triggered("editor.duplicate") && m_selection && !m_selection->empty() && active_scene) {
                 EntityManager& em = active_scene->get_entity_manager();
                 std::unordered_set<EntityID> cloned_ids;
 

@@ -1,6 +1,7 @@
 #include "EditorLayer.hpp"
 #include "EditorTheme.hpp"
 #include "commands/EditorCommandHistory.hpp"
+#include "shortcuts/ShortcutManager.hpp"
 #include "../core/Log.hpp"
 #include "../scene/SceneManager.hpp"
 #include "../scene/GenericScene.hpp"
@@ -38,6 +39,46 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
     // 3. Setup Platform/Renderer backends
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
+
+    // 4. Register Default Actions in ShortcutManager
+    auto& sm = ShortcutManager::get();
+    sm.register_shortcut({
+        "editor.undo", "Undo Action", "Editing",
+        ImGuiKey_Z, true, true, false, false, true,
+        [this]() { if (m_command_history) m_command_history->undo(); }
+    });
+
+    sm.register_shortcut({
+        "editor.redo", "Redo Action", "Editing",
+        ImGuiKey_Z, true, true, true, false, true,
+        [this]() { if (m_command_history) m_command_history->redo(); }
+    });
+
+    sm.register_shortcut({
+        "editor.save_scene", "Save Scene", "File",
+        ImGuiKey_S, true, true, false, false, false,
+        [this]() { save_active_scene(); }
+    });
+
+    sm.register_shortcut({
+        "editor.new_scene", "New Scene", "File",
+        ImGuiKey_N, true, true, false, false, false,
+        [this]() { create_new_scene("New Scene"); }
+    });
+
+    sm.register_shortcut({
+        "editor.duplicate", "Duplicate Entities", "Editing",
+        ImGuiKey_D, true, true, false, false, false,
+        nullptr
+    });
+
+    sm.register_shortcut({
+        "editor.focus_camera", "Focus Camera on Selection", "Camera",
+        ImGuiKey_F, false, false, false, false, false,
+        nullptr
+    });
+
+    sm.load_from_file("config/shortcuts.json");
 
     m_initialized = true;
     ENGINE_LOG_INFO("[EDITOR] Dear ImGui initialized successfully (Docking Enabled).");
@@ -89,60 +130,9 @@ void EditorLayer::begin_frame() {
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
 
-    // Global Undo / Redo Shortcuts with Initial Delay & Incremental Acceleration Curve
-    if (!want_text_input() && m_command_history) {
-        ImGuiIO& io = ImGui::GetIO();
-        float dt = io.DeltaTime;
-        bool is_cmd = io.KeySuper || io.KeyCtrl;
-
-        // --- 1. UNDO (Cmd + Z / Ctrl + Z) ---
-        bool is_undo_held = is_cmd && !io.KeyShift && ImGui::IsKeyDown(ImGuiKey_Z);
-        if (is_cmd && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
-            // Immediate trigger on single tap
-            m_command_history->undo();
-            m_undo_is_holding = true;
-            m_undo_timer = 0.0f;
-            m_undo_interval = 0.40f; // Initial comfortable delay before repeat kicks in
-        } else if (m_undo_is_holding && is_undo_held) {
-            m_undo_timer += dt;
-            if (m_undo_timer >= m_undo_interval) {
-                m_command_history->undo();
-                m_undo_timer = 0.0f;
-                // Incremental smooth acceleration curve down to 0.06s cap
-                m_undo_interval = std::max(0.06f, m_undo_interval * 0.78f);
-            }
-        } else if (!is_undo_held) {
-            m_undo_is_holding = false;
-            m_undo_timer = 0.0f;
-            m_undo_interval = 0.40f;
-        }
-
-        // --- 2. REDO (Cmd + Shift + Z / Cmd + Y / Ctrl + Y / Ctrl + Shift + Z) ---
-        bool is_redo_held = (is_cmd && io.KeyShift && ImGui::IsKeyDown(ImGuiKey_Z)) ||
-                            (is_cmd && ImGui::IsKeyDown(ImGuiKey_Y));
-        bool is_redo_pressed = (is_cmd && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) ||
-                               (is_cmd && ImGui::IsKeyPressed(ImGuiKey_Y, false));
-
-        if (is_redo_pressed) {
-            // Immediate trigger on single tap
-            m_command_history->redo();
-            m_redo_is_holding = true;
-            m_redo_timer = 0.0f;
-            m_redo_interval = 0.40f; // Initial comfortable delay before repeat kicks in
-        } else if (m_redo_is_holding && is_redo_held) {
-            m_redo_timer += dt;
-            if (m_redo_timer >= m_redo_interval) {
-                m_command_history->redo();
-                m_redo_timer = 0.0f;
-                // Incremental smooth acceleration curve down to 0.06s cap
-                m_redo_interval = std::max(0.06f, m_redo_interval * 0.78f);
-            }
-        } else if (!is_redo_held) {
-            m_redo_is_holding = false;
-            m_redo_timer = 0.0f;
-            m_redo_interval = 0.40f;
-        }
-    }
+    // Process all registered actions with smart acceleration curves
+    float dt = ImGui::GetIO().DeltaTime;
+    ShortcutManager::get().update(dt, want_text_input());
 }
 
 void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
@@ -279,10 +269,13 @@ void EditorLayer::render_dockspace() {
 void EditorLayer::render_main_menu_bar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
+            std::string new_lbl = ShortcutManager::get().get_label("editor.new_scene");
+            if (ImGui::MenuItem("New Scene", new_lbl.empty() ? nullptr : new_lbl.c_str())) {
                 create_new_scene("New Scene");
             }
-            if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
+
+            std::string save_lbl = ShortcutManager::get().get_label("editor.save_scene");
+            if (ImGui::MenuItem("Save Scene", save_lbl.empty() ? nullptr : save_lbl.c_str())) {
                 save_active_scene();
             }
             if (ImGui::MenuItem("Save Scene As...")) {
@@ -303,7 +296,8 @@ void EditorLayer::render_main_menu_bar() {
             if (can_u) {
                 undo_str += " " + m_command_history->get_undo_description();
             }
-            if (ImGui::MenuItem(undo_str.c_str(), "Cmd+Z", false, can_u)) {
+            std::string undo_lbl = ShortcutManager::get().get_label("editor.undo");
+            if (ImGui::MenuItem(undo_str.c_str(), undo_lbl.c_str(), false, can_u)) {
                 if (m_command_history) m_command_history->undo();
             }
 
@@ -312,13 +306,20 @@ void EditorLayer::render_main_menu_bar() {
             if (can_r) {
                 redo_str += " " + m_command_history->get_redo_description();
             }
-            if (ImGui::MenuItem(redo_str.c_str(), "Cmd+Shift+Z", false, can_r)) {
+            std::string redo_lbl = ShortcutManager::get().get_label("editor.redo");
+            if (ImGui::MenuItem(redo_str.c_str(), redo_lbl.c_str(), false, can_r)) {
                 if (m_command_history) m_command_history->redo();
             }
 
             ImGui::Separator();
             if (ImGui::MenuItem("Clear History", nullptr, false, m_command_history && (m_command_history->can_undo() || m_command_history->can_redo()))) {
                 if (m_command_history) m_command_history->clear();
+            }
+
+            ImGui::Separator();
+            if (ImGui::MenuItem("Shortcuts & Keybindings...")) {
+                auto panel = get_panel("Shortcuts & Keybindings");
+                if (panel) panel->is_open = true;
             }
 
             ImGui::Separator();

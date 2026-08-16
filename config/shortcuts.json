@@ -1,0 +1,44 @@
+{
+    "editor.duplicate": {
+        "alt": false,
+        "cmd": true,
+        "ctrl": true,
+        "key": 549,
+        "shift": false
+    },
+    "editor.focus_camera": {
+        "alt": false,
+        "cmd": false,
+        "ctrl": false,
+        "key": 551,
+        "shift": false
+    },
+    "editor.new_scene": {
+        "alt": false,
+        "cmd": true,
+        "ctrl": true,
+        "key": 559,
+        "shift": false
+    },
+    "editor.redo": {
+        "alt": false,
+        "cmd": true,
+        "ctrl": true,
+        "key": 571,
+        "shift": true
+    },
+    "editor.save_scene": {
+        "alt": false,
+        "cmd": true,
+        "ctrl": true,
+        "key": 564,
+        "shift": false
+    },
+    "editor.undo": {
+        "alt": false,
+        "cmd": true,
+        "ctrl": true,
+        "key": 571,
+        "shift": false
+    }
+}

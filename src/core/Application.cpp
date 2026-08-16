@@ -13,6 +13,7 @@
 #include "../editor/panels/StatsPanel.hpp"
 #include "../editor/panels/AssetBrowserPanel.hpp"
 #include "../editor/panels/PostProcessTunerPanel.hpp"
+#include "../editor/panels/ShortcutsPreferencesPanel.hpp"
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "../ecs/TransformSystem.hpp"
@@ -49,6 +50,8 @@ Application::Application(const std::string& name, int width, int height) {
     auto stats_panel = std::make_shared<StatsPanel>();
     auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");
     auto postprocess_panel = std::make_shared<PostProcessTunerPanel>();
+    auto shortcuts_panel = std::make_shared<ShortcutsPreferencesPanel>();
+    shortcuts_panel->is_open = false; // Closed by default until opened from Edit menu
 
     asset_browser->set_on_load_scene_callback([this](const std::string& scene_path) {
         std::filesystem::path p(scene_path);
@@ -73,6 +76,7 @@ Application::Application(const std::string& name, int width, int height) {
     m_editor_layer->register_panel(asset_browser);
     m_editor_layer->register_panel(stats_panel);
     m_editor_layer->register_panel(postprocess_panel);
+    m_editor_layer->register_panel(shortcuts_panel);
 
     // Connect Log stream to in-game ConsolePanel
     Log::set_callback([console_panel](const std::string& timestamp, const std::string& level, const std::string& message) {
