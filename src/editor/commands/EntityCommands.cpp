@@ -1,5 +1,7 @@
 #include "EntityCommands.hpp"
 #include "../../physics/PhysicsSystem.hpp"
+#include "../../tilemap/Tilemap.hpp"
+#include "../../tilemap/TilemapColliderSystem.hpp"
 
 namespace Engine {
 
@@ -152,6 +154,45 @@ void CreateEntityCommand::undo() {
     if (m_selection && m_selection->is_selected(m_created_id)) {
         m_selection->clear();
     }
+}
+
+// ---------------------------------------------------------------------------
+// 4. Paint Tiles Command
+// ---------------------------------------------------------------------------
+PaintTilesCommand::PaintTilesCommand(
+    EntityManager* em,
+    EntityID tilemap_entity,
+    std::unordered_map<int64_t, uint16_t> old_tiles,
+    std::unordered_map<int64_t, uint16_t> new_tiles,
+    std::string description
+) : m_em(em),
+    m_tilemap_entity(tilemap_entity),
+    m_old_tiles(std::move(old_tiles)),
+    m_new_tiles(std::move(new_tiles)),
+    m_description(std::move(description)) {}
+
+void PaintTilesCommand::execute() {
+    if (!m_em || !m_em->is_alive(m_tilemap_entity) || !m_em->has_component<TilemapComponent>(m_tilemap_entity)) return;
+
+    auto& tilemap = m_em->get_component<TilemapComponent>(m_tilemap_entity);
+    for (const auto& [key, new_id] : m_new_tiles) {
+        int x = 0, y = 0;
+        TilemapComponent::parse_key(key, x, y);
+        tilemap.set_tile(x, y, new_id);
+    }
+    TilemapColliderSystem::build_composite_colliders(*m_em, m_tilemap_entity);
+}
+
+void PaintTilesCommand::undo() {
+    if (!m_em || !m_em->is_alive(m_tilemap_entity) || !m_em->has_component<TilemapComponent>(m_tilemap_entity)) return;
+
+    auto& tilemap = m_em->get_component<TilemapComponent>(m_tilemap_entity);
+    for (const auto& [key, old_id] : m_old_tiles) {
+        int x = 0, y = 0;
+        TilemapComponent::parse_key(key, x, y);
+        tilemap.set_tile(x, y, old_id);
+    }
+    TilemapColliderSystem::build_composite_colliders(*m_em, m_tilemap_entity);
 }
 
 } // namespace Engine

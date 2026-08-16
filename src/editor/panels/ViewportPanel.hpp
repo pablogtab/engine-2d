@@ -6,6 +6,8 @@
 #include "../gizmos/TransformGizmo2D.hpp"
 #include "../tools/ViewportCameraController.hpp"
 #include "../tools/ViewportSelectionTool.hpp"
+#include "../tools/TilemapPaintingTool.hpp"
+#include "../panels/TilemapPalettePanel.hpp"
 #include "../../scene/SceneManager.hpp"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
@@ -48,6 +50,8 @@ public:
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
     [[nodiscard]] std::shared_ptr<EditorCommandHistory> get_command_history() const { return m_command_history; }
 
+    void set_palette_panel(TilemapPalettePanel* palette) { m_palette_panel = palette; }
+
     int get_internal_width() const { return m_internal_width; }
     int get_internal_height() const { return m_internal_height; }
 
@@ -57,6 +61,7 @@ private:
     SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
+    TilemapPalettePanel* m_palette_panel{nullptr};
     SDL_Texture* m_viewport_texture{nullptr};
 
     int m_internal_width{1920};
@@ -70,6 +75,7 @@ private:
     TransformGizmo2D m_gizmo;
     ViewportCameraController m_camera_controller;
     ViewportSelectionTool m_selection_tool;
+    TilemapPaintingTool m_tilemap_painting_tool;
 };
 
 } // namespace Engine

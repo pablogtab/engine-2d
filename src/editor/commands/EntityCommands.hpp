@@ -86,4 +86,27 @@ private:
     std::string m_description{"Create Entity"};
 };
 
+// 4. Paint Tiles Command (Tilemap Brush, Eraser, and Box Fill with Undo/Redo)
+class PaintTilesCommand : public IEditorCommand {
+public:
+    PaintTilesCommand(
+        EntityManager* em,
+        EntityID tilemap_entity,
+        std::unordered_map<int64_t, uint16_t> old_tiles,
+        std::unordered_map<int64_t, uint16_t> new_tiles,
+        std::string description = "Paint Tiles"
+    );
+
+    void execute() override;
+    void undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+
+private:
+    EntityManager* m_em{nullptr};
+    EntityID m_tilemap_entity{0};
+    std::unordered_map<int64_t, uint16_t> m_old_tiles;
+    std::unordered_map<int64_t, uint16_t> m_new_tiles;
+    std::string m_description{"Paint Tiles"};
+};
+
 } // namespace Engine

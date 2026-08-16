@@ -4,6 +4,7 @@
 #include "../audio/AudioPresets.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
+#include "../ecs/RenderSystem.hpp"
 #include <algorithm>
 
 namespace Engine {
@@ -131,26 +132,8 @@ void GenericScene::on_render(Renderer2D& renderer) {
     Camera2D& active_cam = m_is_editing ? m_editor_camera : m_camera;
     renderer.begin_scene(active_cam);
 
-    m_entity_manager.for_each<Engine::TransformComponent, Engine::SpriteComponent>(
-        [&](Engine::EntityID entity, Engine::TransformComponent& transform, Engine::SpriteComponent& sprite) {
-            (void)entity;
-            if (!transform.world_visible || !sprite.visible || !sprite.texture) return;
-
-            const SDL_FRect* src_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
-
-            renderer.submit_sprite(
-                sprite.texture,
-                transform.world_position,
-                sprite.size * transform.world_scale,
-                transform.world_rotation,
-                sprite.color,
-                src_ptr,
-                transform.world_pivot,
-                sprite.flip_x,
-                sprite.flip_y
-            );
-        }
-    );
+    // Centralized rendering for Sprites, Tilemaps, and Outlines
+    RenderSystem::render(m_entity_manager, renderer);
 
     renderer.end_scene();
 }

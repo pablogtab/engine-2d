@@ -1,4 +1,5 @@
 #include "ViewportPanel.hpp"
+#include "TilemapPalettePanel.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../../scene/GenericScene.hpp"
 #include "../../core/Log.hpp"
@@ -181,9 +182,11 @@ void ViewportPanel::on_gui() {
             }
 
             // --- 5. Selection Outlines & Centroid Transform Gizmo ---
+            bool is_tilemap_painting = (m_palette_panel && m_palette_panel->is_painting_active());
             bool is_gizmo_active = false;
 
-            if (is_editing && active_scene && active_cam && m_selection && !m_selection->empty()) {
+            // --- 5. Selection Outlines & Transform Gizmo (Only when NOT actively painting tiles) ---
+            if (is_editing && active_scene && active_cam && m_selection && !m_selection->empty() && !is_tilemap_painting) {
                 // A. Selection Outlines
                 m_selection_tool.render_selection_outlines(
                     active_scene->get_entity_manager(),
@@ -205,8 +208,8 @@ void ViewportPanel::on_gui() {
                 );
             }
 
-            // --- 6. Marquee Box Selection & Raycast Picking ---
-            if (is_editing && active_cam && m_selection) {
+            // --- 6. Marquee Box Selection & Raycast Picking (Active when NOT painting) ---
+            if (is_editing && active_cam && m_selection && !is_tilemap_painting) {
                 m_selection_tool.handle_selection_input(
                     active_scene,
                     *active_cam,
@@ -215,6 +218,50 @@ void ViewportPanel::on_gui() {
                     img_size,
                     m_is_hovered,
                     is_gizmo_active || m_gizmo.is_hovered() || m_gizmo.is_using()
+                );
+            }
+
+            // --- 6.5 Interactive Tilemap Painting Tool (Brush / Box Fill / Eraser) ---
+            if (is_editing && active_scene && active_cam && is_tilemap_painting) {
+                EntityManager& em = active_scene->get_entity_manager();
+                EntityID tilemap_entity = 0;
+
+                // 1. Check if currently selected entity has a TilemapComponent
+                if (m_selection && !m_selection->empty()) {
+                    EntityID primary = m_selection->get_primary();
+                    if (em.is_alive(primary) && em.has_component<TilemapComponent>(primary)) {
+                        tilemap_entity = primary;
+                    }
+                }
+
+                // 2. Fallback: Find first entity in active scene with a TilemapComponent
+                if (tilemap_entity == 0) {
+                    em.for_each<TilemapComponent>([&](EntityID id, const TilemapComponent&) {
+                        if (tilemap_entity == 0) tilemap_entity = id;
+                    });
+                }
+
+                // 3. Fallback: If no Tilemap entity exists yet, create one automatically!
+                if (tilemap_entity == 0) {
+                    tilemap_entity = em.create_entity();
+                    em.add_component<TagComponent>(tilemap_entity, TagComponent{"Tilemap"});
+                    em.add_component<TransformComponent>(tilemap_entity, TransformComponent{glm::vec3(0.0f)});
+                    em.add_component<TilemapComponent>(tilemap_entity, TilemapComponent{});
+                }
+
+                if (m_selection && m_selection->empty()) {
+                    m_selection->select(tilemap_entity);
+                }
+
+                m_tilemap_painting_tool.handle_viewport_painting(
+                    active_scene,
+                    tilemap_entity,
+                    *m_palette_panel,
+                    *active_cam,
+                    img_min,
+                    img_size,
+                    m_is_hovered,
+                    m_command_history.get()
                 );
             }
 

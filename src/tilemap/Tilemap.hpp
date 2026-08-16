@@ -1,0 +1,106 @@
+#pragma once
+
+#include "../renderer/Texture.hpp"
+#include <glm/glm.hpp>
+#include <unordered_map>
+#include <unordered_set>
+#include <string>
+#include <cstdint>
+#include <algorithm>
+#include <limits>
+
+namespace Engine {
+
+struct TilemapComponent {
+    float tile_size{32.0f};            // Pixel size of each tile in world units
+    int tile_pixel_size{32};           // Pixel resolution in tileset texture (e.g. 32x32)
+
+    std::string tileset_path{"assets/textures/tilesets/terrain_tileset.png"};
+    Texture* tileset_texture{nullptr};
+    int tileset_cols{4};
+    int tileset_rows{4};
+
+    // Sparse Grid Data: 64-bit packed key (x in high 32 bits, y in low 32 bits) -> Tile ID
+    std::unordered_map<int64_t, uint16_t> tiles;
+
+    // Solid tile IDs for Box2D physics generation
+    std::unordered_set<uint16_t> solid_tile_ids{1, 2, 3, 4};
+
+    // Collider & Physics settings
+    bool generate_colliders{true};
+    bool is_trigger{false};
+    bool is_one_way{false};
+    uint16_t category_bits{0x0004}; // CollisionCategory::GROUND (1 << 2)
+    uint16_t mask_bits{0xFFFF};     // CollisionCategory::ALL
+    float friction{0.6f};
+    float restitution{0.0f};
+
+    TilemapComponent() = default;
+
+    static constexpr int64_t make_key(int x, int y) {
+        return (static_cast<int64_t>(x) << 32) | (static_cast<uint64_t>(static_cast<uint32_t>(y)));
+    }
+
+    static constexpr void parse_key(int64_t key, int& out_x, int& out_y) {
+        out_x = static_cast<int>(key >> 32);
+        out_y = static_cast<int>(static_cast<uint32_t>(key & 0xFFFFFFFF));
+    }
+
+    [[nodiscard]] uint16_t get_tile(int x, int y) const {
+        auto it = tiles.find(make_key(x, y));
+        return (it != tiles.end()) ? it->second : 0;
+    }
+
+    void set_tile(int x, int y, uint16_t tile_id) {
+        int64_t key = make_key(x, y);
+        if (tile_id == 0) {
+            tiles.erase(key);
+        } else {
+            tiles[key] = tile_id;
+        }
+    }
+
+    void clear() {
+        tiles.clear();
+    }
+
+    [[nodiscard]] size_t tile_count() const {
+        return tiles.size();
+    }
+
+    [[nodiscard]] bool empty() const {
+        return tiles.empty();
+    }
+
+    void get_bounds(int& out_min_x, int& out_min_y, int& out_max_x, int& out_max_y) const {
+        if (tiles.empty()) {
+            out_min_x = 0;
+            out_min_y = 0;
+            out_max_x = 0;
+            out_max_y = 0;
+            return;
+        }
+
+        out_min_x = std::numeric_limits<int>::max();
+        out_min_y = std::numeric_limits<int>::max();
+        out_max_x = std::numeric_limits<int>::min();
+        out_max_y = std::numeric_limits<int>::min();
+
+        for (const auto& [key, _] : tiles) {
+            int x = 0, y = 0;
+            parse_key(key, x, y);
+            out_min_x = std::min(out_min_x, x);
+            out_min_y = std::min(out_min_y, y);
+            out_max_x = std::max(out_max_x, x);
+            out_max_y = std::max(out_max_y, y);
+        }
+    }
+
+    [[nodiscard]] bool is_solid_tile(uint16_t tile_id) const {
+        if (tile_id == 0) return false;
+        return solid_tile_ids.contains(tile_id);
+    }
+};
+
+} // namespace Engine
+

@@ -2,6 +2,8 @@
 #include "../core/FileSystem.hpp"
 #include "../core/Log.hpp"
 #include "../ecs/Components.hpp"
+#include "../tilemap/Tilemap.hpp"
+#include "../tilemap/TilemapColliderSystem.hpp"
 #include "../core/AssetManager.hpp"
 #include <nlohmann/json.hpp>
 
@@ -25,8 +27,17 @@ std::string SceneSerializer::serialize_to_string() {
     json entities_array = json::array();
     EntityManager& em = m_scene->get_entity_manager();
 
-    // Iterate through all entities that have a TransformComponent
-    em.for_each<TransformComponent>([&](EntityID id, TransformComponent& transform) {
+    em.for_each<TransformComponent>([&](EntityID id, const TransformComponent& transform) {
+        if (!em.is_alive(id)) return;
+
+        // Skip auto-generated child colliders from being serialized as root standalone entities
+        if (em.has_component<HierarchyComponent>(id)) {
+            EntityID p = em.get_component<HierarchyComponent>(id).parent;
+            if (p != 0 && em.is_alive(p) && em.has_component<TilemapComponent>(p)) {
+                return;
+            }
+        }
+
         json entity_json;
         entity_json["id"] = id;
 
@@ -64,19 +75,41 @@ std::string SceneSerializer::serialize_to_string() {
             entity_json["sprite"] = sp_json;
         }
 
+        // TilemapComponent
+        if (em.has_component<TilemapComponent>(id)) {
+            auto& tm = em.get_component<TilemapComponent>(id);
+            json tm_json;
+            tm_json["tile_size"] = tm.tile_size;
+            tm_json["tile_pixel_size"] = tm.tile_pixel_size;
+            tm_json["tileset_path"] = tm.tileset_path;
+            tm_json["generate_colliders"] = tm.generate_colliders;
+            tm_json["is_trigger"] = tm.is_trigger;
+            tm_json["is_one_way"] = tm.is_one_way;
+            tm_json["category_bits"] = tm.category_bits;
+            tm_json["mask_bits"] = tm.mask_bits;
+            tm_json["friction"] = tm.friction;
+            tm_json["restitution"] = tm.restitution;
+
+            json tiles_arr = json::array();
+            for (const auto& [key, tile_id] : tm.tiles) {
+                int x = 0, y = 0;
+                TilemapComponent::parse_key(key, x, y);
+                tiles_arr.push_back({ {"x", x}, {"y", y}, {"id", tile_id} });
+            }
+            tm_json["tiles"] = tiles_arr;
+            entity_json["tilemap"] = tm_json;
+        }
+
         // RigidBodyComponent
         if (em.has_component<RigidBodyComponent>(id)) {
             auto& rb = em.get_component<RigidBodyComponent>(id);
             json rb_json;
-            std::string type_str = "Static";
-            if (rb.body_type == BodyType::Dynamic) type_str = "Dynamic";
-            else if (rb.body_type == BodyType::Kinematic) type_str = "Kinematic";
-            rb_json["type"] = type_str;
-            rb_json["mass"] = rb.mass;
+            rb_json["type"] = (rb.body_type == BodyType::Dynamic) ? "Dynamic" : (rb.body_type == BodyType::Kinematic ? "Kinematic" : "Static");
+            rb_json["fixed_rotation"] = rb.fixed_rotation;
             rb_json["gravity_scale"] = rb.gravity_scale;
+            rb_json["mass"] = rb.mass;
             rb_json["friction"] = rb.friction;
             rb_json["restitution"] = rb.restitution;
-            rb_json["fixed_rotation"] = rb.fixed_rotation;
             entity_json["rigidbody"] = rb_json;
         }
 
@@ -216,6 +249,40 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                         };
                     }
                     em.add_component<SpriteComponent>(id, sc);
+                }
+
+                // TilemapComponent
+                if (entity_json.contains("tilemap") && entity_json["tilemap"].is_object()) {
+                    const auto& tm_j = entity_json["tilemap"];
+                    TilemapComponent tm;
+                    if (tm_j.contains("tile_size")) tm.tile_size = tm_j["tile_size"].get<float>();
+                    if (tm_j.contains("tile_pixel_size")) tm.tile_pixel_size = tm_j["tile_pixel_size"].get<int>();
+                    if (tm_j.contains("tileset_path")) {
+                        tm.tileset_path = tm_j["tileset_path"].get<std::string>();
+                        if (m_renderer && !tm.tileset_path.empty()) {
+                            tm.tileset_texture = Texture::load_from_file(m_renderer, tm.tileset_path);
+                        }
+                    }
+                    if (tm_j.contains("generate_colliders")) tm.generate_colliders = tm_j["generate_colliders"].get<bool>();
+                    if (tm_j.contains("is_trigger")) tm.is_trigger = tm_j["is_trigger"].get<bool>();
+                    if (tm_j.contains("is_one_way")) tm.is_one_way = tm_j["is_one_way"].get<bool>();
+                    if (tm_j.contains("category_bits")) tm.category_bits = tm_j["category_bits"].get<uint16_t>();
+                    if (tm_j.contains("mask_bits")) tm.mask_bits = tm_j["mask_bits"].get<uint16_t>();
+                    if (tm_j.contains("friction")) tm.friction = tm_j["friction"].get<float>();
+                    if (tm_j.contains("restitution")) tm.restitution = tm_j["restitution"].get<float>();
+
+                    if (tm_j.contains("tiles") && tm_j["tiles"].is_array()) {
+                        for (const auto& t_item : tm_j["tiles"]) {
+                            if (t_item.contains("x") && t_item.contains("y") && t_item.contains("id")) {
+                                int tx = t_item["x"].get<int>();
+                                int ty = t_item["y"].get<int>();
+                                uint16_t tid = t_item["id"].get<uint16_t>();
+                                tm.set_tile(tx, ty, tid);
+                            }
+                        }
+                    }
+                    em.add_component<TilemapComponent>(id, tm);
+                    TilemapColliderSystem::build_composite_colliders(em, id);
                 }
 
                 // RigidBodyComponent

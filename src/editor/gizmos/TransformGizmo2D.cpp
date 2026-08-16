@@ -2,9 +2,28 @@
 #include "../commands/EntityCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../../physics/PhysicsSystem.hpp"
+#include "../../tilemap/Tilemap.hpp"
 #include <cmath>
 
 namespace Engine {
+
+static bool is_entity_locked_from_gizmo(EntityManager& em, EntityID id) {
+    if (!em.is_alive(id)) return true;
+    if (em.has_component<TagComponent>(id)) {
+        const auto& tag = em.get_component<TagComponent>(id).tag;
+        if (tag.find("Tilemap_Composite_Collider") != std::string::npos ||
+            tag.find("Tilemap_Collider") != std::string::npos) {
+            return true;
+        }
+    }
+    if (em.has_component<HierarchyComponent>(id)) {
+        EntityID parent_id = em.get_component<HierarchyComponent>(id).parent;
+        if (parent_id != 0 && em.is_alive(parent_id) && em.has_component<TilemapComponent>(parent_id)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 bool TransformGizmo2D::draw_gizmo(
     EntityManager& em,
@@ -22,13 +41,30 @@ bool TransformGizmo2D::draw_gizmo(
         return false;
     }
 
-    // Calculate group centroid
+    // Calculate group centroid excluding locked entities
     glm::vec3 centroid(0.0f, 0.0f, 0.0f);
     size_t valid_count = 0;
 
     for (EntityID id : selected_entities) {
-        if (em.is_alive(id) && em.has_component<TransformComponent>(id)) {
-            centroid += em.get_component<TransformComponent>(id).position;
+        if (em.is_alive(id) && em.has_component<TransformComponent>(id) && !is_entity_locked_from_gizmo(em, id)) {
+            const auto& tx = em.get_component<TransformComponent>(id);
+            glm::vec3 entity_pos = tx.position;
+
+            if (em.has_component<TilemapComponent>(id)) {
+                const auto& tm = em.get_component<TilemapComponent>(id);
+                if (!tm.empty()) {
+                    int min_x = 0, min_y = 0, max_x = 0, max_y = 0;
+                    tm.get_bounds(min_x, min_y, max_x, max_y);
+                    float tile_sz_x = tm.tile_size * tx.world_scale.x;
+                    float tile_sz_y = tm.tile_size * tx.world_scale.y;
+
+                    float center_x = tx.position.x + ((static_cast<float>(min_x + max_x + 1) * 0.5f) * tile_sz_x);
+                    float center_y = tx.position.y - ((static_cast<float>(min_y + max_y + 1) * 0.5f) * tile_sz_y);
+                    entity_pos = glm::vec3(center_x, center_y, tx.position.z);
+                }
+            }
+
+            centroid += entity_pos;
             valid_count++;
         }
     }
@@ -101,7 +137,7 @@ bool TransformGizmo2D::draw_gizmo(
         m_entity_start_positions.clear();
 
         for (EntityID id : selected_entities) {
-            if (em.is_alive(id) && em.has_component<TransformComponent>(id)) {
+            if (em.is_alive(id) && em.has_component<TransformComponent>(id) && !is_entity_locked_from_gizmo(em, id)) {
                 m_entity_start_positions[id] = em.get_component<TransformComponent>(id).position;
             }
         }

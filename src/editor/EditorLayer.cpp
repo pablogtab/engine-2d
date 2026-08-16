@@ -7,6 +7,7 @@
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "panels/ViewportPanel.hpp"
+#include "../tilemap/Tilemap.hpp"
 #include <filesystem>
 
 #include <imgui.h>
@@ -369,6 +370,42 @@ void EditorLayer::render_main_menu_bar() {
                 ImGuiID dockspace_id = ImGui::GetID("Engine2DDockSpace");
                 setup_default_dockspace_layout(dockspace_id);
             }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("GameObject")) {
+            Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
+            bool has_scene = (active_scene != nullptr);
+
+            if (ImGui::MenuItem("🗺️ 2D Tilemap", nullptr, false, has_scene)) {
+                if (active_scene) {
+                    EntityManager& em = active_scene->get_entity_manager();
+                    EntityID tilemap_id = em.create_entity();
+                    em.add_component<TagComponent>(tilemap_id, TagComponent{"Tilemap"});
+                    em.add_component<TransformComponent>(tilemap_id, TransformComponent{glm::vec3(0.0f)});
+                    em.add_component<TilemapComponent>(tilemap_id, TilemapComponent{});
+                }
+            }
+
+            if (ImGui::MenuItem("🟦 2D Sprite Entity", nullptr, false, has_scene)) {
+                if (active_scene) {
+                    EntityManager& em = active_scene->get_entity_manager();
+                    EntityID new_id = em.create_entity();
+                    em.add_component<TagComponent>(new_id, TagComponent{"Sprite_Entity"});
+                    em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f)});
+                    em.add_component<SpriteComponent>(new_id, SpriteComponent{nullptr, glm::vec2(64.0f, 64.0f)});
+                }
+            }
+
+            if (ImGui::MenuItem("⭕ Empty Entity", nullptr, false, has_scene)) {
+                if (active_scene) {
+                    EntityManager& em = active_scene->get_entity_manager();
+                    EntityID new_id = em.create_entity();
+                    em.add_component<TagComponent>(new_id, TagComponent{"Empty_Entity"});
+                    em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f)});
+                }
+            }
+
             ImGui::EndMenu();
         }
 

@@ -4,6 +4,8 @@
 #include "Components.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../scene/SpatialGrid.hpp"
+#include "../core/AssetManager.hpp"
+#include "../tilemap/Tilemap.hpp"
 #include <algorithm>
 #include <vector>
 
@@ -58,6 +60,58 @@ public:
                 }
             );
         }
+
+        // Step 3: Render Tilemap Grid Components
+        entity_manager.for_each<TransformComponent, TilemapComponent>(
+            [&renderer](EntityID id, const TransformComponent& transform, const TilemapComponent& tilemap) {
+                if (!transform.world_visible || tilemap.empty()) return;
+
+                Texture* tex = tilemap.tileset_texture;
+                if (!tex && renderer.get_sdl_renderer()) {
+                    tex = AssetManager::get().get_texture(renderer.get_sdl_renderer(), tilemap.tileset_path);
+                }
+                if (!tex) return;
+
+                int tex_w = tex->get_width();
+                int px_size = tilemap.tile_pixel_size;
+                int cols = std::max(1, tex_w / px_size);
+
+                float tile_sz = tilemap.tile_size * transform.world_scale.x;
+
+                for (const auto& [key, tile_id] : tilemap.tiles) {
+                    if (tile_id == 0) continue;
+
+                    int x = 0, y = 0;
+                    TilemapComponent::parse_key(key, x, y);
+
+                    int tile_idx = tile_id - 1;
+                    int c = tile_idx % cols;
+                    int r = tile_idx / cols;
+
+                    SDL_FRect src_rect{
+                        static_cast<float>(c * px_size),
+                        static_cast<float>(r * px_size),
+                        static_cast<float>(px_size),
+                        static_cast<float>(px_size)
+                    };
+
+                    float start_x = transform.world_position.x + (static_cast<float>(x) * tile_sz);
+                    float start_y = transform.world_position.y - (static_cast<float>(y) * tile_sz);
+
+                    glm::vec3 tile_pos(start_x + tile_sz * 0.5f, start_y - tile_sz * 0.5f, transform.world_position.z);
+
+                    renderer.submit_sprite(
+                        tex,
+                        tile_pos,
+                        glm::vec2(tile_sz, tile_sz),
+                        transform.world_rotation,
+                        SDL_Color{255, 255, 255, 255},
+                        &src_rect,
+                        glm::vec2(0.5f, 0.5f)
+                    );
+                }
+            }
+        );
     }
 
 private:
