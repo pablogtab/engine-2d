@@ -364,6 +364,25 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         }
     }
 
+    // --- 6. CameraComponent ---
+    if (em.has_component<CameraComponent>(entity)) {
+        if (ImGui::CollapsingHeader("🎥 Camera 2D", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& cam = em.get_component<CameraComponent>(entity);
+
+            ImGui::Checkbox("Primary Scene Camera", &cam.is_primary);
+            ImGui::SliderFloat("Camera Zoom", &cam.zoom, 0.1f, 5.0f, "%.2fx");
+            ImGui::Checkbox("Follow Player Smoothly", &cam.follow_player);
+            if (cam.follow_player) {
+                ImGui::SliderFloat("Follow Speed", &cam.follow_speed, 1.0f, 20.0f, "%.1f");
+            }
+            ImGui::Checkbox("Enable Camera Bounds", &cam.enable_bounds);
+            if (cam.enable_bounds) {
+                ImGui::DragFloat4("Bounds (MinX, MinY, MaxX, MaxY)", &cam.bounds.x, 10.0f);
+            }
+            ImGui::TextDisabled("Viewport Base: %.0f x %.0f", cam.viewport_size.x, cam.viewport_size.y);
+        }
+    }
+
     // --- Bottom Add Component Popup ---
     ImGui::Spacing();
     if (ImGui::Button(" + Add Component... ", ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
@@ -377,6 +396,9 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         if (!em.has_component<SpriteComponent>(entity) && ImGui::MenuItem("Sprite Renderer")) {
             Texture* tex = m_renderer ? Texture::create_solid(m_renderer, 8, 8, 255, 255, 255, 255) : nullptr;
             em.add_component<SpriteComponent>(entity, SpriteComponent{tex, glm::vec2(64.0f, 64.0f)});
+        }
+        if (!em.has_component<CameraComponent>(entity) && ImGui::MenuItem("Camera 2D")) {
+            em.add_component<CameraComponent>(entity, CameraComponent{});
         }
         if (!em.has_component<TilemapComponent>(entity) && ImGui::MenuItem("Tilemap Grid")) {
             em.add_component<TilemapComponent>(entity, TilemapComponent{});

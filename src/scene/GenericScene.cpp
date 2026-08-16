@@ -24,6 +24,25 @@ void GenericScene::on_attach() {
     ENGINE_LOG_INFO("[SCENE] Attached generic scene: '{}'", get_name());
     Engine::PhysicsSystem::clear();
     Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, -980.0f));
+
+    // Reset Gameplay Camera to focus on player with zoom 1.0f
+    EntityID player_id = 0;
+    m_entity_manager.for_each<TagComponent>([&](EntityID id, const TagComponent& tag) {
+        if (tag.tag == "Player_Knight" || tag.tag == "Player") {
+            player_id = id;
+        }
+    });
+
+    if (player_id != 0 && m_entity_manager.has_component<TransformComponent>(player_id)) {
+        const auto& p_tx = m_entity_manager.get_component<TransformComponent>(player_id);
+        glm::vec2 start_cam = glm::vec2(p_tx.position.x, p_tx.position.y + 60.0f);
+        m_camera.set_position(start_cam);
+        m_camera_controller.set_target(start_cam);
+    } else {
+        m_camera.set_position(glm::vec2(0.0f, 0.0f));
+        m_camera_controller.set_target(glm::vec2(0.0f, 0.0f));
+    }
+    m_camera.set_zoom(1.0f);
 }
 
 void GenericScene::on_detach() {

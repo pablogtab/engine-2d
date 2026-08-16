@@ -116,12 +116,13 @@ void SceneManager::start_play() {
 
     // 2. Attach runtime physics simulation
     active_scene->on_detach();
+    active_scene->set_is_editing(false);
     active_scene->on_attach();
     active_scene->on_resize(m_last_width, m_last_height, m_last_dpi_scale);
 
     m_play_state = ScenePlayState::Play;
     Time::set_time_scale(1.0f);
-    ENGINE_LOG_INFO("[SCENE PLAY] Started Play simulation (Memory snapshot taken).");
+    ENGINE_LOG_INFO("[SCENE PLAY] Started Play simulation (Memory snapshot taken, switched to Gameplay Camera).");
 }
 
 void SceneManager::pause_play() {
@@ -146,6 +147,7 @@ void SceneManager::stop_play() {
     Scene* active_scene = get_active_scene();
     if (active_scene) {
         active_scene->on_detach();
+        active_scene->set_is_editing(true);
 
         // Restore pristine authoring state from memory snapshot
         if (!m_snapshot_json.empty()) {
@@ -159,7 +161,7 @@ void SceneManager::stop_play() {
 
     m_play_state = ScenePlayState::Edit;
     Time::set_time_scale(0.0f);
-    ENGINE_LOG_INFO("[SCENE PLAY] Stopped Simulation: Authoring snapshot restored cleanly.");
+    ENGINE_LOG_INFO("[SCENE PLAY] Stopped Simulation: Authoring snapshot restored, switched back to Editor Camera.");
 }
 
 void SceneManager::update(float delta_time) {

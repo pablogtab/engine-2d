@@ -164,9 +164,31 @@ void ViewportPanel::on_gui() {
             }
 
             // --- 4. Camera Frustum Gizmo (Wireframe Game Frame) ---
-            if (is_editing && active_cam) {
-                glm::vec3 p_min_world(-960.0f, -540.0f, 0.0f);
-                glm::vec3 p_max_world(960.0f, 540.0f, 0.0f);
+            if (is_editing && active_cam && active_scene) {
+                EntityManager& em = active_scene->get_entity_manager();
+                
+                glm::vec2 cam_pos(0.0f, 0.0f);
+                float cam_zoom = 1.0f;
+                glm::vec2 vp_sz(1920.0f, 1080.0f);
+                bool is_cam_selected = false;
+                bool found_camera = false;
+
+                em.for_each<CameraComponent, TransformComponent>([&](EntityID id, const CameraComponent& cc, const TransformComponent& tc) {
+                    bool sel = m_selection && m_selection->is_selected(id);
+                    if (!found_camera || sel || cc.is_primary) {
+                        cam_pos = glm::vec2(tc.position.x, tc.position.y);
+                        cam_zoom = cc.zoom;
+                        vp_sz = cc.viewport_size;
+                        is_cam_selected = sel;
+                        found_camera = true;
+                    }
+                });
+
+                float half_w = (vp_sz.x * 0.5f) / (cam_zoom > 0.001f ? cam_zoom : 1.0f);
+                float half_h = (vp_sz.y * 0.5f) / (cam_zoom > 0.001f ? cam_zoom : 1.0f);
+
+                glm::vec3 p_min_world(cam_pos.x - half_w, cam_pos.y - half_h, 0.0f);
+                glm::vec3 p_max_world(cam_pos.x + half_w, cam_pos.y + half_h, 0.0f);
                 glm::vec2 s_min = active_cam->world_to_screen(p_min_world);
                 glm::vec2 s_max = active_cam->world_to_screen(p_max_world);
 
@@ -177,8 +199,13 @@ void ViewportPanel::on_gui() {
                 ImVec2 screen_rect_max(img_min.x + s_max.x * scale_x, img_min.y + s_min.y * scale_y);
 
                 ImDrawList* dl = ImGui::GetWindowDrawList();
-                dl->AddRect(screen_rect_min, screen_rect_max, IM_COL32(148, 163, 184, 60), 0.0f, 0, 1.0f);
-                dl->AddText(ImVec2(screen_rect_min.x + 8.0f, screen_rect_min.y + 8.0f), IM_COL32(148, 163, 184, 110), "Game Camera Frame (1920x1080)");
+                ImU32 frame_col = is_cam_selected ? IM_COL32(59, 130, 246, 220) : IM_COL32(148, 163, 184, 80);
+                float frame_thick = is_cam_selected ? 2.0f : 1.0f;
+                dl->AddRect(screen_rect_min, screen_rect_max, frame_col, 0.0f, 0, frame_thick);
+                
+                char cam_label[64];
+                snprintf(cam_label, sizeof(cam_label), "🎥 Camera Frame (%.0fx%.0f | Zoom: %.2fx)", vp_sz.x, vp_sz.y, cam_zoom);
+                dl->AddText(ImVec2(screen_rect_min.x + 8.0f, screen_rect_min.y + 8.0f), is_cam_selected ? IM_COL32(96, 165, 250, 255) : IM_COL32(148, 163, 184, 150), cam_label);
             }
 
             // --- 5. Selection Outlines & Centroid Transform Gizmo ---

@@ -38,8 +38,8 @@ public:
     void set_debug_colliders(bool show) { m_show_debug_colliders = show; }
     [[nodiscard]] bool is_debug_colliders() const { return m_show_debug_colliders; }
 
-    void set_is_editing(bool is_editing) { m_is_editing = is_editing; }
-    [[nodiscard]] bool is_editing() const { return m_is_editing; }
+    void set_is_editing(bool is_editing) override { m_is_editing = is_editing; }
+    [[nodiscard]] bool is_editing() const override { return m_is_editing; }
 
 private:
     Camera2D m_camera;

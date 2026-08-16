@@ -7,6 +7,7 @@
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "panels/ViewportPanel.hpp"
+#include "../ecs/Components.hpp"
 #include "../tilemap/Tilemap.hpp"
 #include <filesystem>
 
@@ -394,6 +395,16 @@ void EditorLayer::render_main_menu_bar() {
                     em.add_component<TagComponent>(new_id, TagComponent{"Sprite_Entity"});
                     em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f)});
                     em.add_component<SpriteComponent>(new_id, SpriteComponent{nullptr, glm::vec2(64.0f, 64.0f)});
+                }
+            }
+
+            if (ImGui::MenuItem("🎥 Camera 2D", nullptr, false, has_scene)) {
+                if (active_scene) {
+                    EntityManager& em = active_scene->get_entity_manager();
+                    EntityID cam_id = em.create_entity();
+                    em.add_component<TagComponent>(cam_id, TagComponent{"Main_Camera"});
+                    em.add_component<TransformComponent>(cam_id, TransformComponent{glm::vec3(0.0f, 60.0f, 0.0f)});
+                    em.add_component<CameraComponent>(cam_id, CameraComponent{});
                 }
             }
 

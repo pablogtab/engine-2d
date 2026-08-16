@@ -126,6 +126,19 @@ struct BehaviorComponent {
     explicit BehaviorComponent(std::function<void(EntityID, float)> fn) : update_fn(fn) {}
 };
 
+// Camera Component for entity-based cameras
+struct CameraComponent {
+    bool is_primary{true};
+    float zoom{1.0f};
+    glm::vec2 viewport_size{1920.0f, 1080.0f};
+    bool follow_player{true};
+    float follow_speed{6.0f};
+    bool enable_bounds{false};
+    glm::vec4 bounds{-2000.0f, -1000.0f, 2000.0f, 1000.0f}; // min_x, min_y, max_x, max_y
+
+    CameraComponent() = default;
+};
+
 namespace CollisionCategory {
     constexpr uint16_t NONE    = 0x0000;
     constexpr uint16_t DEFAULT = 0x0001; // 1 << 0 (Default layer)

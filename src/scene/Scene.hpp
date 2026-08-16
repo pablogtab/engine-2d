@@ -18,6 +18,9 @@ public:
     virtual void on_resize(int width, int height) {}
     virtual void on_resize(int width, int height, float dpi_scale) { on_resize(width, height); }
 
+    virtual void set_is_editing(bool is_editing) {}
+    [[nodiscard]] virtual bool is_editing() const { return true; }
+
     const std::string& get_name() const { return m_name; }
 
     EntityManager& get_entity_manager() { return m_entity_manager; }

@@ -100,6 +100,20 @@ std::string SceneSerializer::serialize_to_string() {
             entity_json["tilemap"] = tm_json;
         }
 
+        // CameraComponent
+        if (em.has_component<CameraComponent>(id)) {
+            auto& cam = em.get_component<CameraComponent>(id);
+            json cam_json;
+            cam_json["is_primary"] = cam.is_primary;
+            cam_json["zoom"] = cam.zoom;
+            cam_json["viewport_size"] = { cam.viewport_size.x, cam.viewport_size.y };
+            cam_json["follow_player"] = cam.follow_player;
+            cam_json["follow_speed"] = cam.follow_speed;
+            cam_json["enable_bounds"] = cam.enable_bounds;
+            cam_json["bounds"] = { cam.bounds.x, cam.bounds.y, cam.bounds.z, cam.bounds.w };
+            entity_json["camera"] = cam_json;
+        }
+
         // RigidBodyComponent
         if (em.has_component<RigidBodyComponent>(id)) {
             auto& rb = em.get_component<RigidBodyComponent>(id);
@@ -283,6 +297,24 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     }
                     em.add_component<TilemapComponent>(id, tm);
                     TilemapColliderSystem::build_composite_colliders(em, id);
+                }
+
+                // CameraComponent
+                if (entity_json.contains("camera") && entity_json["camera"].is_object()) {
+                    const auto& c_j = entity_json["camera"];
+                    CameraComponent cam;
+                    if (c_j.contains("is_primary")) cam.is_primary = c_j["is_primary"].get<bool>();
+                    if (c_j.contains("zoom")) cam.zoom = c_j["zoom"].get<float>();
+                    if (c_j.contains("viewport_size") && c_j["viewport_size"].size() >= 2) {
+                        cam.viewport_size = glm::vec2(c_j["viewport_size"][0].get<float>(), c_j["viewport_size"][1].get<float>());
+                    }
+                    if (c_j.contains("follow_player")) cam.follow_player = c_j["follow_player"].get<bool>();
+                    if (c_j.contains("follow_speed")) cam.follow_speed = c_j["follow_speed"].get<float>();
+                    if (c_j.contains("enable_bounds")) cam.enable_bounds = c_j["enable_bounds"].get<bool>();
+                    if (c_j.contains("bounds") && c_j["bounds"].size() >= 4) {
+                        cam.bounds = glm::vec4(c_j["bounds"][0].get<float>(), c_j["bounds"][1].get<float>(), c_j["bounds"][2].get<float>(), c_j["bounds"][3].get<float>());
+                    }
+                    em.add_component<CameraComponent>(id, cam);
                 }
 
                 // RigidBodyComponent
