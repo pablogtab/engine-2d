@@ -133,19 +133,18 @@ graph TD
 
 ---
 
-### 📍 Módulo 8: Sistema de Deshacer / Rehacer (Undo / Redo - Ctrl+Z / Ctrl+Y)
+### 📍 Módulo 8: Sistema de Deshacer / Rehacer (Undo / Redo - Command Pattern) (✅ Completado)
 > **Objetivo**: Historial de comandos en el Editor para revertir y rehacer cualquier acción de diseño.
 
-- [ ] **8.1 Command Pattern & UndoStack**:
-  - Pila de comandos con límite configurable (ej. 100 pasos).
+- [x] **8.1 Command Pattern & UndoStack**:
+  - Pila de comandos con límite configurable (100 pasos).
   - Acciones atómicas:
-    - **`MoveEntityCommand`:** Deshacer/rehacer movimiento con Gizmos o sliders del Inspector.
-    - **`CreateEntityCommand` / `DeleteEntityCommand`:** Revertir creación o borrado accidental de entidades.
-    - **`ModifyComponentCommand`:** Revertir cambios de color, tamaño, masa o restitución.
-- [ ] **8.2 Atajos de Teclado & Menú `Edit`**:
-  - **`Ctrl + Z` (Cmd+Z en Mac):** Deshacer (*Undo*).
-  - **`Ctrl + Y` / `Ctrl + Shift + Z` (Cmd+Shift+Z en Mac):** Rehacer (*Redo*).
-  - Menú superior **`Edit -> Undo`** y **`Edit -> Redo`** con tooltip de la acción a revertir (ej. *"Undo Move Platform_1"*).
+    - **`MoveEntitiesCommand`:** Deshacer/rehacer movimiento con Gizmos individuales o grupales.
+    - **`CreateEntityCommand` / `DeleteEntitiesCommand`:** Revertir creación o borrado accidental de entidades con restauración fiel de componentes.
+- [x] **8.2 Atajos de Teclado & Menú `Edit`**:
+  - **`Cmd + Z` en Mac (`Ctrl + Z` en Windows/Linux):** Deshacer (*Undo*).
+  - **`Cmd + Shift + Z` en Mac (`Ctrl + Y` / `Ctrl + Shift + Z` en Windows/Linux):** Rehacer (*Redo*).
+  - Menú superior **`Edit -> Undo`** y **`Edit -> Redo`** con descripciones dinámicas de las acciones (ej. *"Undo Move Player_Knight"*).
 
 ---
 

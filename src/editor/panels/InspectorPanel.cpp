@@ -10,15 +10,15 @@
 
 namespace Engine {
 
-InspectorPanel::InspectorPanel(SceneManager* scene_manager, SceneHierarchyPanel* hierarchy_panel, SDL_Renderer* renderer)
-    : m_scene_manager(scene_manager), m_hierarchy_panel(hierarchy_panel), m_renderer(renderer) {}
+InspectorPanel::InspectorPanel(SceneManager* scene_manager, std::shared_ptr<EditorSelection> selection, SDL_Renderer* renderer)
+    : m_scene_manager(scene_manager), m_selection(selection), m_renderer(renderer) {}
 
 void InspectorPanel::on_gui() {
     if (!is_open) return;
 
     ImGui::SetNextWindowSize(ImVec2(320, 500), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
-        if (!m_scene_manager || !m_hierarchy_panel) {
+        if (!m_scene_manager || !m_selection) {
             ImGui::TextDisabled("Inspector unavailable.");
             ImGui::End();
             return;
@@ -31,7 +31,7 @@ void InspectorPanel::on_gui() {
             return;
         }
 
-        const auto& selected_set = m_hierarchy_panel->get_selected_entities();
+        const auto& selected_set = m_selection->get_selected();
         EntityManager& em = active_scene->get_entity_manager();
 
         if (selected_set.empty()) {
@@ -51,7 +51,7 @@ void InspectorPanel::on_gui() {
                 for (EntityID id : selected_set) {
                     em.destroy_entity(id);
                 }
-                m_hierarchy_panel->clear_selection();
+                m_selection->clear();
             }
             ImGui::End();
             return;
@@ -59,7 +59,7 @@ void InspectorPanel::on_gui() {
 
         EntityID selected_id = *selected_set.begin();
         if (!em.is_alive(selected_id)) {
-            m_hierarchy_panel->clear_selection();
+            m_selection->clear();
             ImGui::End();
             return;
         }

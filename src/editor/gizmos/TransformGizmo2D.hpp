@@ -28,7 +28,8 @@ public:
         const Camera2D& camera,
         const ImVec2& viewport_pos,
         const ImVec2& viewport_size,
-        bool is_viewport_hovered
+        bool is_viewport_hovered,
+        class EditorCommandHistory* command_history = nullptr
     );
 
     [[nodiscard]] bool is_using() const { return m_active_axis != GizmoAxis::None; }

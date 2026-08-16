@@ -2,6 +2,8 @@
 #include "../core/Log.hpp"
 #include "../core/Input.hpp"
 #include "../audio/AudioPresets.hpp"
+#include "../physics/PhysicsSystem.hpp"
+#include "../ecs/TransformSystem.hpp"
 #include <algorithm>
 
 namespace Engine {

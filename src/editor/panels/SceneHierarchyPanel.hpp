@@ -1,9 +1,10 @@
 #pragma once
 
 #include "../EditorPanel.hpp"
-#include "../../ecs/EntityManager.hpp"
+#include "../EditorSelection.hpp"
+#include "../commands/EditorCommandHistory.hpp"
 #include <string>
-#include <unordered_set>
+#include <memory>
 
 namespace Engine {
 
@@ -11,46 +12,36 @@ class SceneManager;
 
 class SceneHierarchyPanel : public EditorPanel {
 public:
-    SceneHierarchyPanel(SceneManager* scene_manager, struct SDL_Renderer* renderer = nullptr);
+    SceneHierarchyPanel(
+        SceneManager* scene_manager, 
+        struct SDL_Renderer* renderer = nullptr, 
+        std::shared_ptr<EditorSelection> selection = nullptr,
+        std::shared_ptr<EditorCommandHistory> command_history = nullptr
+    );
     ~SceneHierarchyPanel() override = default;
 
     void on_gui() override;
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
-    [[nodiscard]] EntityID get_selected_entity() const { 
-        return m_selected_entities.empty() ? 0 : *m_selected_entities.begin(); 
-    }
-    [[nodiscard]] const std::unordered_set<EntityID>& get_selected_entities() const { return m_selected_entities; }
-    [[nodiscard]] bool is_selected(EntityID id) const { return m_selected_entities.contains(id); }
+    void set_selection(std::shared_ptr<EditorSelection> selection) { m_selection = selection; }
+    [[nodiscard]] std::shared_ptr<EditorSelection> get_selection() const { return m_selection; }
 
-    void set_selected_entity(EntityID id) { 
-        m_selected_entities.clear(); 
-        if (id != 0) m_selected_entities.insert(id); 
-    }
-    void select_entity(EntityID id, bool additive = false) {
-        if (!additive) {
-            m_selected_entities.clear();
-            if (id != 0) m_selected_entities.insert(id);
-        } else {
-            if (m_selected_entities.contains(id)) {
-                m_selected_entities.erase(id);
-            } else if (id != 0) {
-                m_selected_entities.insert(id);
-            }
-        }
-    }
-    void set_selected_entities(const std::unordered_set<EntityID>& entities) {
-        m_selected_entities = entities;
-    }
-    void clear_selection() { m_selected_entities.clear(); }
+    void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
+    [[nodiscard]] std::shared_ptr<EditorCommandHistory> get_command_history() const { return m_command_history; }
 
     void set_renderer(struct SDL_Renderer* renderer) { m_renderer = renderer; }
+
+    // Legacy helper compatibility
+    [[nodiscard]] EntityID get_selected_entity() const { 
+        return m_selection ? m_selection->get_primary() : 0; 
+    }
 
 private:
     std::string m_name{"Scene Hierarchy"};
     SceneManager* m_scene_manager{nullptr};
     struct SDL_Renderer* m_renderer{nullptr};
-    std::unordered_set<EntityID> m_selected_entities;
+    std::shared_ptr<EditorSelection> m_selection{nullptr};
+    std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     char m_search_filter[64]{""};
 };
 

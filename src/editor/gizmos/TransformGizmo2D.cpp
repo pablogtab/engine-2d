@@ -1,4 +1,6 @@
 #include "TransformGizmo2D.hpp"
+#include "../commands/EntityCommands.hpp"
+#include "../commands/EditorCommandHistory.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include <cmath>
 
@@ -10,7 +12,8 @@ bool TransformGizmo2D::draw_gizmo(
     const Camera2D& camera,
     const ImVec2& viewport_pos,
     const ImVec2& viewport_size,
-    bool is_viewport_hovered
+    bool is_viewport_hovered,
+    EditorCommandHistory* command_history
 ) {
     if (selected_entities.empty()) {
         m_active_axis = GizmoAxis::None;
@@ -104,7 +107,34 @@ bool TransformGizmo2D::draw_gizmo(
         }
     }
 
-    if (!io.MouseDown[ImGuiMouseButton_Left]) {
+    // --- Drag Interaction End (Record Command for Undo/Redo) ---
+    if (!io.MouseDown[ImGuiMouseButton_Left] && m_active_axis != GizmoAxis::None) {
+        if (command_history && !m_entity_start_positions.empty()) {
+            std::unordered_map<EntityID, glm::vec3> new_positions;
+            bool any_changed = false;
+
+            for (const auto& [id, start_pos] : m_entity_start_positions) {
+                if (em.is_alive(id) && em.has_component<TransformComponent>(id)) {
+                    glm::vec3 current_p = em.get_component<TransformComponent>(id).position;
+                    new_positions[id] = current_p;
+                    if (glm::distance(start_pos, current_p) > 0.001f) {
+                        any_changed = true;
+                    }
+                }
+            }
+
+            if (any_changed) {
+                std::string desc = (m_entity_start_positions.size() == 1) 
+                    ? "Move " + (em.has_component<TagComponent>(m_entity_start_positions.begin()->first) 
+                        ? em.get_component<TagComponent>(m_entity_start_positions.begin()->first).tag : "Entity")
+                    : "Move (" + std::to_string(m_entity_start_positions.size()) + ") Entities";
+
+                command_history->push_executed_command(
+                    std::make_unique<MoveEntitiesCommand>(&em, m_entity_start_positions, new_positions, desc)
+                );
+            }
+        }
+
         m_active_axis = GizmoAxis::None;
     }
 

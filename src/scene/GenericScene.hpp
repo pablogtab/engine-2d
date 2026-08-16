@@ -4,8 +4,6 @@
 #include "Camera2D.hpp"
 #include "CameraController2D.hpp"
 #include "../renderer/Renderer2D.hpp"
-#include "../physics/PhysicsSystem.hpp"
-#include "../ecs/TransformSystem.hpp"
 
 namespace Engine {
 

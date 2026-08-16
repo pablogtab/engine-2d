@@ -1,5 +1,6 @@
 #include "EditorLayer.hpp"
 #include "EditorTheme.hpp"
+#include "commands/EditorCommandHistory.hpp"
 #include "../core/Log.hpp"
 #include "../scene/SceneManager.hpp"
 #include "../scene/GenericScene.hpp"
@@ -87,6 +88,61 @@ void EditorLayer::begin_frame() {
     ImGui_ImplSDLRenderer3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
+
+    // Global Undo / Redo Shortcuts with Initial Delay & Incremental Acceleration Curve
+    if (!want_text_input() && m_command_history) {
+        ImGuiIO& io = ImGui::GetIO();
+        float dt = io.DeltaTime;
+        bool is_cmd = io.KeySuper || io.KeyCtrl;
+
+        // --- 1. UNDO (Cmd + Z / Ctrl + Z) ---
+        bool is_undo_held = is_cmd && !io.KeyShift && ImGui::IsKeyDown(ImGuiKey_Z);
+        if (is_cmd && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+            // Immediate trigger on single tap
+            m_command_history->undo();
+            m_undo_is_holding = true;
+            m_undo_timer = 0.0f;
+            m_undo_interval = 0.40f; // Initial comfortable delay before repeat kicks in
+        } else if (m_undo_is_holding && is_undo_held) {
+            m_undo_timer += dt;
+            if (m_undo_timer >= m_undo_interval) {
+                m_command_history->undo();
+                m_undo_timer = 0.0f;
+                // Incremental smooth acceleration curve down to 0.06s cap
+                m_undo_interval = std::max(0.06f, m_undo_interval * 0.78f);
+            }
+        } else if (!is_undo_held) {
+            m_undo_is_holding = false;
+            m_undo_timer = 0.0f;
+            m_undo_interval = 0.40f;
+        }
+
+        // --- 2. REDO (Cmd + Shift + Z / Cmd + Y / Ctrl + Y / Ctrl + Shift + Z) ---
+        bool is_redo_held = (is_cmd && io.KeyShift && ImGui::IsKeyDown(ImGuiKey_Z)) ||
+                            (is_cmd && ImGui::IsKeyDown(ImGuiKey_Y));
+        bool is_redo_pressed = (is_cmd && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) ||
+                               (is_cmd && ImGui::IsKeyPressed(ImGuiKey_Y, false));
+
+        if (is_redo_pressed) {
+            // Immediate trigger on single tap
+            m_command_history->redo();
+            m_redo_is_holding = true;
+            m_redo_timer = 0.0f;
+            m_redo_interval = 0.40f; // Initial comfortable delay before repeat kicks in
+        } else if (m_redo_is_holding && is_redo_held) {
+            m_redo_timer += dt;
+            if (m_redo_timer >= m_redo_interval) {
+                m_command_history->redo();
+                m_redo_timer = 0.0f;
+                // Incremental smooth acceleration curve down to 0.06s cap
+                m_redo_interval = std::max(0.06f, m_redo_interval * 0.78f);
+            }
+        } else if (!is_redo_held) {
+            m_redo_is_holding = false;
+            m_redo_timer = 0.0f;
+            m_redo_interval = 0.40f;
+        }
+    }
 }
 
 void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
@@ -242,6 +298,30 @@ void EditorLayer::render_main_menu_bar() {
         }
 
         if (ImGui::BeginMenu("Edit")) {
+            bool can_u = m_command_history && m_command_history->can_undo();
+            std::string undo_str = "Undo";
+            if (can_u) {
+                undo_str += " " + m_command_history->get_undo_description();
+            }
+            if (ImGui::MenuItem(undo_str.c_str(), "Cmd+Z", false, can_u)) {
+                if (m_command_history) m_command_history->undo();
+            }
+
+            bool can_r = m_command_history && m_command_history->can_redo();
+            std::string redo_str = "Redo";
+            if (can_r) {
+                redo_str += " " + m_command_history->get_redo_description();
+            }
+            if (ImGui::MenuItem(redo_str.c_str(), "Cmd+Shift+Z", false, can_r)) {
+                if (m_command_history) m_command_history->redo();
+            }
+
+            ImGui::Separator();
+            if (ImGui::MenuItem("Clear History", nullptr, false, m_command_history && (m_command_history->can_undo() || m_command_history->can_redo()))) {
+                if (m_command_history) m_command_history->clear();
+            }
+
+            ImGui::Separator();
             if (ImGui::MenuItem("Reset Layout")) {
                 ImGuiID dockspace_id = ImGui::GetID("Engine2DDockSpace");
                 setup_default_dockspace_layout(dockspace_id);

@@ -1,16 +1,28 @@
 #include "SceneHierarchyPanel.hpp"
+#include "../commands/EntityCommands.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
-#include "../../renderer/Texture.hpp"
+#include "../../core/AssetManager.hpp"
 #include <imgui.h>
 #include <cstring>
 #include <algorithm>
 
 namespace Engine {
 
-SceneHierarchyPanel::SceneHierarchyPanel(SceneManager* scene_manager, SDL_Renderer* renderer)
-    : m_scene_manager(scene_manager), m_renderer(renderer) {}
+SceneHierarchyPanel::SceneHierarchyPanel(
+    SceneManager* scene_manager, 
+    SDL_Renderer* renderer, 
+    std::shared_ptr<EditorSelection> selection,
+    std::shared_ptr<EditorCommandHistory> command_history
+) : m_scene_manager(scene_manager), 
+    m_renderer(renderer), 
+    m_selection(selection),
+    m_command_history(command_history) {
+    if (!m_selection) {
+        m_selection = std::make_shared<EditorSelection>();
+    }
+}
 
 void SceneHierarchyPanel::on_gui() {
     if (!is_open) return;
@@ -41,8 +53,8 @@ void SceneHierarchyPanel::on_gui() {
         EntityManager& em = active_scene->get_entity_manager();
         const auto& living_entities = em.get_living_entities();
 
-        if (m_selected_entities.size() > 1) {
-            ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Selected: %zu entities", m_selected_entities.size());
+        if (m_selection && m_selection->count() > 1) {
+            ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Selected: %zu entities", m_selection->count());
         } else {
             ImGui::TextDisabled("Entities: %zu alive", living_entities.size());
         }
@@ -78,25 +90,36 @@ void SceneHierarchyPanel::on_gui() {
                                       ImGuiTreeNodeFlags_NoTreePushOnOpen |
                                       ImGuiTreeNodeFlags_SpanAvailWidth;
 
-            if (m_selected_entities.contains(id)) {
+            if (m_selection && m_selection->is_selected(id)) {
                 flags |= ImGuiTreeNodeFlags_Selected;
             }
 
             ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<uintptr_t>(id)), flags, "%s", label.c_str());
             if (ImGui::IsItemClicked()) {
-                select_entity(id, is_multi_key);
+                if (m_selection) {
+                    m_selection->select(id, is_multi_key);
+                }
             }
 
             // Right-click context menu per entity
             if (ImGui::BeginPopupContextItem()) {
-                if (!m_selected_entities.contains(id)) {
-                    select_entity(id, false);
+                if (m_selection && !m_selection->is_selected(id)) {
+                    m_selection->select(id, false);
                 }
                 if (ImGui::MenuItem("Delete Entity")) {
-                    for (EntityID s_id : m_selected_entities) {
-                        em.destroy_entity(s_id);
+                    std::vector<EntityID> to_delete;
+                    if (m_selection) {
+                        for (EntityID s_id : m_selection->get_selected()) to_delete.push_back(s_id);
+                    } else {
+                        to_delete.push_back(id);
                     }
-                    m_selected_entities.clear();
+
+                    if (m_command_history) {
+                        m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete));
+                    } else {
+                        for (EntityID s_id : to_delete) em.destroy_entity(s_id);
+                        if (m_selection) m_selection->clear();
+                    }
                 }
                 ImGui::EndPopup();
             }
@@ -106,23 +129,35 @@ void SceneHierarchyPanel::on_gui() {
 
         // --- Bottom Actions Bar ---
         if (ImGui::Button(" + Add Entity ", ImVec2(100, 24))) {
-            EntityID new_id = em.create_entity();
-            em.add_component<TagComponent>(new_id, TagComponent{"Entity_" + std::to_string(new_id)});
-            em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
-            
-            Texture* tex = Texture::get_white(m_renderer);
-            em.add_component<SpriteComponent>(new_id, SpriteComponent{tex, glm::vec2(64.0f, 64.0f), SDL_Color{255, 255, 255, 255}});
+            EntitySnapshot snap;
+            snap.tag = TagComponent{"New_Entity"};
+            snap.transform = TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)};
+            snap.has_sprite = true;
+            snap.sprite = SpriteComponent{AssetManager::get().get_white_texture(m_renderer), glm::vec2(64.0f, 64.0f), SDL_Color{255, 255, 255, 255}};
 
-            set_selected_entity(new_id);
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, snap));
+            } else {
+                EntityID new_id = em.create_entity();
+                em.add_component<TagComponent>(new_id, snap.tag);
+                em.add_component<TransformComponent>(new_id, snap.transform);
+                em.add_component<SpriteComponent>(new_id, snap.sprite);
+                if (m_selection) m_selection->select(new_id, false);
+            }
         }
         ImGui::SameLine();
-        if (!m_selected_entities.empty()) {
-            std::string del_label = m_selected_entities.size() > 1 ? " Delete (" + std::to_string(m_selected_entities.size()) + ") " : " Delete ";
+        if (m_selection && !m_selection->empty()) {
+            std::string del_label = m_selection->count() > 1 ? " Delete (" + std::to_string(m_selection->count()) + ") " : " Delete ";
             if (ImGui::Button(del_label.c_str(), ImVec2(90, 24))) {
-                for (EntityID s_id : m_selected_entities) {
-                    em.destroy_entity(s_id);
+                std::vector<EntityID> to_delete;
+                for (EntityID s_id : m_selection->get_selected()) to_delete.push_back(s_id);
+
+                if (m_command_history) {
+                    m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete));
+                } else {
+                    for (EntityID s_id : to_delete) em.destroy_entity(s_id);
+                    m_selection->clear();
                 }
-                m_selected_entities.clear();
             }
         }
     }

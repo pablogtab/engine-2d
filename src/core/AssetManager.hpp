@@ -10,13 +10,24 @@ namespace Engine {
 
 class AssetManager {
 public:
+    static AssetManager& get() {
+        static AssetManager s_instance;
+        return s_instance;
+    }
+
     AssetManager() = default;
     ~AssetManager() = default;
 
     AssetManager(const AssetManager&) = delete;
     AssetManager& operator=(const AssetManager&) = delete;
 
-    // Loads a texture or retrieves it from cache if already loaded
+    // Loads a raw texture pointer or retrieves it from cache if already loaded
+    Texture* get_texture(SDL_Renderer* renderer, const std::string& filepath);
+
+    // Returns a fallback 4x4 pure white texture (cached)
+    Texture* get_white_texture(SDL_Renderer* renderer);
+
+    // Loads a texture or retrieves it from cache if already loaded (shared_ptr)
     std::shared_ptr<Texture> load_texture(SDL_Renderer* renderer, const std::string& filepath);
 
     // Manually register a procedurally generated texture into the cache
@@ -32,6 +43,7 @@ public:
 
 private:
     std::unordered_map<std::string, std::shared_ptr<Texture>> m_textures;
+    std::shared_ptr<Texture> m_white_texture{nullptr};
 };
 
 } // namespace Engine

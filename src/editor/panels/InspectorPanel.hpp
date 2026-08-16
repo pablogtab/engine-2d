@@ -1,22 +1,23 @@
 #pragma once
 
 #include "../EditorPanel.hpp"
-#include "../../ecs/EntityManager.hpp"
+#include "../EditorSelection.hpp"
 #include <string>
+#include <memory>
 
 namespace Engine {
 
 class SceneManager;
-class SceneHierarchyPanel;
 
 class InspectorPanel : public EditorPanel {
 public:
-    InspectorPanel(SceneManager* scene_manager, SceneHierarchyPanel* hierarchy_panel, struct SDL_Renderer* renderer = nullptr);
+    InspectorPanel(SceneManager* scene_manager, std::shared_ptr<EditorSelection> selection = nullptr, struct SDL_Renderer* renderer = nullptr);
     ~InspectorPanel() override = default;
 
     void on_gui() override;
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
+    void set_selection(std::shared_ptr<EditorSelection> selection) { m_selection = selection; }
     void set_renderer(struct SDL_Renderer* renderer) { m_renderer = renderer; }
 
 private:
@@ -24,7 +25,7 @@ private:
 
     std::string m_name{"Entity Inspector"};
     SceneManager* m_scene_manager{nullptr};
-    SceneHierarchyPanel* m_hierarchy_panel{nullptr};
+    std::shared_ptr<EditorSelection> m_selection{nullptr};
     struct SDL_Renderer* m_renderer{nullptr};
 };
 

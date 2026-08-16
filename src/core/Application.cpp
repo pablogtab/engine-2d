@@ -4,6 +4,8 @@
 #include "Time.hpp"
 #include "../audio/AudioEngine.hpp"
 #include "../editor/EditorLayer.hpp"
+#include "../editor/EditorSelection.hpp"
+#include "../editor/commands/EditorCommandHistory.hpp"
 #include "../editor/panels/ViewportPanel.hpp"
 #include "../editor/panels/SceneHierarchyPanel.hpp"
 #include "../editor/panels/InspectorPanel.hpp"
@@ -13,6 +15,7 @@
 #include "../editor/panels/PostProcessTunerPanel.hpp"
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
+#include "../ecs/TransformSystem.hpp"
 
 namespace Engine {
 
@@ -23,6 +26,7 @@ Application::Application(const std::string& name, int width, int height) {
     Input::init();
     AudioEngine::init();
 
+    // 1. Create Window & SDL Renderer
     m_window = std::make_unique<Window>(name, width, height);
     m_renderer = std::make_unique<Renderer2D>(m_window->get_sdl_renderer());
     m_renderer->set_thread_pool(&m_thread_pool);
@@ -33,15 +37,18 @@ Application::Application(const std::string& name, int width, int height) {
     m_editor_layer->set_scene_manager(&m_scene_manager);
     m_scene_manager.set_renderer(m_window->get_sdl_renderer());
 
-    auto viewport_panel = std::make_shared<ViewportPanel>(m_window->get_sdl_renderer(), &m_scene_manager, 1920, 1080);
-    auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager, m_window->get_sdl_renderer());
-    auto inspector_panel = std::make_shared<InspectorPanel>(&m_scene_manager, hierarchy_panel.get(), m_window->get_sdl_renderer());
+    auto selection = std::make_shared<EditorSelection>();
+    auto command_history = std::make_shared<EditorCommandHistory>();
+
+    m_editor_layer->set_command_history(command_history);
+
+    auto viewport_panel = std::make_shared<ViewportPanel>(m_window->get_sdl_renderer(), &m_scene_manager, selection, command_history, 1920, 1080);
+    auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager, m_window->get_sdl_renderer(), selection, command_history);
+    auto inspector_panel = std::make_shared<InspectorPanel>(&m_scene_manager, selection, m_window->get_sdl_renderer());
     auto console_panel = std::make_shared<ConsolePanel>();
     auto stats_panel = std::make_shared<StatsPanel>();
     auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");
     auto postprocess_panel = std::make_shared<PostProcessTunerPanel>();
-
-    viewport_panel->set_hierarchy_panel(hierarchy_panel.get());
 
     asset_browser->set_on_load_scene_callback([this](const std::string& scene_path) {
         std::filesystem::path p(scene_path);

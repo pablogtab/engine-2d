@@ -51,6 +51,10 @@ set(SOURCES
     src/editor/panels/AssetBrowserPanel.cpp
     src/editor/panels/PostProcessTunerPanel.cpp
     src/editor/gizmos/TransformGizmo2D.cpp
+    src/editor/tools/ViewportCameraController.cpp
+    src/editor/tools/ViewportSelectionTool.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EntityCommands.cpp
     vendor/imgui/imgui.cpp
     vendor/imgui/imgui_draw.cpp
     vendor/imgui/imgui_tables.cpp

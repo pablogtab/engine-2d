@@ -2,6 +2,7 @@
 #include "../core/FileSystem.hpp"
 #include "../core/Log.hpp"
 #include "../ecs/Components.hpp"
+#include "../core/AssetManager.hpp"
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -184,12 +185,12 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     SpriteComponent sc;
                     if (sp_j.contains("texture") && sp_j["texture"].is_string()) {
                         std::string tex_path = sp_j["texture"].get<std::string>();
-                        if (!tex_path.empty() && m_renderer) {
-                            sc.texture = Texture::load_from_file(m_renderer, tex_path);
+                        if (m_renderer) {
+                            sc.texture = AssetManager::get().get_texture(m_renderer, tex_path);
                         }
                     }
                     if (!sc.texture && m_renderer) {
-                        sc.texture = Texture::get_white(m_renderer);
+                        sc.texture = AssetManager::get().get_white_texture(m_renderer);
                     }
                     if (sp_j.contains("size") && sp_j["size"].is_array() && sp_j["size"].size() >= 2) {
                         sc.size = glm::vec2(sp_j["size"][0].get<float>(), sp_j["size"][1].get<float>());

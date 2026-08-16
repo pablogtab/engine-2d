@@ -8,6 +8,8 @@
 
 namespace Engine {
 
+class EditorCommandHistory;
+
 class EditorLayer {
 public:
     EditorLayer() = default;
@@ -45,6 +47,8 @@ public:
     [[nodiscard]] class ViewportPanel* get_viewport_panel() const { return m_viewport_panel; }
     void set_viewport_panel(class ViewportPanel* vp) { m_viewport_panel = vp; }
     void set_scene_manager(class SceneManager* sm) { m_scene_manager = sm; }
+    void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
+    [[nodiscard]] std::shared_ptr<EditorCommandHistory> get_command_history() const { return m_command_history; }
 
 private:
     void render_main_menu_bar();
@@ -57,11 +61,22 @@ private:
     SDL_Renderer* m_renderer{nullptr};
     class ViewportPanel* m_viewport_panel{nullptr};
     class SceneManager* m_scene_manager{nullptr};
+    std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
+
     bool m_initialized{false};
     bool m_visible{true}; // Enabled by default in editor builds
     bool m_dockspace_initialized{false};
     bool m_show_save_as_popup{false};
     char m_save_as_buf[128]{"NewLevel.scene"};
+
+    // Keyboard Repeat Acceleration Curve for Undo / Redo
+    float m_undo_timer{0.0f};
+    float m_undo_interval{0.45f};
+    bool m_undo_is_holding{false};
+
+    float m_redo_timer{0.0f};
+    float m_redo_interval{0.45f};
+    bool m_redo_is_holding{false};
 
     std::vector<std::shared_ptr<EditorPanel>> m_panels;
 };
