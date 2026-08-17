@@ -7,9 +7,12 @@
 #include "../tools/ViewportCameraController.hpp"
 #include "../tools/ViewportArrangementTool.hpp"
 #include "../tools/ViewportSelectionTool.hpp"
+#include "../tools/ViewportReferenceOverlay.hpp"
+#include "../tools/EditorToolbox.hpp"
 #include "../tools/TilemapPaintingTool.hpp"
 #include "../panels/TilemapPalettePanel.hpp"
 #include "../../scene/SceneManager.hpp"
+#include "../../scene/Camera2D.hpp"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <string>
@@ -28,6 +31,7 @@ struct ViewportGridSettings {
     float major_opacity{0.23f};
     bool show_axes{true};
 };
+
 
 class ViewportPanel : public EditorPanel {
 public:
@@ -85,8 +89,9 @@ private:
     bool m_is_hovered{false};
     bool m_is_focused{false};
     glm::vec2 m_viewport_mouse_pos{0.0f, 0.0f};
-    ImVec2 m_transform_toolbar_pos{-1.0f, -1.0f};
+    EditorToolbox m_transform_toolbox;
     ViewportGridSettings m_grid_settings;
+    ViewportReferenceOverlay m_reference_overlay;
     EntityID m_context_entity{0};
     std::array<char, 128> m_context_rename_buffer{};
 

@@ -57,6 +57,9 @@ set(SOURCES
     src/editor/gizmos/TransformGizmo2D.cpp
     src/editor/tools/ViewportCameraController.cpp
     src/editor/tools/ViewportArrangementTool.cpp
+    src/editor/tools/EditorIcons.cpp
+    src/editor/tools/EditorToolbox.cpp
+    src/editor/tools/ViewportReferenceOverlay.cpp
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
     src/editor/commands/EditorCommandHistory.cpp
