@@ -70,6 +70,7 @@ private:
     bool m_is_hovered{false};
     bool m_is_focused{false};
     glm::vec2 m_viewport_mouse_pos{0.0f, 0.0f};
+    ImVec2 m_transform_toolbar_pos{-1.0f, -1.0f};
 
     // Sub-tools
     TransformGizmo2D m_gizmo;

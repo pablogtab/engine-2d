@@ -1,4 +1,5 @@
 #include "EntityCommands.hpp"
+#include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include "../../tilemap/TilemapColliderSystem.hpp"
@@ -67,41 +68,30 @@ void ModifyEntityCommand::undo() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 1. Move Entities Command
-// ---------------------------------------------------------------------------
-MoveEntitiesCommand::MoveEntitiesCommand(
+TransformEntitiesCommand::TransformEntitiesCommand(
     EntityManager* em,
-    std::unordered_map<EntityID, glm::vec3> old_positions,
-    std::unordered_map<EntityID, glm::vec3> new_positions,
+    std::unordered_map<EntityID, TransformComponent> before,
+    std::unordered_map<EntityID, TransformComponent> after,
     std::string description
-) : m_em(em), m_old_positions(std::move(old_positions)), m_new_positions(std::move(new_positions)), m_description(std::move(description)) {}
+) : m_em(em), m_before(std::move(before)), m_after(std::move(after)), m_description(std::move(description)) {}
 
-void MoveEntitiesCommand::execute() {
+void TransformEntitiesCommand::apply(const std::unordered_map<EntityID, TransformComponent>& states) {
     if (!m_em) return;
+    for (const auto& [id, transform] : states) {
+        if (!m_em->is_alive(id) || !m_em->has_component<TransformComponent>(id)) continue;
+        m_em->get_component<TransformComponent>(id) = transform;
+    }
 
-    for (const auto& [id, new_pos] : m_new_positions) {
-        if (m_em->is_alive(id) && m_em->has_component<TransformComponent>(id)) {
-            auto& tx = m_em->get_component<TransformComponent>(id);
-            tx.position = new_pos;
-            tx.world_position = new_pos;
-            PhysicsSystem::set_position(*m_em, id, glm::vec2(new_pos.x, new_pos.y));
-        }
+    TransformSystem::update(*m_em);
+    for (const auto& [id, transform] : states) {
+        if (!m_em->is_alive(id) || !m_em->has_component<TransformComponent>(id)) continue;
+        const auto& current = m_em->get_component<TransformComponent>(id);
+        PhysicsSystem::set_position(*m_em, id, glm::vec2(current.world_position.x, current.world_position.y));
     }
 }
 
-void MoveEntitiesCommand::undo() {
-    if (!m_em) return;
-
-    for (const auto& [id, old_pos] : m_old_positions) {
-        if (m_em->is_alive(id) && m_em->has_component<TransformComponent>(id)) {
-            auto& tx = m_em->get_component<TransformComponent>(id);
-            tx.position = old_pos;
-            tx.world_position = old_pos;
-            PhysicsSystem::set_position(*m_em, id, glm::vec2(old_pos.x, old_pos.y));
-        }
-    }
-}
+void TransformEntitiesCommand::execute() { apply(m_after); }
+void TransformEntitiesCommand::undo() { apply(m_before); }
 
 // ---------------------------------------------------------------------------
 // 2. Delete Entities Command

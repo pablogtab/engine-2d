@@ -8,8 +8,102 @@
 #include "../../ecs/Components.hpp"
 #include <imgui.h>
 #include <algorithm>
+#include <cmath>
 
 namespace Engine {
+
+namespace {
+
+enum class ToolbarIcon {
+    Move,
+    Rotate,
+    Scale,
+    Space,
+    Snap,
+    Settings
+};
+
+void draw_toolbar_icon(ImDrawList* draw_list, ToolbarIcon icon, const ImVec2& center, ImU32 color, bool world_space = false) {
+    const auto line = [draw_list, color](const ImVec2& from, const ImVec2& to, float thickness = 1.8f) {
+        draw_list->AddLine(from, to, color, thickness);
+    };
+    const auto arrow = [draw_list, color](const ImVec2& tip, const ImVec2& direction) {
+        const ImVec2 perpendicular(-direction.y, direction.x);
+        const ImVec2 left(tip.x - direction.x * 5.0f + perpendicular.x * 3.0f, tip.y - direction.y * 5.0f + perpendicular.y * 3.0f);
+        const ImVec2 right(tip.x - direction.x * 5.0f - perpendicular.x * 3.0f, tip.y - direction.y * 5.0f - perpendicular.y * 3.0f);
+        draw_list->AddTriangleFilled(tip, left, right, color);
+    };
+
+    switch (icon) {
+        case ToolbarIcon::Move: {
+            line(ImVec2(center.x - 8.0f, center.y), ImVec2(center.x + 8.0f, center.y));
+            line(ImVec2(center.x, center.y - 8.0f), ImVec2(center.x, center.y + 8.0f));
+            arrow(ImVec2(center.x + 8.0f, center.y), ImVec2(1.0f, 0.0f));
+            arrow(ImVec2(center.x - 8.0f, center.y), ImVec2(-1.0f, 0.0f));
+            arrow(ImVec2(center.x, center.y + 8.0f), ImVec2(0.0f, 1.0f));
+            arrow(ImVec2(center.x, center.y - 8.0f), ImVec2(0.0f, -1.0f));
+            break;
+        }
+        case ToolbarIcon::Rotate: {
+            draw_list->PathArcTo(center, 8.0f, 0.35f, 5.55f, 20);
+            draw_list->PathStroke(color, 0, 1.8f);
+            arrow(ImVec2(center.x + 7.5f, center.y - 3.0f), ImVec2(0.45f, -0.9f));
+            break;
+        }
+        case ToolbarIcon::Scale: {
+            line(ImVec2(center.x - 7.0f, center.y + 7.0f), ImVec2(center.x + 7.0f, center.y - 7.0f));
+            draw_list->AddRectFilled(ImVec2(center.x - 10.0f, center.y + 4.0f), ImVec2(center.x - 4.0f, center.y + 10.0f), color, 1.0f);
+            draw_list->AddRectFilled(ImVec2(center.x + 4.0f, center.y - 10.0f), ImVec2(center.x + 10.0f, center.y - 4.0f), color, 1.0f);
+            break;
+        }
+        case ToolbarIcon::Space: {
+            if (world_space) {
+                draw_list->AddCircle(center, 8.0f, color, 16, 1.6f);
+                draw_list->AddEllipse(ImVec2(center.x, center.y), ImVec2(3.5f, 8.0f), color, 0.0f, 16, 1.2f);
+                line(ImVec2(center.x - 7.5f, center.y), ImVec2(center.x + 7.5f, center.y), 1.2f);
+            } else {
+                line(center, ImVec2(center.x + 9.0f, center.y), 1.8f);
+                line(center, ImVec2(center.x, center.y - 9.0f), 1.8f);
+                arrow(ImVec2(center.x + 9.0f, center.y), ImVec2(1.0f, 0.0f));
+                arrow(ImVec2(center.x, center.y - 9.0f), ImVec2(0.0f, -1.0f));
+            }
+            break;
+        }
+        case ToolbarIcon::Snap: {
+            draw_list->PathArcTo(ImVec2(center.x - 4.0f, center.y), 5.0f, 1.57f, 4.72f, 12);
+            draw_list->PathStroke(color, 0, 2.4f);
+            draw_list->AddLine(ImVec2(center.x - 4.0f, center.y + 5.0f), ImVec2(center.x + 5.0f, center.y + 5.0f), color, 2.4f);
+            break;
+        }
+        case ToolbarIcon::Settings: {
+            for (int row = -1; row <= 1; ++row) {
+                const float y = center.y + static_cast<float>(row) * 5.0f;
+                line(ImVec2(center.x - 8.0f, y), ImVec2(center.x + 8.0f, y), 1.4f);
+                draw_list->AddCircleFilled(ImVec2(center.x + (row == 0 ? -2.0f : (row < 0 ? 4.0f : -5.0f)), y), 2.3f, color);
+            }
+            break;
+        }
+    }
+}
+
+bool toolbar_icon_button(const char* id, ToolbarIcon icon, const char* tooltip, bool active = false, bool world_space = false) {
+    constexpr ImVec2 button_size(28.0f, 28.0f);
+    ImGui::PushID(id);
+    const bool pressed = ImGui::InvisibleButton("##icon", button_size);
+    const bool hovered = ImGui::IsItemHovered();
+    const ImVec2 rect_min = ImGui::GetItemRectMin();
+    const ImVec2 rect_max = ImGui::GetItemRectMax();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    const ImU32 background = active ? IM_COL32(79, 69, 209, 255) : (hovered ? IM_COL32(56, 61, 82, 255) : IM_COL32(37, 41, 55, 235));
+    const ImU32 icon_color = active || hovered ? IM_COL32(245, 246, 255, 255) : IM_COL32(187, 193, 215, 255);
+    draw_list->AddRectFilled(rect_min, rect_max, background, 4.0f);
+    draw_toolbar_icon(draw_list, icon, ImVec2((rect_min.x + rect_max.x) * 0.5f, (rect_min.y + rect_max.y) * 0.5f), icon_color, world_space);
+    if (hovered) ImGui::SetTooltip("%s", tooltip);
+    ImGui::PopID();
+    return pressed;
+}
+
+} // namespace
 
 ViewportPanel::ViewportPanel(
     SDL_Renderer* renderer, 
@@ -169,6 +263,107 @@ void ViewportPanel::on_gui() {
             ImVec2 img_size = ImVec2(img_max.x - img_min.x, img_max.y - img_min.y);
             ImGuiIO& io = ImGui::GetIO();
             ImVec2 mouse_pos = io.MousePos;
+
+            // Transform toolbar: viewport-only shortcuts avoid stealing text input.
+            if (m_is_focused && !io.WantTextInput && !m_gizmo.is_using() && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt) {
+                if (ImGui::IsKeyPressed(ImGuiKey_W)) m_gizmo.set_tool(TransformTool::Move);
+                if (ImGui::IsKeyPressed(ImGuiKey_R)) m_gizmo.set_tool(TransformTool::Rotate);
+                if (ImGui::IsKeyPressed(ImGuiKey_S)) m_gizmo.set_tool(TransformTool::Scale);
+            }
+
+            // Compact, draggable transform toolbox. Its coordinates are screen-space
+            // but clamped to the canvas, so it remains available after layout changes.
+            constexpr ImVec2 toolbox_size(216.0f, 38.0f);
+            const ImVec2 toolbox_min(img_min.x + 6.0f, img_min.y + 6.0f);
+            const ImVec2 toolbox_max(
+                std::max(toolbox_min.x, img_max.x - toolbox_size.x - 6.0f),
+                std::max(toolbox_min.y, img_max.y - toolbox_size.y - 6.0f)
+            );
+            if (m_transform_toolbar_pos.x < 0.0f || m_transform_toolbar_pos.y < 0.0f) {
+                m_transform_toolbar_pos = toolbox_min;
+            }
+            m_transform_toolbar_pos.x = std::clamp(m_transform_toolbar_pos.x, toolbox_min.x, toolbox_max.x);
+            m_transform_toolbar_pos.y = std::clamp(m_transform_toolbar_pos.y, toolbox_min.y, toolbox_max.y);
+
+            ImGui::SetCursorScreenPos(m_transform_toolbar_pos);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.075f, 0.085f, 0.12f, 0.96f));
+            ImGui::BeginChild("TransformToolbox", toolbox_size, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+            bool is_toolbox_hovered = ImGui::IsWindowHovered();
+
+            ImGui::InvisibleButton("##toolbox_grip", ImVec2(16.0f, 28.0f));
+            const ImVec2 grip_min = ImGui::GetItemRectMin();
+            const ImVec2 grip_max = ImGui::GetItemRectMax();
+            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                m_transform_toolbar_pos.x += io.MouseDelta.x;
+                m_transform_toolbar_pos.y += io.MouseDelta.y;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag toolbox");
+            ImDrawList* toolbox_draw_list = ImGui::GetWindowDrawList();
+            for (int row = 0; row < 3; ++row) {
+                for (int column = 0; column < 2; ++column) {
+                    toolbox_draw_list->AddCircleFilled(
+                        ImVec2(grip_min.x + 5.0f + static_cast<float>(column) * 5.0f, grip_min.y + 9.0f + static_cast<float>(row) * 5.0f),
+                        1.0f,
+                        IM_COL32(140, 148, 174, 210)
+                    );
+                }
+            }
+            ImGui::SameLine(0.0f, 2.0f);
+
+            if (toolbar_icon_button("move", ToolbarIcon::Move, "Move (W)", m_gizmo.get_tool() == TransformTool::Move)) {
+                m_gizmo.set_tool(TransformTool::Move);
+            }
+            ImGui::SameLine(0.0f, 2.0f);
+            if (toolbar_icon_button("rotate", ToolbarIcon::Rotate, "Rotate (R)", m_gizmo.get_tool() == TransformTool::Rotate)) {
+                m_gizmo.set_tool(TransformTool::Rotate);
+            }
+            ImGui::SameLine(0.0f, 2.0f);
+            if (toolbar_icon_button("scale", ToolbarIcon::Scale, "Scale (S)", m_gizmo.get_tool() == TransformTool::Scale)) {
+                m_gizmo.set_tool(TransformTool::Scale);
+            }
+            ImGui::SameLine(0.0f, 6.0f);
+
+            const bool multiple_selection = m_selection && m_selection->get_selected().size() > 1;
+            if (multiple_selection) m_gizmo.set_space(GizmoSpace::World);
+            const GizmoSpace space = m_gizmo.get_space();
+            const char* space_tooltip = multiple_selection
+                ? "Space: World (multiple selections use World)"
+                : (space == GizmoSpace::World ? "Space: World (click for Local)" : "Space: Local (click for World)");
+            if (toolbar_icon_button("space", ToolbarIcon::Space, space_tooltip, true, space == GizmoSpace::World) && !multiple_selection) {
+                m_gizmo.set_space(space == GizmoSpace::Local ? GizmoSpace::World : GizmoSpace::Local);
+            }
+            ImGui::SameLine(0.0f, 2.0f);
+
+            auto& snap = m_gizmo.snap_settings();
+            if (toolbar_icon_button("snap", ToolbarIcon::Snap, "Snap (Shift temporarily inverts it)", snap.enabled)) {
+                snap.enabled = !snap.enabled;
+            }
+            ImGui::SameLine(0.0f, 2.0f);
+            if (toolbar_icon_button("settings", ToolbarIcon::Settings, "Configure snap increments")) {
+                ImGui::OpenPopup("Transform Snap Settings");
+            }
+
+            if (ImGui::BeginPopup("Transform Snap Settings")) {
+                is_toolbox_hovered = true;
+                ImGui::TextUnformatted("Snap increments");
+                ImGui::Separator();
+                ImGui::SetNextItemWidth(140.0f);
+                ImGui::DragFloat("Position", &snap.position_step, 1.0f, 0.1f, 1024.0f, "%.0f");
+                ImGui::SetNextItemWidth(140.0f);
+                ImGui::DragFloat("Rotation", &snap.rotation_step, 1.0f, 1.0f, 180.0f, "%.0f deg");
+                float scale_snap_percent = snap.scale_step * 100.0f;
+                ImGui::SetNextItemWidth(140.0f);
+                if (ImGui::DragFloat("Scale", &scale_snap_percent, 1.0f, 1.0f, 100.0f, "%.0f%%")) {
+                    snap.scale_step = scale_snap_percent / 100.0f;
+                }
+                ImGui::EndPopup();
+            }
+
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            m_is_hovered = m_is_hovered && !is_toolbox_hovered;
 
             if (img_size.x > 0.0f && img_size.y > 0.0f) {
                 float norm_x = (mouse_pos.x - img_min.x) / img_size.x;

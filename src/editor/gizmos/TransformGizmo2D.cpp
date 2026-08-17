@@ -1,6 +1,7 @@
 #include "TransformGizmo2D.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
+#include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include <cmath>
@@ -48,6 +49,35 @@ static bool is_entity_locked_from_gizmo(EntityManager& em, EntityID id) {
     return false;
 }
 
+static bool has_selected_ancestor(EntityManager& em, EntityID id, const std::unordered_set<EntityID>& selected_entities) {
+    while (em.has_component<HierarchyComponent>(id)) {
+        const EntityID parent = em.get_component<HierarchyComponent>(id).parent;
+        if (parent == 0 || !em.is_alive(parent)) return false;
+        if (selected_entities.contains(parent)) return true;
+        id = parent;
+    }
+    return false;
+}
+
+static glm::vec2 world_delta_to_local(EntityManager& em, EntityID id, const glm::vec2& world_delta) {
+    if (!em.has_component<HierarchyComponent>(id)) return world_delta;
+
+    const EntityID parent = em.get_component<HierarchyComponent>(id).parent;
+    if (parent == 0 || !em.is_alive(parent) || !em.has_component<TransformComponent>(parent)) return world_delta;
+
+    const auto& parent_transform = em.get_component<TransformComponent>(parent);
+    const float radians = glm::radians(-parent_transform.world_rotation);
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    glm::vec2 local_delta(
+        world_delta.x * cosine - world_delta.y * sine,
+        world_delta.x * sine + world_delta.y * cosine
+    );
+    local_delta.x /= std::max(0.0001f, std::abs(parent_transform.world_scale.x));
+    local_delta.y /= std::max(0.0001f, std::abs(parent_transform.world_scale.y));
+    return local_delta;
+}
+
 bool TransformGizmo2D::draw_gizmo(
     EntityManager& em,
     const std::unordered_set<EntityID>& selected_entities,
@@ -57,12 +87,8 @@ bool TransformGizmo2D::draw_gizmo(
     bool is_viewport_hovered,
     EditorCommandHistory* command_history
 ) {
-    if (selected_entities.empty()) {
-        m_active_axis = GizmoAxis::None;
-        m_hovered_axis = GizmoAxis::None;
-        m_entity_start_positions.clear();
-        return false;
-    }
+    if (selected_entities.empty()) { m_active_axis = GizmoAxis::None; m_hovered_axis = GizmoAxis::None; m_start_transforms.clear(); return false; }
+    if (selected_entities.size() > 1 && !is_using()) m_space = GizmoSpace::World;
 
     // Calculate group centroid excluding locked entities
     glm::vec3 centroid(0.0f, 0.0f, 0.0f);
@@ -71,7 +97,7 @@ bool TransformGizmo2D::draw_gizmo(
     for (EntityID id : selected_entities) {
         if (em.is_alive(id) && em.has_component<TransformComponent>(id) && !is_entity_locked_from_gizmo(em, id)) {
             const auto& tx = em.get_component<TransformComponent>(id);
-            glm::vec3 entity_pos = tx.position;
+            glm::vec3 entity_pos = tx.world_position;
 
             if (em.has_component<TilemapComponent>(id)) {
                 const auto& tm = em.get_component<TilemapComponent>(id);
@@ -81,9 +107,9 @@ bool TransformGizmo2D::draw_gizmo(
                     float tile_sz_x = tm.tile_size * tx.world_scale.x;
                     float tile_sz_y = tm.tile_size * tx.world_scale.y;
 
-                    float center_x = tx.position.x + ((static_cast<float>(min_x + max_x + 1) * 0.5f) * tile_sz_x);
-                    float center_y = tx.position.y - ((static_cast<float>(min_y + max_y + 1) * 0.5f) * tile_sz_y);
-                    entity_pos = glm::vec3(center_x, center_y, tx.position.z);
+                    float center_x = tx.world_position.x + ((static_cast<float>(min_x + max_x + 1) * 0.5f) * tile_sz_x);
+                    float center_y = tx.world_position.y - ((static_cast<float>(min_y + max_y + 1) * 0.5f) * tile_sz_y);
+                    entity_pos = glm::vec3(center_x, center_y, tx.world_position.z);
                 }
             }
 
@@ -95,7 +121,7 @@ bool TransformGizmo2D::draw_gizmo(
     if (valid_count == 0) {
         m_active_axis = GizmoAxis::None;
         m_hovered_axis = GizmoAxis::None;
-        m_entity_start_positions.clear();
+        m_start_transforms.clear();
         return false;
     }
 
@@ -120,11 +146,10 @@ bool TransformGizmo2D::draw_gizmo(
     float arrow_size = 14.0f;
     float center_size = 20.0f;
 
-    // A single selection uses its local axes. Group transforms intentionally use
-    // world axes because a group has no unambiguous local orientation.
+    // Local space is meaningful only for one selected entity.
     glm::vec2 axis_x(1.0f, 0.0f);
     glm::vec2 axis_y(0.0f, 1.0f);
-    if (selected_entities.size() == 1) {
+    if (m_space == GizmoSpace::Local && selected_entities.size() == 1) {
         EntityID id = *selected_entities.begin();
         if (em.is_alive(id) && em.has_component<TransformComponent>(id)) {
             // SDL renderer rotation is clockwise in screen space; convert it
@@ -149,24 +174,33 @@ bool TransformGizmo2D::draw_gizmo(
     );
     glm::vec2 mouse_world = camera.screen_to_world(mouse_in_viewport);
 
-    // --- Hover Detection (When not actively dragging) ---
+    const float rotate_radius = 52.0f;
+    const float mouse_radius = std::hypot(mouse_pos.x - origin.x, mouse_pos.y - origin.y);
+
+    // --- Hover Detection ---
     if (m_active_axis == GizmoAxis::None) {
         m_hovered_axis = GizmoAxis::None;
 
         if (is_viewport_hovered) {
-            // Center square
-            if (mouse_pos.x >= origin.x - center_size * 0.5f && mouse_pos.x <= origin.x + center_size * 0.5f &&
+            if (m_tool == TransformTool::Rotate && std::abs(mouse_radius - rotate_radius) <= 8.0f) {
+                m_hovered_axis = GizmoAxis::CenterXY;
+            } else if (mouse_pos.x >= origin.x - center_size * 0.5f && mouse_pos.x <= origin.x + center_size * 0.5f &&
                 mouse_pos.y >= origin.y - center_size * 0.5f && mouse_pos.y <= origin.y + center_size * 0.5f) {
                 m_hovered_axis = GizmoAxis::CenterXY;
             }
-            // X axis arrow
-            else if (distance_to_segment(mouse_pos, origin, x_axis_end) <= 14.0f) {
+            else if (m_tool == TransformTool::Scale &&
+                mouse_pos.x >= x_axis_end.x - 10.0f && mouse_pos.x <= x_axis_end.x + 10.0f &&
+                mouse_pos.y >= x_axis_end.y - 10.0f && mouse_pos.y <= x_axis_end.y + 10.0f) {
                 m_hovered_axis = GizmoAxis::AxisX;
             }
-            // Y axis arrow
-            else if (distance_to_segment(mouse_pos, origin, y_axis_end) <= 14.0f) {
+            else if (m_tool == TransformTool::Scale &&
+                mouse_pos.x >= y_axis_end.x - 10.0f && mouse_pos.x <= y_axis_end.x + 10.0f &&
+                mouse_pos.y >= y_axis_end.y - 10.0f && mouse_pos.y <= y_axis_end.y + 10.0f) {
                 m_hovered_axis = GizmoAxis::AxisY;
             }
+            // Axis lines remain interactive for quick constrained transforms.
+            else if (distance_to_segment(mouse_pos, origin, x_axis_end) <= 14.0f) m_hovered_axis = GizmoAxis::AxisX;
+            else if (distance_to_segment(mouse_pos, origin, y_axis_end) <= 14.0f) m_hovered_axis = GizmoAxis::AxisY;
         }
     }
 
@@ -174,67 +208,80 @@ bool TransformGizmo2D::draw_gizmo(
     if (io.MouseClicked[ImGuiMouseButton_Left] && is_viewport_hovered && m_hovered_axis != GizmoAxis::None) {
         m_active_axis = m_hovered_axis;
         m_drag_start_world = mouse_world;
+        m_drag_origin = glm::vec2(origin.x, origin.y);
+        m_drag_start_angle = std::atan2(mouse_pos.y - origin.y, mouse_pos.x - origin.x);
+        m_drag_start_distance = std::max(1.0f, mouse_radius);
         m_drag_axis_x = axis_x;
         m_drag_axis_y = axis_y;
-        m_entity_start_positions.clear();
+        m_start_transforms.clear();
 
         for (EntityID id : selected_entities) {
-            if (em.is_alive(id) && em.has_component<TransformComponent>(id) && !is_entity_locked_from_gizmo(em, id)) {
-                m_entity_start_positions[id] = em.get_component<TransformComponent>(id).position;
+            if (em.is_alive(id) && em.has_component<TransformComponent>(id) && !is_entity_locked_from_gizmo(em, id) && !has_selected_ancestor(em, id, selected_entities)) {
+                m_start_transforms[id] = em.get_component<TransformComponent>(id);
             }
         }
     }
 
     // --- Drag Interaction End (Record Command for Undo/Redo) ---
     if (!io.MouseDown[ImGuiMouseButton_Left] && m_active_axis != GizmoAxis::None) {
-        if (command_history && !m_entity_start_positions.empty()) {
-            std::unordered_map<EntityID, glm::vec3> new_positions;
+        if (command_history && !m_start_transforms.empty()) {
+            std::unordered_map<EntityID, TransformComponent> after;
             bool any_changed = false;
-
-            for (const auto& [id, start_pos] : m_entity_start_positions) {
+            for (const auto& [id, start] : m_start_transforms) {
                 if (em.is_alive(id) && em.has_component<TransformComponent>(id)) {
-                    glm::vec3 current_p = em.get_component<TransformComponent>(id).position;
-                    new_positions[id] = current_p;
-                    if (glm::distance(start_pos, current_p) > 0.001f) {
+                    const auto current = em.get_component<TransformComponent>(id);
+                    after[id] = current;
+                    if (glm::distance(start.position, current.position) > 0.001f || std::abs(start.rotation - current.rotation) > 0.001f || glm::distance(start.scale, current.scale) > 0.001f) {
                         any_changed = true;
                     }
                 }
             }
 
             if (any_changed) {
-                std::string desc = (m_entity_start_positions.size() == 1) 
-                    ? "Move " + (em.has_component<TagComponent>(m_entity_start_positions.begin()->first) 
-                        ? em.get_component<TagComponent>(m_entity_start_positions.begin()->first).tag : "Entity")
-                    : "Move (" + std::to_string(m_entity_start_positions.size()) + ") Entities";
-
-                command_history->push_executed_command(
-                    std::make_unique<MoveEntitiesCommand>(&em, m_entity_start_positions, new_positions, desc)
-                );
+                const char* operation = m_tool == TransformTool::Move ? "Move" : (m_tool == TransformTool::Rotate ? "Rotate" : "Scale");
+                command_history->push_executed_command(std::make_unique<TransformEntitiesCommand>(&em, m_start_transforms, after, std::string(operation) + " Entities"));
             }
         }
 
         m_active_axis = GizmoAxis::None;
     }
 
-    // --- Apply Translation to ALL Entities in the Selection ---
+    // --- Apply preview transform ---
     if (m_active_axis != GizmoAxis::None) {
         glm::vec2 world_delta = mouse_world - m_drag_start_world;
+        const bool snap = m_snap.enabled != io.KeyShift;
+        if (snap && m_tool == TransformTool::Move && m_snap.position_step > 0.0f) {
+            world_delta.x = std::round(world_delta.x / m_snap.position_step) * m_snap.position_step;
+            world_delta.y = std::round(world_delta.y / m_snap.position_step) * m_snap.position_step;
+        }
+        float angle_delta = glm::degrees(std::atan2(mouse_pos.y - m_drag_origin.y, mouse_pos.x - m_drag_origin.x) - m_drag_start_angle);
+        if (snap && m_tool == TransformTool::Rotate && m_snap.rotation_step > 0.0f) angle_delta = std::round(angle_delta / m_snap.rotation_step) * m_snap.rotation_step;
+        float scale_factor = std::max(0.01f, mouse_radius / m_drag_start_distance);
+        if (snap && m_tool == TransformTool::Scale && m_snap.scale_step > 0.0f) scale_factor = std::max(0.01f, 1.0f + std::round((scale_factor - 1.0f) / m_snap.scale_step) * m_snap.scale_step);
 
-        for (const auto& [id, start_pos] : m_entity_start_positions) {
+        for (const auto& [id, start] : m_start_transforms) {
             if (!em.is_alive(id) || !em.has_component<TransformComponent>(id)) continue;
 
             auto& transform = em.get_component<TransformComponent>(id);
-            if (m_active_axis == GizmoAxis::AxisX) {
-                transform.position = start_pos + glm::vec3(m_drag_axis_x * glm::dot(world_delta, m_drag_axis_x), 0.0f);
-            } else if (m_active_axis == GizmoAxis::AxisY) {
-                transform.position = start_pos + glm::vec3(m_drag_axis_y * glm::dot(world_delta, m_drag_axis_y), 0.0f);
-            } else if (m_active_axis == GizmoAxis::CenterXY) {
-                transform.position.x = start_pos.x + world_delta.x;
-                transform.position.y = start_pos.y + world_delta.y;
+            if (m_tool == TransformTool::Move) {
+                glm::vec2 constrained_delta = world_delta;
+                if (m_active_axis == GizmoAxis::AxisX) constrained_delta = m_drag_axis_x * glm::dot(world_delta, m_drag_axis_x);
+                else if (m_active_axis == GizmoAxis::AxisY) constrained_delta = m_drag_axis_y * glm::dot(world_delta, m_drag_axis_y);
+                transform.position = start.position + glm::vec3(world_delta_to_local(em, id, constrained_delta), 0.0f);
+            } else if (m_tool == TransformTool::Rotate) {
+                transform.rotation = start.rotation + angle_delta;
+            } else {
+                if (m_active_axis == GizmoAxis::AxisX) transform.scale.x = std::max(0.01f, start.scale.x * scale_factor);
+                else if (m_active_axis == GizmoAxis::AxisY) transform.scale.y = std::max(0.01f, start.scale.y * scale_factor);
+                else transform.scale = glm::max(glm::vec2(0.01f), start.scale * scale_factor);
             }
+        }
 
-            transform.world_position = transform.position;
-            PhysicsSystem::set_position(em, id, glm::vec2(transform.position.x, transform.position.y));
+        TransformSystem::update(em);
+        for (const auto& [id, start] : m_start_transforms) {
+            if (!em.is_alive(id) || !em.has_component<TransformComponent>(id)) continue;
+            const auto& transform = em.get_component<TransformComponent>(id);
+            PhysicsSystem::set_position(em, id, glm::vec2(transform.world_position.x, transform.world_position.y));
         }
     }
 
@@ -243,7 +290,13 @@ bool TransformGizmo2D::draw_gizmo(
     ImU32 col_y = (m_active_axis == GizmoAxis::AxisY || m_hovered_axis == GizmoAxis::AxisY) ? IM_COL32(255, 235, 50, 255) : IM_COL32(60, 235, 80, 240);
     ImU32 col_c = (m_active_axis == GizmoAxis::CenterXY || m_hovered_axis == GizmoAxis::CenterXY) ? IM_COL32(255, 255, 80, 255) : IM_COL32(70, 180, 255, 210);
 
-    // 1. Center Box Handle
+    if (m_tool == TransformTool::Rotate) {
+        ImU32 col = (m_hovered_axis == GizmoAxis::CenterXY || m_active_axis == GizmoAxis::CenterXY) ? IM_COL32(255, 235, 50, 255) : IM_COL32(80, 170, 255, 230);
+        draw_list->AddCircle(origin, rotate_radius, col, 48, 3.0f);
+        return (m_active_axis != GizmoAxis::None || m_hovered_axis != GizmoAxis::None);
+    }
+
+    // Center handle (move XY / uniform scale)
     draw_list->AddRectFilled(
         ImVec2(origin.x - 8.0f, origin.y - 8.0f),
         ImVec2(origin.x + 8.0f, origin.y + 8.0f),
@@ -255,9 +308,26 @@ bool TransformGizmo2D::draw_gizmo(
         IM_COL32(255, 255, 255, 240), 3.0f, 0, 1.5f
     );
 
-    // 2. Local X / Y axes, aligned to the selected entity's rotation.
-    draw_arrow(draw_list, origin, x_axis_end, col_x, arrow_size);
-    draw_arrow(draw_list, origin, y_axis_end, col_y, arrow_size);
+    // Local X / Y axes, aligned to the selected entity's rotation.
+    if (m_tool == TransformTool::Scale) {
+        draw_list->AddLine(origin, x_axis_end, col_x, 3.0f);
+        draw_list->AddLine(origin, y_axis_end, col_y, 3.0f);
+        draw_list->AddRectFilled(
+            ImVec2(x_axis_end.x - 8.0f, x_axis_end.y - 8.0f),
+            ImVec2(x_axis_end.x + 8.0f, x_axis_end.y + 8.0f),
+            col_x,
+            2.0f
+        );
+        draw_list->AddRectFilled(
+            ImVec2(y_axis_end.x - 8.0f, y_axis_end.y - 8.0f),
+            ImVec2(y_axis_end.x + 8.0f, y_axis_end.y + 8.0f),
+            col_y,
+            2.0f
+        );
+    } else {
+        draw_arrow(draw_list, origin, x_axis_end, col_x, arrow_size);
+        draw_arrow(draw_list, origin, y_axis_end, col_y, arrow_size);
+    }
 
     return (m_active_axis != GizmoAxis::None || m_hovered_axis != GizmoAxis::None);
 }

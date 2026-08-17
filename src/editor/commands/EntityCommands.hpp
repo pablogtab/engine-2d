@@ -41,14 +41,14 @@ private:
     std::string m_description;
 };
 
-// 1. Move Entities Command (Gizmo Translation)
-class MoveEntitiesCommand : public IEditorCommand {
+// Complete transform snapshot for reversible viewport gestures.
+class TransformEntitiesCommand : public IEditorCommand {
 public:
-    MoveEntitiesCommand(
+    TransformEntitiesCommand(
         EntityManager* em,
-        std::unordered_map<EntityID, glm::vec3> old_positions,
-        std::unordered_map<EntityID, glm::vec3> new_positions,
-        std::string description = "Move Entities"
+        std::unordered_map<EntityID, TransformComponent> before,
+        std::unordered_map<EntityID, TransformComponent> after,
+        std::string description
     );
 
     void execute() override;
@@ -56,10 +56,12 @@ public:
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:
+    void apply(const std::unordered_map<EntityID, TransformComponent>& states);
+
     EntityManager* m_em{nullptr};
-    std::unordered_map<EntityID, glm::vec3> m_old_positions;
-    std::unordered_map<EntityID, glm::vec3> m_new_positions;
-    std::string m_description{"Move Entities"};
+    std::unordered_map<EntityID, TransformComponent> m_before;
+    std::unordered_map<EntityID, TransformComponent> m_after;
+    std::string m_description;
 };
 
 // 2. Delete Entities Command (with full snapshot restore on undo)

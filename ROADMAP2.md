@@ -30,9 +30,9 @@ This roadmap extends the current engine roadmap with the systems needed to make 
 
 **Goal:** Provide direct, predictable scene manipulation.
 
-- [ ] Add rotate and scale gizmos in addition to translation.
-- [ ] Add a World / Local gizmo-space toggle.
-- [ ] Add grid snapping, angle snapping, and configurable snap increments.
+- [x] Add rotate and scale gizmos in addition to translation.
+- [x] Add a World / Local gizmo-space toggle.
+- [x] Add grid snapping, angle snapping, and configurable snap increments.
 - [ ] Add viewport grid, rulers, guides, and optional safe-area overlays.
 - [ ] Add alignment and distribution commands for multi-selection.
 - [ ] Add viewport shortcuts for frame selection, zoom to fit, and reset view.
