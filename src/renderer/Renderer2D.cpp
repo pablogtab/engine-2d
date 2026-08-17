@@ -47,7 +47,9 @@ void Renderer2D::submit_sprite(
     const glm::vec2& pivot,
     bool is_overlay,
     bool flip_x,
-    bool flip_y
+    bool flip_y,
+    int16_t sorting_layer,
+    int16_t order_in_layer
 ) {
     // 2D Frustum Culling Check
     if (m_active_camera && !m_active_camera->is_visible(position, size)) {
@@ -62,15 +64,19 @@ void Renderer2D::submit_sprite(
     }
     cmd.flip_x = flip_x;
     cmd.flip_y = flip_y;
+    cmd.sorting_layer = sorting_layer;
+    cmd.order_in_layer = order_in_layer;
 
     if (is_overlay) {
         cmd.sort_key = 0xFFFFFFFFFFFFFFFFULL; // Force overlay to sort after all game world sprites!
     } else {
-        // Fast 64-bit multi-key quantization (Z-depth, Y-position, Texture Pointer)
-        uint32_t z_key = static_cast<uint32_t>(position.z + 10000.0f);
+        // Explicit layer/order precede depth and Y sorting. Texture batching is
+        // handled later by contiguous equal-texture commands where possible.
+        uint16_t layer_key = static_cast<uint16_t>(static_cast<int32_t>(sorting_layer) + 32768);
+        uint16_t z_key = static_cast<uint16_t>(std::clamp(static_cast<int32_t>((position.z + 1000.0f) * 16.0f), 0, 65535));
         uint16_t y_key = static_cast<uint16_t>(position.y + 32768.0f);
-        uint16_t tex_key = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(texture) & 0xFFFF);
-        cmd.sort_key = (static_cast<uint64_t>(z_key) << 32) | (static_cast<uint64_t>(y_key) << 16) | tex_key;
+        uint16_t order_key = static_cast<uint16_t>(static_cast<int32_t>(order_in_layer) + 32768);
+        cmd.sort_key = (static_cast<uint64_t>(layer_key) << 48) | (static_cast<uint64_t>(z_key) << 32) | (static_cast<uint64_t>(y_key) << 16) | order_key;
     }
 
     m_sprite_queue.push_back(cmd);

@@ -105,6 +105,11 @@ struct SpriteComponent {
     bool flip_x{false};
     bool flip_y{false};
 
+    // Authoring draw order. Layer is the broad render group; order resolves
+    // explicit stacking inside that group without changing camera depth.
+    int16_t sorting_layer{0};
+    int16_t order_in_layer{0};
+
     SpriteComponent() = default;
     explicit SpriteComponent(Texture* tex, const glm::vec2& sz = {64.0f, 64.0f}, SDL_Color col = {255, 255, 255, 255})
         : texture(tex), color(col), size(sz) {}

@@ -68,6 +68,8 @@ std::string SceneSerializer::serialize_to_string() {
             sp_json["flip_x"] = sprite.flip_x;
             sp_json["flip_y"] = sprite.flip_y;
             sp_json["visible"] = sprite.visible;
+            sp_json["sorting_layer"] = sprite.sorting_layer;
+            sp_json["order_in_layer"] = sprite.order_in_layer;
             sp_json["use_src_rect"] = sprite.use_src_rect;
             if (sprite.use_src_rect) {
                 sp_json["src_rect"] = { sprite.src_rect.x, sprite.src_rect.y, sprite.src_rect.w, sprite.src_rect.h };
@@ -291,6 +293,8 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     if (sp_j.contains("flip_x")) sc.flip_x = sp_j["flip_x"].get<bool>();
                     if (sp_j.contains("flip_y")) sc.flip_y = sp_j["flip_y"].get<bool>();
                     if (sp_j.contains("visible")) sc.visible = sp_j["visible"].get<bool>();
+                    if (sp_j.contains("sorting_layer")) sc.sorting_layer = sp_j["sorting_layer"].get<int16_t>();
+                    if (sp_j.contains("order_in_layer")) sc.order_in_layer = sp_j["order_in_layer"].get<int16_t>();
                     if (sp_j.contains("use_src_rect")) sc.use_src_rect = sp_j["use_src_rect"].get<bool>();
                     if (sc.use_src_rect && sp_j.contains("src_rect") && sp_j["src_rect"].size() >= 4) {
                         sc.src_rect = SDL_FRect{

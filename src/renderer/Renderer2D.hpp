@@ -25,6 +25,8 @@ struct SpriteCommand {
     bool flip_x{false};
     bool flip_y{false};
     bool is_screen_space{false};
+    int16_t sorting_layer{0};
+    int16_t order_in_layer{0};
 };
 
 class Renderer2D {
@@ -58,7 +60,9 @@ public:
         const glm::vec2& pivot = {0.5f, 0.5f},
         bool is_overlay = false,
         bool flip_x = false,
-        bool flip_y = false
+        bool flip_y = false,
+        int16_t sorting_layer = 0,
+        int16_t order_in_layer = 0
     );
     void submit_screen_sprite(
         Texture* texture,
