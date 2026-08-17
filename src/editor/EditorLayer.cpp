@@ -517,6 +517,13 @@ void EditorLayer::render_main_menu_bar() {
             if (ImGui::MenuItem("Toggle Editor (F1)", nullptr, m_visible)) {
                 toggle_visibility();
             }
+            if (m_viewport_panel) {
+                ImGui::Separator();
+                if (ImGui::BeginMenu("Viewport Grid")) {
+                    m_viewport_panel->render_grid_settings_menu();
+                    ImGui::EndMenu();
+                }
+            }
             ImGui::EndMenu();
         }
 

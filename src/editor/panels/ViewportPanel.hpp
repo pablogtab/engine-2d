@@ -18,6 +18,15 @@ namespace Engine {
 
 using EditorPlayState = ScenePlayState;
 
+struct ViewportGridSettings {
+    bool visible{true};
+    float target_spacing_pixels{38.0f};
+    int major_line_interval{5};
+    float minor_opacity{0.10f};
+    float major_opacity{0.23f};
+    bool show_axes{true};
+};
+
 class ViewportPanel : public EditorPanel {
 public:
     explicit ViewportPanel(
@@ -55,6 +64,9 @@ public:
     int get_internal_width() const { return m_internal_width; }
     int get_internal_height() const { return m_internal_height; }
 
+    // View menu entry point. Grid preferences are view-only session state.
+    void render_grid_settings_menu();
+
 private:
     std::string m_name{"Scene Viewport"};
     SDL_Renderer* m_renderer{nullptr};
@@ -71,6 +83,7 @@ private:
     bool m_is_focused{false};
     glm::vec2 m_viewport_mouse_pos{0.0f, 0.0f};
     ImVec2 m_transform_toolbar_pos{-1.0f, -1.0f};
+    ViewportGridSettings m_grid_settings;
 
     // Sub-tools
     TransformGizmo2D m_gizmo;

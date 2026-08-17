@@ -33,11 +33,11 @@ This roadmap extends the current engine roadmap with the systems needed to make 
 - [x] Add rotate and scale gizmos in addition to translation.
 - [x] Add a World / Local gizmo-space toggle.
 - [x] Add grid snapping, angle snapping, and configurable snap increments.
-- [ ] Add viewport grid, rulers, guides, and optional safe-area overlays.
+- [ ] Add viewport rulers, guides, and optional safe-area overlays.
 - [ ] Add alignment and distribution commands for multi-selection.
 - [ ] Add viewport shortcuts for frame selection, zoom to fit, and reset view.
 - [ ] Add entity lock and editor-only visibility states.
-- [ ] Make rotated bounds, picking, and marquee selection use the same transformed geometry.
+- [x] Make rotated bounds, picking, and marquee selection use the same transformed geometry.
 
 **Completion criteria:** Objects can be positioned, aligned, rotated, scaled, locked, and selected precisely without leaving the viewport.
 

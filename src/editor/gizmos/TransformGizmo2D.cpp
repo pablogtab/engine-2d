@@ -133,9 +133,11 @@ bool TransformGizmo2D::draw_gizmo(
     float scale_x = viewport_size.x / camera.get_viewport_size().x;
     float scale_y = viewport_size.y / camera.get_viewport_size().y;
 
+    // Pixel-snap the common origin so both axis strokes and the free-move
+    // handle meet cleanly without sub-pixel anti-alias seams.
     ImVec2 origin(
-        viewport_pos.x + cam_screen.x * scale_x,
-        viewport_pos.y + cam_screen.y * scale_y
+        std::round(viewport_pos.x + cam_screen.x * scale_x),
+        std::round(viewport_pos.y + cam_screen.y * scale_y)
     );
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -166,6 +168,21 @@ bool TransformGizmo2D::draw_gizmo(
     y_screen = glm::normalize(y_screen) * gizmo_len;
     ImVec2 x_axis_end(origin.x + x_screen.x, origin.y + x_screen.y);
     ImVec2 y_axis_end(origin.x + y_screen.x, origin.y + y_screen.y);
+    // Let Y reach the lower edge of the X stroke while X is trimmed by half
+    // its stroke. This produces a deliberate, flush L junction.
+    const ImVec2 x_axis_start(origin.x + x_screen.x / gizmo_len * 2.0f, origin.y + x_screen.y / gizmo_len * 2.0f);
+    const ImVec2 y_axis_start(origin.x - y_screen.x / gizmo_len * 2.0f, origin.y - y_screen.y / gizmo_len * 2.0f);
+
+    // Unity-style free-move handle: its bottom-left corner touches the axis
+    // intersection, placing it in the positive X/Y quadrant.
+    const bool is_move_tool = m_tool == TransformTool::Move;
+    const float center_half = center_size * 0.5f;
+    const ImVec2 center_handle_min = is_move_tool
+        ? ImVec2(origin.x, origin.y - center_size)
+        : ImVec2(origin.x - center_half, origin.y - center_half);
+    const ImVec2 center_handle_max = is_move_tool
+        ? ImVec2(origin.x + center_size, origin.y)
+        : ImVec2(origin.x + center_half, origin.y + center_half);
 
     // Convert mouse to world space
     glm::vec2 mouse_in_viewport(
@@ -184,8 +201,8 @@ bool TransformGizmo2D::draw_gizmo(
         if (is_viewport_hovered) {
             if (m_tool == TransformTool::Rotate && std::abs(mouse_radius - rotate_radius) <= 8.0f) {
                 m_hovered_axis = GizmoAxis::CenterXY;
-            } else if (mouse_pos.x >= origin.x - center_size * 0.5f && mouse_pos.x <= origin.x + center_size * 0.5f &&
-                mouse_pos.y >= origin.y - center_size * 0.5f && mouse_pos.y <= origin.y + center_size * 0.5f) {
+            } else if (mouse_pos.x >= center_handle_min.x && mouse_pos.x <= center_handle_max.x &&
+                mouse_pos.y >= center_handle_min.y && mouse_pos.y <= center_handle_max.y) {
                 m_hovered_axis = GizmoAxis::CenterXY;
             }
             else if (m_tool == TransformTool::Scale &&
@@ -286,32 +303,24 @@ bool TransformGizmo2D::draw_gizmo(
     }
 
     // --- Render Gizmo ---
-    ImU32 col_x = (m_active_axis == GizmoAxis::AxisX || m_hovered_axis == GizmoAxis::AxisX) ? IM_COL32(255, 235, 50, 255) : IM_COL32(245, 60, 60, 240);
-    ImU32 col_y = (m_active_axis == GizmoAxis::AxisY || m_hovered_axis == GizmoAxis::AxisY) ? IM_COL32(255, 235, 50, 255) : IM_COL32(60, 235, 80, 240);
-    ImU32 col_c = (m_active_axis == GizmoAxis::CenterXY || m_hovered_axis == GizmoAxis::CenterXY) ? IM_COL32(255, 255, 80, 255) : IM_COL32(70, 180, 255, 210);
+    ImU32 col_x = (m_active_axis == GizmoAxis::AxisX || m_hovered_axis == GizmoAxis::AxisX) ? IM_COL32(255, 105, 105, 255) : IM_COL32(245, 60, 60, 240);
+    ImU32 col_y = (m_active_axis == GizmoAxis::AxisY || m_hovered_axis == GizmoAxis::AxisY) ? IM_COL32(110, 250, 125, 255) : IM_COL32(60, 235, 80, 240);
+    ImU32 col_c = (m_active_axis == GizmoAxis::CenterXY || m_hovered_axis == GizmoAxis::CenterXY) ? IM_COL32(105, 198, 255, 255) : IM_COL32(70, 180, 255, 210);
 
     if (m_tool == TransformTool::Rotate) {
-        ImU32 col = (m_hovered_axis == GizmoAxis::CenterXY || m_active_axis == GizmoAxis::CenterXY) ? IM_COL32(255, 235, 50, 255) : IM_COL32(80, 170, 255, 230);
+        ImU32 col = (m_hovered_axis == GizmoAxis::CenterXY || m_active_axis == GizmoAxis::CenterXY) ? IM_COL32(110, 198, 255, 255) : IM_COL32(80, 170, 255, 230);
         draw_list->AddCircle(origin, rotate_radius, col, 48, 3.0f);
         return (m_active_axis != GizmoAxis::None || m_hovered_axis != GizmoAxis::None);
     }
 
     // Center handle (move XY / uniform scale)
-    draw_list->AddRectFilled(
-        ImVec2(origin.x - 8.0f, origin.y - 8.0f),
-        ImVec2(origin.x + 8.0f, origin.y + 8.0f),
-        col_c, 3.0f
-    );
-    draw_list->AddRect(
-        ImVec2(origin.x - 8.0f, origin.y - 8.0f),
-        ImVec2(origin.x + 8.0f, origin.y + 8.0f),
-        IM_COL32(255, 255, 255, 240), 3.0f, 0, 1.5f
-    );
+    draw_list->AddRectFilled(center_handle_min, center_handle_max, col_c, 0.0f);
+    draw_list->AddRect(center_handle_min, center_handle_max, IM_COL32(112, 124, 158, 210), 0.0f, 0, 1.5f);
 
     // Local X / Y axes, aligned to the selected entity's rotation.
     if (m_tool == TransformTool::Scale) {
-        draw_list->AddLine(origin, x_axis_end, col_x, 3.0f);
-        draw_list->AddLine(origin, y_axis_end, col_y, 3.0f);
+        draw_list->AddLine(x_axis_start, x_axis_end, col_x, 3.0f);
+        draw_list->AddLine(y_axis_start, y_axis_end, col_y, 3.0f);
         draw_list->AddRectFilled(
             ImVec2(x_axis_end.x - 8.0f, x_axis_end.y - 8.0f),
             ImVec2(x_axis_end.x + 8.0f, x_axis_end.y + 8.0f),
@@ -325,8 +334,8 @@ bool TransformGizmo2D::draw_gizmo(
             2.0f
         );
     } else {
-        draw_arrow(draw_list, origin, x_axis_end, col_x, arrow_size);
-        draw_arrow(draw_list, origin, y_axis_end, col_y, arrow_size);
+        draw_arrow(draw_list, x_axis_start, x_axis_end, col_x, arrow_size);
+        draw_arrow(draw_list, y_axis_start, y_axis_end, col_y, arrow_size);
     }
 
     return (m_active_axis != GizmoAxis::None || m_hovered_axis != GizmoAxis::None);

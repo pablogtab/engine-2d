@@ -19,6 +19,7 @@ enum class ToolbarIcon {
     Rotate,
     Scale,
     Space,
+    Grid,
     Snap,
     Settings
 };
@@ -75,6 +76,14 @@ void draw_toolbar_icon(ImDrawList* draw_list, ToolbarIcon icon, const ImVec2& ce
             draw_list->AddLine(ImVec2(center.x - 4.0f, center.y + 5.0f), ImVec2(center.x + 5.0f, center.y + 5.0f), color, 2.4f);
             break;
         }
+        case ToolbarIcon::Grid: {
+            for (int index = -1; index <= 1; ++index) {
+                const float offset = static_cast<float>(index) * 5.0f;
+                line(ImVec2(center.x - 8.0f, center.y + offset), ImVec2(center.x + 8.0f, center.y + offset), 1.1f);
+                line(ImVec2(center.x + offset, center.y - 8.0f), ImVec2(center.x + offset, center.y + 8.0f), 1.1f);
+            }
+            break;
+        }
         case ToolbarIcon::Settings: {
             for (int row = -1; row <= 1; ++row) {
                 const float y = center.y + static_cast<float>(row) * 5.0f;
@@ -101,6 +110,63 @@ bool toolbar_icon_button(const char* id, ToolbarIcon icon, const char* tooltip, 
     if (hovered) ImGui::SetTooltip("%s", tooltip);
     ImGui::PopID();
     return pressed;
+}
+
+void draw_viewport_grid(const Camera2D& camera, const ImVec2& image_min, const ImVec2& image_size, float cell_size, const ViewportGridSettings& settings) {
+    if (cell_size <= 0.0f || image_size.x <= 0.0f || image_size.y <= 0.0f) return;
+
+    const glm::vec2 viewport_size = camera.get_viewport_size();
+    const float scale_x = image_size.x / viewport_size.x;
+    const float scale_y = image_size.y / viewport_size.y;
+    const glm::vec2 world_a = camera.screen_to_world(glm::vec2(0.0f, 0.0f));
+    const glm::vec2 world_b = camera.screen_to_world(viewport_size);
+    const float min_x = std::min(world_a.x, world_b.x);
+    const float max_x = std::max(world_a.x, world_b.x);
+    const float min_y = std::min(world_a.y, world_b.y);
+    const float max_y = std::max(world_a.y, world_b.y);
+
+    const glm::vec2 origin_screen = camera.world_to_screen(glm::vec3(0.0f));
+    const glm::vec2 step_screen = camera.world_to_screen(glm::vec3(cell_size, 0.0f, 0.0f)) - origin_screen;
+    const float pixels_per_cell = std::max(std::abs(step_screen.x * scale_x), 0.001f);
+    // Keep the authoring grid calm at normal and distant zoom levels. The
+    // visual spacing changes, but every line remains a multiple of the snap cell.
+    const int display_stride = std::max(1, static_cast<int>(std::ceil(settings.target_spacing_pixels / pixels_per_cell)));
+    const float display_step = cell_size * static_cast<float>(display_stride);
+    const int first_x = static_cast<int>(std::floor(min_x / display_step));
+    const int last_x = static_cast<int>(std::ceil(max_x / display_step));
+    const int first_y = static_cast<int>(std::floor(min_y / display_step));
+    const int last_y = static_cast<int>(std::ceil(max_y / display_step));
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    const auto to_screen = [&](const glm::vec2& world) {
+        const glm::vec2 screen = camera.world_to_screen(glm::vec3(world, 0.0f));
+        return ImVec2(image_min.x + screen.x * scale_x, image_min.y + screen.y * scale_y);
+    };
+    const auto draw_vertical = [&](int index, ImU32 color, float thickness) {
+        const float world_x = static_cast<float>(index) * display_step;
+        draw_list->AddLine(to_screen(glm::vec2(world_x, min_y)), to_screen(glm::vec2(world_x, max_y)), color, thickness);
+    };
+    const auto draw_horizontal = [&](int index, ImU32 color, float thickness) {
+        const float world_y = static_cast<float>(index) * display_step;
+        draw_list->AddLine(to_screen(glm::vec2(min_x, world_y)), to_screen(glm::vec2(max_x, world_y)), color, thickness);
+    };
+
+    for (int index = first_x; index <= last_x; ++index) {
+        if (index % settings.major_line_interval == 0) continue;
+        draw_vertical(index, IM_COL32(103, 112, 145, static_cast<int>(settings.minor_opacity * 255.0f)), 1.0f);
+    }
+    for (int index = first_y; index <= last_y; ++index) {
+        if (index % settings.major_line_interval == 0) continue;
+        draw_horizontal(index, IM_COL32(103, 112, 145, static_cast<int>(settings.minor_opacity * 255.0f)), 1.0f);
+    }
+    for (int index = first_x; index <= last_x; ++index) {
+        if (settings.show_axes && index == 0) draw_vertical(index, IM_COL32(111, 153, 246, 130), 1.4f);
+        else if (index % settings.major_line_interval == 0) draw_vertical(index, IM_COL32(103, 112, 145, static_cast<int>(settings.major_opacity * 255.0f)), 1.0f);
+    }
+    for (int index = first_y; index <= last_y; ++index) {
+        if (settings.show_axes && index == 0) draw_horizontal(index, IM_COL32(111, 153, 246, 130), 1.4f);
+        else if (index % settings.major_line_interval == 0) draw_horizontal(index, IM_COL32(103, 112, 145, static_cast<int>(settings.major_opacity * 255.0f)), 1.0f);
+    }
 }
 
 } // namespace
@@ -146,6 +212,27 @@ ViewportPanel::~ViewportPanel() {
         SDL_DestroyTexture(m_viewport_texture);
         m_viewport_texture = nullptr;
     }
+}
+
+void ViewportPanel::render_grid_settings_menu() {
+    ImGui::Checkbox("Show grid (G)", &m_grid_settings.visible);
+    ImGui::SetNextItemWidth(160.0f);
+    ImGui::SliderFloat("Visual density", &m_grid_settings.target_spacing_pixels, 12.0f, 88.0f, "%.0f px");
+    ImGui::SetNextItemWidth(160.0f);
+    ImGui::SliderInt("Major line interval", &m_grid_settings.major_line_interval, 2, 10);
+
+    float minor_opacity_percent = m_grid_settings.minor_opacity * 100.0f;
+    ImGui::SetNextItemWidth(160.0f);
+    if (ImGui::SliderFloat("Minor opacity", &minor_opacity_percent, 2.0f, 30.0f, "%.0f%%")) {
+        m_grid_settings.minor_opacity = minor_opacity_percent / 100.0f;
+    }
+    float major_opacity_percent = m_grid_settings.major_opacity * 100.0f;
+    ImGui::SetNextItemWidth(160.0f);
+    if (ImGui::SliderFloat("Major opacity", &major_opacity_percent, 5.0f, 50.0f, "%.0f%%")) {
+        m_grid_settings.major_opacity = major_opacity_percent / 100.0f;
+    }
+    ImGui::Checkbox("Show world axes", &m_grid_settings.show_axes);
+    if (ImGui::Button("Reset grid")) m_grid_settings = ViewportGridSettings{};
 }
 
 void ViewportPanel::begin_render() {
@@ -269,11 +356,18 @@ void ViewportPanel::on_gui() {
                 if (ImGui::IsKeyPressed(ImGuiKey_W)) m_gizmo.set_tool(TransformTool::Move);
                 if (ImGui::IsKeyPressed(ImGuiKey_R)) m_gizmo.set_tool(TransformTool::Rotate);
                 if (ImGui::IsKeyPressed(ImGuiKey_S)) m_gizmo.set_tool(TransformTool::Scale);
+                if (ImGui::IsKeyPressed(ImGuiKey_G)) m_grid_settings.visible = !m_grid_settings.visible;
+            }
+
+            Scene* grid_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
+            auto* grid_generic_scene = dynamic_cast<GenericScene*>(grid_scene);
+            if (m_grid_settings.visible && grid_generic_scene) {
+                draw_viewport_grid(grid_generic_scene->get_editor_camera(), img_min, img_size, m_gizmo.snap_settings().position_step, m_grid_settings);
             }
 
             // Compact, draggable transform toolbox. Its coordinates are screen-space
             // but clamped to the canvas, so it remains available after layout changes.
-            constexpr ImVec2 toolbox_size(216.0f, 38.0f);
+            constexpr ImVec2 toolbox_size(246.0f, 38.0f);
             const ImVec2 toolbox_min(img_min.x + 6.0f, img_min.y + 6.0f);
             const ImVec2 toolbox_max(
                 std::max(toolbox_min.x, img_max.x - toolbox_size.x - 6.0f),
@@ -336,6 +430,10 @@ void ViewportPanel::on_gui() {
             ImGui::SameLine(0.0f, 2.0f);
 
             auto& snap = m_gizmo.snap_settings();
+            if (toolbar_icon_button("grid", ToolbarIcon::Grid, "Grid settings (G toggles visibility)", m_grid_settings.visible)) {
+                ImGui::OpenPopup("Viewport Grid Settings");
+            }
+            ImGui::SameLine(0.0f, 2.0f);
             if (toolbar_icon_button("snap", ToolbarIcon::Snap, "Snap (Shift temporarily inverts it)", snap.enabled)) {
                 snap.enabled = !snap.enabled;
             }
@@ -357,6 +455,14 @@ void ViewportPanel::on_gui() {
                 if (ImGui::DragFloat("Scale", &scale_snap_percent, 1.0f, 1.0f, 100.0f, "%.0f%%")) {
                     snap.scale_step = scale_snap_percent / 100.0f;
                 }
+                ImGui::EndPopup();
+            }
+
+            if (ImGui::BeginPopup("Viewport Grid Settings")) {
+                is_toolbox_hovered = true;
+                ImGui::TextUnformatted("Viewport grid");
+                ImGui::Separator();
+                render_grid_settings_menu();
                 ImGui::EndPopup();
             }
 
