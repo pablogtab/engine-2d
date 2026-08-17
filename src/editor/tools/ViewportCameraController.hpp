@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../EditorSelection.hpp"
 #include "../../scene/GenericScene.hpp"
 #include <glm/glm.hpp>
 #include <imgui.h>
@@ -10,8 +11,14 @@ class ViewportCameraController {
 public:
     ViewportCameraController() = default;
 
-    // Handles Pan (Right/Middle Drag), Zoom (Mouse Wheel), and Focus ('F') navigation
-    void handle_input(GenericScene* scene, bool is_viewport_hovered, EntityID focus_target = 0);
+    // Handles viewport navigation and its focus-scoped framing shortcuts.
+    void handle_input(
+        GenericScene* scene,
+        const EditorSelection& selection,
+        bool is_viewport_hovered,
+        bool is_viewport_focused,
+        const glm::vec2& viewport_mouse_position
+    );
 };
 
 } // namespace Engine

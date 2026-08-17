@@ -35,6 +35,10 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
    - `Undo` debe restaurar el estado exacto previo y `Redo` debe reaplicar el cambio exacto. Agrupar actualizaciones continuas de un mismo gesto (por ejemplo, arrastrar un campo numérico) en un único comando al finalizar la interacción.
    - No introducir controles de edición que modifiquen el estado directamente sin una ruta de undo/redo, salvo acciones explícitamente efímeras de vista (pan, zoom, selección y layout de paneles).
 
+7. **Escalabilidad, Arquitectura y Optimizaciones:**
+   - Si durante el trabajo se detecta una implementación que no escala bien, situaciones hardcodeadas, la necesidad de un cambio arquitectónico o una optimización relevante, plantear la situación al usuario antes de continuar en esa dirección.
+   - Explicar el impacto y el enfoque propuesto para que el usuario pueda decidir de forma deliberada.
+
 ---
 
 ## 🛠️ Build & Run Commands

@@ -484,9 +484,8 @@ void ViewportPanel::on_gui() {
             Camera2D* active_cam = generic_scene ? &generic_scene->get_editor_camera() : nullptr;
 
             // --- 3. Viewport Camera Navigation (Pan / Zoom / Focus 'F') ---
-            if (is_editing && active_cam && generic_scene) {
-                EntityID focus_target = m_selection ? m_selection->get_primary() : 0;
-                m_camera_controller.handle_input(generic_scene, m_is_hovered, focus_target);
+            if (is_editing && active_cam && generic_scene && m_selection) {
+                m_camera_controller.handle_input(generic_scene, *m_selection, m_is_hovered, m_is_focused, m_viewport_mouse_pos);
             }
 
             // --- 4. Camera Frustum Gizmo (Wireframe Game Frame) ---

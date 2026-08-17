@@ -9,6 +9,9 @@ namespace Engine {
 
 class GenericScene : public Scene {
 public:
+    static constexpr float EDITOR_MIN_ZOOM{Camera2D::MIN_ZOOM};
+    static constexpr float EDITOR_MAX_ZOOM{Camera2D::MAX_ZOOM};
+
     explicit GenericScene(std::string name = "Untitled Scene", float width = 1920.0f, float height = 1080.0f);
     ~GenericScene() override = default;
 
@@ -30,7 +33,10 @@ public:
     // Editor Camera Manipulation
     void pan_editor_camera(const glm::vec2& delta_pixels);
     void zoom_editor_camera(float zoom_factor);
+    void zoom_editor_camera_at(const glm::vec2& viewport_position, float zoom_factor);
     void focus_editor_camera(const glm::vec2& target_pos);
+    void frame_editor_camera(const glm::vec2& bounds_min, const glm::vec2& bounds_max, float padding = 0.15f);
+    void reset_editor_camera();
 
     void set_physics_enabled(bool enabled) { m_physics_enabled = enabled; }
     [[nodiscard]] bool is_physics_enabled() const { return m_physics_enabled; }

@@ -8,13 +8,16 @@ namespace Engine {
 
 class Camera2D {
 public:
+    static constexpr float MIN_ZOOM{0.02f};
+    static constexpr float MAX_ZOOM{20.0f};
+
     Camera2D(float viewport_width, float viewport_height);
 
     void set_position(const glm::vec2& pos) { m_position = pos; }
     const glm::vec2& get_position() const { return m_position; }
     void move(const glm::vec2& offset) { m_position += offset; }
 
-    void set_zoom(float zoom) { m_zoom = glm::clamp(zoom, 0.1f, 10.0f); }
+    void set_zoom(float zoom) { m_zoom = glm::clamp(zoom, MIN_ZOOM, MAX_ZOOM); }
     float get_zoom() const { return m_zoom; }
 
     void set_dpi_scale(float scale) { m_dpi_scale = glm::clamp(scale, 0.1f, 8.0f); }

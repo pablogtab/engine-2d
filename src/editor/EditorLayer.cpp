@@ -125,9 +125,35 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
 
     sm.register_shortcut({
         .id = "editor.focus_camera",
-        .display_name = "Focus Camera on Selection",
+        .display_name = "Frame Selection",
         .category = "Camera",
         .primary_key = ImGuiKey_F,
+        .mod_cmd = false,
+        .mod_ctrl = false,
+        .mod_shift = false,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = nullptr
+    });
+
+    sm.register_shortcut({
+        .id = "editor.frame_all",
+        .display_name = "Frame All Visible Entities",
+        .category = "Camera",
+        .primary_key = ImGuiKey_F,
+        .mod_cmd = false,
+        .mod_ctrl = false,
+        .mod_shift = true,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = nullptr
+    });
+
+    sm.register_shortcut({
+        .id = "editor.reset_view",
+        .display_name = "Reset Viewport Camera",
+        .category = "Camera",
+        .primary_key = ImGuiKey_Home,
         .mod_cmd = false,
         .mod_ctrl = false,
         .mod_shift = false,
