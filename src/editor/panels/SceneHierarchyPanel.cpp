@@ -308,17 +308,19 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 
 void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID parent_id) {
     EntitySnapshot snap;
+    snap.has_tag = true;
     snap.tag = TagComponent{parent_id == 0 ? "New_Entity" : "Child_Entity"};
+    snap.has_transform = true;
     snap.transform = TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)};
     snap.has_sprite = true;
     snap.sprite = SpriteComponent{AssetManager::get().get_white_texture(m_renderer), glm::vec2(64.0f, 64.0f), SDL_Color{255, 255, 255, 255}};
+    if (parent_id != 0) {
+        snap.has_hierarchy = true;
+        snap.hierarchy.parent = parent_id;
+    }
 
     if (m_command_history) {
         m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, snap));
-        if (parent_id != 0 && m_selection && !m_selection->empty()) {
-            EntityID created_id = m_selection->get_primary();
-            em.set_parent(created_id, parent_id);
-        }
     } else {
         EntityID new_id = em.create_entity();
         em.add_component<TagComponent>(new_id, snap.tag);
@@ -332,14 +334,24 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
 }
 
 void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID parent_id) {
-    EntityID new_id = em.create_entity();
-    em.add_component<TagComponent>(new_id, TagComponent{parent_id == 0 ? "Tilemap" : "Child_Tilemap"});
-    em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
-    em.add_component<TilemapComponent>(new_id, TilemapComponent{});
+    EntitySnapshot snap;
+    snap.has_tag = true;
+    snap.tag = TagComponent{parent_id == 0 ? "Tilemap" : "Child_Tilemap"};
+    snap.has_transform = true;
+    snap.transform = TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)};
+    snap.has_tilemap = true;
+    snap.tilemap = TilemapComponent{};
     if (parent_id != 0) {
-        em.set_parent(new_id, parent_id);
+        snap.has_hierarchy = true;
+        snap.hierarchy.parent = parent_id;
     }
-    if (m_selection) m_selection->select(new_id, false);
+
+    if (m_command_history) {
+        m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, std::move(snap)));
+    } else {
+        CreateEntityCommand command(&em, m_selection, std::move(snap));
+        command.execute();
+    }
 }
 
 } // namespace Engine

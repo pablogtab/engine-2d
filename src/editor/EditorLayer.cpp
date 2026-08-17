@@ -1,6 +1,7 @@
 #include "EditorLayer.hpp"
 #include "EditorTheme.hpp"
 #include "commands/EditorCommandHistory.hpp"
+#include "commands/EntityCommands.hpp"
 #include "shortcuts/ShortcutManager.hpp"
 #include "../core/Log.hpp"
 #include "../scene/SceneManager.hpp"
@@ -394,39 +395,54 @@ void EditorLayer::render_main_menu_bar() {
             if (ImGui::MenuItem("🗺️ 2D Tilemap", nullptr, false, has_scene)) {
                 if (active_scene) {
                     EntityManager& em = active_scene->get_entity_manager();
-                    EntityID tilemap_id = em.create_entity();
-                    em.add_component<TagComponent>(tilemap_id, TagComponent{"Tilemap"});
-                    em.add_component<TransformComponent>(tilemap_id, TransformComponent{glm::vec3(0.0f)});
-                    em.add_component<TilemapComponent>(tilemap_id, TilemapComponent{});
+                    EntitySnapshot snapshot;
+                    snapshot.has_tag = true;
+                    snapshot.tag = TagComponent{"Tilemap"};
+                    snapshot.has_transform = true;
+                    snapshot.transform = TransformComponent{glm::vec3(0.0f)};
+                    snapshot.has_tilemap = true;
+                    snapshot.tilemap = TilemapComponent{};
+                    if (m_command_history) m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, nullptr, std::move(snapshot)));
                 }
             }
 
             if (ImGui::MenuItem("🟦 2D Sprite Entity", nullptr, false, has_scene)) {
                 if (active_scene) {
                     EntityManager& em = active_scene->get_entity_manager();
-                    EntityID new_id = em.create_entity();
-                    em.add_component<TagComponent>(new_id, TagComponent{"Sprite_Entity"});
-                    em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f)});
-                    em.add_component<SpriteComponent>(new_id, SpriteComponent{nullptr, glm::vec2(64.0f, 64.0f)});
+                    EntitySnapshot snapshot;
+                    snapshot.has_tag = true;
+                    snapshot.tag = TagComponent{"Sprite_Entity"};
+                    snapshot.has_transform = true;
+                    snapshot.transform = TransformComponent{glm::vec3(0.0f)};
+                    snapshot.has_sprite = true;
+                    snapshot.sprite = SpriteComponent{nullptr, glm::vec2(64.0f, 64.0f)};
+                    if (m_command_history) m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, nullptr, std::move(snapshot)));
                 }
             }
 
             if (ImGui::MenuItem("🎥 Camera 2D", nullptr, false, has_scene)) {
                 if (active_scene) {
                     EntityManager& em = active_scene->get_entity_manager();
-                    EntityID cam_id = em.create_entity();
-                    em.add_component<TagComponent>(cam_id, TagComponent{"Main_Camera"});
-                    em.add_component<TransformComponent>(cam_id, TransformComponent{glm::vec3(0.0f, 60.0f, 0.0f)});
-                    em.add_component<CameraComponent>(cam_id, CameraComponent{});
+                    EntitySnapshot snapshot;
+                    snapshot.has_tag = true;
+                    snapshot.tag = TagComponent{"Main_Camera"};
+                    snapshot.has_transform = true;
+                    snapshot.transform = TransformComponent{glm::vec3(0.0f, 60.0f, 0.0f)};
+                    snapshot.has_camera = true;
+                    snapshot.camera = CameraComponent{};
+                    if (m_command_history) m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, nullptr, std::move(snapshot)));
                 }
             }
 
             if (ImGui::MenuItem("⭕ Empty Entity", nullptr, false, has_scene)) {
                 if (active_scene) {
                     EntityManager& em = active_scene->get_entity_manager();
-                    EntityID new_id = em.create_entity();
-                    em.add_component<TagComponent>(new_id, TagComponent{"Empty_Entity"});
-                    em.add_component<TransformComponent>(new_id, TransformComponent{glm::vec3(0.0f)});
+                    EntitySnapshot snapshot;
+                    snapshot.has_tag = true;
+                    snapshot.tag = TagComponent{"Empty_Entity"};
+                    snapshot.has_transform = true;
+                    snapshot.transform = TransformComponent{glm::vec3(0.0f)};
+                    if (m_command_history) m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, nullptr, std::move(snapshot)));
                 }
             }
 

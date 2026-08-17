@@ -44,10 +44,14 @@ Application::Application(const std::string& name, int width, int height) {
     auto command_history = std::make_shared<EditorCommandHistory>();
 
     m_editor_layer->set_command_history(command_history);
+    m_scene_manager.set_on_authoring_state_invalidated([command_history]() {
+        command_history->clear();
+    });
 
     auto viewport_panel = std::make_shared<ViewportPanel>(m_window->get_sdl_renderer(), &m_scene_manager, selection, command_history, 1920, 1080);
     auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager, m_window->get_sdl_renderer(), selection, command_history);
     auto inspector_panel = std::make_shared<InspectorPanel>(&m_scene_manager, selection, m_window->get_sdl_renderer());
+    inspector_panel->set_command_history(command_history);
     auto console_panel = std::make_shared<ConsolePanel>();
     auto stats_panel = std::make_shared<StatsPanel>();
     auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");

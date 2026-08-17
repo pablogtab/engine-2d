@@ -23,15 +23,12 @@ void ViewportSelectionTool::render_selection_outlines(
         if (!em.is_alive(id) || !em.has_component<TransformComponent>(id)) continue;
 
         const auto& tx = em.get_component<TransformComponent>(id);
-        glm::vec3 w_tl;
-        glm::vec3 w_br;
+        glm::vec2 half;
 
         if (em.has_component<TilemapComponent>(id)) {
             const auto& tm = em.get_component<TilemapComponent>(id);
             if (tm.empty()) {
-                glm::vec2 half = glm::vec2(tm.tile_size * tx.world_scale.x * 0.5f, tm.tile_size * tx.world_scale.y * 0.5f);
-                w_tl = glm::vec3(tx.position.x - half.x, tx.position.y + half.y, tx.position.z);
-                w_br = glm::vec3(tx.position.x + half.x, tx.position.y - half.y, tx.position.z);
+                half = glm::vec2(tm.tile_size * tx.world_scale.x * 0.5f, tm.tile_size * tx.world_scale.y * 0.5f);
             } else {
                 int min_x = 0, min_y = 0, max_x = 0, max_y = 0;
                 tm.get_bounds(min_x, min_y, max_x, max_y);
@@ -43,8 +40,7 @@ void ViewportSelectionTool::render_selection_outlines(
                 float right  = tx.position.x + (static_cast<float>(max_x + 1) * tile_sz_x);
                 float bottom = tx.position.y - (static_cast<float>(max_y + 1) * tile_sz_y);
 
-                w_tl = glm::vec3(left, top, tx.position.z);
-                w_br = glm::vec3(right, bottom, tx.position.z);
+                half = glm::vec2((right - left) * 0.5f, (top - bottom) * 0.5f);
             }
         } else {
             glm::vec2 spr_size = glm::vec2(64.0f, 64.0f);
@@ -55,23 +51,24 @@ void ViewportSelectionTool::render_selection_outlines(
                 if (!col.shapes.empty()) spr_size = col.shapes[0].size;
             }
 
-            glm::vec2 half = spr_size * tx.world_scale * 0.5f;
-            w_tl = glm::vec3(tx.position.x - half.x, tx.position.y + half.y, 0.0f);
-            w_br = glm::vec3(tx.position.x + half.x, tx.position.y - half.y, 0.0f);
+            half = spr_size * tx.world_scale * 0.5f;
         }
 
-        glm::vec2 s_tl = camera.world_to_screen(w_tl);
-        glm::vec2 s_br = camera.world_to_screen(w_br);
+        // Match SDL's clockwise sprite rotation convention.
+        const float radians = glm::radians(-tx.world_rotation);
+        const float cosine = std::cos(radians);
+        const float sine = std::sin(radians);
+        const glm::vec2 local_corners[] = {{-half.x, half.y}, {half.x, half.y}, {half.x, -half.y}, {-half.x, -half.y}};
+        ImVec2 screen_corners[4];
+        for (int corner = 0; corner < 4; ++corner) {
+            const glm::vec2 local = local_corners[corner];
+            const glm::vec2 rotated(local.x * cosine - local.y * sine, local.x * sine + local.y * cosine);
+            const glm::vec2 screen = camera.world_to_screen(glm::vec3(tx.position.x + rotated.x, tx.position.y + rotated.y, tx.position.z));
+            screen_corners[corner] = ImVec2(img_min.x + screen.x * scale_x, img_min.y + screen.y * scale_y);
+        }
 
-        ImVec2 p_min(img_min.x + s_tl.x * scale_x, img_min.y + s_tl.y * scale_y);
-        ImVec2 p_max(img_min.x + s_br.x * scale_x, img_min.y + s_br.y * scale_y);
-
-        ImVec2 rect_min(std::min(p_min.x, p_max.x), std::min(p_min.y, p_max.y));
-        ImVec2 rect_max(std::max(p_min.x, p_max.x), std::max(p_min.y, p_max.y));
-
-        // Subtle, minimalist indigo outline matching the selection theme
-        dl->AddRectFilled(rect_min, rect_max, IM_COL32(99, 102, 241, 30), 2.0f);
-        dl->AddRect(rect_min, rect_max, IM_COL32(129, 140, 248, 220), 2.0f, 0, 1.2f);
+        dl->AddQuadFilled(screen_corners[0], screen_corners[1], screen_corners[2], screen_corners[3], IM_COL32(99, 102, 241, 30));
+        dl->AddPolyline(screen_corners, 4, IM_COL32(129, 140, 248, 220), ImDrawFlags_Closed, 1.2f);
     }
 }
 

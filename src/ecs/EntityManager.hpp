@@ -23,6 +23,10 @@ public:
     // Create a new unique Entity ID (recycles old IDs for zero allocations)
     EntityID create_entity();
 
+    // Restore an entity with its original ID. Used by editor undo/redo so
+    // references and commands remain stable across a delete/restore cycle.
+    EntityID create_entity_with_id(EntityID entity);
+
     // Destroy an entity and purge its components
     void destroy_entity(EntityID entity);
 

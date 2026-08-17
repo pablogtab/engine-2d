@@ -39,6 +39,8 @@ private:
     GizmoAxis m_active_axis{GizmoAxis::None};
     GizmoAxis m_hovered_axis{GizmoAxis::None};
     glm::vec2 m_drag_start_world{0.0f, 0.0f};
+    glm::vec2 m_drag_axis_x{1.0f, 0.0f};
+    glm::vec2 m_drag_axis_y{0.0f, 1.0f};
     std::unordered_map<EntityID, glm::vec3> m_entity_start_positions;
 };
 

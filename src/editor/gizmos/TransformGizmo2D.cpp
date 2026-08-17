@@ -7,6 +7,29 @@
 
 namespace Engine {
 
+static float distance_to_segment(const ImVec2& point, const ImVec2& start, const ImVec2& end) {
+    const ImVec2 segment(end.x - start.x, end.y - start.y);
+    const float length_sq = segment.x * segment.x + segment.y * segment.y;
+    if (length_sq <= 0.0001f) return std::hypot(point.x - start.x, point.y - start.y);
+    const float projection = std::clamp(((point.x - start.x) * segment.x + (point.y - start.y) * segment.y) / length_sq, 0.0f, 1.0f);
+    const ImVec2 closest(start.x + segment.x * projection, start.y + segment.y * projection);
+    return std::hypot(point.x - closest.x, point.y - closest.y);
+}
+
+static void draw_arrow(ImDrawList* draw_list, const ImVec2& start, const ImVec2& end, ImU32 color, float size) {
+    draw_list->AddLine(start, end, color, 4.0f);
+    const float dx = end.x - start.x;
+    const float dy = end.y - start.y;
+    const float length = std::hypot(dx, dy);
+    if (length <= 0.001f) return;
+    const ImVec2 direction(dx / length, dy / length);
+    const ImVec2 perpendicular(-direction.y, direction.x);
+    const ImVec2 tip(end.x + direction.x * size, end.y + direction.y * size);
+    const ImVec2 left(end.x - direction.x * size * 0.25f + perpendicular.x * size * 0.5f, end.y - direction.y * size * 0.25f + perpendicular.y * size * 0.5f);
+    const ImVec2 right(end.x - direction.x * size * 0.25f - perpendicular.x * size * 0.5f, end.y - direction.y * size * 0.25f - perpendicular.y * size * 0.5f);
+    draw_list->AddTriangleFilled(tip, left, right, color);
+}
+
 static bool is_entity_locked_from_gizmo(EntityManager& em, EntityID id) {
     if (!em.is_alive(id)) return true;
     if (em.has_component<TagComponent>(id)) {
@@ -97,8 +120,27 @@ bool TransformGizmo2D::draw_gizmo(
     float arrow_size = 14.0f;
     float center_size = 20.0f;
 
-    ImVec2 x_axis_end(origin.x + gizmo_len, origin.y);
-    ImVec2 y_axis_end(origin.x, origin.y - gizmo_len);
+    // A single selection uses its local axes. Group transforms intentionally use
+    // world axes because a group has no unambiguous local orientation.
+    glm::vec2 axis_x(1.0f, 0.0f);
+    glm::vec2 axis_y(0.0f, 1.0f);
+    if (selected_entities.size() == 1) {
+        EntityID id = *selected_entities.begin();
+        if (em.is_alive(id) && em.has_component<TransformComponent>(id)) {
+            // SDL renderer rotation is clockwise in screen space; convert it
+            // before deriving the editor's world-space local axes.
+            const float radians = glm::radians(-em.get_component<TransformComponent>(id).world_rotation);
+            axis_x = glm::vec2(std::cos(radians), std::sin(radians));
+            axis_y = glm::vec2(-std::sin(radians), std::cos(radians));
+        }
+    }
+
+    glm::vec2 x_screen(axis_x.x * scale_x, -axis_x.y * scale_y);
+    glm::vec2 y_screen(axis_y.x * scale_x, -axis_y.y * scale_y);
+    x_screen = glm::normalize(x_screen) * gizmo_len;
+    y_screen = glm::normalize(y_screen) * gizmo_len;
+    ImVec2 x_axis_end(origin.x + x_screen.x, origin.y + x_screen.y);
+    ImVec2 y_axis_end(origin.x + y_screen.x, origin.y + y_screen.y);
 
     // Convert mouse to world space
     glm::vec2 mouse_in_viewport(
@@ -118,13 +160,11 @@ bool TransformGizmo2D::draw_gizmo(
                 m_hovered_axis = GizmoAxis::CenterXY;
             }
             // X axis arrow
-            else if (mouse_pos.x >= origin.x && mouse_pos.x <= origin.x + gizmo_len + arrow_size &&
-                     std::abs(mouse_pos.y - origin.y) <= 16.0f) {
+            else if (distance_to_segment(mouse_pos, origin, x_axis_end) <= 14.0f) {
                 m_hovered_axis = GizmoAxis::AxisX;
             }
             // Y axis arrow
-            else if (mouse_pos.y <= origin.y && mouse_pos.y >= origin.y - gizmo_len - arrow_size &&
-                     std::abs(mouse_pos.x - origin.x) <= 16.0f) {
+            else if (distance_to_segment(mouse_pos, origin, y_axis_end) <= 14.0f) {
                 m_hovered_axis = GizmoAxis::AxisY;
             }
         }
@@ -134,6 +174,8 @@ bool TransformGizmo2D::draw_gizmo(
     if (io.MouseClicked[ImGuiMouseButton_Left] && is_viewport_hovered && m_hovered_axis != GizmoAxis::None) {
         m_active_axis = m_hovered_axis;
         m_drag_start_world = mouse_world;
+        m_drag_axis_x = axis_x;
+        m_drag_axis_y = axis_y;
         m_entity_start_positions.clear();
 
         for (EntityID id : selected_entities) {
@@ -183,9 +225,9 @@ bool TransformGizmo2D::draw_gizmo(
 
             auto& transform = em.get_component<TransformComponent>(id);
             if (m_active_axis == GizmoAxis::AxisX) {
-                transform.position.x = start_pos.x + world_delta.x;
+                transform.position = start_pos + glm::vec3(m_drag_axis_x * glm::dot(world_delta, m_drag_axis_x), 0.0f);
             } else if (m_active_axis == GizmoAxis::AxisY) {
-                transform.position.y = start_pos.y + world_delta.y;
+                transform.position = start_pos + glm::vec3(m_drag_axis_y * glm::dot(world_delta, m_drag_axis_y), 0.0f);
             } else if (m_active_axis == GizmoAxis::CenterXY) {
                 transform.position.x = start_pos.x + world_delta.x;
                 transform.position.y = start_pos.y + world_delta.y;
@@ -213,23 +255,9 @@ bool TransformGizmo2D::draw_gizmo(
         IM_COL32(255, 255, 255, 240), 3.0f, 0, 1.5f
     );
 
-    // 2. X Axis Line & Arrow (+X Right)
-    draw_list->AddLine(origin, x_axis_end, col_x, 4.0f);
-    draw_list->AddTriangleFilled(
-        ImVec2(x_axis_end.x + arrow_size, x_axis_end.y),
-        ImVec2(x_axis_end.x, x_axis_end.y - arrow_size * 0.5f),
-        ImVec2(x_axis_end.x, x_axis_end.y + arrow_size * 0.5f),
-        col_x
-    );
-
-    // 3. Y Axis Line & Arrow (+Y Up)
-    draw_list->AddLine(origin, y_axis_end, col_y, 4.0f);
-    draw_list->AddTriangleFilled(
-        ImVec2(y_axis_end.x, y_axis_end.y - arrow_size),
-        ImVec2(y_axis_end.x - arrow_size * 0.5f, y_axis_end.y),
-        ImVec2(y_axis_end.x + arrow_size * 0.5f, y_axis_end.y),
-        col_y
-    );
+    // 2. Local X / Y axes, aligned to the selected entity's rotation.
+    draw_arrow(draw_list, origin, x_axis_end, col_x, arrow_size);
+    draw_arrow(draw_list, origin, y_axis_end, col_y, arrow_size);
 
     return (m_active_axis != GizmoAxis::None || m_hovered_axis != GizmoAxis::None);
 }

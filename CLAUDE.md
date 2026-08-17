@@ -29,6 +29,12 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
    - **NO mantener capas de compatibilidad hacia atrás o soporte legacy** mientras el motor esté en desarrollo activo.
    - Cuando se refactorice o mejore una estructura, API o componente del motor (ej. `BodyType` en lugar de booleanos, nuevas firmas de funciones), **refactorizar inmediatamente todas las escenas y llamadas existentes en el proyecto** para adoptar la nueva API limpia y eliminar cualquier código obsoleto.
 
+6. **Toda Edición del Editor Debe Poder Deshacerse:**
+   - Toda mutación de contenido iniciada desde la interfaz del editor debe registrarse en `EditorCommandHistory` como un comando atómico reversible.
+   - Esto incluye creación, borrado, duplicado y modificación de propiedades, transformaciones, componentes, tilemaps, animaciones y configuraciones serializables.
+   - `Undo` debe restaurar el estado exacto previo y `Redo` debe reaplicar el cambio exacto. Agrupar actualizaciones continuas de un mismo gesto (por ejemplo, arrastrar un campo numérico) en un único comando al finalizar la interacción.
+   - No introducir controles de edición que modifiquen el estado directamente sin una ruta de undo/redo, salvo acciones explícitamente efímeras de vista (pan, zoom, selección y layout de paneles).
+
 ---
 
 ## 🛠️ Build & Run Commands

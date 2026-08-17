@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <functional>
 #include <SDL3/SDL.h>
 
 namespace Engine {
@@ -38,6 +39,7 @@ public:
     [[nodiscard]] bool is_editing() const { return m_play_state == ScenePlayState::Edit; }
 
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
+    void set_on_authoring_state_invalidated(std::function<void()> callback) { m_on_authoring_state_invalidated = std::move(callback); }
 
     void update(float delta_time);
     void render(Renderer2D& renderer);
@@ -60,6 +62,7 @@ private:
     ScenePlayState m_play_state{ScenePlayState::Edit};
     std::string m_snapshot_json;
     SDL_Renderer* m_renderer{nullptr};
+    std::function<void()> m_on_authoring_state_invalidated;
 };
 
 } // namespace Engine

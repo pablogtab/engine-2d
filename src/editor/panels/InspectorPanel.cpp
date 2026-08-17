@@ -1,6 +1,7 @@
 #include "InspectorPanel.hpp"
 #include "SceneHierarchyPanel.hpp"
 #include "SpriteAnimationStudioPanel.hpp"
+#include "../commands/EntityCommands.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
@@ -9,20 +10,169 @@
 #include "../../tilemap/Tilemap.hpp"
 #include "../../tilemap/TilemapColliderSystem.hpp"
 #include <imgui.h>
+#include <cfloat>
 #include <cstring>
 
 namespace Engine {
 
+namespace {
+
+constexpr float PROPERTY_LABEL_WIDTH = 104.0f;
+constexpr float PROPERTY_GAP = 6.0f;
+constexpr float RESET_BUTTON_WIDTH = 28.0f;
+
+struct PropertyInteraction {
+    ImGuiID id{0};
+    bool activated{false};
+    bool deactivated_after_edit{false};
+};
+
+PropertyInteraction g_property_interaction;
+
+void begin_property_interaction(const char* label) {
+    g_property_interaction = {ImGui::GetID(label), false, false};
+}
+
+void capture_property_interaction() {
+    g_property_interaction.activated |= ImGui::IsItemActivated();
+    g_property_interaction.deactivated_after_edit |= ImGui::IsItemDeactivatedAfterEdit();
+}
+
+void begin_property_row(const char* label, bool reserve_reset = false) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Drag the value horizontally to adjust it. Double-click the value to type it.");
+    }
+
+    ImGui::SameLine(PROPERTY_LABEL_WIDTH);
+    const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset_space);
+}
+
+bool property_float(const char* label, float* value, float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f") {
+    begin_property_row(label);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const bool changed = ImGui::DragFloat("##value", value, speed, min, max, format);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_int(const char* label, int* value, float speed, int min = 0, int max = 0, const char* format = "%d") {
+    begin_property_row(label);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const bool changed = ImGui::DragInt("##value", value, speed, min, max, format);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_bool(const char* label, bool* value) {
+    begin_property_row(label);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const bool changed = ImGui::Checkbox("##value", value);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_vec2(const char* label, float values[2], float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f", bool reserve_reset = false) {
+    begin_property_row(label, reserve_reset);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const float width = (ImGui::GetContentRegionAvail().x - (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) - ImGui::GetStyle().ItemInnerSpacing.x) * 0.5f;
+    ImGui::SetNextItemWidth(width);
+    bool changed = ImGui::DragFloat("##x", &values[0], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    ImGui::SetNextItemWidth(width);
+    changed |= ImGui::DragFloat("##y", &values[1], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_vec3(const char* label, float values[3], float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f", bool reserve_reset = false) {
+    begin_property_row(label, reserve_reset);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+    const float width = (ImGui::GetContentRegionAvail().x - (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) - spacing * 2.0f) / 3.0f;
+    ImGui::SetNextItemWidth(width);
+    bool changed = ImGui::DragFloat("##x", &values[0], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::SetNextItemWidth(width);
+    changed |= ImGui::DragFloat("##y", &values[1], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::SetNextItemWidth(width);
+    changed |= ImGui::DragFloat("##z", &values[2], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_reset_button(const char* id) {
+    ImGui::SameLine(0.0f, PROPERTY_GAP);
+    return ImGui::Button(id, ImVec2(RESET_BUTTON_WIDTH, 0.0f));
+}
+
+} // namespace
+
 InspectorPanel::InspectorPanel(SceneManager* scene_manager, std::shared_ptr<EditorSelection> selection, SDL_Renderer* renderer)
     : m_scene_manager(scene_manager), m_selection(selection), m_renderer(renderer) {}
+
+void InspectorPanel::push_transform_change(EntityManager& em, EntityID entity, const TransformComponent& before, const char* description) {
+    if (!m_command_history || !em.is_alive(entity) || !em.has_component<TransformComponent>(entity)) return;
+
+    const TransformComponent after = em.get_component<TransformComponent>(entity);
+    m_command_history->push_executed_command(std::make_unique<ModifyEntityCommand>(
+        &em,
+        entity,
+        [before](EntityManager& command_em, EntityID id) {
+            if (!command_em.has_component<TransformComponent>(id)) return;
+            command_em.get_component<TransformComponent>(id) = before;
+            PhysicsSystem::set_position(command_em, id, glm::vec2(before.position.x, before.position.y));
+        },
+        [after](EntityManager& command_em, EntityID id) {
+            if (!command_em.has_component<TransformComponent>(id)) return;
+            command_em.get_component<TransformComponent>(id) = after;
+            PhysicsSystem::set_position(command_em, id, glm::vec2(after.position.x, after.position.y));
+        },
+        description
+    ));
+}
+
+void InspectorPanel::track_transform_edit(EntityManager& em, EntityID entity, const TransformComponent& before, const char* description) {
+    if (g_property_interaction.activated) {
+        m_pending_transform_edits.try_emplace(g_property_interaction.id, before);
+    }
+
+    if (g_property_interaction.deactivated_after_edit) {
+        auto pending = m_pending_transform_edits.find(g_property_interaction.id);
+        if (pending != m_pending_transform_edits.end()) {
+            push_transform_change(em, entity, pending->second, description);
+            m_pending_transform_edits.erase(pending);
+        }
+    }
+}
 
 void InspectorPanel::on_gui() {
     if (!is_open) return;
 
     ImGui::SetNextWindowSize(ImVec2(320, 500), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 7.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 3.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 4.0f));
         if (!m_scene_manager || !m_selection) {
             ImGui::TextDisabled("Inspector unavailable.");
+            ImGui::PopStyleVar(3);
             ImGui::End();
             return;
         }
@@ -30,6 +180,7 @@ void InspectorPanel::on_gui() {
         Scene* active_scene = m_scene_manager->get_active_scene();
         if (!active_scene) {
             ImGui::TextDisabled("No active scene.");
+            ImGui::PopStyleVar(3);
             ImGui::End();
             return;
         }
@@ -41,6 +192,7 @@ void InspectorPanel::on_gui() {
             ImGui::TextDisabled("No Entity Selected.");
             ImGui::Separator();
             ImGui::TextWrapped("Select an entity from the Scene Hierarchy panel or drag-select in the Viewport to inspect components.");
+            ImGui::PopStyleVar(3);
             ImGui::End();
             return;
         }
@@ -51,11 +203,15 @@ void InspectorPanel::on_gui() {
             ImGui::TextWrapped("You have %zu entities selected. Use the Viewport Gizmo to translate them together as a group.", selected_set.size());
             ImGui::Spacing();
             if (ImGui::Button(" Delete All Selected ", ImVec2(180, 26))) {
-                for (EntityID id : selected_set) {
-                    em.destroy_entity(id);
+                std::vector<EntityID> ids(selected_set.begin(), selected_set.end());
+                if (m_command_history) {
+                    m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, std::move(ids)));
+                } else {
+                    for (EntityID id : ids) em.destroy_entity(id);
+                    m_selection->clear();
                 }
-                m_selection->clear();
             }
+            ImGui::PopStyleVar(3);
             ImGui::End();
             return;
         }
@@ -63,11 +219,13 @@ void InspectorPanel::on_gui() {
         EntityID selected_id = *selected_set.begin();
         if (!em.is_alive(selected_id)) {
             m_selection->clear();
+            ImGui::PopStyleVar(3);
             ImGui::End();
             return;
         }
 
         draw_components(em, selected_id);
+        ImGui::PopStyleVar(3);
     }
     ImGui::End();
 }
@@ -122,42 +280,53 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
             // Position
             float pos[3] = {tx.position.x, tx.position.y, tx.position.z};
-            if (ImGui::DragFloat3("Position", pos, 1.0f)) {
+            const TransformComponent position_before = tx;
+            if (property_vec3("Position", pos, 1.0f, 0.0f, 0.0f, "%.3f", true)) {
                 tx.position = glm::vec3(pos[0], pos[1], pos[2]);
                 tx.world_position = tx.position;
                 PhysicsSystem::set_position(em, entity, {tx.position.x, tx.position.y});
             }
-            ImGui::SameLine();
-            if (ImGui::Button("R##pos")) {
+            track_transform_edit(em, entity, position_before, "Edit Transform Position");
+            if (property_reset_button("R##pos")) {
+                const TransformComponent before = tx;
                 tx.position = glm::vec3(0.0f);
                 tx.world_position = tx.position;
                 PhysicsSystem::set_position(em, entity, {0.0f, 0.0f});
+                push_transform_change(em, entity, before, "Reset Transform Position");
             }
 
             // Scale
             float scl[2] = {tx.scale.x, tx.scale.y};
-            if (ImGui::DragFloat2("Scale", scl, 0.05f, 0.01f, 100.0f)) {
+            const TransformComponent scale_before = tx;
+            if (property_vec2("Scale", scl, 0.05f, 0.01f, 100.0f, "%.3f", true)) {
                 tx.scale = glm::vec2(scl[0], scl[1]);
                 tx.world_scale = tx.scale;
             }
-            ImGui::SameLine();
-            if (ImGui::Button("R##scl")) {
+            track_transform_edit(em, entity, scale_before, "Edit Transform Scale");
+            if (property_reset_button("R##scl")) {
+                const TransformComponent before = tx;
                 tx.scale = glm::vec2(1.0f);
                 tx.world_scale = tx.scale;
+                push_transform_change(em, entity, before, "Reset Transform Scale");
             }
 
             // Rotation
-            if (ImGui::SliderFloat("Rotation", &tx.rotation, -360.0f, 360.0f, "%.1f deg")) {
+            const TransformComponent rotation_before = tx;
+            if (property_float("Rotation", &tx.rotation, 0.5f, -360.0f, 360.0f, "%.1f deg")) {
                 tx.world_rotation = tx.rotation;
             }
-            ImGui::SameLine();
-            if (ImGui::Button("R##rot")) {
+            track_transform_edit(em, entity, rotation_before, "Edit Transform Rotation");
+            if (property_reset_button("R##rot")) {
+                const TransformComponent before = tx;
                 tx.rotation = 0.0f;
                 tx.world_rotation = 0.0f;
+                push_transform_change(em, entity, before, "Reset Transform Rotation");
             }
 
             // Visibility
-            ImGui::Checkbox("Visible", &tx.visible);
+            const TransformComponent visibility_before = tx;
+            property_bool("Visible", &tx.visible);
+            track_transform_edit(em, entity, visibility_before, "Edit Transform Visibility");
 
             ImGui::EndDisabled();
         }
@@ -201,7 +370,7 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             }
 
             float sz[2] = {sprite.size.x, sprite.size.y};
-            if (ImGui::DragFloat2("Size", sz, 1.0f, 1.0f, 2048.0f)) {
+            if (property_vec2("Size", sz, 1.0f, 1.0f, 2048.0f)) {
                 sprite.size = glm::vec2(sz[0], sz[1]);
             }
 
@@ -218,6 +387,7 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                 sprite.color.a = static_cast<uint8_t>(col[3] * 255.0f);
             }
 
+            begin_property_row("Flags");
             ImGui::Checkbox("Flip X", &sprite.flip_x);
             ImGui::SameLine();
             ImGui::Checkbox("Flip Y", &sprite.flip_y);
@@ -233,15 +403,19 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
             const char* body_types[] = { "Dynamic", "Static", "Kinematic" };
             int current_type = static_cast<int>(rb.body_type);
-            if (ImGui::Combo("Body Type", &current_type, body_types, 3)) {
+            begin_property_row("Body Type");
+            ImGui::PushID("body_type");
+            if (ImGui::Combo("##value", &current_type, body_types, 3)) {
                 rb.body_type = static_cast<BodyType>(current_type);
             }
+            ImGui::PopID();
 
-            ImGui::DragFloat("Mass", &rb.mass, 0.1f, 0.01f, 1000.0f);
-            ImGui::DragFloat("Gravity Scale", &rb.gravity_scale, 0.1f, -10.0f, 10.0f);
-            ImGui::SliderFloat("Friction", &rb.friction, 0.0f, 1.0f);
-            ImGui::SliderFloat("Restitution", &rb.restitution, 0.0f, 1.0f);
-            ImGui::Checkbox("Fixed Rotation", &rb.fixed_rotation);
+            property_float("Mass", &rb.mass, 0.1f, 0.01f, 1000.0f);
+            property_float("Gravity Scale", &rb.gravity_scale, 0.1f, -10.0f, 10.0f);
+            property_float("Friction", &rb.friction, 0.01f, 0.0f, 1.0f);
+            property_float("Restitution", &rb.restitution, 0.01f, 0.0f, 1.0f);
+            begin_property_row("Fixed Rotation");
+            ImGui::Checkbox("##fixed_rotation", &rb.fixed_rotation);
 
             ImGui::Text("Velocity: (%.1f, %.1f)", rb.velocity.x, rb.velocity.y);
         }
@@ -258,15 +432,15 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                 
                 if (shape.type == ColliderShapeType::Box) {
                     float sz[2] = {shape.size.x, shape.size.y};
-                    if (ImGui::DragFloat2("Size", sz, 1.0f)) {
+                    if (property_vec2("Size", sz, 1.0f)) {
                         shape.size = glm::vec2(sz[0], sz[1]);
                     }
                 } else if (shape.type == ColliderShapeType::Circle) {
-                    ImGui::DragFloat("Radius", &shape.radius, 1.0f, 1.0f, 500.0f);
+                    property_float("Radius", &shape.radius, 1.0f, 1.0f, 500.0f);
                 }
 
                 float off[2] = {shape.offset.x, shape.offset.y};
-                if (ImGui::DragFloat2("Offset", off, 1.0f)) {
+                if (property_vec2("Offset", off, 1.0f)) {
                     shape.offset = glm::vec2(off[0], off[1]);
                 }
 
@@ -293,8 +467,8 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                 ImGui::TextDisabled("Map is empty (Size: 0). Paint tiles in Viewport to expand.");
             }
 
-            ImGui::DragFloat("Tile Size (px)", &tilemap.tile_size, 1.0f, 8.0f, 256.0f);
-            ImGui::DragInt("Tile Pixel Size", &tilemap.tile_pixel_size, 1, 8, 128);
+            property_float("Tile Size (px)", &tilemap.tile_size, 1.0f, 8.0f, 256.0f);
+            property_int("Tile Pixel Size", &tilemap.tile_pixel_size, 1.0f, 8, 128);
 
             char path_buf[256];
             snprintf(path_buf, sizeof(path_buf), "%s", tilemap.tileset_path.c_str());
@@ -323,11 +497,11 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                     needs_rebuild = true;
                 }
 
-                if (ImGui::SliderFloat("Friction", &tilemap.friction, 0.0f, 1.0f, "%.2f")) {
+                if (property_float("Friction", &tilemap.friction, 0.01f, 0.0f, 1.0f, "%.2f")) {
                     needs_rebuild = true;
                 }
 
-                if (ImGui::SliderFloat("Restitution (Bounce)", &tilemap.restitution, 0.0f, 1.0f, "%.2f")) {
+                if (property_float("Restitution (Bounce)", &tilemap.restitution, 0.01f, 0.0f, 1.0f, "%.2f")) {
                     needs_rebuild = true;
                 }
 
@@ -371,14 +545,17 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             auto& cam = em.get_component<CameraComponent>(entity);
 
             ImGui::Checkbox("Primary Scene Camera", &cam.is_primary);
-            ImGui::SliderFloat("Camera Zoom", &cam.zoom, 0.1f, 5.0f, "%.2fx");
+            property_float("Camera Zoom", &cam.zoom, 0.02f, 0.1f, 5.0f, "%.2fx");
             ImGui::Checkbox("Follow Player Smoothly", &cam.follow_player);
             if (cam.follow_player) {
-                ImGui::SliderFloat("Follow Speed", &cam.follow_speed, 1.0f, 20.0f, "%.1f");
+                property_float("Follow Speed", &cam.follow_speed, 0.1f, 1.0f, 20.0f, "%.1f");
             }
             ImGui::Checkbox("Enable Camera Bounds", &cam.enable_bounds);
             if (cam.enable_bounds) {
-                ImGui::DragFloat4("Bounds (MinX, MinY, MaxX, MaxY)", &cam.bounds.x, 10.0f);
+                begin_property_row("Bounds");
+                ImGui::PushID("camera_bounds");
+                ImGui::DragFloat4("##value", &cam.bounds.x, 10.0f);
+                ImGui::PopID();
             }
             ImGui::TextDisabled("Viewport Base: %.0f x %.0f", cam.viewport_size.x, cam.viewport_size.y);
         }

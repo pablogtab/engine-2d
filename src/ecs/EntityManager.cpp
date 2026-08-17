@@ -17,6 +17,19 @@ EntityID EntityManager::create_entity() {
     return id;
 }
 
+EntityID EntityManager::create_entity_with_id(EntityID entity) {
+    if (entity == 0 || is_alive(entity)) return 0;
+
+    auto free_it = std::find(m_free_entities.begin(), m_free_entities.end(), entity);
+    if (free_it != m_free_entities.end()) {
+        m_free_entities.erase(free_it);
+    }
+
+    m_living_entities.push_back(entity);
+    m_next_entity_id = std::max(m_next_entity_id, entity + 1);
+    return entity;
+}
+
 void EntityManager::destroy_entity(EntityID entity) {
     auto it = std::find(m_living_entities.begin(), m_living_entities.end(), entity);
     if (it == m_living_entities.end()) return;

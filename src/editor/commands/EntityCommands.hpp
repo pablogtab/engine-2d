@@ -3,14 +3,43 @@
 #include "IEditorCommand.hpp"
 #include "../../ecs/EntityManager.hpp"
 #include "../../ecs/Components.hpp"
+#include "../../tilemap/Tilemap.hpp"
 #include "../EditorSelection.hpp"
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <vector>
 #include <memory>
 #include <string>
+#include <functional>
 
 namespace Engine {
+
+// Generic reversible edit for inspector and future editor property controls.
+// Operations resolve the component from the entity ID at execution time, so they
+// remain valid if component storage moves in memory.
+class ModifyEntityCommand : public IEditorCommand {
+public:
+    using Operation = std::function<void(EntityManager&, EntityID)>;
+
+    ModifyEntityCommand(
+        EntityManager* em,
+        EntityID entity,
+        Operation apply_before,
+        Operation apply_after,
+        std::string description
+    );
+
+    void execute() override;
+    void undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+
+private:
+    EntityManager* m_em{nullptr};
+    EntityID m_entity{0};
+    Operation m_apply_before;
+    Operation m_apply_after;
+    std::string m_description;
+};
 
 // 1. Move Entities Command (Gizmo Translation)
 class MoveEntitiesCommand : public IEditorCommand {
@@ -36,15 +65,28 @@ private:
 // 2. Delete Entities Command (with full snapshot restore on undo)
 struct EntitySnapshot {
     EntityID id{0};
+    bool has_tag{false};
     TagComponent tag;
+    bool has_transform{false};
     TransformComponent transform;
+    bool has_hierarchy{false};
+    HierarchyComponent hierarchy;
     bool has_sprite{false};
     SpriteComponent sprite;
     bool has_rigidbody{false};
     RigidBodyComponent rigidbody;
     bool has_collider{false};
     ColliderComponent collider;
+    bool has_tilemap{false};
+    TilemapComponent tilemap;
+    bool has_camera{false};
+    CameraComponent camera;
+    bool has_animation{false};
+    AnimationComponent animation;
 };
+
+[[nodiscard]] EntitySnapshot capture_entity_snapshot(EntityManager& em, EntityID entity);
+bool restore_entity_snapshot(EntityManager& em, const EntitySnapshot& snapshot);
 
 class DeleteEntitiesCommand : public IEditorCommand {
 public:

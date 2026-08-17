@@ -5,6 +5,68 @@
 
 namespace Engine {
 
+EntitySnapshot capture_entity_snapshot(EntityManager& em, EntityID entity) {
+    EntitySnapshot snapshot;
+    snapshot.id = entity;
+    if (!em.is_alive(entity)) return snapshot;
+
+    if (em.has_component<TagComponent>(entity)) { snapshot.has_tag = true; snapshot.tag = em.get_component<TagComponent>(entity); }
+    if (em.has_component<TransformComponent>(entity)) { snapshot.has_transform = true; snapshot.transform = em.get_component<TransformComponent>(entity); }
+    if (em.has_component<HierarchyComponent>(entity)) { snapshot.has_hierarchy = true; snapshot.hierarchy = em.get_component<HierarchyComponent>(entity); }
+    if (em.has_component<SpriteComponent>(entity)) { snapshot.has_sprite = true; snapshot.sprite = em.get_component<SpriteComponent>(entity); }
+    if (em.has_component<RigidBodyComponent>(entity)) { snapshot.has_rigidbody = true; snapshot.rigidbody = em.get_component<RigidBodyComponent>(entity); }
+    if (em.has_component<ColliderComponent>(entity)) { snapshot.has_collider = true; snapshot.collider = em.get_component<ColliderComponent>(entity); }
+    if (em.has_component<TilemapComponent>(entity)) { snapshot.has_tilemap = true; snapshot.tilemap = em.get_component<TilemapComponent>(entity); }
+    if (em.has_component<CameraComponent>(entity)) { snapshot.has_camera = true; snapshot.camera = em.get_component<CameraComponent>(entity); }
+    if (em.has_component<AnimationComponent>(entity)) { snapshot.has_animation = true; snapshot.animation = em.get_component<AnimationComponent>(entity); }
+    return snapshot;
+}
+
+static void attach_snapshot_components(EntityManager& em, const EntitySnapshot& snapshot) {
+    if (snapshot.has_tag) em.add_component<TagComponent>(snapshot.id, snapshot.tag);
+    if (snapshot.has_transform) em.add_component<TransformComponent>(snapshot.id, snapshot.transform);
+    if (snapshot.has_sprite) em.add_component<SpriteComponent>(snapshot.id, snapshot.sprite);
+    if (snapshot.has_rigidbody) em.add_component<RigidBodyComponent>(snapshot.id, snapshot.rigidbody);
+    if (snapshot.has_collider) em.add_component<ColliderComponent>(snapshot.id, snapshot.collider);
+    if (snapshot.has_tilemap) em.add_component<TilemapComponent>(snapshot.id, snapshot.tilemap);
+    if (snapshot.has_camera) em.add_component<CameraComponent>(snapshot.id, snapshot.camera);
+    if (snapshot.has_animation) em.add_component<AnimationComponent>(snapshot.id, snapshot.animation);
+    if (snapshot.has_hierarchy) em.add_component<HierarchyComponent>(snapshot.id, HierarchyComponent{});
+}
+
+bool restore_entity_snapshot(EntityManager& em, const EntitySnapshot& snapshot) {
+    if (snapshot.id == 0 || em.is_alive(snapshot.id) || em.create_entity_with_id(snapshot.id) == 0) return false;
+    attach_snapshot_components(em, snapshot);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Generic inspector/property edit command
+// ---------------------------------------------------------------------------
+ModifyEntityCommand::ModifyEntityCommand(
+    EntityManager* em,
+    EntityID entity,
+    Operation apply_before,
+    Operation apply_after,
+    std::string description
+) : m_em(em),
+    m_entity(entity),
+    m_apply_before(std::move(apply_before)),
+    m_apply_after(std::move(apply_after)),
+    m_description(std::move(description)) {}
+
+void ModifyEntityCommand::execute() {
+    if (m_em && m_em->is_alive(m_entity) && m_apply_after) {
+        m_apply_after(*m_em, m_entity);
+    }
+}
+
+void ModifyEntityCommand::undo() {
+    if (m_em && m_em->is_alive(m_entity) && m_apply_before) {
+        m_apply_before(*m_em, m_entity);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 1. Move Entities Command
 // ---------------------------------------------------------------------------
@@ -54,24 +116,7 @@ DeleteEntitiesCommand::DeleteEntitiesCommand(
     for (EntityID id : entities_to_delete) {
         if (!m_em->is_alive(id)) continue;
 
-        EntitySnapshot snap;
-        snap.id = id;
-        if (m_em->has_component<TagComponent>(id)) snap.tag = m_em->get_component<TagComponent>(id);
-        if (m_em->has_component<TransformComponent>(id)) snap.transform = m_em->get_component<TransformComponent>(id);
-        if (m_em->has_component<SpriteComponent>(id)) {
-            snap.has_sprite = true;
-            snap.sprite = m_em->get_component<SpriteComponent>(id);
-        }
-        if (m_em->has_component<RigidBodyComponent>(id)) {
-            snap.has_rigidbody = true;
-            snap.rigidbody = m_em->get_component<RigidBodyComponent>(id);
-        }
-        if (m_em->has_component<ColliderComponent>(id)) {
-            snap.has_collider = true;
-            snap.collider = m_em->get_component<ColliderComponent>(id);
-        }
-
-        m_snapshots.push_back(snap);
+        m_snapshots.push_back(capture_entity_snapshot(*m_em, id));
     }
 
     if (m_snapshots.size() == 1) {
@@ -101,15 +146,18 @@ void DeleteEntitiesCommand::undo() {
     std::unordered_set<EntityID> restored_ids;
 
     for (const auto& snap : m_snapshots) {
-        EntityID new_id = m_em->create_entity();
-        m_em->add_component<TagComponent>(new_id, snap.tag);
-        m_em->add_component<TransformComponent>(new_id, snap.transform);
+        if (restore_entity_snapshot(*m_em, snap)) restored_ids.insert(snap.id);
+    }
 
-        if (snap.has_sprite) m_em->add_component<SpriteComponent>(new_id, snap.sprite);
-        if (snap.has_rigidbody) m_em->add_component<RigidBodyComponent>(new_id, snap.rigidbody);
-        if (snap.has_collider) m_em->add_component<ColliderComponent>(new_id, snap.collider);
-
-        restored_ids.insert(new_id);
+    // Reconnect hierarchy only after every entity has been restored.
+    for (const auto& snap : m_snapshots) {
+        if (!snap.has_hierarchy || !m_em->is_alive(snap.id)) continue;
+        if (snap.hierarchy.parent != 0 && m_em->is_alive(snap.hierarchy.parent)) {
+            m_em->set_parent(snap.id, snap.hierarchy.parent);
+        }
+        for (EntityID child : snap.hierarchy.children) {
+            if (m_em->is_alive(child)) m_em->set_parent(child, snap.id);
+        }
     }
 
     if (m_selection) {
@@ -131,13 +179,17 @@ CreateEntityCommand::CreateEntityCommand(
 void CreateEntityCommand::execute() {
     if (!m_em) return;
 
-    m_created_id = m_em->create_entity();
-    m_em->add_component<TagComponent>(m_created_id, m_snapshot.tag);
-    m_em->add_component<TransformComponent>(m_created_id, m_snapshot.transform);
+    if (m_snapshot.id == 0) {
+        m_snapshot.id = m_em->create_entity();
+        attach_snapshot_components(*m_em, m_snapshot);
+    } else if (!restore_entity_snapshot(*m_em, m_snapshot)) {
+        return;
+    }
+    m_created_id = m_snapshot.id;
 
-    if (m_snapshot.has_sprite) m_em->add_component<SpriteComponent>(m_created_id, m_snapshot.sprite);
-    if (m_snapshot.has_rigidbody) m_em->add_component<RigidBodyComponent>(m_created_id, m_snapshot.rigidbody);
-    if (m_snapshot.has_collider) m_em->add_component<ColliderComponent>(m_created_id, m_snapshot.collider);
+    if (m_snapshot.has_hierarchy && m_snapshot.hierarchy.parent != 0 && m_em->is_alive(m_snapshot.hierarchy.parent)) {
+        m_em->set_parent(m_created_id, m_snapshot.hierarchy.parent);
+    }
 
     if (m_selection) {
         m_selection->select(m_created_id, false);

@@ -77,6 +77,8 @@ void SceneManager::set_active_scene(size_t index) {
 
     save_state();
 
+    if (m_on_authoring_state_invalidated) m_on_authoring_state_invalidated();
+
     ENGINE_LOG_INFO("Switched to Scene [{}/{}]: '{}'", m_active_index + 1, m_scenes.size(), m_scenes[m_active_index]->get_name());
 }
 
@@ -153,6 +155,7 @@ void SceneManager::stop_play() {
         if (!m_snapshot_json.empty()) {
             SceneSerializer serializer(active_scene, m_renderer);
             serializer.deserialize_from_string(m_snapshot_json);
+            if (m_on_authoring_state_invalidated) m_on_authoring_state_invalidated();
         }
 
         TransformSystem::update(active_scene->get_entity_manager());
