@@ -1,6 +1,7 @@
 #include "TransformGizmo2D.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
+#include "../tools/EditorTransformUtils.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
@@ -47,35 +48,6 @@ static bool is_entity_locked_from_gizmo(EntityManager& em, EntityID id) {
         }
     }
     return false;
-}
-
-static bool has_selected_ancestor(EntityManager& em, EntityID id, const std::unordered_set<EntityID>& selected_entities) {
-    while (em.has_component<HierarchyComponent>(id)) {
-        const EntityID parent = em.get_component<HierarchyComponent>(id).parent;
-        if (parent == 0 || !em.is_alive(parent)) return false;
-        if (selected_entities.contains(parent)) return true;
-        id = parent;
-    }
-    return false;
-}
-
-static glm::vec2 world_delta_to_local(EntityManager& em, EntityID id, const glm::vec2& world_delta) {
-    if (!em.has_component<HierarchyComponent>(id)) return world_delta;
-
-    const EntityID parent = em.get_component<HierarchyComponent>(id).parent;
-    if (parent == 0 || !em.is_alive(parent) || !em.has_component<TransformComponent>(parent)) return world_delta;
-
-    const auto& parent_transform = em.get_component<TransformComponent>(parent);
-    const float radians = glm::radians(-parent_transform.world_rotation);
-    const float cosine = std::cos(radians);
-    const float sine = std::sin(radians);
-    glm::vec2 local_delta(
-        world_delta.x * cosine - world_delta.y * sine,
-        world_delta.x * sine + world_delta.y * cosine
-    );
-    local_delta.x /= std::max(0.0001f, std::abs(parent_transform.world_scale.x));
-    local_delta.y /= std::max(0.0001f, std::abs(parent_transform.world_scale.y));
-    return local_delta;
 }
 
 bool TransformGizmo2D::draw_gizmo(

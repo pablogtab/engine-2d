@@ -46,15 +46,17 @@ void ViewportCameraController::handle_input(
     const EditorSelection& selection,
     bool is_viewport_hovered,
     bool is_viewport_focused,
-    const glm::vec2& viewport_mouse_position
+    const glm::vec2& viewport_mouse_position,
+    const glm::vec2& viewport_mouse_delta
 ) {
     if (!scene) return;
 
     ImGuiIO& io = ImGui::GetIO();
     if (is_viewport_hovered) {
         if (ImGui::IsMouseDragging(ImGuiMouseButton_Right) || ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
-            const ImVec2 drag_delta = io.MouseDelta;
-            scene->pan_editor_camera(glm::vec2(drag_delta.x, drag_delta.y));
+            // Input is normalized by the ViewportPanel from ImGui's logical
+            // display coordinates into the fixed render-target coordinates.
+            scene->pan_editor_camera(viewport_mouse_delta);
         }
         if (io.MouseWheel != 0.0f) {
             const float zoom_factor = std::exp(io.MouseWheel * SCROLL_ZOOM_SENSITIVITY);

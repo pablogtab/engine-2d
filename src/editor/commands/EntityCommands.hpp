@@ -121,6 +121,7 @@ public:
     void execute() override;
     void undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] EntityID get_created_entity() const { return m_created_id; }
 
 private:
     EntityManager* m_em{nullptr};
@@ -128,6 +129,29 @@ private:
     EntitySnapshot m_snapshot;
     EntityID m_created_id{0};
     std::string m_description{"Create Entity"};
+};
+
+// Reversible viewport duplication. Full snapshots keep the operation forward
+// compatible when an entity gains additional serializable components.
+class DuplicateEntitiesCommand : public IEditorCommand {
+public:
+    DuplicateEntitiesCommand(
+        EntityManager* em,
+        std::shared_ptr<EditorSelection> selection,
+        std::vector<EntityID> source_entities
+    );
+
+    void execute() override;
+    void undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+
+private:
+    EntityManager* m_em{nullptr};
+    std::shared_ptr<EditorSelection> m_selection{nullptr};
+    std::vector<EntityID> m_source_entities;
+    std::vector<std::unique_ptr<CreateEntityCommand>> m_create_commands;
+    std::vector<EntityID> m_duplicate_entities;
+    std::string m_description{"Duplicate Entities"};
 };
 
 // 4. Paint Tiles Command (Tilemap Brush, Eraser, and Box Fill with Undo/Redo)

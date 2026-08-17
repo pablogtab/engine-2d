@@ -17,7 +17,8 @@ public:
         const EditorSelection& selection,
         bool is_viewport_hovered,
         bool is_viewport_focused,
-        const glm::vec2& viewport_mouse_position
+        const glm::vec2& viewport_mouse_position,
+        const glm::vec2& viewport_mouse_delta
     );
 };
 

@@ -5,6 +5,7 @@
 #include "../commands/EditorCommandHistory.hpp"
 #include "../gizmos/TransformGizmo2D.hpp"
 #include "../tools/ViewportCameraController.hpp"
+#include "../tools/ViewportArrangementTool.hpp"
 #include "../tools/ViewportSelectionTool.hpp"
 #include "../tools/TilemapPaintingTool.hpp"
 #include "../panels/TilemapPalettePanel.hpp"
@@ -13,6 +14,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <memory>
+#include <array>
 
 namespace Engine {
 
@@ -66,6 +68,7 @@ public:
 
     // View menu entry point. Grid preferences are view-only session state.
     void render_grid_settings_menu();
+    void render_arrange_menu();
 
 private:
     std::string m_name{"Scene Viewport"};
@@ -84,6 +87,11 @@ private:
     glm::vec2 m_viewport_mouse_pos{0.0f, 0.0f};
     ImVec2 m_transform_toolbar_pos{-1.0f, -1.0f};
     ViewportGridSettings m_grid_settings;
+    EntityID m_context_entity{0};
+    std::array<char, 128> m_context_rename_buffer{};
+
+    void render_entity_context_menu(EntityManager& em, EntityID entity);
+    void render_rename_entity_popup(EntityManager& em);
 
     // Sub-tools
     TransformGizmo2D m_gizmo;

@@ -32,6 +32,10 @@ public:
         bool is_gizmo_active
     );
 
+    // Shared with the Viewport context menu so left-click selection and
+    // right-click contextual actions resolve the same transformed geometry.
+    [[nodiscard]] EntityID pick_entity(EntityManager& em, const glm::vec2& world_position) const;
+
     [[nodiscard]] bool is_box_selecting() const { return m_is_box_selecting; }
 
 private:

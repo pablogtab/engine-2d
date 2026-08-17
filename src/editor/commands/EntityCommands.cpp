@@ -199,6 +199,68 @@ void CreateEntityCommand::undo() {
 }
 
 // ---------------------------------------------------------------------------
+// 3.5 Duplicate Entities Command
+// ---------------------------------------------------------------------------
+DuplicateEntitiesCommand::DuplicateEntitiesCommand(
+    EntityManager* em,
+    std::shared_ptr<EditorSelection> selection,
+    std::vector<EntityID> source_entities
+) : m_em(em), m_selection(std::move(selection)), m_source_entities(std::move(source_entities)) {
+    if (!m_em) return;
+
+    for (EntityID source_id : m_source_entities) {
+        if (!m_em->is_alive(source_id)) continue;
+
+        EntitySnapshot snapshot = capture_entity_snapshot(*m_em, source_id);
+        snapshot.id = 0;
+        if (snapshot.has_tag) snapshot.tag.tag += "_Copy";
+        if (snapshot.has_transform) {
+            // Preserve the source's local coordinate space under a parent.
+            snapshot.transform.position += glm::vec3(30.0f, 30.0f, 0.0f);
+            snapshot.transform.world_position += glm::vec3(30.0f, 30.0f, 0.0f);
+        }
+        if (snapshot.has_hierarchy) snapshot.hierarchy.children.clear();
+        m_create_commands.push_back(std::make_unique<CreateEntityCommand>(m_em, m_selection, std::move(snapshot)));
+    }
+
+    if (m_create_commands.size() == 1) m_description = "Duplicate Entity";
+}
+
+void DuplicateEntitiesCommand::execute() {
+    if (!m_em) return;
+
+    m_duplicate_entities.clear();
+    for (auto& command : m_create_commands) {
+        command->execute();
+        const EntityID id = command->get_created_entity();
+        if (id != 0 && m_em->is_alive(id)) m_duplicate_entities.push_back(id);
+    }
+
+    TransformSystem::update(*m_em);
+    for (EntityID id : m_duplicate_entities) {
+        if (!m_em->has_component<TransformComponent>(id)) continue;
+        const auto& transform = m_em->get_component<TransformComponent>(id);
+        PhysicsSystem::set_position(*m_em, id, glm::vec2(transform.world_position));
+    }
+
+    if (m_selection) {
+        std::unordered_set<EntityID> duplicated(m_duplicate_entities.begin(), m_duplicate_entities.end());
+        m_selection->set_selection(duplicated);
+    }
+}
+
+void DuplicateEntitiesCommand::undo() {
+    if (!m_em) return;
+    for (auto it = m_create_commands.rbegin(); it != m_create_commands.rend(); ++it) (*it)->undo();
+
+    if (m_selection) {
+        std::unordered_set<EntityID> sources;
+        for (EntityID id : m_source_entities) if (m_em->is_alive(id)) sources.insert(id);
+        m_selection->set_selection(sources);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 4. Paint Tiles Command
 // ---------------------------------------------------------------------------
 PaintTilesCommand::PaintTilesCommand(

@@ -38,6 +38,28 @@ void ViewportSelectionTool::render_selection_outlines(EntityManager& em, const E
     }
 }
 
+EntityID ViewportSelectionTool::pick_entity(EntityManager& em, const glm::vec2& world_position) const {
+    EntityID hit_entity = 0;
+    float closest_distance = std::numeric_limits<float>::max();
+
+    em.for_each<TransformComponent>([&](EntityID id, const TransformComponent& transform) {
+        if (!transform.world_visible) return;
+        ViewportSelectionQuad quad;
+        if (!get_selection_quad(em, id, quad) || !point_in_selection_quad(world_position, quad)) return;
+        const float distance = glm::distance(world_position, glm::vec2(transform.world_position));
+        if (distance < closest_distance) {
+            closest_distance = distance;
+            hit_entity = id;
+        }
+    });
+
+    if (hit_entity != 0 && em.has_component<HierarchyComponent>(hit_entity)) {
+        const EntityID parent = em.get_component<HierarchyComponent>(hit_entity).parent;
+        if (parent != 0 && em.is_alive(parent) && em.has_component<TilemapComponent>(parent)) hit_entity = parent;
+    }
+    return hit_entity;
+}
+
 void ViewportSelectionTool::handle_selection_input(Scene* active_scene, const Camera2D& camera, EditorSelection& selection, const ImVec2& img_min, const ImVec2& img_size, bool is_viewport_hovered, bool is_gizmo_active) {
     if (!active_scene || !is_viewport_hovered) return;
 
@@ -95,23 +117,7 @@ void ViewportSelectionTool::handle_selection_input(Scene* active_scene, const Ca
         } else {
             const glm::vec2 mouse_viewport((mouse_pos.x - img_min.x) / scale_x, (mouse_pos.y - img_min.y) / scale_y);
             const glm::vec2 mouse_world = camera.screen_to_world(mouse_viewport);
-            EntityID hit_entity = 0;
-            float closest_distance = std::numeric_limits<float>::max();
-
-            em.for_each<TransformComponent>([&](EntityID id, const TransformComponent& transform) {
-                if (!transform.world_visible) return;
-                ViewportSelectionQuad quad;
-                if (!get_selection_quad(em, id, quad) || !point_in_selection_quad(mouse_world, quad)) return;
-                const float distance = glm::distance(mouse_world, glm::vec2(transform.world_position));
-                if (distance < closest_distance) {
-                    closest_distance = distance;
-                    hit_entity = id;
-                }
-            });
-            if (hit_entity != 0 && em.has_component<HierarchyComponent>(hit_entity)) {
-                const EntityID parent = em.get_component<HierarchyComponent>(hit_entity).parent;
-                if (parent != 0 && em.is_alive(parent) && em.has_component<TilemapComponent>(parent)) hit_entity = parent;
-            }
+            const EntityID hit_entity = pick_entity(em, mouse_world);
             selection.select(hit_entity, is_additive);
         }
     }

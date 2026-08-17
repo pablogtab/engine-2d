@@ -9,6 +9,10 @@
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace Engine {
 
@@ -169,6 +173,68 @@ void draw_viewport_grid(const Camera2D& camera, const ImVec2& image_min, const I
     }
 }
 
+void draw_viewport_grid_to_render_target(SDL_Renderer* renderer, const Camera2D& camera, float cell_size, const ViewportGridSettings& settings) {
+    if (!renderer || cell_size <= 0.0f) return;
+
+    const glm::vec2 viewport_size = camera.get_viewport_size();
+    const glm::vec2 world_a = camera.screen_to_world(glm::vec2(0.0f, 0.0f));
+    const glm::vec2 world_b = camera.screen_to_world(viewport_size);
+    const float min_x = std::min(world_a.x, world_b.x);
+    const float max_x = std::max(world_a.x, world_b.x);
+    const float min_y = std::min(world_a.y, world_b.y);
+    const float max_y = std::max(world_a.y, world_b.y);
+
+    const glm::vec2 origin_screen = camera.world_to_screen(glm::vec3(0.0f));
+    const glm::vec2 step_screen = camera.world_to_screen(glm::vec3(cell_size, 0.0f, 0.0f)) - origin_screen;
+    const float pixels_per_cell = std::max(std::abs(step_screen.x), 0.001f);
+    const int display_stride = std::max(1, static_cast<int>(std::ceil(settings.target_spacing_pixels / pixels_per_cell)));
+    const float display_step = cell_size * static_cast<float>(display_stride);
+    const int first_x = static_cast<int>(std::floor(min_x / display_step));
+    const int last_x = static_cast<int>(std::ceil(max_x / display_step));
+    const int first_y = static_cast<int>(std::floor(min_y / display_step));
+    const int last_y = static_cast<int>(std::ceil(max_y / display_step));
+
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    const auto to_screen = [&](const glm::vec2& world) { return camera.world_to_screen(glm::vec3(world, 0.0f)); };
+    const auto draw_line = [&](const glm::vec2& from, const glm::vec2& to, Uint8 red, Uint8 green, Uint8 blue, Uint8 alpha) {
+        SDL_SetRenderDrawColor(renderer, red, green, blue, alpha);
+        SDL_RenderLine(renderer, from.x, from.y, to.x, to.y);
+    };
+    const auto draw_vertical = [&](int index, Uint8 alpha) {
+        const float world_x = static_cast<float>(index) * display_step;
+        draw_line(to_screen(glm::vec2(world_x, min_y)), to_screen(glm::vec2(world_x, max_y)), 103, 112, 145, alpha);
+    };
+    const auto draw_horizontal = [&](int index, Uint8 alpha) {
+        const float world_y = static_cast<float>(index) * display_step;
+        draw_line(to_screen(glm::vec2(min_x, world_y)), to_screen(glm::vec2(max_x, world_y)), 103, 112, 145, alpha);
+    };
+
+    const Uint8 minor_alpha = static_cast<Uint8>(settings.minor_opacity * 255.0f);
+    const Uint8 major_alpha = static_cast<Uint8>(settings.major_opacity * 255.0f);
+    for (int index = first_x; index <= last_x; ++index) {
+        if (index % settings.major_line_interval != 0) draw_vertical(index, minor_alpha);
+    }
+    for (int index = first_y; index <= last_y; ++index) {
+        if (index % settings.major_line_interval != 0) draw_horizontal(index, minor_alpha);
+    }
+    for (int index = first_x; index <= last_x; ++index) {
+        if (settings.show_axes && index == 0) {
+            const float x = to_screen(glm::vec2(0.0f, min_y)).x;
+            draw_line(glm::vec2(x, 0.0f), glm::vec2(x, viewport_size.y), 111, 153, 246, 130);
+        } else if (index % settings.major_line_interval == 0) {
+            draw_vertical(index, major_alpha);
+        }
+    }
+    for (int index = first_y; index <= last_y; ++index) {
+        if (settings.show_axes && index == 0) {
+            const float y = to_screen(glm::vec2(min_x, 0.0f)).y;
+            draw_line(glm::vec2(0.0f, y), glm::vec2(viewport_size.x, y), 111, 153, 246, 130);
+        } else if (index % settings.major_line_interval == 0) {
+            draw_horizontal(index, major_alpha);
+        }
+    }
+}
+
 } // namespace
 
 ViewportPanel::ViewportPanel(
@@ -235,11 +301,173 @@ void ViewportPanel::render_grid_settings_menu() {
     if (ImGui::Button("Reset grid")) m_grid_settings = ViewportGridSettings{};
 }
 
+void ViewportPanel::render_arrange_menu() {
+    const bool can_arrange = m_scene_manager && m_selection && m_selection->count() >= 2 && m_command_history;
+    if (!can_arrange) {
+        ImGui::TextDisabled("Select at least two entities");
+        return;
+    }
+
+    Scene* active_scene = m_scene_manager->get_active_scene();
+    if (!active_scene) return;
+    EntityManager& entity_manager = active_scene->get_entity_manager();
+    const auto apply = [&](ArrangeAction action) {
+        ViewportArrangementTool::apply(entity_manager, m_selection->get_selected(), action, m_command_history.get());
+    };
+
+    if (ImGui::BeginMenu("Align")) {
+        if (ImGui::MenuItem("Left")) apply(ArrangeAction::AlignLeft);
+        if (ImGui::MenuItem("Center")) apply(ArrangeAction::AlignCenter);
+        if (ImGui::MenuItem("Right")) apply(ArrangeAction::AlignRight);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Bottom")) apply(ArrangeAction::AlignBottom);
+        if (ImGui::MenuItem("Middle")) apply(ArrangeAction::AlignMiddle);
+        if (ImGui::MenuItem("Top")) apply(ArrangeAction::AlignTop);
+        ImGui::EndMenu();
+    }
+
+    const bool can_distribute = m_selection->count() >= 3;
+    if (ImGui::BeginMenu("Distribute", can_distribute)) {
+        if (ImGui::MenuItem("Horizontally")) apply(ArrangeAction::DistributeHorizontal);
+        if (ImGui::MenuItem("Vertically")) apply(ArrangeAction::DistributeVertical);
+        ImGui::EndMenu();
+    }
+}
+
+void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entity) {
+    if (!em.is_alive(entity)) return;
+
+    const auto component_label = [&](const char* label, bool present, bool& first) {
+        if (!present) return;
+        if (!first) ImGui::SameLine(0.0f, 4.0f);
+        ImGui::TextDisabled("%s", label);
+        first = false;
+    };
+
+    if (em.has_component<TagComponent>(entity)) {
+        ImGui::TextUnformatted(em.get_component<TagComponent>(entity).tag.c_str());
+    } else {
+        ImGui::Text("Entity #%u", entity);
+    }
+    bool first_label = true;
+    component_label("Sprite", em.has_component<SpriteComponent>(entity), first_label);
+    component_label("Tilemap", em.has_component<TilemapComponent>(entity), first_label);
+    component_label("Collider", em.has_component<ColliderComponent>(entity), first_label);
+    component_label("RigidBody", em.has_component<RigidBodyComponent>(entity), first_label);
+    ImGui::Separator();
+
+    if (ImGui::MenuItem("Rename...")) {
+        if (em.has_component<TagComponent>(entity)) {
+            std::snprintf(m_context_rename_buffer.data(), m_context_rename_buffer.size(), "%s", em.get_component<TagComponent>(entity).tag.c_str());
+            ImGui::OpenPopup("Rename Entity");
+        }
+    }
+
+    if (em.has_component<TransformComponent>(entity)) {
+        const TransformComponent before = em.get_component<TransformComponent>(entity);
+        if (ImGui::MenuItem("Active", nullptr, before.visible)) {
+            TransformComponent after = before;
+            after.visible = !after.visible;
+            if (m_command_history) {
+                std::unordered_map<EntityID, TransformComponent> before_states{{entity, before}};
+                std::unordered_map<EntityID, TransformComponent> after_states{{entity, after}};
+                m_command_history->execute_command(std::make_unique<TransformEntitiesCommand>(
+                    &em, std::move(before_states), std::move(after_states), "Toggle Entity Active"
+                ));
+            }
+        }
+    }
+
+    if (em.has_component<SpriteComponent>(entity) && ImGui::BeginMenu("Sprite Renderer")) {
+        const bool visible = em.get_component<SpriteComponent>(entity).visible;
+        if (ImGui::MenuItem("Visible", nullptr, visible) && m_command_history) {
+            m_command_history->execute_command(std::make_unique<ModifyEntityCommand>(
+                &em,
+                entity,
+                [visible](EntityManager& manager, EntityID id) {
+                    if (manager.has_component<SpriteComponent>(id)) manager.get_component<SpriteComponent>(id).visible = visible;
+                },
+                [visible](EntityManager& manager, EntityID id) {
+                    if (manager.has_component<SpriteComponent>(id)) manager.get_component<SpriteComponent>(id).visible = !visible;
+                },
+                "Toggle Sprite Visibility"
+            ));
+        }
+        ImGui::EndMenu();
+    }
+
+    if (em.has_component<HierarchyComponent>(entity)) {
+        const auto& children = em.get_component<HierarchyComponent>(entity).children;
+        if (ImGui::MenuItem("Select Children", nullptr, false, !children.empty()) && m_selection) {
+            std::unordered_set<EntityID> selected_children;
+            for (EntityID child : children) if (em.is_alive(child)) selected_children.insert(child);
+            m_selection->set_selection(selected_children);
+        }
+    }
+
+    ImGui::Separator();
+    const bool can_mutate = static_cast<bool>(m_command_history);
+    if (ImGui::MenuItem("Duplicate", "Cmd/Ctrl+D", false, can_mutate) && m_selection) {
+        std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
+        m_command_history->execute_command(std::make_unique<DuplicateEntitiesCommand>(&em, m_selection, std::move(entities)));
+    }
+    if (ImGui::MenuItem("Delete", "Delete", false, can_mutate) && m_selection) {
+        std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
+        m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, std::move(entities)));
+    }
+}
+
+void ViewportPanel::render_rename_entity_popup(EntityManager& em) {
+    if (!ImGui::BeginPopupModal("Rename Entity", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+    const bool valid_entity = m_context_entity != 0 && em.is_alive(m_context_entity) && em.has_component<TagComponent>(m_context_entity);
+    if (!valid_entity) {
+        ImGui::TextDisabled("The entity is no longer available.");
+        if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+
+    ImGui::SetNextItemWidth(260.0f);
+    ImGui::SetKeyboardFocusHere();
+    const bool submitted = ImGui::InputText("Name", m_context_rename_buffer.data(), m_context_rename_buffer.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+    const bool confirm = ImGui::Button("Rename") || submitted;
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+
+    if (confirm) {
+        const std::string before = em.get_component<TagComponent>(m_context_entity).tag;
+        const std::string after = m_context_rename_buffer.data();
+        if (!after.empty() && after != before && m_command_history) {
+            const EntityID entity = m_context_entity;
+            m_command_history->execute_command(std::make_unique<ModifyEntityCommand>(
+                &em,
+                entity,
+                [before](EntityManager& manager, EntityID id) {
+                    if (manager.has_component<TagComponent>(id)) manager.get_component<TagComponent>(id).tag = before;
+                },
+                [after](EntityManager& manager, EntityID id) {
+                    if (manager.has_component<TagComponent>(id)) manager.get_component<TagComponent>(id).tag = after;
+                },
+                "Rename Entity"
+            ));
+        }
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
 void ViewportPanel::begin_render() {
     if (m_renderer && m_viewport_texture) {
         SDL_SetRenderTarget(m_renderer, m_viewport_texture);
         SDL_SetRenderDrawColor(m_renderer, 15, 18, 25, 255);
         SDL_RenderClear(m_renderer);
+        Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
+        if (m_grid_settings.visible) {
+            if (auto* generic_scene = dynamic_cast<GenericScene*>(active_scene)) {
+                draw_viewport_grid_to_render_target(m_renderer, generic_scene->get_editor_camera(), m_gizmo.snap_settings().position_step, m_grid_settings);
+            }
+        }
     }
 }
 
@@ -359,12 +587,6 @@ void ViewportPanel::on_gui() {
                 if (ImGui::IsKeyPressed(ImGuiKey_G)) m_grid_settings.visible = !m_grid_settings.visible;
             }
 
-            Scene* grid_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
-            auto* grid_generic_scene = dynamic_cast<GenericScene*>(grid_scene);
-            if (m_grid_settings.visible && grid_generic_scene) {
-                draw_viewport_grid(grid_generic_scene->get_editor_camera(), img_min, img_size, m_gizmo.snap_settings().position_step, m_grid_settings);
-            }
-
             // Compact, draggable transform toolbox. Its coordinates are screen-space
             // but clamped to the canvas, so it remains available after layout changes.
             constexpr ImVec2 toolbox_size(246.0f, 38.0f);
@@ -478,6 +700,11 @@ void ViewportPanel::on_gui() {
                                                  norm_y * static_cast<float>(m_internal_height));
             }
 
+            const glm::vec2 viewport_mouse_delta(
+                io.MouseDelta.x * static_cast<float>(m_internal_width) / std::max(img_size.x, 1.0f),
+                io.MouseDelta.y * static_cast<float>(m_internal_height) / std::max(img_size.y, 1.0f)
+            );
+
             bool is_editing = m_scene_manager ? m_scene_manager->is_editing() : true;
             Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
             auto* generic_scene = dynamic_cast<GenericScene*>(active_scene);
@@ -485,8 +712,53 @@ void ViewportPanel::on_gui() {
 
             // --- 3. Viewport Camera Navigation (Pan / Zoom / Focus 'F') ---
             if (is_editing && active_cam && generic_scene && m_selection) {
-                m_camera_controller.handle_input(generic_scene, *m_selection, m_is_hovered, m_is_focused, m_viewport_mouse_pos);
+                m_camera_controller.handle_input(generic_scene, *m_selection, m_is_hovered, m_is_focused, m_viewport_mouse_pos, viewport_mouse_delta);
             }
+
+            // A short right-click opens contextual actions; dragging with the
+            // right or middle mouse button pans the camera.
+            const ImVec2 right_drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
+            const bool is_context_click = ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
+                right_drag.x * right_drag.x + right_drag.y * right_drag.y < 16.0f;
+            if (is_editing && m_is_hovered && is_context_click) {
+                m_context_entity = active_scene && active_cam
+                    ? m_selection_tool.pick_entity(active_scene->get_entity_manager(), active_cam->screen_to_world(m_viewport_mouse_pos))
+                    : 0;
+                if (m_context_entity != 0 && m_selection && !m_selection->is_selected(m_context_entity)) {
+                    m_selection->select(m_context_entity);
+                }
+                ImGui::OpenPopup("Viewport Context Menu");
+            }
+            // The viewport itself is edge-to-edge; contextual menus need their
+            // own comfortable inset instead of inheriting that zero padding.
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+            if (ImGui::BeginPopup("Viewport Context Menu")) {
+                if (m_context_entity != 0 && active_scene && active_scene->get_entity_manager().is_alive(m_context_entity)) {
+                    render_entity_context_menu(active_scene->get_entity_manager(), m_context_entity);
+                    if (m_selection && m_selection->count() >= 2) {
+                        ImGui::Separator();
+                        if (ImGui::BeginMenu("Arrange Selection")) {
+                            render_arrange_menu();
+                            ImGui::EndMenu();
+                        }
+                    }
+                } else if (ImGui::BeginMenu("Grid")) {
+                    render_grid_settings_menu();
+                    ImGui::EndMenu();
+                }
+
+                if (m_context_entity == 0 && m_selection && m_selection->count() >= 2) {
+                    ImGui::Separator();
+                    if (ImGui::BeginMenu("Arrange Selection")) {
+                        render_arrange_menu();
+                        ImGui::EndMenu();
+                    }
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopStyleVar();
+
+            if (active_scene) render_rename_entity_popup(active_scene->get_entity_manager());
 
             // --- 4. Camera Frustum Gizmo (Wireframe Game Frame) ---
             if (is_editing && active_cam && active_scene) {
@@ -620,36 +892,9 @@ void ViewportPanel::on_gui() {
             // --- 7. Duplicate Selected Entities ---
             if (is_editing && m_is_hovered && ShortcutManager::get().is_triggered("editor.duplicate") && m_selection && !m_selection->empty() && active_scene) {
                 EntityManager& em = active_scene->get_entity_manager();
-                std::unordered_set<EntityID> cloned_ids;
-
-                for (EntityID src_id : m_selection->get_selected()) {
-                    if (!em.is_alive(src_id)) continue;
-                    EntityID clone_id = em.create_entity();
-
-                    if (em.has_component<TagComponent>(src_id)) {
-                        em.add_component<TagComponent>(clone_id, TagComponent{em.get_component<TagComponent>(src_id).tag + "_Copy"});
-                    }
-                    if (em.has_component<TransformComponent>(src_id)) {
-                        auto tx = em.get_component<TransformComponent>(src_id);
-                        tx.position += glm::vec3(30.0f, 30.0f, 0.0f);
-                        tx.world_position = tx.position;
-                        em.add_component<TransformComponent>(clone_id, tx);
-                    }
-                    if (em.has_component<SpriteComponent>(src_id)) {
-                        em.add_component<SpriteComponent>(clone_id, em.get_component<SpriteComponent>(src_id));
-                    }
-                    if (em.has_component<RigidBodyComponent>(src_id)) {
-                        em.add_component<RigidBodyComponent>(clone_id, em.get_component<RigidBodyComponent>(src_id));
-                    }
-                    if (em.has_component<ColliderComponent>(src_id)) {
-                        em.add_component<ColliderComponent>(clone_id, em.get_component<ColliderComponent>(src_id));
-                    }
-
-                    cloned_ids.insert(clone_id);
-                }
-
-                if (!cloned_ids.empty()) {
-                    m_selection->set_selection(cloned_ids);
+                if (m_command_history) {
+                    std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
+                    m_command_history->execute_command(std::make_unique<DuplicateEntitiesCommand>(&em, m_selection, std::move(entities)));
                 }
             }
 
@@ -664,9 +909,6 @@ void ViewportPanel::on_gui() {
                 if (!to_delete.empty()) {
                     if (m_command_history) {
                         m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete));
-                    } else {
-                        for (EntityID s_id : to_delete) em.destroy_entity(s_id);
-                        m_selection->clear();
                     }
                 }
             }

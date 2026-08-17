@@ -56,6 +56,7 @@ set(SOURCES
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/gizmos/TransformGizmo2D.cpp
     src/editor/tools/ViewportCameraController.cpp
+    src/editor/tools/ViewportArrangementTool.cpp
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
     src/editor/commands/EditorCommandHistory.cpp

@@ -549,6 +549,10 @@ void EditorLayer::render_main_menu_bar() {
                     m_viewport_panel->render_grid_settings_menu();
                     ImGui::EndMenu();
                 }
+                if (ImGui::BeginMenu("Arrange Selection")) {
+                    m_viewport_panel->render_arrange_menu();
+                    ImGui::EndMenu();
+                }
             }
             ImGui::EndMenu();
         }

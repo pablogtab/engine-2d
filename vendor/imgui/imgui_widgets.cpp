@@ -9488,7 +9488,11 @@ bool ImGui::BeginMenuEx(const char* label, const char* icon, bool enabled)
         RenderText(ImVec2(text_pos.x + offsets->OffsetLabel, text_pos.y), label, label_end, false);
         if (icon_w > 0.0f)
             RenderText(ImVec2(text_pos.x + offsets->OffsetIcon, text_pos.y), icon);
-        RenderArrow(window->DrawList, ImVec2(text_pos.x + offsets->OffsetMark + extra_w + g.FontSize * 0.30f, text_pos.y), GetColorU32(ImGuiCol_Text), ImGuiDir_Right);
+        // Nested menus use a secondary indicator: keep it smaller and muted
+        // so it does not compete with the menu label at larger editor fonts.
+        constexpr float menu_arrow_scale = 0.65f;
+        const float centered_arrow_y = text_pos.y + g.FontSize * 0.5f * (1.0f - menu_arrow_scale);
+        RenderArrow(window->DrawList, ImVec2(text_pos.x + offsets->OffsetMark + extra_w + g.FontSize * 0.30f, centered_arrow_y), GetColorU32(ImGuiCol_TextDisabled), ImGuiDir_Right, menu_arrow_scale);
         popup_pos = ImVec2(pos.x, text_pos.y - style.WindowPadding.y);
     }
     style.SelectableRounding = backup_rounding;
