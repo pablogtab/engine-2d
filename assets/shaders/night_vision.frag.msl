@@ -1,0 +1,26 @@
+#include <metal_stdlib>
+using namespace metal;
+
+struct FragmentInput
+{
+    float4 color [[user(locn0)]];
+    float2 uv [[user(locn1)]];
+};
+
+struct NightVisionUniforms
+{
+    float4 tint;
+    float4 shadow_tint;
+};
+
+fragment float4 main0(
+    FragmentInput input [[stage_in]],
+    texture2d<float> source_texture [[texture(0)]],
+    sampler source_sampler [[sampler(0)]],
+    constant NightVisionUniforms& uniforms [[buffer(0)]])
+{
+    float4 source = source_texture.sample(source_sampler, input.uv) * input.color;
+    float3 graded = source.rgb * uniforms.tint.rgb;
+    graded = mix(graded, uniforms.shadow_tint.rgb, saturate(uniforms.shadow_tint.a));
+    return float4(graded, source.a * uniforms.tint.a);
+}

@@ -6,6 +6,7 @@
 #include "../renderer/Texture.hpp"
 #include "../renderer/postprocess/PostProcessPipeline.hpp"
 #include "../renderer/postprocess/PostProcessProfile.hpp"
+#include "../renderer/material/Material.hpp"
 #include <memory>
 
 namespace Sandbox {
@@ -37,12 +38,15 @@ private:
     Engine::Camera2D m_camera;
     Engine::RenderViewConfiguration m_view_configuration;
     Engine::PostProcessPipeline m_pipeline;
+    Engine::PostProcessPipeline m_material_pipeline;
     Engine::PostProcessProfile m_profile;
     std::unique_ptr<Engine::Texture> m_white_texture;
     std::unique_ptr<Engine::Texture> m_grid_texture;
     std::unique_ptr<Engine::Font> m_font;
-    int m_mode{5};
-    bool m_post_process_enabled{true};
+    std::shared_ptr<Engine::Material> m_night_vision_material;
+    bool m_material_pass_registered{false};
+    int m_mode{7};
+    bool m_post_process_enabled{false};
     bool m_log_next_render{true};
 };
 

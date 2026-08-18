@@ -91,6 +91,12 @@ SDLGPUMaterialBackend::CachedState* SDLGPUMaterialBackend::state_for(
         return nullptr;
     }
 
+    ENGINE_LOG_INFO(
+        "[MATERIAL] Loaded shader '{}' for backend '{}'",
+        shader->name(),
+        backend_name()
+    );
+
     return &m_states.emplace(shader, state).first->second;
 }
 

@@ -60,6 +60,19 @@ pipeline.add_pass(std::make_shared<Engine::MaterialPostProcessPass>(
 ));
 ```
 
+## Validation scene
+
+The isolated post-processing demo contains the first real shared GPU material:
+
+- `7` applies the NightVision color grade only to the center sprite.
+- `8` replaces the original profile's color-grading pass with that identical
+  material, while preserving its fullscreen vignette, bloom and film grain.
+
+The canonical source is `assets/shaders/night_vision.frag.hlsl`. The checked-in
+MSL variant makes the vertical slice executable on Metal today. Full Windows
+and Linux coverage still requires generating and packaging the corresponding
+DXIL and SPIR-V variants with the offline shader compiler.
+
 ## Asset pipeline boundary
 
 Shader compilation is deliberately not performed at runtime. Production builds

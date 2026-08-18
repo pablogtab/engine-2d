@@ -153,6 +153,9 @@ target_include_directories(PostProcessTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
 )
+target_compile_definitions(PostProcessTests PRIVATE
+    ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
 target_link_libraries(PostProcessTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME PostProcessTests COMMAND PostProcessTests)
 

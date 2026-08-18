@@ -14,6 +14,7 @@
 #include "editor/commands/PostProcessProfileCommands.hpp"
 #include <cassert>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 
 namespace {
@@ -46,6 +47,32 @@ public:
     int fullscreen_count{0};
     const Engine::Material* last_material{nullptr};
 };
+
+void test_night_vision_shader_assets_match_runtime_contract() {
+    const std::filesystem::path shader_directory =
+        std::filesystem::path(ENGINE_SOURCE_DIR) / "assets" / "shaders";
+    const auto canonical_source = shader_directory / "night_vision.frag.hlsl";
+    const auto metal_variant = shader_directory / "night_vision.frag.msl";
+
+    assert(std::filesystem::is_regular_file(canonical_source));
+    assert(std::filesystem::file_size(canonical_source) > 0);
+
+    Engine::FragmentShader shader("NightVision");
+    shader.set_sampler_count(1);
+    shader.set_uniform_buffer_count(1);
+    assert(shader.add_variant_from_file(
+        Engine::ShaderBinaryFormat::Msl,
+        metal_variant.string(),
+        "main0"
+    ));
+    assert(shader.sampler_count() == 1);
+    assert(shader.uniform_buffer_count() == 1);
+    assert(shader.variants().size() == 1);
+    assert(shader.variants().front().format == Engine::ShaderBinaryFormat::Msl);
+    assert(shader.variants().front().entry_point == "main0");
+    assert(!shader.variants().front().code.empty());
+    assert(shader.variants().front().code.back() == 0);
+}
 
 void test_material_contract_is_shared_by_sprites_and_post_process() {
     auto shader = std::make_shared<Engine::FragmentShader>("TestGrade");
@@ -361,6 +388,7 @@ void test_world_is_processed_before_screen_space_hud_is_composited() {
 } // namespace
 
 int main() {
+    test_night_vision_shader_assets_match_runtime_contract();
     test_material_contract_is_shared_by_sprites_and_post_process();
     test_effect_scale_matches_authoring_resolution();
     test_non_uniform_output_uses_area_preserving_pixel_scale();
