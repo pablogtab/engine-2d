@@ -6,6 +6,7 @@
 #include "../inspector/SpriteInspectorDrawer.hpp"
 #include "../inspector/RigidBodyInspectorDrawer.hpp"
 #include "../inspector/ColliderInspectorDrawer.hpp"
+#include "../inspector/TilemapInspectorDrawer.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
@@ -225,20 +226,7 @@ void InspectorPanel::on_gui() {
 }
 
 void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
-    bool is_locked_tilemap_collider = false;
-    if (em.has_component<TagComponent>(entity)) {
-        const auto& tag = em.get_component<TagComponent>(entity).tag;
-        if (tag.find("Tilemap_Composite_Collider") != std::string::npos ||
-            tag.find("Tilemap_Collider") != std::string::npos) {
-            is_locked_tilemap_collider = true;
-        }
-    }
-    if (em.has_component<HierarchyComponent>(entity)) {
-        EntityID p_id = em.get_component<HierarchyComponent>(entity).parent;
-        if (p_id != 0 && em.is_alive(p_id) && em.has_component<TilemapComponent>(p_id)) {
-            is_locked_tilemap_collider = true;
-        }
-    }
+    const bool is_locked_tilemap_collider = em.has_component<TilemapGeneratedColliderComponent>(entity);
 
     // --- 1. Object Header (Unity-style entity context) ---
     if (em.has_component<TagComponent>(entity)) {
@@ -386,111 +374,12 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
     RigidBodyInspectorDrawer::draw(em, entity, physics_context);
     ColliderInspectorDrawer::draw(em, entity, physics_context);
 
-    // --- 5. TilemapComponent ---
-    if (em.has_component<TilemapComponent>(entity)) {
-        const auto header = component_header("Tilemap Grid", "TilemapHeader", true, true, EditorIcon::Grid);
-        if (header.remove_requested && m_command_history) {
-            const auto rebuild_tilemap = [](EntityManager& command_em, EntityID id) {
-                if (command_em.has_component<TilemapComponent>(id)) {
-                    TilemapColliderSystem::build_composite_colliders(command_em, id);
-                } else {
-                    TilemapColliderSystem::clear_composite_colliders(command_em, id);
-                }
-            };
-            m_command_history->execute_command(std::make_unique<SetComponentCommand<TilemapComponent>>(
-                &em,
-                entity,
-                em.get_component<TilemapComponent>(entity),
-                std::nullopt,
-                "Remove Tilemap Grid",
-                rebuild_tilemap
-            ));
-        } else if (header.open) {
-            auto& tilemap = em.get_component<TilemapComponent>(entity);
-
-            ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Tile Count: %zu painted tiles", tilemap.tile_count());
-            if (!tilemap.empty()) {
-                int min_x = 0, min_y = 0, max_x = 0, max_y = 0;
-                tilemap.get_bounds(min_x, min_y, max_x, max_y);
-                ImGui::TextDisabled("Bounds: [%d, %d] to [%d, %d] (%dx%d)", min_x, min_y, max_x, max_y, max_x - min_x + 1, max_y - min_y + 1);
-            } else {
-                ImGui::TextDisabled("Map is empty (Size: 0). Paint tiles in Viewport to expand.");
-            }
-
-            property_float("Tile Size (px)", &tilemap.tile_size, 1.0f, 8.0f, 256.0f);
-            property_int("Tile Pixel Size", &tilemap.tile_pixel_size, 1.0f, 8, 128);
-
-            char path_buf[256];
-            snprintf(path_buf, sizeof(path_buf), "%s", tilemap.tileset_path.c_str());
-            if (ImGui::InputText("Tileset Path", path_buf, sizeof(path_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
-                tilemap.tileset_path = path_buf;
-                if (m_renderer && m_asset_manager) {
-                    auto texture = m_asset_manager->load_texture(m_renderer, tilemap.tileset_path);
-                    tilemap.tileset_texture = texture ? texture.get() : nullptr;
-                }
-            }
-
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.3f, 1.0f), "COLLIDER & PHYSICS SETTINGS");
-
-            bool needs_rebuild = false;
-
-            if (ImGui::Checkbox("Generate Physics Colliders", &tilemap.generate_colliders)) {
-                needs_rebuild = true;
-            }
-
-            if (tilemap.generate_colliders) {
-                if (ImGui::Checkbox("Is Trigger (Sensor)", &tilemap.is_trigger)) {
-                    needs_rebuild = true;
-                }
-                if (ImGui::Checkbox("One-Way Platform", &tilemap.is_one_way)) {
-                    needs_rebuild = true;
-                }
-
-                if (property_float("Friction", &tilemap.friction, 0.01f, 0.0f, 1.0f, "%.2f")) {
-                    needs_rebuild = true;
-                }
-
-                if (property_float("Restitution (Bounce)", &tilemap.restitution, 0.01f, 0.0f, 1.0f, "%.2f")) {
-                    needs_rebuild = true;
-                }
-
-                // Layer / Category selector
-                const char* categories[] = {"Default (0x1)", "Player (0x2)", "Ground / Platforms (0x4)", "Collectibles (0x8)", "Enemy / Hazard (0x10)"};
-                uint16_t cat_values[] = {CollisionCategory::DEFAULT, CollisionCategory::PLAYER, CollisionCategory::GROUND, CollisionCategory::COIN, CollisionCategory::ENEMY};
-                
-                int current_cat_idx = 2; // Default to Ground
-                for (int i = 0; i < 5; ++i) {
-                    if (tilemap.category_bits == cat_values[i]) {
-                        current_cat_idx = i;
-                        break;
-                    }
-                }
-
-                if (ImGui::Combo("Collision Layer", &current_cat_idx, categories, IM_ARRAYSIZE(categories))) {
-                    tilemap.category_bits = cat_values[current_cat_idx];
-                    needs_rebuild = true;
-                }
-            }
-
-            if (needs_rebuild) {
-                TilemapColliderSystem::build_composite_colliders(em, entity);
-            }
-
-            ImGui::Spacing();
-            const std::string rebuild_label = editor_icon_label(EditorIcon::Zap, "Rebuild Box2D Colliders");
-            if (ImGui::Button(rebuild_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 24))) {
-                TilemapColliderSystem::build_composite_colliders(em, entity);
-            }
-
-            const std::string clear_label = editor_icon_label(EditorIcon::Trash, "Clear Tilemap");
-            if (ImGui::Button(clear_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 24))) {
-                tilemap.clear();
-                TilemapColliderSystem::build_composite_colliders(em, entity);
-            }
-        }
-    }
+    TilemapInspectorDrawer::draw(em, entity, {
+        m_renderer,
+        m_asset_manager,
+        m_command_history.get(),
+        &m_property_transactions
+    });
 
     // --- 6. CameraComponent ---
     if (em.has_component<CameraComponent>(entity)) {

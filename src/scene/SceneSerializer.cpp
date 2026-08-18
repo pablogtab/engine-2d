@@ -51,13 +51,8 @@ std::string SceneSerializer::serialize_to_string() {
     em.for_each<TransformComponent>([&](EntityID id, const TransformComponent& transform) {
         if (!em.is_alive(id)) return;
 
-        // Skip auto-generated child colliders from being serialized as root standalone entities
-        if (em.has_component<HierarchyComponent>(id)) {
-            EntityID p = em.get_component<HierarchyComponent>(id).parent;
-            if (p != 0 && em.is_alive(p) && em.has_component<TilemapComponent>(p)) {
-                return;
-            }
-        }
+        // Tilemap colliders are derived runtime data and are rebuilt after load.
+        if (em.has_component<TilemapGeneratedColliderComponent>(id)) return;
 
         json entity_json;
         entity_json["id"] = id;

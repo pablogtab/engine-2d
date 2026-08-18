@@ -34,20 +34,7 @@ static void draw_arrow(ImDrawList* draw_list, const ImVec2& start, const ImVec2&
 
 static bool is_entity_locked_from_gizmo(EntityManager& em, EntityID id) {
     if (!em.is_alive(id)) return true;
-    if (em.has_component<TagComponent>(id)) {
-        const auto& tag = em.get_component<TagComponent>(id).tag;
-        if (tag.find("Tilemap_Composite_Collider") != std::string::npos ||
-            tag.find("Tilemap_Collider") != std::string::npos) {
-            return true;
-        }
-    }
-    if (em.has_component<HierarchyComponent>(id)) {
-        EntityID parent_id = em.get_component<HierarchyComponent>(id).parent;
-        if (parent_id != 0 && em.is_alive(parent_id) && em.has_component<TilemapComponent>(parent_id)) {
-            return true;
-        }
-    }
-    return false;
+    return em.has_component<TilemapGeneratedColliderComponent>(id);
 }
 
 bool TransformGizmo2D::draw_gizmo(

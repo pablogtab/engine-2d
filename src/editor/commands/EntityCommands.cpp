@@ -144,6 +144,9 @@ void DeleteEntitiesCommand::execute() {
 
     for (const auto& snap : m_snapshots) {
         if (m_em->is_alive(snap.id)) {
+            if (m_em->has_component<TilemapComponent>(snap.id)) {
+                TilemapColliderSystem::clear_composite_colliders(*m_em, snap.id);
+            }
             m_em->destroy_entity(snap.id);
         }
     }
@@ -170,6 +173,12 @@ void DeleteEntitiesCommand::undo() {
         }
         for (EntityID child : snap.hierarchy.children) {
             if (m_em->is_alive(child)) m_em->set_parent(child, snap.id);
+        }
+    }
+
+    for (const auto& snap : m_snapshots) {
+        if (snap.has_tilemap && m_em->is_alive(snap.id)) {
+            TilemapColliderSystem::build_composite_colliders(*m_em, snap.id);
         }
     }
 
@@ -204,6 +213,10 @@ void CreateEntityCommand::execute() {
         m_em->set_parent(m_created_id, m_snapshot.hierarchy.parent);
     }
 
+    if (m_snapshot.has_tilemap) {
+        TilemapColliderSystem::build_composite_colliders(*m_em, m_created_id);
+    }
+
     if (m_selection) {
         m_selection->select(m_created_id, false);
     }
@@ -213,6 +226,9 @@ void CreateEntityCommand::undo() {
     if (!m_em) return;
 
     if (m_created_id != 0 && m_em->is_alive(m_created_id)) {
+        if (m_em->has_component<TilemapComponent>(m_created_id)) {
+            TilemapColliderSystem::clear_composite_colliders(*m_em, m_created_id);
+        }
         m_em->destroy_entity(m_created_id);
     }
 

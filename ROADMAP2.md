@@ -92,7 +92,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Migrate every currently exposed Sprite property to the common transaction lifecycle.
 - [x] Migrate every authored RigidBody property to the common transaction lifecycle.
 - [x] Migrate every Collider property and shape edit to the common transaction lifecycle.
-- [ ] Migrate every Tilemap setting and destructive action to reversible commands.
+- [x] Migrate every currently exposed Tilemap setting and destructive action to reversible commands.
 - [ ] Separate Animator authoring data from editor preview/playback state.
 - [ ] Migrate Animator clips and spritesheet settings to reversible commands.
 - [x] Route texture loading and fallbacks through `AssetManager`; never allocate unmanaged textures from Inspector code.
@@ -351,8 +351,8 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 - [ ] `EditorCommandHistoryTests` — execute, undo, redo, redo invalidation, bounded history, scene invalidation, and command descriptions.
 - [x] `EditorPropertyTransactionTests` — begin/preview/commit/cancel, unchanged edits, compound values, text commits, and one history entry per gesture.
-- [x] `InspectorCommandTests` — entity rename, Sprite compound edits, RigidBody/Collider component presence, exact restoration, and physics fixture rebuild.
-- [ ] Extend `InspectorCommandTests` with Tilemap, Animator, Camera, and their component-specific side effects as those drawers migrate.
+- [x] `InspectorCommandTests` — entity rename, Sprite compound edits, RigidBody/Collider component presence, exact restoration, physics fixture rebuild, and Tilemap edit/clear/remove/delete lifecycle.
+- [ ] Extend `InspectorCommandTests` with Animator and Camera side effects as those drawers migrate.
 - [ ] `MultiEditTransactionTests` — mixed values, partial component availability, atomic multi-entity commit, cancel, undo, and redo.
 
 ### Phase 2 — Component and Serialization Suites
@@ -447,8 +447,7 @@ These items are useful but should not interrupt the architecture work above unle
 
 Implement the third Phase 1 slice:
 
-1. Extract and migrate Tilemap settings and destructive operations, including generated-collider cleanup and rebuild hooks.
-2. Separate Animator authored data from preview/playback state, then migrate clips and spritesheet settings.
-3. Extract Camera and remaining Transform Inspector code onto the common transaction infrastructure.
-4. Add `EditorCommandHistoryTests` and extend `InspectorCommandTests` for Tilemap, Animator, and Camera.
-5. Define centralized component/property validation policies before adding multi-selection transactions.
+1. Separate Animator authored data from preview/playback state, then migrate clips and spritesheet settings.
+2. Extract Camera and remaining Transform Inspector code onto the common transaction infrastructure.
+3. Add `EditorCommandHistoryTests` and extend `InspectorCommandTests` for Animator and Camera.
+4. Define centralized component/property validation policies before adding multi-selection transactions.

@@ -6,31 +6,14 @@
 namespace Engine {
 
 void TilemapColliderSystem::clear_composite_colliders(EntityManager& em, EntityID entity_id) {
-    if (!em.is_alive(entity_id)) return;
-    if (em.has_component<HierarchyComponent>(entity_id)) {
-        auto children_copy = em.get_component<HierarchyComponent>(entity_id).children;
-        for (EntityID child_id : children_copy) {
-            if (em.is_alive(child_id) && em.has_component<TagComponent>(child_id)) {
-                const auto& tag_name = em.get_component<TagComponent>(child_id).tag;
-                if (tag_name.find("Tilemap_Composite_Collider") != std::string::npos ||
-                    tag_name.find("Collider_Box_") != std::string::npos) {
-                    em.destroy_entity(child_id);
-                }
-            }
-        }
-    }
-
-    // Also clean up any legacy unparented composite colliders
-    std::vector<EntityID> legacy_colliders;
-    em.for_each<TagComponent>([&](EntityID id, const TagComponent& tag) {
-        if (tag.tag == "Tilemap_Composite_Collider") {
-            if (!em.has_component<HierarchyComponent>(id) || em.get_component<HierarchyComponent>(id).parent == 0) {
-                legacy_colliders.push_back(id);
-            }
+    std::vector<EntityID> generated_colliders;
+    em.for_each<TilemapGeneratedColliderComponent>([&](EntityID id, const TilemapGeneratedColliderComponent& generated) {
+        if (generated.owner == entity_id) {
+            generated_colliders.push_back(id);
         }
     });
-    for (EntityID old_id : legacy_colliders) {
-        em.destroy_entity(old_id);
+    for (EntityID collider : generated_colliders) {
+        em.destroy_entity(collider);
     }
 }
 
@@ -114,6 +97,7 @@ void TilemapColliderSystem::build_composite_colliders(EntityManager& em, EntityI
             // Register merged static collider box as a child entity of the Tilemap
             EntityID col_entity = em.create_entity();
             em.add_component<TagComponent>(col_entity, TagComponent{"Tilemap_Composite_Collider #" + std::to_string(merged_boxes_count + 1)});
+            em.add_component<TilemapGeneratedColliderComponent>(col_entity, TilemapGeneratedColliderComponent{entity_id});
             em.add_component<TransformComponent>(col_entity, TransformComponent{glm::vec3(box_center_local_x, box_center_local_y, 0.0f)});
             
             ColliderComponent col_comp = tilemap.is_one_way 

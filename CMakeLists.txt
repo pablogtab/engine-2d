@@ -69,6 +69,7 @@ set(SOURCES
     src/editor/inspector/SpriteInspectorDrawer.cpp
     src/editor/inspector/RigidBodyInspectorDrawer.cpp
     src/editor/inspector/ColliderInspectorDrawer.cpp
+    src/editor/inspector/TilemapInspectorDrawer.cpp
     src/editor/tools/ViewportCameraController.cpp
     src/editor/tools/ViewportArrangementTool.cpp
     src/editor/tools/EditorIcons.cpp
@@ -181,6 +182,8 @@ add_executable(InspectorCommandTests
     src/ecs/EntityManager.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
+    src/editor/commands/EntityCommands.cpp
+    src/tilemap/TilemapColliderSystem.cpp
 )
 target_include_directories(InspectorCommandTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

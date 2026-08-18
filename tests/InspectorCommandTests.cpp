@@ -4,6 +4,8 @@
 #include "ecs/EntityManager.hpp"
 #include "events/EventDispatcher.hpp"
 #include "physics/PhysicsSystem.hpp"
+#include "tilemap/Tilemap.hpp"
+#include "tilemap/TilemapColliderSystem.hpp"
 #include <cassert>
 #include <iostream>
 #include <memory>
@@ -30,6 +32,31 @@ bool same_collider(const ColliderComponent& lhs, const ColliderComponent& rhs) {
         if (!same_shape(lhs.shapes[index], rhs.shapes[index])) return false;
     }
     return true;
+}
+
+std::size_t generated_collider_count(EntityManager& em, EntityID owner) {
+    std::size_t count = 0;
+    em.for_each<TilemapGeneratedColliderComponent>(
+        [&](EntityID, const TilemapGeneratedColliderComponent& generated) {
+            if (generated.owner == owner) ++count;
+        }
+    );
+    return count;
+}
+
+bool same_authored_tilemap(const TilemapComponent& lhs, const TilemapComponent& rhs) {
+    return lhs.tile_size == rhs.tile_size &&
+        lhs.tile_pixel_size == rhs.tile_pixel_size &&
+        lhs.tileset_path == rhs.tileset_path &&
+        lhs.tiles == rhs.tiles &&
+        lhs.solid_tile_ids == rhs.solid_tile_ids &&
+        lhs.generate_colliders == rhs.generate_colliders &&
+        lhs.is_trigger == rhs.is_trigger &&
+        lhs.is_one_way == rhs.is_one_way &&
+        lhs.category_bits == rhs.category_bits &&
+        lhs.mask_bits == rhs.mask_bits &&
+        lhs.friction == rhs.friction &&
+        lhs.restitution == rhs.restitution;
 }
 
 void test_entity_rename_round_trips() {
@@ -163,6 +190,152 @@ void test_physics_rebuild_updates_fixture_without_preview_churn() {
     PhysicsSystem::clear();
 }
 
+void test_tilemap_edit_rebuilds_only_on_commit_and_round_trips() {
+    EntityManager em;
+    EditorCommandHistory history;
+    EditorPropertyTransaction transactions;
+    const EntityID entity = em.create_entity();
+    em.add_component<TransformComponent>(entity, TransformComponent{0.0f, 0.0f});
+    TilemapComponent initial;
+    initial.set_tile(0, 0, 1);
+    initial.set_tile(1, 0, 1);
+    em.add_component<TilemapComponent>(entity, initial);
+    TilemapColliderSystem::build_composite_colliders(em, entity);
+    assert(generated_collider_count(em, entity) == 1);
+
+    const auto key = EditorPropertyTransaction::make_key(entity, "Tilemap.TileSize");
+    const auto apply = [&](const TilemapComponent& value) {
+        em.get_component<TilemapComponent>(entity) = value;
+        TilemapColliderSystem::build_composite_colliders(em, entity);
+    };
+    assert(transactions.begin<TilemapComponent>(
+        key,
+        initial,
+        [&]() -> std::optional<TilemapComponent> { return em.get_component<TilemapComponent>(entity); },
+        apply,
+        "Edit Tilemap Tile Size",
+        same_authored_tilemap,
+        [&]() { TilemapColliderSystem::build_composite_colliders(em, entity); }
+    ));
+
+    auto& live = em.get_component<TilemapComponent>(entity);
+    live.tile_size = 48.0f;
+    live.friction = 0.25f;
+    const EntityID preview_collider = em.get_component<HierarchyComponent>(entity).children.front();
+    assert(em.get_component<ColliderComponent>(preview_collider).shapes.front().size.x == 64.0f);
+
+    assert(transactions.commit(key, history));
+    assert(history.get_undo_count() == 1);
+    assert(generated_collider_count(em, entity) == 1);
+    EntityID committed_collider = em.get_component<HierarchyComponent>(entity).children.front();
+    assert(em.get_component<ColliderComponent>(committed_collider).shapes.front().size.x == 96.0f);
+
+    history.undo();
+    assert(same_authored_tilemap(em.get_component<TilemapComponent>(entity), initial));
+    assert(generated_collider_count(em, entity) == 1);
+    EntityID undone_collider = em.get_component<HierarchyComponent>(entity).children.front();
+    assert(em.get_component<ColliderComponent>(undone_collider).shapes.front().size.x == 64.0f);
+
+    history.redo();
+    assert(em.get_component<TilemapComponent>(entity).tile_size == 48.0f);
+    assert(em.get_component<TilemapComponent>(entity).friction == 0.25f);
+    assert(generated_collider_count(em, entity) == 1);
+}
+
+void test_clear_and_remove_tilemap_restore_authored_and_generated_state() {
+    EntityManager em;
+    EditorCommandHistory history;
+    EditorPropertyTransaction transactions;
+    const EntityID entity = em.create_entity();
+    em.add_component<TransformComponent>(entity, TransformComponent{0.0f, 0.0f});
+    TilemapComponent initial;
+    initial.set_tile(-1, 2, 1);
+    initial.set_tile(0, 2, 1);
+    em.add_component<TilemapComponent>(entity, initial);
+    TilemapColliderSystem::build_composite_colliders(em, entity);
+
+    const auto clear_key = EditorPropertyTransaction::make_key(entity, "Tilemap.Clear");
+    assert(transactions.begin<TilemapComponent>(
+        clear_key,
+        initial,
+        [&]() -> std::optional<TilemapComponent> { return em.get_component<TilemapComponent>(entity); },
+        [&](const TilemapComponent& value) {
+            em.get_component<TilemapComponent>(entity) = value;
+            TilemapColliderSystem::build_composite_colliders(em, entity);
+        },
+        "Clear Tilemap",
+        same_authored_tilemap,
+        [&]() { TilemapColliderSystem::build_composite_colliders(em, entity); }
+    ));
+    em.get_component<TilemapComponent>(entity).clear();
+    assert(transactions.commit(clear_key, history));
+    assert(em.get_component<TilemapComponent>(entity).empty());
+    assert(generated_collider_count(em, entity) == 0);
+
+    history.undo();
+    assert(em.get_component<TilemapComponent>(entity).tile_count() == 2);
+    assert(generated_collider_count(em, entity) == 1);
+    history.redo();
+    assert(em.get_component<TilemapComponent>(entity).empty());
+    assert(generated_collider_count(em, entity) == 0);
+
+    history.undo();
+    auto rebuild = [](EntityManager& command_em, EntityID id) {
+        if (command_em.has_component<TilemapComponent>(id)) {
+            TilemapColliderSystem::build_composite_colliders(command_em, id);
+        } else {
+            TilemapColliderSystem::clear_composite_colliders(command_em, id);
+        }
+    };
+    const TilemapComponent before_remove = em.get_component<TilemapComponent>(entity);
+    history.execute_command(std::make_unique<SetComponentCommand<TilemapComponent>>(
+        &em,
+        entity,
+        before_remove,
+        std::nullopt,
+        "Remove Tilemap Grid",
+        rebuild
+    ));
+    assert(!em.has_component<TilemapComponent>(entity));
+    assert(generated_collider_count(em, entity) == 0);
+
+    history.undo();
+    assert(em.has_component<TilemapComponent>(entity));
+    assert(same_authored_tilemap(em.get_component<TilemapComponent>(entity), before_remove));
+    assert(generated_collider_count(em, entity) == 1);
+}
+
+void test_delete_tilemap_cleans_and_restores_generated_colliders() {
+    EntityManager em;
+    EditorCommandHistory history;
+    const EntityID entity = em.create_entity();
+    em.add_component<TagComponent>(entity, TagComponent{"Tilemap"});
+    em.add_component<TransformComponent>(entity, TransformComponent{0.0f, 0.0f});
+    TilemapComponent tilemap;
+    tilemap.set_tile(0, 0, 1);
+    em.add_component<TilemapComponent>(entity, tilemap);
+    TilemapColliderSystem::build_composite_colliders(em, entity);
+    assert(generated_collider_count(em, entity) == 1);
+
+    history.execute_command(std::make_unique<DeleteEntitiesCommand>(
+        &em,
+        nullptr,
+        std::vector<EntityID>{entity}
+    ));
+    assert(!em.is_alive(entity));
+    assert(generated_collider_count(em, entity) == 0);
+
+    history.undo();
+    assert(em.is_alive(entity));
+    assert(em.has_component<TilemapComponent>(entity));
+    assert(em.get_component<TilemapComponent>(entity).tile_count() == 1);
+    assert(generated_collider_count(em, entity) == 1);
+
+    history.redo();
+    assert(!em.is_alive(entity));
+    assert(generated_collider_count(em, entity) == 0);
+}
+
 } // namespace
 
 int main() {
@@ -170,6 +343,9 @@ int main() {
     test_sprite_compound_edit_round_trips();
     test_component_presence_round_trips_exact_state();
     test_physics_rebuild_updates_fixture_without_preview_churn();
+    test_tilemap_edit_rebuilds_only_on_commit_and_round_trips();
+    test_clear_and_remove_tilemap_restore_authored_and_generated_state();
+    test_delete_tilemap_cleans_and_restores_generated_colliders();
     std::cout << "InspectorCommandTests passed\n";
     return 0;
 }
