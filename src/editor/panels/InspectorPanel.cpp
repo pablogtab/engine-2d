@@ -2,10 +2,13 @@
 #include "SceneHierarchyPanel.hpp"
 #include "SpriteAnimationStudioPanel.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../inspector/InspectorWidgets.hpp"
+#include "../inspector/SpriteInspectorDrawer.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
 #include "../../ecs/CameraSystem.hpp"
+#include "../../core/AssetManager.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../renderer/Texture.hpp"
 #include "../../tilemap/Tilemap.hpp"
@@ -13,144 +16,21 @@
 #include <imgui.h>
 #include <cfloat>
 #include <cstring>
+#include <utility>
 
 namespace Engine {
 
-namespace {
+using namespace InspectorWidgets;
 
-constexpr float PROPERTY_LABEL_WIDTH = 104.0f;
-constexpr float PROPERTY_GAP = 6.0f;
-constexpr float RESET_BUTTON_WIDTH = 28.0f;
-
-struct PropertyInteraction {
-    ImGuiID id{0};
-    bool activated{false};
-    bool deactivated_after_edit{false};
-};
-
-PropertyInteraction g_property_interaction;
-
-void begin_property_interaction(const char* label) {
-    g_property_interaction = {ImGui::GetID(label), false, false};
-}
-
-void capture_property_interaction() {
-    g_property_interaction.activated |= ImGui::IsItemActivated();
-    g_property_interaction.deactivated_after_edit |= ImGui::IsItemDeactivatedAfterEdit();
-}
-
-void begin_property_row(const char* label, bool reserve_reset = false) {
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
-
-    ImGui::SameLine(PROPERTY_LABEL_WIDTH);
-    const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset_space);
-}
-
-bool property_float(const char* label, float* value, float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f") {
-    begin_property_row(label);
-    begin_property_interaction(label);
-    ImGui::PushID(label);
-    const bool changed = ImGui::DragFloat("##value", value, speed, min, max, format);
-    capture_property_interaction();
-    ImGui::PopID();
-    return changed;
-}
-
-bool property_axis_float(const char* label, const char* axis, float* value, float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f", bool reserve_reset = false) {
-    begin_property_row(label, reserve_reset);
-    begin_property_interaction(label);
-    ImGui::PushID(label);
-    ImGui::TextDisabled("%s", axis);
-    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-    const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
-    // A scalar Z value shares the vector grid but only needs half of the
-    // unused Y-axis gutter before the reset control.
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset_space - 11.0f);
-    const bool changed = ImGui::DragFloat("##value", value, speed, min, max, format);
-    capture_property_interaction();
-    ImGui::PopID();
-    return changed;
-}
-
-bool property_int(const char* label, int* value, float speed, int min = 0, int max = 0, const char* format = "%d") {
-    begin_property_row(label);
-    begin_property_interaction(label);
-    ImGui::PushID(label);
-    const bool changed = ImGui::DragInt("##value", value, speed, min, max, format);
-    capture_property_interaction();
-    ImGui::PopID();
-    return changed;
-}
-
-bool property_bool(const char* label, bool* value) {
-    begin_property_row(label);
-    begin_property_interaction(label);
-    ImGui::PushID(label);
-    const bool changed = ImGui::Checkbox("##value", value);
-    capture_property_interaction();
-    ImGui::PopID();
-    return changed;
-}
-
-bool property_vec2(const char* label, float values[2], float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f", bool reserve_reset = false) {
-    begin_property_row(label, reserve_reset);
-    begin_property_interaction(label);
-    ImGui::PushID(label);
-    const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-    const float width = (ImGui::GetContentRegionAvail().x - (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) - spacing * 3.0f - 24.0f) * 0.5f;
-    ImGui::TextDisabled("X");
-    ImGui::SameLine(0.0f, spacing);
-    ImGui::SetNextItemWidth(width);
-    bool changed = ImGui::DragFloat("##x", &values[0], speed, min, max, format);
-    capture_property_interaction();
-    ImGui::SameLine(0.0f, spacing);
-    ImGui::TextDisabled("Y");
-    ImGui::SameLine(0.0f, spacing);
-    ImGui::SetNextItemWidth(width);
-    changed |= ImGui::DragFloat("##y", &values[1], speed, min, max, format);
-    capture_property_interaction();
-    ImGui::PopID();
-    return changed;
-}
-
-bool property_vec3(const char* label, float values[3], float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f", bool reserve_reset = false) {
-    begin_property_row(label, reserve_reset);
-    begin_property_interaction(label);
-    ImGui::PushID(label);
-    const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-    const float width = (ImGui::GetContentRegionAvail().x - (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) - spacing * 5.0f - 36.0f) / 3.0f;
-    ImGui::TextDisabled("X");
-    ImGui::SameLine(0.0f, spacing);
-    ImGui::SetNextItemWidth(width);
-    bool changed = ImGui::DragFloat("##x", &values[0], speed, min, max, format);
-    capture_property_interaction();
-    ImGui::SameLine(0.0f, spacing);
-    ImGui::TextDisabled("Y");
-    ImGui::SameLine(0.0f, spacing);
-    ImGui::SetNextItemWidth(width);
-    changed |= ImGui::DragFloat("##y", &values[1], speed, min, max, format);
-    capture_property_interaction();
-    ImGui::SameLine(0.0f, spacing);
-    ImGui::TextDisabled("Z");
-    ImGui::SameLine(0.0f, spacing);
-    ImGui::SetNextItemWidth(width);
-    changed |= ImGui::DragFloat("##z", &values[2], speed, min, max, format);
-    capture_property_interaction();
-    ImGui::PopID();
-    return changed;
-}
-
-bool property_reset_button(const char* id) {
-    ImGui::SameLine(0.0f, PROPERTY_GAP);
-    return ImGui::Button(id, ImVec2(RESET_BUTTON_WIDTH, 0.0f));
-}
-
-} // namespace
-
-InspectorPanel::InspectorPanel(SceneManager* scene_manager, std::shared_ptr<EditorSelection> selection, SDL_Renderer* renderer)
-    : m_scene_manager(scene_manager), m_selection(selection), m_renderer(renderer) {}
+InspectorPanel::InspectorPanel(
+    SceneManager* scene_manager,
+    std::shared_ptr<EditorSelection> selection,
+    SDL_Renderer* renderer,
+    AssetManager* asset_manager
+) : m_scene_manager(scene_manager),
+    m_selection(std::move(selection)),
+    m_renderer(renderer),
+    m_asset_manager(asset_manager ? asset_manager : &AssetManager::get()) {}
 
 void InspectorPanel::push_transform_change(EntityManager& em, EntityID entity, const TransformComponent& before, const char* description) {
     if (!m_command_history || !em.is_alive(entity) || !em.has_component<TransformComponent>(entity)) return;
@@ -174,12 +54,27 @@ void InspectorPanel::push_transform_change(EntityManager& em, EntityID entity, c
 }
 
 void InspectorPanel::track_transform_edit(EntityManager& em, EntityID entity, const TransformComponent& before, const char* description) {
-    if (g_property_interaction.activated) {
-        m_pending_transform_edits.try_emplace(g_property_interaction.id, before);
+    const auto& interaction = last_property_interaction();
+    if (interaction.activated) {
+        m_pending_transform_edits.try_emplace(interaction.id, before);
     }
 
-    if (g_property_interaction.deactivated_after_edit) {
-        auto pending = m_pending_transform_edits.find(g_property_interaction.id);
+    if (interaction.cancelled) {
+        auto pending = m_pending_transform_edits.find(interaction.id);
+        if (pending != m_pending_transform_edits.end()) {
+            em.get_component<TransformComponent>(entity) = pending->second;
+            PhysicsSystem::set_position(
+                em,
+                entity,
+                glm::vec2(pending->second.position.x, pending->second.position.y)
+            );
+            m_pending_transform_edits.erase(pending);
+        }
+        return;
+    }
+
+    if (interaction.deactivated_after_edit) {
+        auto pending = m_pending_transform_edits.find(interaction.id);
         if (pending != m_pending_transform_edits.end()) {
             push_transform_change(em, entity, pending->second, description);
             m_pending_transform_edits.erase(pending);
@@ -205,15 +100,57 @@ void InspectorPanel::push_camera_change(EntityManager& em, EntityID entity, cons
 }
 
 void InspectorPanel::track_camera_edit(EntityManager& em, EntityID entity, const CameraComponent& before, const char* description) {
-    if (g_property_interaction.activated) {
-        m_pending_camera_edits.try_emplace(g_property_interaction.id, before);
+    const auto& interaction = last_property_interaction();
+    if (interaction.activated) {
+        m_pending_camera_edits.try_emplace(interaction.id, before);
     }
-    if (g_property_interaction.deactivated_after_edit) {
-        auto pending = m_pending_camera_edits.find(g_property_interaction.id);
+    if (interaction.cancelled) {
+        auto pending = m_pending_camera_edits.find(interaction.id);
+        if (pending != m_pending_camera_edits.end()) {
+            em.get_component<CameraComponent>(entity) = pending->second;
+            m_pending_camera_edits.erase(pending);
+        }
+        return;
+    }
+    if (interaction.deactivated_after_edit) {
+        auto pending = m_pending_camera_edits.find(interaction.id);
         if (pending != m_pending_camera_edits.end()) {
             push_camera_change(em, entity, pending->second, description);
             m_pending_camera_edits.erase(pending);
         }
+    }
+}
+
+void InspectorPanel::track_tag_edit(
+    EntityManager& em,
+    EntityID entity,
+    const std::string& before,
+    const char* property,
+    const char* description
+) {
+    if (!m_command_history) return;
+    const auto& interaction = last_property_interaction();
+    const auto key = EditorPropertyTransaction::make_key(entity, property);
+    if (interaction.activated) {
+        m_property_transactions.begin<std::string>(
+            key,
+            before,
+            [&em, entity]() -> std::optional<std::string> {
+                if (!em.is_alive(entity) || !em.has_component<TagComponent>(entity)) return std::nullopt;
+                return em.get_component<TagComponent>(entity).tag;
+            },
+            [&em, entity](const std::string& value) {
+                if (em.is_alive(entity) && em.has_component<TagComponent>(entity)) {
+                    em.get_component<TagComponent>(entity).tag = value;
+                }
+            },
+            description
+        );
+    }
+    if (interaction.cancelled) {
+        m_property_transactions.cancel(key);
+    } else if (interaction.deactivated_after_edit) {
+        m_property_transactions.commit(key, *m_command_history);
     }
 }
 
@@ -313,9 +250,13 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         ImGui::PopStyleColor();
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-1.0f);
+        const std::string tag_before = tag_comp.tag;
+        begin_property_interaction("Entity.Name");
         if (ImGui::InputText("##entity_name", buffer, sizeof(buffer))) {
             tag_comp.tag = buffer;
         }
+        capture_property_interaction();
+        track_tag_edit(em, entity, tag_before, "Entity.Name", "Rename Entity");
         ImGui::TextDisabled("Entity #%u", entity);
 
         if (em.has_component<TransformComponent>(entity)) {
@@ -426,78 +367,12 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         }
     }
 
-    // --- 3. SpriteComponent ---
-    if (em.has_component<SpriteComponent>(entity)) {
-        if (ImGui::CollapsingHeader("Sprite Renderer", ImGuiTreeNodeFlags_DefaultOpen)) {
-            auto& sprite = em.get_component<SpriteComponent>(entity);
-
-            // Ensure fallback texture if null
-            if (!sprite.texture && m_renderer) {
-                sprite.texture = Texture::create_solid(m_renderer, 8, 8, 255, 255, 255, 255);
-            }
-
-            // Texture Path
-            std::string tex_path = sprite.texture ? sprite.texture->get_filepath() : "";
-            char tex_buf[256];
-            std::strncpy(tex_buf, tex_path.c_str(), sizeof(tex_buf) - 1);
-            tex_buf[sizeof(tex_buf) - 1] = '\0';
-
-            if (ImGui::InputText("Texture", tex_buf, sizeof(tex_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
-                if (std::strlen(tex_buf) > 0 && m_renderer) {
-                    sprite.texture = Texture::load_from_file(m_renderer, tex_buf);
-                }
-            }
-
-            if (sprite.texture && sprite.texture->get_sdl_texture()) {
-                const float max_preview_size = 112.0f;
-                const float texture_width = static_cast<float>(std::max(1, sprite.texture->get_width()));
-                const float texture_height = static_cast<float>(std::max(1, sprite.texture->get_height()));
-                const float scale = std::min(max_preview_size / texture_width, max_preview_size / texture_height);
-                const ImVec2 preview_size(texture_width * scale, texture_height * scale);
-
-                begin_property_row("Preview");
-                ImGui::Image(sprite.texture->get_sdl_texture(), preview_size);
-                ImGui::SameLine();
-                ImGui::TextDisabled("%d x %d", sprite.texture->get_width(), sprite.texture->get_height());
-            }
-
-            float sz[2] = {sprite.size.x, sprite.size.y};
-            if (property_vec2("Size", sz, 1.0f, 1.0f, 2048.0f)) {
-                sprite.size = glm::vec2(sz[0], sz[1]);
-            }
-
-            float col[3] = {
-                sprite.color.r / 255.0f,
-                sprite.color.g / 255.0f,
-                sprite.color.b / 255.0f
-            };
-            if (ImGui::ColorEdit3("Tint Color", col)) {
-                sprite.color.r = static_cast<uint8_t>(col[0] * 255.0f);
-                sprite.color.g = static_cast<uint8_t>(col[1] * 255.0f);
-                sprite.color.b = static_cast<uint8_t>(col[2] * 255.0f);
-            }
-
-            float opacity = sprite.color.a / 255.0f * 100.0f;
-            if (property_float("Opacity", &opacity, 0.5f, 0.0f, 100.0f, "%.0f%%")) {
-                sprite.color.a = static_cast<uint8_t>(opacity / 100.0f * 255.0f);
-            }
-            int sorting_layer = sprite.sorting_layer;
-            if (property_int("Sorting Layer", &sorting_layer, 1.0f, -32768, 32767)) {
-                sprite.sorting_layer = static_cast<int16_t>(sorting_layer);
-            }
-            int order_in_layer = sprite.order_in_layer;
-            if (property_int("Order in Layer", &order_in_layer, 1.0f, -32768, 32767)) {
-                sprite.order_in_layer = static_cast<int16_t>(order_in_layer);
-            }
-
-            begin_property_row("Flags");
-            ImGui::Checkbox("Flip X", &sprite.flip_x);
-            ImGui::SameLine();
-            ImGui::Checkbox("Flip Y", &sprite.flip_y);
-            ImGui::SameLine();
-            ImGui::Checkbox("Visible##sprite", &sprite.visible);
-        }
-    }
+    SpriteInspectorDrawer::draw(em, entity, {
+        m_renderer,
+        m_asset_manager,
+        m_command_history.get(),
+        &m_property_transactions
+    });
 
     // --- 4. RigidBodyComponent ---
     if (em.has_component<RigidBodyComponent>(entity)) {
@@ -577,8 +452,9 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             snprintf(path_buf, sizeof(path_buf), "%s", tilemap.tileset_path.c_str());
             if (ImGui::InputText("Tileset Path", path_buf, sizeof(path_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
                 tilemap.tileset_path = path_buf;
-                if (m_renderer) {
-                    tilemap.tileset_texture = Texture::load_from_file(m_renderer, tilemap.tileset_path);
+                if (m_renderer && m_asset_manager) {
+                    auto texture = m_asset_manager->load_texture(m_renderer, tilemap.tileset_path);
+                    tilemap.tileset_texture = texture ? texture.get() : nullptr;
                 }
             }
 
@@ -870,7 +746,9 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             em.add_component<TransformComponent>(entity, TransformComponent{glm::vec3(0.0f)});
         }
         if (!em.has_component<SpriteComponent>(entity) && ImGui::MenuItem("Sprite Renderer")) {
-            Texture* tex = m_renderer ? Texture::create_solid(m_renderer, 8, 8, 255, 255, 255, 255) : nullptr;
+            Texture* tex = m_renderer && m_asset_manager
+                ? m_asset_manager->get_white_texture(m_renderer)
+                : nullptr;
             em.add_component<SpriteComponent>(entity, SpriteComponent{tex, glm::vec2(64.0f, 64.0f)});
         }
         if (!em.has_component<AnimationComponent>(entity) && ImGui::MenuItem("Sprite Animator 2D")) {

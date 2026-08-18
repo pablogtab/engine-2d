@@ -77,29 +77,29 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Common Property Transactions
 
-- [ ] Introduce a reusable `EditorPropertyTransaction` lifecycle: begin, live preview, commit, and cancel.
-- [ ] Support scalar, integer, boolean, enum, text, color, vector, list, and asset-reference edits.
-- [ ] Guarantee one undo entry per drag, scrub, text commit, toggle, or compound edit.
-- [ ] Make cancellation restore the exact previous state.
+- [x] Introduce a reusable `EditorPropertyTransaction` lifecycle: begin, live preview, commit, and cancel.
+- [x] Support scalar, integer, boolean, enum, text, color, vector, list, and asset-reference state through typed transactions.
+- [x] Guarantee one undo entry per drag, scrub, text commit, toggle, or compound edit.
+- [x] Make cancellation restore the exact previous state.
 - [ ] Add property validation and component-specific side-effect hooks, such as physics or tilemap rebuilds.
 - [ ] Make the same transaction system work with multi-selection and mixed values.
 
 ### Inspector Migration
 
-- [ ] Make entity rename reversible.
-- [ ] Migrate every Sprite property to the common transaction lifecycle.
+- [x] Make entity rename reversible.
+- [x] Migrate every currently exposed Sprite property to the common transaction lifecycle.
 - [ ] Migrate every RigidBody property to the common transaction lifecycle.
 - [ ] Migrate every Collider property and shape edit to the common transaction lifecycle.
 - [ ] Migrate every Tilemap setting and destructive action to reversible commands.
 - [ ] Separate Animator authoring data from editor preview/playback state.
 - [ ] Migrate Animator clips and spritesheet settings to reversible commands.
-- [ ] Route texture loading and fallbacks through `AssetManager`; never allocate unmanaged textures from Inspector code.
+- [x] Route texture loading and fallbacks through `AssetManager`; never allocate unmanaged textures from Inspector code.
 - [ ] Add complete undoable component add/remove commands.
 
 ### Inspector Structure
 
 - [ ] Split the monolithic Inspector into component drawers with a shared compact property layout.
-- [ ] Keep component UI extensions separate from runtime component definitions.
+- [x] Keep component UI extensions separate from runtime component definitions.
 - [ ] Add component search, favorites, and concise contextual documentation.
 - [ ] Preserve the existing compact Photoshop/Unity-like value scrubbing behavior.
 
@@ -346,7 +346,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 ### Phase 1 — Editor Mutation Suites
 
 - [ ] `EditorCommandHistoryTests` — execute, undo, redo, redo invalidation, bounded history, scene invalidation, and command descriptions.
-- [ ] `EditorPropertyTransactionTests` — begin/preview/commit/cancel, unchanged edits, compound values, text commits, and one history entry per gesture.
+- [x] `EditorPropertyTransactionTests` — begin/preview/commit/cancel, unchanged edits, compound values, text commits, and one history entry per gesture.
 - [ ] `InspectorCommandTests` — entity rename and Sprite, RigidBody, Collider, Tilemap, Animator, Camera, and component add/remove restoration.
 - [ ] `MultiEditTransactionTests` — mixed values, partial component availability, atomic multi-entity commit, cancel, undo, and redo.
 
@@ -440,10 +440,10 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increment
 
-Implement the first Phase 1 slice:
+Implement the second Phase 1 slice:
 
-1. Add `EditorPropertyTransaction` for single-entity component edits.
-2. Migrate Sprite properties and entity rename.
-3. Route Inspector texture resolution through `AssetManager`.
-4. Add undo/redo tests covering drag, toggle, text commit, cancel, and texture assignment.
-5. Extract `SpriteInspectorDrawer` only after the transaction API is proven by those controls.
+1. Add component-specific side-effect hooks to property transactions.
+2. Migrate RigidBody and Collider properties without rebuilding physics once per preview frame.
+3. Add complete undoable component add/remove commands.
+4. Add `InspectorCommandTests` for rename, Sprite, physics components, and component presence.
+5. Extract `RigidBodyInspectorDrawer` and `ColliderInspectorDrawer` after their transaction behavior is validated.

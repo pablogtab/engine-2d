@@ -3,6 +3,7 @@
 #include "commands/EditorCommandHistory.hpp"
 #include "commands/EntityCommands.hpp"
 #include "shortcuts/ShortcutManager.hpp"
+#include "inspector/InspectorWidgets.hpp"
 #include "../core/Log.hpp"
 #include "../scene/SceneManager.hpp"
 #include "../scene/GenericScene.hpp"
@@ -182,6 +183,9 @@ void EditorLayer::shutdown() {
 
 void EditorLayer::process_event(const SDL_Event& event) {
     if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
+        if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+            InspectorWidgets::request_cancel_active_property();
+        }
         if (event.key.scancode == SDL_SCANCODE_F1 || event.key.scancode == SDL_SCANCODE_GRAVE) {
             toggle_visibility();
             ENGINE_LOG_INFO("[EDITOR] Toggled visibility: {}", m_visible ? "ON" : "OFF");

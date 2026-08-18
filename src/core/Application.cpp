@@ -92,7 +92,12 @@ Application::Application(const std::string& name, int width, int height, bool st
         game_view.reference_width, game_view.reference_height
     });
     auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager, m_window->get_sdl_renderer(), selection, command_history);
-    auto inspector_panel = std::make_shared<InspectorPanel>(&m_scene_manager, selection, m_window->get_sdl_renderer());
+    auto inspector_panel = std::make_shared<InspectorPanel>(
+        &m_scene_manager,
+        selection,
+        m_window->get_sdl_renderer(),
+        &get_asset_manager()
+    );
     inspector_panel->set_command_history(command_history);
     auto console_panel = std::make_shared<ConsolePanel>();
     auto stats_panel = std::make_shared<StatsPanel>();
@@ -155,7 +160,10 @@ Application::Application(const std::string& name, int width, int height, bool st
     });
 }
 
-Application::~Application() {}
+Application::~Application() {
+    // GPU-backed assets must be released while the SDL renderer still exists.
+    AssetManager::get().clear();
+}
 
 void Application::apply_display_mode(bool editor_visible) {
     m_display_manager->set_apply_enabled(!editor_visible);

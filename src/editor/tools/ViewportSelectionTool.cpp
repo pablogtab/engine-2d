@@ -162,7 +162,9 @@ void ViewportSelectionTool::handle_selection_input(Scene* active_scene, const Ca
         }
     }
 
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) selection.clear();
+    // A transform gesture owns Escape so it can restore its initial snapshot.
+    // Only an idle Viewport uses Escape to clear the current selection.
+    if (!is_gizmo_active && ImGui::IsKeyPressed(ImGuiKey_Escape)) selection.clear();
 }
 
 } // namespace Engine

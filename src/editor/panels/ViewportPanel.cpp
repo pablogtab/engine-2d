@@ -9,6 +9,7 @@
 #include "../../ecs/CameraSystem.hpp"
 #include "../../ecs/Components.hpp"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -613,12 +614,24 @@ void ViewportPanel::on_gui() {
             ImGui::Image(reinterpret_cast<ImTextureID>(m_viewport_texture), render_size, uv_min, uv_max);
 
             m_is_hovered = ImGui::IsItemHovered();
-            m_is_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+            const bool was_viewport_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+            m_is_focused = was_viewport_focused;
+            const bool viewport_focus_click = m_is_hovered && !was_viewport_focused &&
+                (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+                 ImGui::IsMouseClicked(ImGuiMouseButton_Right) ||
+                 ImGui::IsMouseClicked(ImGuiMouseButton_Middle));
 
             if (m_is_hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseClicked(ImGuiMouseButton_Middle))) {
+                // An Image does not naturally take keyboard focus from an
+                // active text/scalar editor. Explicitly release that editor,
+                // then consume this click as focus transfer so it cannot also
+                // start a gizmo, marquee or painting gesture with stale state.
+                if (viewport_focus_click) ImGui::ClearActiveID();
                 ImGui::SetWindowFocus();
                 m_is_focused = true;
             }
+
+            const bool viewport_tools_hovered = m_is_hovered && !viewport_focus_click;
 
             ImVec2 img_min = ImGui::GetItemRectMin();
             ImVec2 img_max = ImGui::GetItemRectMax();
@@ -659,11 +672,11 @@ void ViewportPanel::on_gui() {
 
             // --- 3. Viewport Camera Navigation (Pan / Zoom / Focus 'F') ---
             if (is_editing && active_cam && generic_scene && m_selection) {
-                m_camera_controller.handle_input(generic_scene, *m_selection, m_is_hovered, m_is_focused, m_viewport_mouse_pos, viewport_mouse_delta);
+                m_camera_controller.handle_input(generic_scene, *m_selection, viewport_tools_hovered, m_is_focused, m_viewport_mouse_pos, viewport_mouse_delta);
             }
 
             const bool is_guide_interaction = is_editing && active_cam
-                ? m_reference_overlay.render(*active_cam, img_min, img_size, m_viewport_mouse_pos, m_gizmo.snap_settings().position_step, m_is_hovered)
+                ? m_reference_overlay.render(*active_cam, img_min, img_size, m_viewport_mouse_pos, m_gizmo.snap_settings().position_step, viewport_tools_hovered)
                 : false;
 
             // A short right-click opens contextual actions; dragging with the
@@ -671,7 +684,7 @@ void ViewportPanel::on_gui() {
             const ImVec2 right_drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
             const bool is_context_click = ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
                 right_drag.x * right_drag.x + right_drag.y * right_drag.y < 16.0f;
-            if (is_editing && m_is_hovered && is_context_click) {
+            if (is_editing && viewport_tools_hovered && is_context_click) {
                 m_context_entity = active_scene && active_cam
                     ? m_selection_tool.pick_entity(active_scene->get_entity_manager(), active_cam->screen_to_world(m_viewport_mouse_pos), active_cam)
                     : 0;
@@ -807,7 +820,7 @@ void ViewportPanel::on_gui() {
                     *active_cam,
                     img_min,
                     img_size,
-                    m_is_hovered,
+                    viewport_tools_hovered,
                     m_command_history.get()
                 );
             }
@@ -820,7 +833,7 @@ void ViewportPanel::on_gui() {
                     *m_selection,
                     img_min,
                     img_size,
-                    m_is_hovered,
+                    viewport_tools_hovered,
                     is_gizmo_active || m_gizmo.is_hovered() || m_gizmo.is_using() || is_guide_interaction
                 );
             }
@@ -864,7 +877,7 @@ void ViewportPanel::on_gui() {
                     *active_cam,
                     img_min,
                     img_size,
-                    m_is_hovered,
+                    viewport_tools_hovered,
                     m_command_history.get()
                 );
             }

@@ -65,6 +65,8 @@ set(SOURCES
     src/editor/panels/TilemapPalettePanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/gizmos/TransformGizmo2D.cpp
+    src/editor/inspector/InspectorWidgets.cpp
+    src/editor/inspector/SpriteInspectorDrawer.cpp
     src/editor/tools/ViewportCameraController.cpp
     src/editor/tools/ViewportArrangementTool.cpp
     src/editor/tools/EditorIcons.cpp
@@ -73,6 +75,7 @@ set(SOURCES
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
     src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/ProjectSettingsCommands.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
@@ -158,6 +161,17 @@ target_compile_definitions(PostProcessTests PRIVATE
 )
 target_link_libraries(PostProcessTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME PostProcessTests COMMAND PostProcessTests)
+
+add_executable(EditorPropertyTransactionTests
+    tests/EditorPropertyTransactionTests.cpp
+    src/core/Log.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EditorPropertyTransaction.cpp
+)
+target_include_directories(EditorPropertyTransactionTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME EditorPropertyTransactionTests COMMAND EditorPropertyTransactionTests)
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

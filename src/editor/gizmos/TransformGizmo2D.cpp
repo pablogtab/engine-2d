@@ -165,6 +165,29 @@ bool TransformGizmo2D::draw_gizmo(
 
     const float rotate_radius = 52.0f;
     const float mouse_radius = std::hypot(mouse_pos.x - origin.x, mouse_pos.y - origin.y);
+    bool cancelled_this_frame = false;
+
+    // Escape cancels the entire gesture, restoring the snapshot captured on
+    // mouse-down. It must happen before release/commit and before applying the
+    // current mouse delta again.
+    if (m_active_axis != GizmoAxis::None && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        for (const auto& [id, start] : m_start_transforms) {
+            if (em.is_alive(id) && em.has_component<TransformComponent>(id)) {
+                em.get_component<TransformComponent>(id) = start;
+            }
+        }
+        TransformSystem::update(em);
+        for (const auto& [id, start] : m_start_transforms) {
+            (void)start;
+            if (!em.is_alive(id) || !em.has_component<TransformComponent>(id)) continue;
+            const auto& transform = em.get_component<TransformComponent>(id);
+            PhysicsSystem::set_position(em, id, glm::vec2(transform.world_position));
+        }
+        m_active_axis = GizmoAxis::None;
+        m_hovered_axis = GizmoAxis::None;
+        m_start_transforms.clear();
+        cancelled_this_frame = true;
+    }
 
     // --- Hover Detection ---
     if (m_active_axis == GizmoAxis::None) {
@@ -282,7 +305,7 @@ bool TransformGizmo2D::draw_gizmo(
     if (m_tool == TransformTool::Rotate) {
         ImU32 col = (m_hovered_axis == GizmoAxis::CenterXY || m_active_axis == GizmoAxis::CenterXY) ? IM_COL32(110, 198, 255, 255) : IM_COL32(80, 170, 255, 230);
         draw_list->AddCircle(origin, rotate_radius, col, 48, 3.0f);
-        return (m_active_axis != GizmoAxis::None || m_hovered_axis != GizmoAxis::None);
+        return cancelled_this_frame || m_active_axis != GizmoAxis::None || m_hovered_axis != GizmoAxis::None;
     }
 
     // Center handle (move XY / uniform scale)
@@ -310,7 +333,7 @@ bool TransformGizmo2D::draw_gizmo(
         draw_arrow(draw_list, y_axis_start, y_axis_end, col_y, arrow_size);
     }
 
-    return (m_active_axis != GizmoAxis::None || m_hovered_axis != GizmoAxis::None);
+    return cancelled_this_frame || m_active_axis != GizmoAxis::None || m_hovered_axis != GizmoAxis::None;
 }
 
 } // namespace Engine

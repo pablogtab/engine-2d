@@ -24,7 +24,7 @@ public:
     void run();
 
     SceneManager& get_scene_manager() { return m_scene_manager; }
-    AssetManager& get_asset_manager() { return m_asset_manager; }
+    AssetManager& get_asset_manager() { return AssetManager::get(); }
     ThreadPool& get_thread_pool() { return m_thread_pool; }
     Window& get_window() { return *m_window; }
     DisplayManager& get_display() { return *m_display_manager; }
@@ -49,7 +49,6 @@ private:
     std::unique_ptr<Renderer2D> m_renderer;
     std::unique_ptr<class EditorLayer> m_editor_layer;
     SceneManager m_scene_manager;
-    AssetManager m_asset_manager;
     ThreadPool m_thread_pool;
     ProjectSettings m_project_settings;
     bool m_running{true};

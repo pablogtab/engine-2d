@@ -1,0 +1,163 @@
+#include "InspectorWidgets.hpp"
+#include <imgui_internal.h>
+
+namespace Engine::InspectorWidgets {
+
+namespace {
+
+constexpr float PROPERTY_LABEL_WIDTH = 104.0f;
+constexpr float PROPERTY_GAP = 6.0f;
+constexpr float RESET_BUTTON_WIDTH = 28.0f;
+PropertyInteraction g_property_interaction;
+ImGuiID g_active_property_id = 0;
+ImGuiID g_cancel_requested_for = 0;
+
+} // namespace
+
+void begin_property_interaction(const char* label) {
+    g_property_interaction = {ImGui::GetID(label), false, false, false};
+}
+
+void request_cancel_active_property() {
+    g_cancel_requested_for = g_active_property_id;
+}
+
+void capture_property_interaction() {
+    const bool activated = ImGui::IsItemActivated();
+    g_property_interaction.activated |= activated;
+    if (activated) {
+        g_active_property_id = g_property_interaction.id;
+    }
+
+    g_property_interaction.deactivated_after_edit |= ImGui::IsItemDeactivatedAfterEdit();
+    const bool deactivated = ImGui::IsItemDeactivated();
+    const bool escape_pressed = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    const bool cancelled = g_active_property_id == g_property_interaction.id &&
+        (escape_pressed || g_cancel_requested_for == g_property_interaction.id);
+    g_property_interaction.cancelled |= cancelled;
+
+    if (cancelled) {
+        // InputText and temporary scalar editors can clear their active item
+        // before the caller observes IsItemDeactivated(). Keep our own
+        // cross-frame property identity so Escape still cancels the matching
+        // transaction, then release all keyboard/mouse capture immediately.
+        ImGui::ClearActiveID();
+        g_active_property_id = 0;
+        g_cancel_requested_for = 0;
+    } else if (deactivated && g_active_property_id == g_property_interaction.id) {
+        g_active_property_id = 0;
+        g_cancel_requested_for = 0;
+    }
+}
+
+const PropertyInteraction& last_property_interaction() {
+    return g_property_interaction;
+}
+
+void begin_property_row(const char* label, bool reserve_reset) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+
+    ImGui::SameLine(PROPERTY_LABEL_WIDTH);
+    const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset_space);
+}
+
+bool property_float(const char* label, float* value, float speed, float min, float max, const char* format) {
+    begin_property_row(label);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const bool changed = ImGui::DragFloat("##value", value, speed, min, max, format);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_axis_float(const char* label, const char* axis, float* value, float speed, float min, float max, const char* format, bool reserve_reset) {
+    begin_property_row(label, reserve_reset);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    ImGui::TextDisabled("%s", axis);
+    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+    const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset_space - 11.0f);
+    const bool changed = ImGui::DragFloat("##value", value, speed, min, max, format);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_int(const char* label, int* value, float speed, int min, int max, const char* format) {
+    begin_property_row(label);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const bool changed = ImGui::DragInt("##value", value, speed, min, max, format);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_bool(const char* label, bool* value) {
+    begin_property_row(label);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const bool changed = ImGui::Checkbox("##value", value);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_vec2(const char* label, float values[2], float speed, float min, float max, const char* format, bool reserve_reset) {
+    begin_property_row(label, reserve_reset);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+    const float width = (ImGui::GetContentRegionAvail().x - (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) - spacing * 3.0f - 24.0f) * 0.5f;
+    ImGui::TextDisabled("X");
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::SetNextItemWidth(width);
+    bool changed = ImGui::DragFloat("##x", &values[0], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::TextDisabled("Y");
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::SetNextItemWidth(width);
+    changed |= ImGui::DragFloat("##y", &values[1], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_vec3(const char* label, float values[3], float speed, float min, float max, const char* format, bool reserve_reset) {
+    begin_property_row(label, reserve_reset);
+    begin_property_interaction(label);
+    ImGui::PushID(label);
+    const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+    const float width = (ImGui::GetContentRegionAvail().x - (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) - spacing * 5.0f - 36.0f) / 3.0f;
+    ImGui::TextDisabled("X");
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::SetNextItemWidth(width);
+    bool changed = ImGui::DragFloat("##x", &values[0], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::TextDisabled("Y");
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::SetNextItemWidth(width);
+    changed |= ImGui::DragFloat("##y", &values[1], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::TextDisabled("Z");
+    ImGui::SameLine(0.0f, spacing);
+    ImGui::SetNextItemWidth(width);
+    changed |= ImGui::DragFloat("##z", &values[2], speed, min, max, format);
+    capture_property_interaction();
+    ImGui::PopID();
+    return changed;
+}
+
+bool property_reset_button(const char* id) {
+    ImGui::SameLine(0.0f, PROPERTY_GAP);
+    return ImGui::Button(id, ImVec2(RESET_BUTTON_WIDTH, 0.0f));
+}
+
+} // namespace Engine::InspectorWidgets
