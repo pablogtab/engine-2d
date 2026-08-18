@@ -11,6 +11,27 @@ using json = nlohmann::json;
 
 namespace Engine {
 
+namespace {
+
+const char* projection_to_string(CameraProjectionMode mode) {
+    switch (mode) {
+        case CameraProjectionMode::FixedHeight: return "fixed_height";
+        case CameraProjectionMode::FixedWidth: return "fixed_width";
+        case CameraProjectionMode::Expand: return "expand";
+        case CameraProjectionMode::PixelPerfect: return "pixel_perfect";
+    }
+    return "fixed_height";
+}
+
+CameraProjectionMode projection_from_string(const std::string& value) {
+    if (value == "fixed_width") return CameraProjectionMode::FixedWidth;
+    if (value == "expand") return CameraProjectionMode::Expand;
+    if (value == "pixel_perfect") return CameraProjectionMode::PixelPerfect;
+    return CameraProjectionMode::FixedHeight;
+}
+
+} // namespace
+
 SceneSerializer::SceneSerializer(Scene* scene, SDL_Renderer* renderer)
     : m_scene(scene), m_renderer(renderer) {}
 
@@ -108,6 +129,7 @@ std::string SceneSerializer::serialize_to_string() {
             json cam_json;
             cam_json["is_primary"] = cam.is_primary;
             cam_json["zoom"] = cam.zoom;
+            cam_json["projection"] = projection_to_string(cam.projection);
             cam_json["follow_target"] = cam.follow_target;
             cam_json["follow_offset"] = {cam.follow_offset.x, cam.follow_offset.y};
             cam_json["follow_speed"] = cam.follow_speed;
@@ -355,6 +377,7 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     CameraComponent cam;
                     if (c_j.contains("is_primary")) cam.is_primary = c_j["is_primary"].get<bool>();
                     if (c_j.contains("zoom")) cam.zoom = c_j["zoom"].get<float>();
+                    if (c_j.contains("projection")) cam.projection = projection_from_string(c_j["projection"].get<std::string>());
                     if (c_j.contains("follow_target")) cam.follow_target = c_j["follow_target"].get<EntityID>();
                     if (c_j.contains("follow_offset") && c_j["follow_offset"].size() >= 2) {
                         cam.follow_offset = glm::vec2(c_j["follow_offset"][0].get<float>(), c_j["follow_offset"][1].get<float>());

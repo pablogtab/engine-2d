@@ -43,7 +43,7 @@ public:
 
     void update(float delta_time);
     void render(Renderer2D& renderer);
-    void resize_view(RenderViewKind view, int width, int height, float dpi_scale = 1.0f);
+    void configure_view(RenderViewKind view, const RenderViewConfiguration& configuration);
 
     Scene* get_active_scene() const;
     size_t get_scene_count() const { return m_scenes.size(); }
@@ -54,16 +54,10 @@ private:
     void save_state();
     void apply_active_view();
 
-    struct ViewportMetrics {
-        int width{1280};
-        int height{720};
-        float dpi_scale{1.0f};
-    };
-
     std::vector<std::shared_ptr<Scene>> m_scenes;
     int m_active_index{-1};
-    ViewportMetrics m_editor_view;
-    ViewportMetrics m_game_view;
+    RenderViewConfiguration m_editor_view;
+    RenderViewConfiguration m_game_view;
 
     ScenePlayState m_play_state{ScenePlayState::Edit};
     std::string m_snapshot_json;

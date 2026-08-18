@@ -1,22 +1,17 @@
 #pragma once
 
+#include "../renderer/RenderView.hpp"
 #include <string>
 
 namespace Engine {
 
-enum class GameViewScaling {
-    Fit,
-    Fill,
-    Stretch
-};
-
 struct GameViewSettings {
-    int width{1920};
-    int height{1080};
-    GameViewScaling scaling{GameViewScaling::Fit};
+    int reference_width{1920};
+    int reference_height{1080};
+    PresentationMode presentation{PresentationMode::Fit};
 
     [[nodiscard]] float aspect_ratio() const {
-        return static_cast<float>(width) / static_cast<float>(height);
+        return static_cast<float>(reference_width) / static_cast<float>(reference_height);
     }
 
     bool operator==(const GameViewSettings&) const = default;

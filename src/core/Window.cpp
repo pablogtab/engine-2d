@@ -1,6 +1,7 @@
 #include "Window.hpp"
 #include "Log.hpp"
 #include "Input.hpp"
+#include <algorithm>
 #include <fstream>
 
 namespace Engine {
@@ -121,6 +122,7 @@ void Window::update_sizes() {
 void Window::poll_events() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        if (m_uses_logical_presentation) SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
         if (m_event_callback) {
             m_event_callback(event);
         } else {
@@ -154,6 +156,36 @@ void Window::poll_events() {
             }
         }
     }
+}
+
+void Window::set_logical_presentation(int reference_width, int reference_height, PresentationMode mode) {
+    if (mode == PresentationMode::Responsive) {
+        disable_logical_presentation();
+        return;
+    }
+    SDL_RendererLogicalPresentation sdl_mode = SDL_LOGICAL_PRESENTATION_LETTERBOX;
+    switch (mode) {
+        case PresentationMode::Fit: sdl_mode = SDL_LOGICAL_PRESENTATION_LETTERBOX; break;
+        case PresentationMode::Fill: sdl_mode = SDL_LOGICAL_PRESENTATION_OVERSCAN; break;
+        case PresentationMode::Stretch: sdl_mode = SDL_LOGICAL_PRESENTATION_STRETCH; break;
+        case PresentationMode::Responsive: break;
+    }
+    m_uses_logical_presentation = SDL_SetRenderLogicalPresentation(
+        m_renderer,
+        std::max(reference_width, 1),
+        std::max(reference_height, 1),
+        sdl_mode
+    );
+    if (!m_uses_logical_presentation) ENGINE_LOG_ERROR("Failed to configure logical presentation: {}", SDL_GetError());
+}
+
+void Window::disable_logical_presentation() {
+    if (!m_renderer) return;
+    if (!SDL_SetRenderLogicalPresentation(m_renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED)) {
+        ENGINE_LOG_ERROR("Failed to disable logical presentation: {}", SDL_GetError());
+        return;
+    }
+    m_uses_logical_presentation = false;
 }
 
 void Window::clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {

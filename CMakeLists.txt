@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(Engine2D VERSION 0.1.0 LANGUAGES CXX)
 
+enable_testing()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -89,6 +91,16 @@ set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/box2d)
 
 add_executable(Engine2D ${SOURCES})
+
+add_executable(Camera2DTests
+    tests/Camera2DTests.cpp
+    src/scene/Camera2D.cpp
+)
+target_include_directories(Camera2DTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(Camera2DTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME Camera2DTests COMMAND Camera2DTests)
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

@@ -18,7 +18,7 @@ public:
     void on_detach() override;
     void on_update(float delta_time) override;
     void on_render(Engine::Renderer2D& renderer) override;
-    void on_viewport_resize(Engine::RenderViewKind view, int width, int height, float dpi_scale) override;
+    void on_viewport_resize(Engine::RenderViewKind view, const Engine::RenderViewConfiguration& configuration) override;
 
 private:
     Engine::Texture* generate_procedural_spritesheet();

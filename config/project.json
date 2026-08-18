@@ -1,7 +1,7 @@
 {
   "game_view": {
-    "height": 1080,
-    "scaling": "fit",
-    "width": 1920
+    "presentation": "fit",
+    "reference_height": 600,
+    "reference_width": 800
   }
 }

@@ -32,6 +32,8 @@ protected:
     virtual void on_shutdown() {}
 
 private:
+    void apply_display_mode(bool editor_visible);
+
     std::unique_ptr<Window> m_window;
     std::unique_ptr<Renderer2D> m_renderer;
     std::unique_ptr<class EditorLayer> m_editor_layer;

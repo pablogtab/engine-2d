@@ -66,22 +66,19 @@ void CameraController2D::update(float dt) {
 
     // 4. Level Bounds Clamping
     if (m_use_bounds) {
-        float eff_zoom = m_camera->get_effective_zoom();
-        if (eff_zoom > 0.001f) {
-            glm::vec2 viewport = m_camera->get_viewport_size();
-            float half_w = (viewport.x / eff_zoom) * 0.5f;
-            float half_h = (viewport.y / eff_zoom) * 0.5f;
+        const glm::vec2 half_extent = m_camera->get_world_half_extents();
+        if (half_extent.x > 0.001f && half_extent.y > 0.001f) {
 
             // Clamp X
-            if ((m_max_bounds.x - m_min_bounds.x) >= half_w * 2.0f) {
-                m_current_center.x = std::clamp(m_current_center.x, m_min_bounds.x + half_w, m_max_bounds.x - half_w);
+            if ((m_max_bounds.x - m_min_bounds.x) >= half_extent.x * 2.0f) {
+                m_current_center.x = std::clamp(m_current_center.x, m_min_bounds.x + half_extent.x, m_max_bounds.x - half_extent.x);
             } else {
                 m_current_center.x = (m_min_bounds.x + m_max_bounds.x) * 0.5f;
             }
 
             // Clamp Y
-            if ((m_max_bounds.y - m_min_bounds.y) >= half_h * 2.0f) {
-                m_current_center.y = std::clamp(m_current_center.y, m_min_bounds.y + half_h, m_max_bounds.y - half_h);
+            if ((m_max_bounds.y - m_min_bounds.y) >= half_extent.y * 2.0f) {
+                m_current_center.y = std::clamp(m_current_center.y, m_min_bounds.y + half_extent.y, m_max_bounds.y - half_extent.y);
             } else {
                 m_current_center.y = (m_min_bounds.y + m_max_bounds.y) * 0.5f;
             }

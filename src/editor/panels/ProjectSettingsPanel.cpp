@@ -31,7 +31,10 @@ void ProjectSettingsPanel::apply_changes() {
         after,
         [scene_manager = m_scene_manager](const GameViewSettings& value) {
             if (scene_manager) {
-                scene_manager->resize_view(RenderViewKind::Game, value.width, value.height, 1.0f);
+                scene_manager->configure_view(RenderViewKind::Game, {
+                    value.reference_width, value.reference_height,
+                    value.reference_width, value.reference_height
+                });
             }
         }
     ));
@@ -58,33 +61,33 @@ void ProjectSettingsPanel::on_gui() {
             ImGui::Selectable("Display", true);
 
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted("Game Output");
-            ImGui::TextDisabled("Default resolution and presentation used in Play mode.");
+            ImGui::TextUnformatted("Display");
+            ImGui::TextDisabled("Reference canvas and window presentation used by the game.");
             ImGui::Separator();
             ImGui::Spacing();
 
-            ImGui::TextUnformatted("Resolution presets");
-            if (ImGui::Button("1920 x 1080")) m_pending = {1920, 1080, m_pending.scaling};
+            ImGui::TextUnformatted("Reference resolution");
+            if (ImGui::Button("1920 x 1080")) m_pending = {1920, 1080, m_pending.presentation};
             ImGui::SameLine();
-            if (ImGui::Button("1280 x 720")) m_pending = {1280, 720, m_pending.scaling};
+            if (ImGui::Button("1280 x 720")) m_pending = {1280, 720, m_pending.presentation};
             ImGui::SameLine();
-            if (ImGui::Button("1080 x 1920")) m_pending = {1080, 1920, m_pending.scaling};
+            if (ImGui::Button("1080 x 1920")) m_pending = {1080, 1920, m_pending.presentation};
 
             ImGui::Spacing();
             ImGui::SetNextItemWidth(150.0f);
-            ImGui::InputInt("Width", &m_pending.width, 0);
+            ImGui::InputInt("Width", &m_pending.reference_width, 0);
             ImGui::SetNextItemWidth(150.0f);
-            ImGui::InputInt("Height", &m_pending.height, 0);
-            m_pending.width = std::clamp(m_pending.width, 64, 16384);
-            m_pending.height = std::clamp(m_pending.height, 64, 16384);
+            ImGui::InputInt("Height", &m_pending.reference_height, 0);
+            m_pending.reference_width = std::clamp(m_pending.reference_width, 64, 16384);
+            m_pending.reference_height = std::clamp(m_pending.reference_height, 64, 16384);
 
-            int scaling = static_cast<int>(m_pending.scaling);
+            int presentation = static_cast<int>(m_pending.presentation);
             ImGui::SetNextItemWidth(150.0f);
-            if (ImGui::Combo("Presentation", &scaling, "Fit\0Fill\0Stretch\0")) {
-                m_pending.scaling = static_cast<GameViewScaling>(scaling);
+            if (ImGui::Combo("Presentation", &presentation, "Fit\0Fill\0Stretch\0Responsive\0")) {
+                m_pending.presentation = static_cast<PresentationMode>(presentation);
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Fit preserves the full image, Fill crops it, Stretch fills the available area.");
+                ImGui::SetTooltip("Fit preserves the image, Fill crops, Stretch distorts, Responsive reprojects for the available aspect ratio.");
             }
 
             ImGui::Spacing();

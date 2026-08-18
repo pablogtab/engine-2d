@@ -187,11 +187,24 @@ bool ViewportPanel::ensure_render_target() {
     m_render_width = m_requested_width;
     m_render_height = m_requested_height;
 
-    if (m_scene_manager) {
-        const RenderViewKind view = m_scene_manager->is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
-        m_scene_manager->resize_view(view, m_render_width, m_render_height, 1.0f);
-    }
     return true;
+}
+
+void ViewportPanel::configure_scene_view() {
+    if (!m_scene_manager) return;
+    const RenderViewKind view = m_scene_manager->is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
+    if (view == RenderViewKind::Game && m_project_settings) {
+        const auto& game_view = m_project_settings->game_view();
+        m_scene_manager->configure_view(view, {
+            m_render_width, m_render_height,
+            game_view.reference_width, game_view.reference_height
+        });
+    } else {
+        m_scene_manager->configure_view(view, {
+            m_render_width, m_render_height,
+            m_render_width, m_render_height
+        });
+    }
 }
 
 ViewportPanel::~ViewportPanel() {
@@ -451,14 +464,14 @@ void ViewportPanel::render_rename_entity_popup(EntityManager& em) {
 
 void ViewportPanel::begin_render() {
     if (m_scene_manager && !m_scene_manager->is_editing() && m_project_settings) {
-        const GameViewSettings& game_view = m_project_settings->game_view();
-        m_requested_width = game_view.width;
-        m_requested_height = game_view.height;
+        m_requested_width = m_game_preview_width;
+        m_requested_height = m_game_preview_height;
     } else {
         m_requested_width = m_editor_view_width;
         m_requested_height = m_editor_view_height;
     }
     if (ensure_render_target() && m_renderer && m_viewport_texture) {
+        configure_scene_view();
         SDL_SetRenderTarget(m_renderer, m_viewport_texture);
         SDL_SetRenderDrawColor(m_renderer, 15, 18, 25, 255);
         SDL_RenderClear(m_renderer);
@@ -559,27 +572,39 @@ void ViewportPanel::on_gui() {
                 m_editor_view_height = std::max(1, static_cast<int>(std::round(avail_size.y * framebuffer_scale.y)));
             } else if (m_project_settings) {
                 const GameViewSettings& game_view = m_project_settings->game_view();
-                m_requested_width = game_view.width;
-                m_requested_height = game_view.height;
-                const float target_aspect = game_view.aspect_ratio();
-                const float available_aspect = avail_size.x / avail_size.y;
-                if (game_view.scaling == GameViewScaling::Fit) {
-                    if (available_aspect > target_aspect) {
-                        render_size = ImVec2(avail_size.y * target_aspect, avail_size.y);
-                    } else {
-                        render_size = ImVec2(avail_size.x, avail_size.x / target_aspect);
-                    }
-                } else if (game_view.scaling == GameViewScaling::Fill) {
-                    if (available_aspect > target_aspect) {
-                        const float visible_height = target_aspect / available_aspect;
-                        uv_min.y = (1.0f - visible_height) * 0.5f;
-                        uv_max.y = 1.0f - uv_min.y;
-                    } else {
-                        const float visible_width = available_aspect / target_aspect;
-                        uv_min.x = (1.0f - visible_width) * 0.5f;
-                        uv_max.x = 1.0f - uv_min.x;
-                    }
+                const glm::vec2 presentation_source = game_view.presentation == PresentationMode::Responsive
+                    ? glm::vec2(std::max(m_render_width, 1), std::max(m_render_height, 1))
+                    : glm::vec2(game_view.reference_width, game_view.reference_height);
+                const PresentationMapping mapping = calculate_presentation(
+                    presentation_source,
+                    glm::vec2(avail_size.x, avail_size.y),
+                    game_view.presentation
+                );
+                render_size = ImVec2(mapping.display_size.x, mapping.display_size.y);
+                uv_min = ImVec2(mapping.uv_min.x, mapping.uv_min.y);
+                uv_max = ImVec2(mapping.uv_max.x, mapping.uv_max.y);
+
+                const ImVec2 framebuffer_scale = ImGui::GetIO().DisplayFramebufferScale;
+                if (game_view.presentation == PresentationMode::Responsive) {
+                    const float desired_width = std::max(render_size.x * framebuffer_scale.x, 1.0f);
+                    const float desired_height = std::max(render_size.y * framebuffer_scale.y, 1.0f);
+                    const float reference_area = static_cast<float>(game_view.reference_width) * game_view.reference_height;
+                    const float desired_area = desired_width * desired_height;
+                    const float quality_scale = desired_area > reference_area
+                        ? std::sqrt(reference_area / desired_area)
+                        : 1.0f;
+                    m_game_preview_width = std::max(1, static_cast<int>(std::round(desired_width * quality_scale)));
+                    m_game_preview_height = std::max(1, static_cast<int>(std::round(desired_height * quality_scale)));
+                } else {
+                    const float preview_scale = std::clamp(std::max(
+                        render_size.x * framebuffer_scale.x / static_cast<float>(game_view.reference_width),
+                        render_size.y * framebuffer_scale.y / static_cast<float>(game_view.reference_height)
+                    ), 0.25f, 1.0f);
+                    m_game_preview_width = std::max(1, static_cast<int>(std::round(game_view.reference_width * preview_scale)));
+                    m_game_preview_height = std::max(1, static_cast<int>(std::round(game_view.reference_height * preview_scale)));
                 }
+                m_requested_width = m_game_preview_width;
+                m_requested_height = m_game_preview_height;
             }
 
             ImVec2 offset = ImVec2((avail_size.x - render_size.x) * 0.5f, (avail_size.y - render_size.y) * 0.5f);
@@ -629,7 +654,7 @@ void ViewportPanel::on_gui() {
             Camera2D* active_cam = generic_scene ? &generic_scene->get_editor_camera() : nullptr;
             if (m_project_settings) {
                 const auto& game_view = m_project_settings->game_view();
-                m_selection_tool.set_camera_output_size(glm::vec2(game_view.width, game_view.height));
+                m_selection_tool.set_camera_output_size(glm::vec2(game_view.reference_width, game_view.reference_height));
             }
 
             // --- 3. Viewport Camera Navigation (Pan / Zoom / Focus 'F') ---
@@ -696,7 +721,7 @@ void ViewportPanel::on_gui() {
                 const GameViewSettings output = m_project_settings
                     ? m_project_settings->game_view()
                     : GameViewSettings{};
-                glm::vec2 vp_sz(static_cast<float>(output.width), static_cast<float>(output.height));
+                glm::vec2 vp_sz(static_cast<float>(output.reference_width), static_cast<float>(output.reference_height));
                 EntityID displayed_camera = CameraSystem::find_primary(em);
                 em.for_each<CameraComponent>([&](EntityID id, const CameraComponent&) {
                     if (m_selection && m_selection->is_selected(id)) displayed_camera = id;

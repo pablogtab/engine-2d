@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../renderer/RenderView.hpp"
 #include <glm/glm.hpp>
 
 #include <SDL3/SDL.h>
@@ -23,14 +24,22 @@ public:
     void set_zoom(float zoom) { m_zoom = glm::clamp(zoom, MIN_ZOOM, MAX_ZOOM); }
     float get_zoom() const { return m_zoom; }
 
-    void set_dpi_scale(float scale) { m_dpi_scale = glm::clamp(scale, 0.1f, 8.0f); }
-    float get_dpi_scale() const { return m_dpi_scale; }
-    float get_effective_zoom() const { return m_zoom * m_dpi_scale; }
+    float get_effective_zoom() const { return m_zoom * get_projection_scale(); }
 
     void set_viewport_size(float width, float height) {
         m_viewport_size = glm::vec2(width, height);
     }
     const glm::vec2& get_viewport_size() const { return m_viewport_size; }
+
+    void set_reference_size(float width, float height) {
+        m_reference_size = glm::max(glm::vec2(width, height), glm::vec2(1.0f));
+    }
+    const glm::vec2& get_reference_size() const { return m_reference_size; }
+
+    void set_projection_mode(CameraProjectionMode mode) { m_projection_mode = mode; }
+    CameraProjectionMode get_projection_mode() const { return m_projection_mode; }
+    float get_projection_scale() const;
+    glm::vec2 get_world_half_extents(float z = 0.0f) const;
 
     // Converts a 2.5D world position (X, Y, Z) to GPU screen coordinates.
     // Z < 0: Background (moves slower with parallax, scales down)
@@ -53,9 +62,10 @@ public:
 private:
     glm::vec2 m_position{0.0f, 0.0f};
     glm::vec2 m_viewport_size{1280.0f, 720.0f};
+    glm::vec2 m_reference_size{1280.0f, 720.0f};
     float m_zoom{1.0f};
     float m_rotation{0.0f};
-    float m_dpi_scale{1.0f};
+    CameraProjectionMode m_projection_mode{CameraProjectionMode::FixedHeight};
 };
 
 } // namespace Engine

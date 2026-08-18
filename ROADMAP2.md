@@ -36,7 +36,10 @@ This roadmap extends the current engine roadmap with the systems needed to make 
 - [ ] Add viewport rulers, guides, and optional safe-area overlays.
 - [x] Add alignment and distribution commands for multi-selection.
 - [x] Add viewport shortcuts for frame selection, zoom to fit, and reset view.
-- [x] Decouple the free-form Scene View from configurable Game output resolution and presentation.
+- [x] Decouple the free-form Scene View from the project's reference resolution and physical presentation.
+- [x] Centralize Fit, Fill, Stretch, and Responsive presentation for editor and standalone output.
+- [x] Add per-camera Fixed Height, Fixed Width, Expand, and Pixel Perfect projection policies.
+- [x] Scale Game View render quality independently from its logical camera framing.
 - [ ] Add entity lock and editor-only visibility states.
 - [x] Make rotated bounds, picking, and marquee selection use the same transformed geometry.
 

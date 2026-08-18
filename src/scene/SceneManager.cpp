@@ -124,7 +124,7 @@ void SceneManager::start_play() {
     active_scene->set_is_editing(false);
     active_scene->on_attach();
     const auto& game = m_game_view;
-    active_scene->on_viewport_resize(RenderViewKind::Game, game.width, game.height, game.dpi_scale);
+    active_scene->on_viewport_resize(RenderViewKind::Game, game);
 
     m_play_state = ScenePlayState::Play;
     Time::set_time_scale(1.0f);
@@ -164,7 +164,7 @@ void SceneManager::stop_play() {
 
         TransformSystem::update(active_scene->get_entity_manager());
         const auto& editor = m_editor_view;
-        active_scene->on_viewport_resize(RenderViewKind::Editor, editor.width, editor.height, editor.dpi_scale);
+        active_scene->on_viewport_resize(RenderViewKind::Editor, editor);
     }
 
     m_play_state = ScenePlayState::Edit;
@@ -184,23 +184,27 @@ void SceneManager::render(Renderer2D& renderer) {
     }
 }
 
-void SceneManager::resize_view(RenderViewKind view, int width, int height, float dpi_scale) {
-    ViewportMetrics& metrics = view == RenderViewKind::Editor ? m_editor_view : m_game_view;
-    metrics.width = std::max(width, 1);
-    metrics.height = std::max(height, 1);
-    metrics.dpi_scale = dpi_scale;
+void SceneManager::configure_view(RenderViewKind view, const RenderViewConfiguration& configuration) {
+    RenderViewConfiguration& metrics = view == RenderViewKind::Editor ? m_editor_view : m_game_view;
+    RenderViewConfiguration normalized = configuration;
+    normalized.output_width = std::max(normalized.output_width, 1);
+    normalized.output_height = std::max(normalized.output_height, 1);
+    normalized.reference_width = std::max(normalized.reference_width, 1);
+    normalized.reference_height = std::max(normalized.reference_height, 1);
+    if (metrics == normalized) return;
+    metrics = normalized;
 
     const RenderViewKind active_view = is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
     if (view == active_view && m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
-        m_scenes[m_active_index]->on_viewport_resize(view, metrics.width, metrics.height, metrics.dpi_scale);
+        m_scenes[m_active_index]->on_viewport_resize(view, metrics);
     }
 }
 
 void SceneManager::apply_active_view() {
     if (m_active_index < 0 || static_cast<size_t>(m_active_index) >= m_scenes.size()) return;
     const RenderViewKind view = is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
-    const ViewportMetrics& metrics = view == RenderViewKind::Editor ? m_editor_view : m_game_view;
-    m_scenes[m_active_index]->on_viewport_resize(view, metrics.width, metrics.height, metrics.dpi_scale);
+    const RenderViewConfiguration& metrics = view == RenderViewKind::Editor ? m_editor_view : m_game_view;
+    m_scenes[m_active_index]->on_viewport_resize(view, metrics);
 }
 
 Scene* SceneManager::get_active_scene() const {

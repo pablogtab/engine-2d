@@ -222,10 +222,10 @@ void GenericScene::on_render(Renderer2D& renderer) {
     renderer.end_scene();
 }
 
-void GenericScene::on_viewport_resize(RenderViewKind view, int width, int height, float dpi_scale) {
+void GenericScene::on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) {
     Camera2D& camera = view == RenderViewKind::Editor ? m_editor_camera : m_camera;
-    camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
-    camera.set_dpi_scale(dpi_scale);
+    camera.set_viewport_size(static_cast<float>(configuration.output_width), static_cast<float>(configuration.output_height));
+    camera.set_reference_size(static_cast<float>(configuration.reference_width), static_cast<float>(configuration.reference_height));
 }
 
 } // namespace Engine

@@ -9,19 +9,21 @@ namespace Engine {
 
 namespace {
 
-const char* scaling_to_string(GameViewScaling scaling) {
-    switch (scaling) {
-        case GameViewScaling::Fill: return "fill";
-        case GameViewScaling::Stretch: return "stretch";
-        case GameViewScaling::Fit: return "fit";
+const char* presentation_to_string(PresentationMode presentation) {
+    switch (presentation) {
+        case PresentationMode::Fill: return "fill";
+        case PresentationMode::Stretch: return "stretch";
+        case PresentationMode::Responsive: return "responsive";
+        case PresentationMode::Fit: return "fit";
     }
     return "fit";
 }
 
-GameViewScaling scaling_from_string(const std::string& value) {
-    if (value == "fill") return GameViewScaling::Fill;
-    if (value == "stretch") return GameViewScaling::Stretch;
-    return GameViewScaling::Fit;
+PresentationMode presentation_from_string(const std::string& value) {
+    if (value == "fill") return PresentationMode::Fill;
+    if (value == "stretch") return PresentationMode::Stretch;
+    if (value == "responsive") return PresentationMode::Responsive;
+    return PresentationMode::Fit;
 }
 
 } // namespace
@@ -38,14 +40,14 @@ bool ProjectSettings::load(const std::string& filepath) {
     }
 
     const auto& game_view = root.contains("game_view") ? root["game_view"] : nlohmann::json::object();
-    m_game_view.width = std::clamp(game_view.value("width", 1920), 64, 16384);
-    m_game_view.height = std::clamp(game_view.value("height", 1080), 64, 16384);
-    m_game_view.scaling = scaling_from_string(game_view.value("scaling", std::string{"fit"}));
+    m_game_view.reference_width = std::clamp(game_view.value("reference_width", 1920), 64, 16384);
+    m_game_view.reference_height = std::clamp(game_view.value("reference_height", 1080), 64, 16384);
+    m_game_view.presentation = presentation_from_string(game_view.value("presentation", std::string{"fit"}));
     ENGINE_LOG_INFO(
         "[PROJECT SETTINGS] Game output: {}x{} ({})",
-        m_game_view.width,
-        m_game_view.height,
-        scaling_to_string(m_game_view.scaling)
+        m_game_view.reference_width,
+        m_game_view.reference_height,
+        presentation_to_string(m_game_view.presentation)
     );
     return true;
 }
@@ -53,17 +55,17 @@ bool ProjectSettings::load(const std::string& filepath) {
 bool ProjectSettings::save() const {
     nlohmann::json root;
     root["game_view"] = {
-        {"width", m_game_view.width},
-        {"height", m_game_view.height},
-        {"scaling", scaling_to_string(m_game_view.scaling)}
+        {"reference_width", m_game_view.reference_width},
+        {"reference_height", m_game_view.reference_height},
+        {"presentation", presentation_to_string(m_game_view.presentation)}
     };
     return FileSystem::write_text(m_filepath, root.dump(2) + "\n");
 }
 
 void ProjectSettings::set_game_view(const GameViewSettings& settings) {
-    m_game_view.width = std::clamp(settings.width, 64, 16384);
-    m_game_view.height = std::clamp(settings.height, 64, 16384);
-    m_game_view.scaling = settings.scaling;
+    m_game_view.reference_width = std::clamp(settings.reference_width, 64, 16384);
+    m_game_view.reference_height = std::clamp(settings.reference_height, 64, 16384);
+    m_game_view.presentation = settings.presentation;
     save();
 }
 

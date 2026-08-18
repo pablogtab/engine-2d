@@ -1,16 +1,12 @@
 #pragma once
 
+#include "../renderer/RenderView.hpp"
 #include "../ecs/EntityManager.hpp"
 #include "../events/EventDispatcher.hpp"
 
 namespace Engine {
 
 class Renderer2D;
-
-enum class RenderViewKind {
-    Editor,
-    Game
-};
 
 class Scene {
 public:
@@ -20,7 +16,7 @@ public:
     virtual void on_detach() {}
     virtual void on_update(float delta_time) {}
     virtual void on_render(Renderer2D& renderer) {}
-    virtual void on_viewport_resize(RenderViewKind view, int width, int height, float dpi_scale) {}
+    virtual void on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) {}
 
     virtual void set_is_editing(bool is_editing) {}
     [[nodiscard]] virtual bool is_editing() const { return true; }

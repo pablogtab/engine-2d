@@ -2,6 +2,7 @@
 
 #include "../renderer/Texture.hpp"
 #include "../physics/BezierCurve.hpp"
+#include "../renderer/RenderView.hpp"
 #include <glm/glm.hpp>
 #include <SDL3/SDL.h>
 #include <string>
@@ -135,6 +136,7 @@ struct BehaviorComponent {
 struct CameraComponent {
     bool is_primary{false};
     float zoom{1.0f};
+    CameraProjectionMode projection{CameraProjectionMode::FixedHeight};
     EntityID follow_target{0};
     glm::vec2 follow_offset{0.0f, 0.0f};
     float follow_speed{6.0f};

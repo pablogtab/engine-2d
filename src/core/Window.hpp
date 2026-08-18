@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../renderer/RenderView.hpp"
 #include <SDL3/SDL.h>
 #include <string>
 #include <functional>
@@ -18,6 +19,8 @@ public:
     void poll_events();
     void clear(uint8_t r = 20, uint8_t g = 24, uint8_t b = 32, uint8_t a = 255);
     void present();
+    void set_logical_presentation(int reference_width, int reference_height, PresentationMode mode);
+    void disable_logical_presentation();
 
     SDL_Window* get_sdl_window() const { return m_window; }
     SDL_Renderer* get_sdl_renderer() const { return m_renderer; }
@@ -51,6 +54,7 @@ private:
     int m_pixel_width{0};
     int m_pixel_height{0};
     bool m_should_close{false};
+    bool m_uses_logical_presentation{false};
     std::function<void(int, int, float)> m_resize_callback;
     std::function<void(const SDL_Event&)> m_event_callback;
 };

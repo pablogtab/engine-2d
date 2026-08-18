@@ -79,10 +79,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     64.0,
                     64.0
                 ],
+                "sorting_layer": 0,
                 "src_rect": [
                     192.0,
                     0.0,
@@ -100,8 +102,8 @@
                     0.5
                 ],
                 "position": [
-                    198.7891845703125,
-                    -109.8538818359375,
+                    91.7891845703125,
+                    -94.8538818359375,
                     0.0
                 ],
                 "rotation": 0.0,
@@ -149,10 +151,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     1600.0,
                     48.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -213,10 +217,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     160.0,
                     24.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -277,10 +283,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     200.0,
                     22.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -341,10 +349,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     220.0,
                     24.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -405,10 +415,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     200.0,
                     28.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -469,10 +481,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     64.0,
                     18.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -533,10 +547,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     28.0,
                     28.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -597,10 +613,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     28.0,
                     28.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -661,10 +679,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     28.0,
                     28.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -725,10 +745,12 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "order_in_layer": 0,
                 "size": [
                     120.0,
                     20.0
                 ],
+                "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
                 "visible": true
@@ -768,6 +790,7 @@
                 "follow_speed": 6.0,
                 "follow_target": 1,
                 "is_primary": true,
+                "projection": "fixed_height",
                 "zoom": 1.0
             },
             "id": 12,

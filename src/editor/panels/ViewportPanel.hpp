@@ -90,6 +90,8 @@ private:
     int m_requested_height{720};
     int m_editor_view_width{1280};
     int m_editor_view_height{720};
+    int m_game_preview_width{960};
+    int m_game_preview_height{540};
 
     bool m_is_hovered{false};
     bool m_is_focused{false};
@@ -104,6 +106,7 @@ private:
     void render_rename_entity_popup(EntityManager& em);
     void render_transform_toolbar();
     bool ensure_render_target();
+    void configure_scene_view();
 
     // Sub-tools
     TransformGizmo2D m_gizmo;

@@ -20,6 +20,7 @@
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "../ecs/TransformSystem.hpp"
+#include <algorithm>
 
 namespace Engine {
 
@@ -58,7 +59,10 @@ Application::Application(const std::string& name, int width, int height) {
         &m_project_settings
     );
     const auto& game_view = m_project_settings.game_view();
-    m_scene_manager.resize_view(RenderViewKind::Game, game_view.width, game_view.height, 1.0f);
+    m_scene_manager.configure_view(RenderViewKind::Game, {
+        game_view.reference_width, game_view.reference_height,
+        game_view.reference_width, game_view.reference_height
+    });
     auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager, m_window->get_sdl_renderer(), selection, command_history);
     auto inspector_panel = std::make_shared<InspectorPanel>(&m_scene_manager, selection, m_window->get_sdl_renderer());
     inspector_panel->set_command_history(command_history);
@@ -114,17 +118,47 @@ Application::Application(const std::string& name, int width, int height) {
     });
 
     // Register window resize / High-DPI scale change callback
-    m_window->set_resize_callback([this](int w, int h, float dpi) {
+    m_window->set_resize_callback([this](int w, int h, float) {
         this->on_resize(w, h);
-        if (this->m_editor_layer && this->m_editor_layer->is_visible()) {
-            return;
+        if (this->m_editor_layer && !this->m_editor_layer->is_visible() &&
+            this->m_project_settings.game_view().presentation == PresentationMode::Responsive) {
+            const auto& game_view = this->m_project_settings.game_view();
+            const RenderViewKind view = this->m_scene_manager.is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
+            this->m_scene_manager.configure_view(view, {
+                w, h, game_view.reference_width, game_view.reference_height
+            });
         }
-        const RenderViewKind view = this->m_scene_manager.is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
-        this->m_scene_manager.resize_view(view, w, h, dpi);
     });
 }
 
 Application::~Application() {}
+
+void Application::apply_display_mode(bool editor_visible) {
+    const auto& game_view = m_project_settings.game_view();
+    if (editor_visible) {
+        m_window->disable_logical_presentation();
+        auto* viewport = m_editor_layer ? m_editor_layer->get_viewport_panel() : nullptr;
+        if (viewport) {
+            const int width = std::max(viewport->get_render_width(), 1);
+            const int height = std::max(viewport->get_render_height(), 1);
+            m_scene_manager.configure_view(RenderViewKind::Editor, {width, height, width, height});
+        }
+        return;
+    }
+    const RenderViewKind view = m_scene_manager.is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
+    m_window->set_logical_presentation(game_view.reference_width, game_view.reference_height, game_view.presentation);
+    if (game_view.presentation == PresentationMode::Responsive) {
+        m_scene_manager.configure_view(view, {
+            m_window->get_pixel_width(), m_window->get_pixel_height(),
+            game_view.reference_width, game_view.reference_height
+        });
+    } else {
+        m_scene_manager.configure_view(view, {
+            game_view.reference_width, game_view.reference_height,
+            game_view.reference_width, game_view.reference_height
+        });
+    }
+}
 
 void Application::run() {
     on_init();
@@ -132,19 +166,8 @@ void Application::run() {
     // Trigger initial on_resize
     int pixel_w = m_window->get_pixel_width();
     int pixel_h = m_window->get_pixel_height();
-    float dpi   = m_window->get_dpi_scale();
     on_resize(pixel_w, pixel_h);
-
-    if (m_editor_layer && m_editor_layer->is_visible()) {
-        auto* vp = m_editor_layer->get_viewport_panel();
-        if (vp) {
-            m_scene_manager.resize_view(RenderViewKind::Editor, vp->get_render_width(), vp->get_render_height(), 1.0f);
-        } else {
-            m_scene_manager.resize_view(RenderViewKind::Game, pixel_w, pixel_h, dpi);
-        }
-    } else {
-        m_scene_manager.resize_view(RenderViewKind::Game, pixel_w, pixel_h, dpi);
-    }
+    apply_display_mode(m_editor_layer && m_editor_layer->is_visible());
 
     uint64_t last_counter = SDL_GetPerformanceCounter();
     uint64_t frequency = SDL_GetPerformanceFrequency();
@@ -168,13 +191,7 @@ void Application::run() {
             bool is_vis = m_editor_layer->is_visible();
             if (is_vis != last_editor_visible) {
                 last_editor_visible = is_vis;
-                if (is_vis) {
-                    auto* vp = m_editor_layer->get_viewport_panel();
-                    if (vp) m_scene_manager.resize_view(RenderViewKind::Editor, vp->get_render_width(), vp->get_render_height(), 1.0f);
-                } else {
-                    const RenderViewKind view = m_scene_manager.is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
-                    m_scene_manager.resize_view(view, m_window->get_pixel_width(), m_window->get_pixel_height(), m_window->get_dpi_scale());
-                }
+                apply_display_mode(is_vis);
             }
         }
 

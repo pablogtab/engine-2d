@@ -317,10 +317,9 @@ void Renderer2D::end_scene() {
         glm::vec2 scaled_size;
 
         if (cmd.is_screen_space) {
-            // Direct screen pixel coordinates scaled by DPI scale
-            float dpi = m_active_camera ? m_active_camera->get_dpi_scale() : 1.0f;
-            screen_pos = glm::vec2(cmd.position.x, cmd.position.y) * dpi;
-            scaled_size = cmd.size * dpi;
+            const float projection_scale = m_active_camera ? m_active_camera->get_projection_scale() : 1.0f;
+            screen_pos = glm::vec2(cmd.position.x, cmd.position.y) * projection_scale;
+            scaled_size = cmd.size * projection_scale;
         } else {
             // Calculate GPU screen position based on camera parallax and Z-depth
             screen_pos = m_active_camera->world_to_screen(cmd.position);

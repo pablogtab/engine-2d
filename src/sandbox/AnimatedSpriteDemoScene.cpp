@@ -288,9 +288,9 @@ void AnimatedSpriteDemoScene::on_attach() {
             << std::endl;
 }
 
-void AnimatedSpriteDemoScene::on_viewport_resize(Engine::RenderViewKind, int width, int height, float dpi_scale) {
-  m_camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
-  m_camera.set_dpi_scale(dpi_scale);
+void AnimatedSpriteDemoScene::on_viewport_resize(Engine::RenderViewKind, const Engine::RenderViewConfiguration& configuration) {
+  m_camera.set_viewport_size(static_cast<float>(configuration.output_width), static_cast<float>(configuration.output_height));
+  m_camera.set_reference_size(static_cast<float>(configuration.reference_width), static_cast<float>(configuration.reference_height));
 }
 
 void AnimatedSpriteDemoScene::on_update(float delta_time) {

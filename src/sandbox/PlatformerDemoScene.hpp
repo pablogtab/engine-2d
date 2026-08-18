@@ -33,15 +33,13 @@ public:
     void on_detach() override;
     void on_update(float delta_time) override;
     void on_render(Engine::Renderer2D& renderer) override;
-    void on_viewport_resize(Engine::RenderViewKind view, int width, int height, float dpi_scale) override;
+    void on_viewport_resize(Engine::RenderViewKind view, const Engine::RenderViewConfiguration& configuration) override;
 
 private:
     SDL_Renderer* m_sdl_renderer{nullptr};
     Engine::Camera2D m_camera;
     Engine::CameraController2D m_camera_controller;
-    int m_viewport_w{1280};
-    int m_viewport_h{720};
-    float m_dpi_scale{1.0f};
+    Engine::RenderViewConfiguration m_view_configuration;
     Engine::EventDispatcher m_event_dispatcher;
     Engine::ParticleSystem2D m_particle_system{3000};
     Engine::PostProcessPipeline m_post_process_pipeline;

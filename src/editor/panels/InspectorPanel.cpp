@@ -657,6 +657,18 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             property_float("Camera Zoom", &cam.zoom, 0.02f, 0.1f, 20.0f, "%.2fx");
             track_camera_edit(em, entity, zoom_before, "Edit Camera Zoom");
 
+            const char* projection_labels[] = {"Fixed Height", "Fixed Width", "Expand", "Pixel Perfect"};
+            int projection = static_cast<int>(cam.projection);
+            begin_property_row("Projection");
+            ImGui::PushID("camera_projection");
+            ImGui::SetNextItemWidth(-1.0f);
+            if (ImGui::Combo("##value", &projection, projection_labels, IM_ARRAYSIZE(projection_labels))) {
+                const CameraComponent before = cam;
+                cam.projection = static_cast<CameraProjectionMode>(projection);
+                push_camera_change(em, entity, before, "Change Camera Projection");
+            }
+            ImGui::PopID();
+
             const char* target_preview = "None";
             if (cam.follow_target != 0 && em.is_alive(cam.follow_target)) {
                 target_preview = em.has_component<TagComponent>(cam.follow_target)

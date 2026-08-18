@@ -1,10 +1,27 @@
 #include "Camera2D.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace Engine {
 
 Camera2D::Camera2D(float viewport_width, float viewport_height)
-    : m_viewport_size(viewport_width, viewport_height) {}
+    : m_viewport_size(viewport_width, viewport_height),
+      m_reference_size(viewport_width, viewport_height) {}
+
+float Camera2D::get_projection_scale() const {
+    const float scale_x = m_viewport_size.x / std::max(m_reference_size.x, 1.0f);
+    const float scale_y = m_viewport_size.y / std::max(m_reference_size.y, 1.0f);
+    switch (m_projection_mode) {
+        case CameraProjectionMode::FixedHeight: return scale_y;
+        case CameraProjectionMode::FixedWidth: return scale_x;
+        case CameraProjectionMode::Expand: return std::min(scale_x, scale_y);
+        case CameraProjectionMode::PixelPerfect: {
+            const float fit_scale = std::min(scale_x, scale_y);
+            return fit_scale < 1.0f ? fit_scale : std::max(1.0f, std::floor(fit_scale));
+        }
+    }
+    return 1.0f;
+}
 
 float Camera2D::get_z_scale(float z) const {
     // Focal scaling formula for Z-depth:
@@ -45,12 +62,11 @@ glm::vec2 Camera2D::world_to_screen(const glm::vec3& world_pos) const {
 }
 
 glm::vec2 Camera2D::screen_to_world(const glm::vec2& screen_pos, float z) const {
-    glm::vec2 physical_screen_pos = screen_pos * m_dpi_scale;
     float z_scale = get_z_scale(z);
     float parallax_factor = z_scale;
     glm::vec2 screen_center = m_viewport_size * 0.5f;
 
-    glm::vec2 relative_pos = physical_screen_pos - screen_center;
+    glm::vec2 relative_pos = screen_pos - screen_center;
     const glm::vec2 local(
         relative_pos.x / (get_effective_zoom() * z_scale),
         -relative_pos.y / (get_effective_zoom() * z_scale)
@@ -84,6 +100,17 @@ bool Camera2D::is_visible(const glm::vec3& world_pos, const glm::vec2& size) con
 }
 
 SDL_FRect Camera2D::get_world_bounds(float z) const {
+    const glm::vec2 rotated_extent = get_world_half_extents(z);
+
+    return SDL_FRect{
+        m_position.x - rotated_extent.x,
+        m_position.y - rotated_extent.y,
+        rotated_extent.x * 2.0f,
+        rotated_extent.y * 2.0f
+    };
+}
+
+glm::vec2 Camera2D::get_world_half_extents(float z) const {
     float z_scale = get_z_scale(z) * get_effective_zoom();
     glm::vec2 half_world_dim = (m_viewport_size / z_scale) * 0.5f;
     const float radians = glm::radians(m_rotation);
@@ -94,12 +121,7 @@ SDL_FRect Camera2D::get_world_bounds(float z) const {
         half_world_dim.x * sine + half_world_dim.y * cosine
     );
 
-    return SDL_FRect{
-        m_position.x - rotated_extent.x,
-        m_position.y - rotated_extent.y,
-        rotated_extent.x * 2.0f,
-        rotated_extent.y * 2.0f
-    };
+    return rotated_extent;
 }
 
 } // namespace Engine

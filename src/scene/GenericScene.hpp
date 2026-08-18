@@ -19,7 +19,7 @@ public:
     void on_detach() override;
     void on_update(float delta_time) override;
     void on_render(Renderer2D& renderer) override;
-    void on_viewport_resize(RenderViewKind view, int width, int height, float dpi_scale) override;
+    void on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) override;
 
     // Camera Access
     [[nodiscard]] Camera2D& get_camera() { return m_camera; }
