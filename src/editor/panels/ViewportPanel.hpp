@@ -13,6 +13,7 @@
 #include "../panels/TilemapPalettePanel.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Camera2D.hpp"
+#include "../../core/ProjectSettings.hpp"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 #include <string>
@@ -40,8 +41,7 @@ public:
         SceneManager* scene_manager = nullptr, 
         std::shared_ptr<EditorSelection> selection = nullptr,
         std::shared_ptr<EditorCommandHistory> command_history = nullptr,
-        int internal_width = 1920, 
-        int internal_height = 1080
+        ProjectSettings* project_settings = nullptr
     );
     ~ViewportPanel() override;
 
@@ -67,8 +67,8 @@ public:
 
     void set_palette_panel(TilemapPalettePanel* palette) { m_palette_panel = palette; }
 
-    int get_internal_width() const { return m_internal_width; }
-    int get_internal_height() const { return m_internal_height; }
+    int get_render_width() const { return m_render_width; }
+    int get_render_height() const { return m_render_height; }
 
     // View menu entry point. Grid preferences are view-only session state.
     void render_grid_settings_menu();
@@ -78,13 +78,18 @@ private:
     std::string m_name{"Scene Viewport"};
     SDL_Renderer* m_renderer{nullptr};
     SceneManager* m_scene_manager{nullptr};
+    ProjectSettings* m_project_settings{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     TilemapPalettePanel* m_palette_panel{nullptr};
     SDL_Texture* m_viewport_texture{nullptr};
 
-    int m_internal_width{1920};
-    int m_internal_height{1080};
+    int m_render_width{1280};
+    int m_render_height{720};
+    int m_requested_width{1280};
+    int m_requested_height{720};
+    int m_editor_view_width{1280};
+    int m_editor_view_height{720};
 
     bool m_is_hovered{false};
     bool m_is_focused{false};
@@ -98,6 +103,7 @@ private:
     void render_entity_context_menu(EntityManager& em, EntityID entity);
     void render_rename_entity_popup(EntityManager& em);
     void render_transform_toolbar();
+    bool ensure_render_target();
 
     // Sub-tools
     TransformGizmo2D m_gizmo;

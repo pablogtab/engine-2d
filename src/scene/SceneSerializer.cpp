@@ -108,7 +108,6 @@ std::string SceneSerializer::serialize_to_string() {
             json cam_json;
             cam_json["is_primary"] = cam.is_primary;
             cam_json["zoom"] = cam.zoom;
-            cam_json["viewport_size"] = { cam.viewport_size.x, cam.viewport_size.y };
             cam_json["follow_player"] = cam.follow_player;
             cam_json["follow_speed"] = cam.follow_speed;
             cam_json["enable_bounds"] = cam.enable_bounds;
@@ -347,9 +346,6 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     CameraComponent cam;
                     if (c_j.contains("is_primary")) cam.is_primary = c_j["is_primary"].get<bool>();
                     if (c_j.contains("zoom")) cam.zoom = c_j["zoom"].get<float>();
-                    if (c_j.contains("viewport_size") && c_j["viewport_size"].size() >= 2) {
-                        cam.viewport_size = glm::vec2(c_j["viewport_size"][0].get<float>(), c_j["viewport_size"][1].get<float>());
-                    }
                     if (c_j.contains("follow_player")) cam.follow_player = c_j["follow_player"].get<bool>();
                     if (c_j.contains("follow_speed")) cam.follow_speed = c_j["follow_speed"].get<float>();
                     if (c_j.contains("enable_bounds")) cam.enable_bounds = c_j["enable_bounds"].get<bool>();

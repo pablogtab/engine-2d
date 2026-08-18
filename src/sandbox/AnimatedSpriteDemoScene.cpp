@@ -288,7 +288,7 @@ void AnimatedSpriteDemoScene::on_attach() {
             << std::endl;
 }
 
-void AnimatedSpriteDemoScene::on_resize(int width, int height, float dpi_scale) {
+void AnimatedSpriteDemoScene::on_viewport_resize(Engine::RenderViewKind, int width, int height, float dpi_scale) {
   m_camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
   m_camera.set_dpi_scale(dpi_scale);
 }

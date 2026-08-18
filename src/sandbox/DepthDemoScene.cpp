@@ -23,7 +23,7 @@ void DepthDemoScene::on_attach() {
     std::cout << "[DEPTH SCENE] Controls: WASD/Arrows to move Camera. Press TAB to switch test scene." << std::endl;
 }
 
-void DepthDemoScene::on_resize(int width, int height, float dpi_scale) {
+void DepthDemoScene::on_viewport_resize(Engine::RenderViewKind, int width, int height, float dpi_scale) {
     m_camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
     m_camera.set_dpi_scale(dpi_scale);
 }

@@ -629,7 +629,7 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                 ImGui::DragFloat4("##value", &cam.bounds.x, 10.0f);
                 ImGui::PopID();
             }
-            ImGui::TextDisabled("Viewport Base: %.0f x %.0f", cam.viewport_size.x, cam.viewport_size.y);
+            ImGui::TextDisabled("Output resolution is configured in Project Settings");
         }
     }
 

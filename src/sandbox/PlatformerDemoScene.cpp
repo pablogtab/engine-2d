@@ -502,7 +502,7 @@ void PlatformerDemoScene::on_detach() {
     m_post_process_pipeline.destroy_targets();
 }
 
-void PlatformerDemoScene::on_resize(int width, int height, float dpi_scale) {
+void PlatformerDemoScene::on_viewport_resize(Engine::RenderViewKind, int width, int height, float dpi_scale) {
     m_viewport_w = width;
     m_viewport_h = height;
     m_dpi_scale = dpi_scale;
@@ -756,7 +756,7 @@ void PlatformerDemoScene::on_update(float delta_time) {
     if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_R)) {
         ENGINE_LOG_INFO("[PLATFORMER DEMO] 'R' Key pressed! Resetting level...");
         on_attach();
-        on_resize(m_viewport_w, m_viewport_h, m_dpi_scale);
+        on_viewport_resize(Engine::RenderViewKind::Game, m_viewport_w, m_viewport_h, m_dpi_scale);
         return;
     }
 

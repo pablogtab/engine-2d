@@ -19,6 +19,7 @@ set(SOURCES
     src/core/Input.cpp
     src/core/Log.cpp
     src/core/PlayerPrefs.cpp
+    src/core/ProjectSettings.cpp
     src/core/SaveSystem.cpp
     src/core/ThreadPool.cpp
     src/core/Time.cpp
@@ -51,6 +52,7 @@ set(SOURCES
     src/editor/panels/StatsPanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp
     src/editor/panels/PostProcessTunerPanel.cpp
+    src/editor/panels/ProjectSettingsPanel.cpp
     src/editor/panels/ShortcutsPreferencesPanel.cpp
     src/editor/panels/TilemapPalettePanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
@@ -64,6 +66,7 @@ set(SOURCES
     src/editor/tools/TilemapPaintingTool.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EntityCommands.cpp
+    src/editor/commands/ProjectSettingsCommands.cpp
     src/editor/shortcuts/ShortcutManager.cpp
     src/tilemap/Tilemap.cpp
     src/tilemap/TilemapColliderSystem.cpp

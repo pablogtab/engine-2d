@@ -202,14 +202,10 @@ void GenericScene::on_render(Renderer2D& renderer) {
     renderer.end_scene();
 }
 
-void GenericScene::on_resize(int width, int height, float dpi_scale) {
-    m_viewport_w = width;
-    m_viewport_h = height;
-    m_dpi_scale = dpi_scale;
-    m_camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
-    m_camera.set_dpi_scale(dpi_scale);
-    m_editor_camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
-    m_editor_camera.set_dpi_scale(dpi_scale);
+void GenericScene::on_viewport_resize(RenderViewKind view, int width, int height, float dpi_scale) {
+    Camera2D& camera = view == RenderViewKind::Editor ? m_editor_camera : m_camera;
+    camera.set_viewport_size(static_cast<float>(width), static_cast<float>(height));
+    camera.set_dpi_scale(dpi_scale);
 }
 
 } // namespace Engine

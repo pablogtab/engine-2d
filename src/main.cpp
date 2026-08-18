@@ -56,7 +56,12 @@ protected:
                 get_editor_layer()->set_visible(false);
             }
             get_scene_manager().start_play();
-            get_scene_manager().resize(get_window().get_pixel_width(), get_window().get_pixel_height(), get_window().get_dpi_scale());
+            get_scene_manager().resize_view(
+                Engine::RenderViewKind::Game,
+                get_window().get_pixel_width(),
+                get_window().get_pixel_height(),
+                get_window().get_dpi_scale()
+            );
         }
     }
 

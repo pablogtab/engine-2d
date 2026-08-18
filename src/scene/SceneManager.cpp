@@ -3,6 +3,7 @@
 #include "../core/Log.hpp"
 #include "../core/Time.hpp"
 #include "../ecs/TransformSystem.hpp"
+#include <algorithm>
 #include <fstream>
 
 namespace Engine {
@@ -48,8 +49,9 @@ void SceneManager::add_scene(std::shared_ptr<Scene> scene) {
             }
             m_scenes[i] = scene;
             if (m_active_index == static_cast<int>(i)) {
+                m_scenes[i]->set_is_editing(is_editing());
                 m_scenes[i]->on_attach();
-                m_scenes[i]->on_resize(m_last_width, m_last_height, m_last_dpi_scale);
+                apply_active_view();
             }
             return;
         }
@@ -72,8 +74,9 @@ void SceneManager::set_active_scene(size_t index) {
     }
 
     m_active_index = static_cast<int>(index);
+    m_scenes[m_active_index]->set_is_editing(is_editing());
     m_scenes[m_active_index]->on_attach();
-    m_scenes[m_active_index]->on_resize(m_last_width, m_last_height, m_last_dpi_scale);
+    apply_active_view();
 
     save_state();
 
@@ -120,7 +123,8 @@ void SceneManager::start_play() {
     active_scene->on_detach();
     active_scene->set_is_editing(false);
     active_scene->on_attach();
-    active_scene->on_resize(m_last_width, m_last_height, m_last_dpi_scale);
+    const auto& game = m_game_view;
+    active_scene->on_viewport_resize(RenderViewKind::Game, game.width, game.height, game.dpi_scale);
 
     m_play_state = ScenePlayState::Play;
     Time::set_time_scale(1.0f);
@@ -159,7 +163,8 @@ void SceneManager::stop_play() {
         }
 
         TransformSystem::update(active_scene->get_entity_manager());
-        active_scene->on_resize(m_last_width, m_last_height, m_last_dpi_scale);
+        const auto& editor = m_editor_view;
+        active_scene->on_viewport_resize(RenderViewKind::Editor, editor.width, editor.height, editor.dpi_scale);
     }
 
     m_play_state = ScenePlayState::Edit;
@@ -179,13 +184,23 @@ void SceneManager::render(Renderer2D& renderer) {
     }
 }
 
-void SceneManager::resize(int width, int height, float dpi_scale) {
-    m_last_width = width;
-    m_last_height = height;
-    m_last_dpi_scale = dpi_scale;
-    if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
-        m_scenes[m_active_index]->on_resize(width, height, dpi_scale);
+void SceneManager::resize_view(RenderViewKind view, int width, int height, float dpi_scale) {
+    ViewportMetrics& metrics = view == RenderViewKind::Editor ? m_editor_view : m_game_view;
+    metrics.width = std::max(width, 1);
+    metrics.height = std::max(height, 1);
+    metrics.dpi_scale = dpi_scale;
+
+    const RenderViewKind active_view = is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
+    if (view == active_view && m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
+        m_scenes[m_active_index]->on_viewport_resize(view, metrics.width, metrics.height, metrics.dpi_scale);
     }
+}
+
+void SceneManager::apply_active_view() {
+    if (m_active_index < 0 || static_cast<size_t>(m_active_index) >= m_scenes.size()) return;
+    const RenderViewKind view = is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
+    const ViewportMetrics& metrics = view == RenderViewKind::Editor ? m_editor_view : m_game_view;
+    m_scenes[m_active_index]->on_viewport_resize(view, metrics.width, metrics.height, metrics.dpi_scale);
 }
 
 Scene* SceneManager::get_active_scene() const {

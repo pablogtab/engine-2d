@@ -3,6 +3,7 @@
 #include "Window.hpp"
 #include "AssetManager.hpp"
 #include "ThreadPool.hpp"
+#include "ProjectSettings.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "scene/SceneManager.hpp"
 #include <memory>
@@ -37,6 +38,7 @@ private:
     SceneManager m_scene_manager;
     AssetManager m_asset_manager;
     ThreadPool m_thread_pool;
+    ProjectSettings m_project_settings;
     bool m_running{true};
 };
 

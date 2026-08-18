@@ -19,7 +19,7 @@ public:
     void on_detach() override;
     void on_update(float delta_time) override;
     void on_render(Renderer2D& renderer) override;
-    void on_resize(int width, int height, float dpi_scale = 1.0f) override;
+    void on_viewport_resize(RenderViewKind view, int width, int height, float dpi_scale) override;
 
     // Camera Access
     [[nodiscard]] Camera2D& get_camera() { return m_camera; }
@@ -54,9 +54,6 @@ private:
     bool m_physics_enabled{true};
     bool m_show_debug_colliders{false};
     bool m_is_editing{true};
-    int m_viewport_w{1920};
-    int m_viewport_h{1080};
-    float m_dpi_scale{1.0f};
 };
 
 } // namespace Engine

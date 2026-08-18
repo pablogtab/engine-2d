@@ -145,35 +145,51 @@ ViewportPanel::ViewportPanel(
     SceneManager* scene_manager, 
     std::shared_ptr<EditorSelection> selection,
     std::shared_ptr<EditorCommandHistory> command_history,
-    int internal_width, 
-    int internal_height
+    ProjectSettings* project_settings
 )
     : m_renderer(renderer), 
       m_scene_manager(scene_manager), 
+      m_project_settings(project_settings),
       m_selection(selection),
-      m_command_history(command_history),
-      m_internal_width(internal_width), 
-      m_internal_height(internal_height) {
+      m_command_history(command_history) {
     
     if (!m_selection) {
         m_selection = std::make_shared<EditorSelection>();
     }
 
-    if (m_renderer) {
-        m_viewport_texture = SDL_CreateTexture(
-            m_renderer,
-            SDL_PIXELFORMAT_RGBA8888,
-            SDL_TEXTUREACCESS_TARGET,
-            m_internal_width,
-            m_internal_height
-        );
-        if (m_viewport_texture) {
-            SDL_SetTextureScaleMode(m_viewport_texture, SDL_SCALEMODE_LINEAR);
-            ENGINE_LOG_INFO("[VIEWPORT] Created Render Target Texture: {}x{}", m_internal_width, m_internal_height);
-        }
-    }
+    ensure_render_target();
 
     Time::set_time_scale(0.0f); // Default to Edit Mode (paused) on launch
+}
+
+bool ViewportPanel::ensure_render_target() {
+    if (!m_renderer) return false;
+    m_requested_width = std::max(m_requested_width, 1);
+    m_requested_height = std::max(m_requested_height, 1);
+    if (m_viewport_texture && m_render_width == m_requested_width && m_render_height == m_requested_height) return true;
+
+    SDL_Texture* replacement = SDL_CreateTexture(
+        m_renderer,
+        SDL_PIXELFORMAT_RGBA8888,
+        SDL_TEXTUREACCESS_TARGET,
+        m_requested_width,
+        m_requested_height
+    );
+    if (!replacement) {
+        ENGINE_LOG_ERROR("[VIEWPORT] Failed to create render target {}x{}: {}", m_requested_width, m_requested_height, SDL_GetError());
+        return m_viewport_texture != nullptr;
+    }
+    SDL_SetTextureScaleMode(replacement, SDL_SCALEMODE_LINEAR);
+    if (m_viewport_texture) SDL_DestroyTexture(m_viewport_texture);
+    m_viewport_texture = replacement;
+    m_render_width = m_requested_width;
+    m_render_height = m_requested_height;
+
+    if (m_scene_manager) {
+        const RenderViewKind view = m_scene_manager->is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
+        m_scene_manager->resize_view(view, m_render_width, m_render_height, 1.0f);
+    }
+    return true;
 }
 
 ViewportPanel::~ViewportPanel() {
@@ -308,7 +324,6 @@ void ViewportPanel::render_transform_toolbar() {
     m_transform_toolbox.end();
 }
 
-
 void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entity) {
     if (!em.is_alive(entity)) return;
 
@@ -433,12 +448,20 @@ void ViewportPanel::render_rename_entity_popup(EntityManager& em) {
 }
 
 void ViewportPanel::begin_render() {
-    if (m_renderer && m_viewport_texture) {
+    if (m_scene_manager && !m_scene_manager->is_editing() && m_project_settings) {
+        const GameViewSettings& game_view = m_project_settings->game_view();
+        m_requested_width = game_view.width;
+        m_requested_height = game_view.height;
+    } else {
+        m_requested_width = m_editor_view_width;
+        m_requested_height = m_editor_view_height;
+    }
+    if (ensure_render_target() && m_renderer && m_viewport_texture) {
         SDL_SetRenderTarget(m_renderer, m_viewport_texture);
         SDL_SetRenderDrawColor(m_renderer, 15, 18, 25, 255);
         SDL_RenderClear(m_renderer);
         Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
-        if (m_grid_settings.visible) {
+        if (m_grid_settings.visible && m_scene_manager && m_scene_manager->is_editing()) {
             if (auto* generic_scene = dynamic_cast<GenericScene*>(active_scene)) {
                 draw_viewport_grid_to_render_target(m_renderer, generic_scene->get_editor_camera(), m_gizmo.snap_settings().position_step, m_grid_settings);
             }
@@ -502,7 +525,6 @@ void ViewportPanel::on_gui() {
                     std::string item_name = std::to_string(i + 1) + ". " + scenes[i]->get_name();
                     if (ImGui::Selectable(item_name.c_str(), is_sel)) {
                         m_scene_manager->set_active_scene(i);
-                        m_scene_manager->resize(m_internal_width, m_internal_height, 1.0f);
                     }
                     if (is_sel) {
                         ImGui::SetItemDefaultFocus();
@@ -521,25 +543,47 @@ void ViewportPanel::on_gui() {
         ImGui::Spacing();
         render_transform_toolbar();
 
-        // --- 2. Canvas Image Rendering (Aspect-Ratio Fitted) ---
+        // --- 2. Canvas Image Rendering ---
         ImVec2 avail_size = ImGui::GetContentRegionAvail();
         if (avail_size.x > 0.0f && avail_size.y > 0.0f && m_viewport_texture) {
-            float target_aspect = static_cast<float>(m_internal_width) / static_cast<float>(m_internal_height);
-            float avail_aspect = avail_size.x / avail_size.y;
+            const bool is_editing_view = play_state == ScenePlayState::Edit;
+            ImVec2 render_size = avail_size;
+            ImVec2 uv_min(0.0f, 0.0f);
+            ImVec2 uv_max(1.0f, 1.0f);
 
-            ImVec2 render_size;
-            if (avail_aspect > target_aspect) {
-                render_size.y = avail_size.y;
-                render_size.x = avail_size.y * target_aspect;
-            } else {
-                render_size.x = avail_size.x;
-                render_size.y = avail_size.x / target_aspect;
+            if (is_editing_view) {
+                const ImVec2 framebuffer_scale = ImGui::GetIO().DisplayFramebufferScale;
+                m_editor_view_width = std::max(1, static_cast<int>(std::round(avail_size.x * framebuffer_scale.x)));
+                m_editor_view_height = std::max(1, static_cast<int>(std::round(avail_size.y * framebuffer_scale.y)));
+            } else if (m_project_settings) {
+                const GameViewSettings& game_view = m_project_settings->game_view();
+                m_requested_width = game_view.width;
+                m_requested_height = game_view.height;
+                const float target_aspect = game_view.aspect_ratio();
+                const float available_aspect = avail_size.x / avail_size.y;
+                if (game_view.scaling == GameViewScaling::Fit) {
+                    if (available_aspect > target_aspect) {
+                        render_size = ImVec2(avail_size.y * target_aspect, avail_size.y);
+                    } else {
+                        render_size = ImVec2(avail_size.x, avail_size.x / target_aspect);
+                    }
+                } else if (game_view.scaling == GameViewScaling::Fill) {
+                    if (available_aspect > target_aspect) {
+                        const float visible_height = target_aspect / available_aspect;
+                        uv_min.y = (1.0f - visible_height) * 0.5f;
+                        uv_max.y = 1.0f - uv_min.y;
+                    } else {
+                        const float visible_width = available_aspect / target_aspect;
+                        uv_min.x = (1.0f - visible_width) * 0.5f;
+                        uv_max.x = 1.0f - uv_min.x;
+                    }
+                }
             }
 
             ImVec2 offset = ImVec2((avail_size.x - render_size.x) * 0.5f, (avail_size.y - render_size.y) * 0.5f);
             ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + offset.x, ImGui::GetCursorPosY() + offset.y));
 
-            ImGui::Image(reinterpret_cast<ImTextureID>(m_viewport_texture), render_size);
+            ImGui::Image(reinterpret_cast<ImTextureID>(m_viewport_texture), render_size, uv_min, uv_max);
 
             m_is_hovered = ImGui::IsItemHovered();
             m_is_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -566,13 +610,15 @@ void ViewportPanel::on_gui() {
             if (img_size.x > 0.0f && img_size.y > 0.0f) {
                 float norm_x = (mouse_pos.x - img_min.x) / img_size.x;
                 float norm_y = (mouse_pos.y - img_min.y) / img_size.y;
-                m_viewport_mouse_pos = glm::vec2(norm_x * static_cast<float>(m_internal_width), 
-                                                 norm_y * static_cast<float>(m_internal_height));
+                const float texture_u = uv_min.x + norm_x * (uv_max.x - uv_min.x);
+                const float texture_v = uv_min.y + norm_y * (uv_max.y - uv_min.y);
+                m_viewport_mouse_pos = glm::vec2(texture_u * static_cast<float>(m_render_width),
+                                                 texture_v * static_cast<float>(m_render_height));
             }
 
             const glm::vec2 viewport_mouse_delta(
-                io.MouseDelta.x * static_cast<float>(m_internal_width) / std::max(img_size.x, 1.0f),
-                io.MouseDelta.y * static_cast<float>(m_internal_height) / std::max(img_size.y, 1.0f)
+                io.MouseDelta.x * static_cast<float>(m_render_width) * (uv_max.x - uv_min.x) / std::max(img_size.x, 1.0f),
+                io.MouseDelta.y * static_cast<float>(m_render_height) * (uv_max.y - uv_min.y) / std::max(img_size.y, 1.0f)
             );
 
             bool is_editing = m_scene_manager ? m_scene_manager->is_editing() : true;
@@ -640,7 +686,10 @@ void ViewportPanel::on_gui() {
                 
                 glm::vec2 cam_pos(0.0f, 0.0f);
                 float cam_zoom = 1.0f;
-                glm::vec2 vp_sz(1920.0f, 1080.0f);
+                const GameViewSettings output = m_project_settings
+                    ? m_project_settings->game_view()
+                    : GameViewSettings{};
+                glm::vec2 vp_sz(static_cast<float>(output.width), static_cast<float>(output.height));
                 bool is_cam_selected = false;
                 bool found_camera = false;
 
@@ -649,7 +698,6 @@ void ViewportPanel::on_gui() {
                     if (!found_camera || sel || cc.is_primary) {
                         cam_pos = glm::vec2(tc.position.x, tc.position.y);
                         cam_zoom = cc.zoom;
-                        vp_sz = cc.viewport_size;
                         is_cam_selected = sel;
                         found_camera = true;
                     }

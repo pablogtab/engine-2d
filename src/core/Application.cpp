@@ -13,6 +13,7 @@
 #include "../editor/panels/StatsPanel.hpp"
 #include "../editor/panels/AssetBrowserPanel.hpp"
 #include "../editor/panels/PostProcessTunerPanel.hpp"
+#include "../editor/panels/ProjectSettingsPanel.hpp"
 #include "../editor/panels/ShortcutsPreferencesPanel.hpp"
 #include "../editor/panels/TilemapPalettePanel.hpp"
 #include "../editor/panels/SpriteAnimationStudioPanel.hpp"
@@ -25,6 +26,7 @@ namespace Engine {
 Application::Application(const std::string& name, int width, int height) {
     Log::init("engine.log");
     ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{})", name, width, height);
+    m_project_settings.load();
 
     Input::init();
     AudioEngine::init();
@@ -48,7 +50,15 @@ Application::Application(const std::string& name, int width, int height) {
         command_history->clear();
     });
 
-    auto viewport_panel = std::make_shared<ViewportPanel>(m_window->get_sdl_renderer(), &m_scene_manager, selection, command_history, 1920, 1080);
+    auto viewport_panel = std::make_shared<ViewportPanel>(
+        m_window->get_sdl_renderer(),
+        &m_scene_manager,
+        selection,
+        command_history,
+        &m_project_settings
+    );
+    const auto& game_view = m_project_settings.game_view();
+    m_scene_manager.resize_view(RenderViewKind::Game, game_view.width, game_view.height, 1.0f);
     auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager, m_window->get_sdl_renderer(), selection, command_history);
     auto inspector_panel = std::make_shared<InspectorPanel>(&m_scene_manager, selection, m_window->get_sdl_renderer());
     inspector_panel->set_command_history(command_history);
@@ -57,6 +67,7 @@ Application::Application(const std::string& name, int width, int height) {
     auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");
     auto postprocess_panel = std::make_shared<PostProcessTunerPanel>();
     postprocess_panel->is_open = false; // Closed by default at startup (accessible via View / Windows menu)
+    auto project_settings_panel = std::make_shared<ProjectSettingsPanel>(&m_project_settings, &m_scene_manager, command_history);
     auto shortcuts_panel = std::make_shared<ShortcutsPreferencesPanel>();
     shortcuts_panel->is_open = false; // Closed by default until opened from Edit menu
     auto palette_panel = std::make_shared<TilemapPalettePanel>(m_window->get_sdl_renderer(), &m_scene_manager, selection);
@@ -69,10 +80,6 @@ Application::Application(const std::string& name, int width, int height) {
         if (serializer.deserialize(scene_path)) {
             m_scene_manager.add_scene(new_scene);
             m_scene_manager.set_active_scene(scene_name);
-            if (m_editor_layer && m_editor_layer->is_visible()) {
-                auto* vp = m_editor_layer->get_viewport_panel();
-                if (vp) m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
-            }
         }
     });
 
@@ -88,6 +95,7 @@ Application::Application(const std::string& name, int width, int height) {
     m_editor_layer->register_panel(asset_browser);
     m_editor_layer->register_panel(stats_panel);
     m_editor_layer->register_panel(postprocess_panel);
+    m_editor_layer->register_panel(project_settings_panel);
     m_editor_layer->register_panel(shortcuts_panel);
     m_editor_layer->register_panel(palette_panel);
     m_editor_layer->register_panel(anim_studio_panel);
@@ -109,13 +117,10 @@ Application::Application(const std::string& name, int width, int height) {
     m_window->set_resize_callback([this](int w, int h, float dpi) {
         this->on_resize(w, h);
         if (this->m_editor_layer && this->m_editor_layer->is_visible()) {
-            auto* vp = this->m_editor_layer->get_viewport_panel();
-            if (vp) {
-                this->m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
-                return;
-            }
+            return;
         }
-        this->m_scene_manager.resize(w, h, dpi);
+        const RenderViewKind view = this->m_scene_manager.is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
+        this->m_scene_manager.resize_view(view, w, h, dpi);
     });
 }
 
@@ -133,12 +138,12 @@ void Application::run() {
     if (m_editor_layer && m_editor_layer->is_visible()) {
         auto* vp = m_editor_layer->get_viewport_panel();
         if (vp) {
-            m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
+            m_scene_manager.resize_view(RenderViewKind::Editor, vp->get_render_width(), vp->get_render_height(), 1.0f);
         } else {
-            m_scene_manager.resize(pixel_w, pixel_h, dpi);
+            m_scene_manager.resize_view(RenderViewKind::Game, pixel_w, pixel_h, dpi);
         }
     } else {
-        m_scene_manager.resize(pixel_w, pixel_h, dpi);
+        m_scene_manager.resize_view(RenderViewKind::Game, pixel_w, pixel_h, dpi);
     }
 
     uint64_t last_counter = SDL_GetPerformanceCounter();
@@ -165,9 +170,10 @@ void Application::run() {
                 last_editor_visible = is_vis;
                 if (is_vis) {
                     auto* vp = m_editor_layer->get_viewport_panel();
-                    if (vp) m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
+                    if (vp) m_scene_manager.resize_view(RenderViewKind::Editor, vp->get_render_width(), vp->get_render_height(), 1.0f);
                 } else {
-                    m_scene_manager.resize(m_window->get_pixel_width(), m_window->get_pixel_height(), m_window->get_dpi_scale());
+                    const RenderViewKind view = m_scene_manager.is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
+                    m_scene_manager.resize_view(view, m_window->get_pixel_width(), m_window->get_pixel_height(), m_window->get_dpi_scale());
                 }
             }
         }
@@ -185,10 +191,6 @@ void Application::run() {
                 m_scene_manager.previous_scene();
             } else {
                 m_scene_manager.next_scene();
-            }
-            if (m_editor_layer && m_editor_layer->is_visible()) {
-                auto* vp = m_editor_layer->get_viewport_panel();
-                if (vp) m_scene_manager.resize(vp->get_internal_width(), vp->get_internal_height(), 1.0f);
             }
         }
 
@@ -233,8 +235,8 @@ void Application::run() {
         // 4. Render Game Scene into Viewport Render Target (if editor is active) or to window
         ViewportPanel* vp = m_editor_layer ? m_editor_layer->get_viewport_panel() : nullptr;
         if (vp && m_editor_layer->is_visible()) {
-            m_renderer->set_custom_render_target(vp->get_viewport_texture());
             vp->begin_render();
+            m_renderer->set_custom_render_target(vp->get_viewport_texture());
             on_render();
             m_scene_manager.render(*m_renderer);
             vp->end_render();

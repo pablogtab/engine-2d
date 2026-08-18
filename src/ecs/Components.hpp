@@ -135,7 +135,6 @@ struct BehaviorComponent {
 struct CameraComponent {
     bool is_primary{true};
     float zoom{1.0f};
-    glm::vec2 viewport_size{1920.0f, 1080.0f};
     bool follow_player{true};
     float follow_speed{6.0f};
     bool enable_bounds{false};

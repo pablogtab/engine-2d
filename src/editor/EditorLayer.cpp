@@ -244,9 +244,6 @@ void EditorLayer::create_new_scene(const std::string& name) {
     auto new_scene = std::make_shared<GenericScene>(name);
     m_scene_manager->add_scene(new_scene);
     m_scene_manager->set_active_scene(name);
-    if (m_viewport_panel) {
-        m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
-    }
     ENGINE_LOG_INFO("[EDITOR] Created new blank scene: '{}'", name);
 }
 
@@ -278,9 +275,6 @@ void EditorLayer::load_scene(const std::string& path) {
     if (serializer.deserialize(path)) {
         m_scene_manager->add_scene(new_scene);
         m_scene_manager->set_active_scene(scene_name);
-        if (m_viewport_panel) {
-            m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
-        }
         ENGINE_LOG_INFO("[EDITOR] Loaded scene '{}' from '{}'", scene_name, path);
     }
 }
@@ -401,6 +395,10 @@ void EditorLayer::render_main_menu_bar() {
             }
 
             ImGui::Separator();
+            if (ImGui::MenuItem("Project Settings...")) {
+                auto panel = get_panel("Project Settings");
+                if (panel) panel->is_open = true;
+            }
             if (ImGui::MenuItem("Shortcuts & Keybindings...")) {
                 auto panel = get_panel("Shortcuts & Keybindings");
                 if (panel) panel->is_open = true;
@@ -482,15 +480,9 @@ void EditorLayer::render_main_menu_bar() {
 
                 if (ImGui::MenuItem("🔄 Next Demo Scene", "TAB")) {
                     m_scene_manager->next_scene();
-                    if (m_viewport_panel) {
-                        m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
-                    }
                 }
                 if (ImGui::MenuItem("⏮️ Previous Demo Scene", "Shift+TAB")) {
                     m_scene_manager->previous_scene();
-                    if (m_viewport_panel) {
-                        m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
-                    }
                 }
                 ImGui::Separator();
 
@@ -514,9 +506,6 @@ void EditorLayer::render_main_menu_bar() {
 
                     if (ImGui::MenuItem(label.c_str(), nullptr, is_selected)) {
                         m_scene_manager->set_active_scene(i);
-                        if (m_viewport_panel) {
-                            m_scene_manager->resize(m_viewport_panel->get_internal_width(), m_viewport_panel->get_internal_height(), 1.0f);
-                        }
                     }
                 }
             }
