@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <optional>
 
 namespace Engine {
 
@@ -39,6 +40,55 @@ private:
     Operation m_apply_before;
     Operation m_apply_after;
     std::string m_description;
+};
+
+// Reversible component presence change used by Inspector add/remove actions.
+// Optional snapshots make the same command type handle both directions while
+// resolving storage at execution time.
+template<typename Component>
+class SetComponentCommand final : public IEditorCommand {
+public:
+    using SideEffect = std::function<void(EntityManager&, EntityID)>;
+
+    SetComponentCommand(
+        EntityManager* em,
+        EntityID entity,
+        std::optional<Component> before,
+        std::optional<Component> after,
+        std::string description,
+        SideEffect side_effect = {}
+    ) : m_em(em),
+        m_entity(entity),
+        m_before(std::move(before)),
+        m_after(std::move(after)),
+        m_description(std::move(description)),
+        m_side_effect(std::move(side_effect)) {}
+
+    void execute() override { apply(m_after); }
+    void undo() override { apply(m_before); }
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+
+private:
+    void apply(const std::optional<Component>& state) {
+        if (!m_em || !m_em->is_alive(m_entity)) return;
+        if (state) {
+            if (m_em->has_component<Component>(m_entity)) {
+                m_em->get_component<Component>(m_entity) = *state;
+            } else {
+                m_em->add_component<Component>(m_entity, *state);
+            }
+        } else if (m_em->has_component<Component>(m_entity)) {
+            m_em->remove_component<Component>(m_entity);
+        }
+        if (m_side_effect) m_side_effect(*m_em, m_entity);
+    }
+
+    EntityManager* m_em{nullptr};
+    EntityID m_entity{0};
+    std::optional<Component> m_before;
+    std::optional<Component> m_after;
+    std::string m_description;
+    SideEffect m_side_effect;
 };
 
 // Complete transform snapshot for reversible viewport gestures.

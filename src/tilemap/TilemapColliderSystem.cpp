@@ -5,15 +5,8 @@
 
 namespace Engine {
 
-void TilemapColliderSystem::build_composite_colliders(EntityManager& em, EntityID entity_id) {
-    if (!em.is_alive(entity_id) || !em.has_component<TilemapComponent>(entity_id) || !em.has_component<TransformComponent>(entity_id)) {
-        return;
-    }
-
-    const auto& tilemap = em.get_component<TilemapComponent>(entity_id);
-    const auto& tx = em.get_component<TransformComponent>(entity_id);
-
-    // 0. Destroy previous composite colliders belonging to this tilemap entity
+void TilemapColliderSystem::clear_composite_colliders(EntityManager& em, EntityID entity_id) {
+    if (!em.is_alive(entity_id)) return;
     if (em.has_component<HierarchyComponent>(entity_id)) {
         auto children_copy = em.get_component<HierarchyComponent>(entity_id).children;
         for (EntityID child_id : children_copy) {
@@ -39,6 +32,15 @@ void TilemapColliderSystem::build_composite_colliders(EntityManager& em, EntityI
     for (EntityID old_id : legacy_colliders) {
         em.destroy_entity(old_id);
     }
+}
+
+void TilemapColliderSystem::build_composite_colliders(EntityManager& em, EntityID entity_id) {
+    clear_composite_colliders(em, entity_id);
+    if (!em.is_alive(entity_id) || !em.has_component<TilemapComponent>(entity_id) || !em.has_component<TransformComponent>(entity_id)) {
+        return;
+    }
+
+    const auto& tilemap = em.get_component<TilemapComponent>(entity_id);
 
     if (!tilemap.generate_colliders || tilemap.empty()) return;
 

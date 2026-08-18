@@ -1,5 +1,7 @@
 #include "InspectorWidgets.hpp"
+#include "../tools/EditorIcons.hpp"
 #include <imgui_internal.h>
+#include <string>
 
 namespace Engine::InspectorWidgets {
 
@@ -52,6 +54,52 @@ void capture_property_interaction() {
 
 const PropertyInteraction& last_property_interaction() {
     return g_property_interaction;
+}
+
+ComponentHeaderResult component_header(
+    const char* label,
+    const char* id,
+    bool removable,
+    bool default_open,
+    EditorIcon icon
+) {
+    ImGui::PushID(id);
+    const ImVec2 header_position = ImGui::GetCursorScreenPos();
+    const ImGuiTreeNodeFlags flags = (default_open ? ImGuiTreeNodeFlags_DefaultOpen : 0) |
+        (removable ? ImGuiTreeNodeFlags_AllowOverlap : 0);
+    const std::string header_label = editor_icon_label(icon, label);
+    const bool open = ImGui::CollapsingHeader(header_label.c_str(), flags);
+    const ImVec2 content_position = ImGui::GetCursorScreenPos();
+    bool remove_requested = false;
+
+    if (removable) {
+        const ImGuiStyle& style = ImGui::GetStyle();
+        constexpr float button_size = 18.0f;
+        const float content_right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+        ImGui::SetCursorScreenPos(ImVec2(
+            content_right - button_size - style.FramePadding.x,
+            header_position.y
+        ));
+        if (editor_icon_button(
+            "ComponentOptionsButton",
+            EditorIcon::Ellipsis,
+            nullptr,
+            false,
+            ImVec2(button_size, button_size)
+        )) {
+            ImGui::OpenPopup("ComponentOptions");
+        }
+
+        if (ImGui::BeginPopup("ComponentOptions")) {
+            const std::string remove_label = editor_icon_label(EditorIcon::Trash, "Remove Component");
+            remove_requested = ImGui::MenuItem(remove_label.c_str());
+            ImGui::EndPopup();
+        }
+        ImGui::SetCursorScreenPos(content_position);
+    }
+
+    ImGui::PopID();
+    return {open, remove_requested};
 }
 
 void begin_property_row(const char* label, bool reserve_reset) {

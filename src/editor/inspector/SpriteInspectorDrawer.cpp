@@ -1,5 +1,6 @@
 #include "SpriteInspectorDrawer.hpp"
 #include "InspectorWidgets.hpp"
+#include "../commands/EntityCommands.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../ecs/EntityManager.hpp"
 #include "../../renderer/Texture.hpp"
@@ -75,10 +76,22 @@ void SpriteInspectorDrawer::track_edit(
 }
 
 void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Context& context) {
-    if (!em.has_component<SpriteComponent>(entity) ||
-        !ImGui::CollapsingHeader("Sprite Renderer", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (!em.has_component<SpriteComponent>(entity)) return;
+
+    const auto header = InspectorWidgets::component_header(
+        "Sprite Renderer", "SpriteRendererHeader", true, true, EditorIcon::Sprite
+    );
+    if (header.remove_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
+            &em,
+            entity,
+            em.get_component<SpriteComponent>(entity),
+            std::nullopt,
+            "Remove Sprite Renderer"
+        ));
         return;
     }
+    if (!header.open) return;
 
     using namespace InspectorWidgets;
     auto& sprite = em.get_component<SpriteComponent>(entity);

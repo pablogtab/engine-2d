@@ -4,6 +4,7 @@
 #include "commands/EntityCommands.hpp"
 #include "shortcuts/ShortcutManager.hpp"
 #include "inspector/InspectorWidgets.hpp"
+#include "tools/EditorIcons.hpp"
 #include "../core/Log.hpp"
 #include "../scene/SceneManager.hpp"
 #include "../scene/GenericScene.hpp"
@@ -37,6 +38,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Docking
+    initialize_editor_icons();
 
     // 2. Setup Dear ImGui Modern Theme
     EditorTheme::apply_dark_theme();

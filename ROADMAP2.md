@@ -65,6 +65,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Camera projection tests.
 - [x] Display manager and display persistence tests.
 - [x] Post-processing and material tests.
+- [x] Editor property transaction and Inspector command tests.
 - [x] Clean CMake build and CTest execution.
 
 ---
@@ -81,25 +82,28 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Support scalar, integer, boolean, enum, text, color, vector, list, and asset-reference state through typed transactions.
 - [x] Guarantee one undo entry per drag, scrub, text commit, toggle, or compound edit.
 - [x] Make cancellation restore the exact previous state.
-- [ ] Add property validation and component-specific side-effect hooks, such as physics or tilemap rebuilds.
+- [x] Add component-specific transaction side-effect hooks, including selective physics and tilemap rebuilds.
+- [ ] Centralize reusable property validation policies instead of keeping limits inside individual drawers.
 - [ ] Make the same transaction system work with multi-selection and mixed values.
 
 ### Inspector Migration
 
 - [x] Make entity rename reversible.
 - [x] Migrate every currently exposed Sprite property to the common transaction lifecycle.
-- [ ] Migrate every RigidBody property to the common transaction lifecycle.
-- [ ] Migrate every Collider property and shape edit to the common transaction lifecycle.
+- [x] Migrate every authored RigidBody property to the common transaction lifecycle.
+- [x] Migrate every Collider property and shape edit to the common transaction lifecycle.
 - [ ] Migrate every Tilemap setting and destructive action to reversible commands.
 - [ ] Separate Animator authoring data from editor preview/playback state.
 - [ ] Migrate Animator clips and spritesheet settings to reversible commands.
 - [x] Route texture loading and fallbacks through `AssetManager`; never allocate unmanaged textures from Inspector code.
-- [ ] Add complete undoable component add/remove commands.
+- [x] Add generic undoable component add/remove commands, while keeping structural Transform non-removable.
 
 ### Inspector Structure
 
 - [ ] Split the monolithic Inspector into component drawers with a shared compact property layout.
 - [x] Keep component UI extensions separate from runtime component definitions.
+- [x] Vendor an editor-only Lucide icon catalog and centralize DPI-independent icon rendering through ImGui's font atlas.
+- [ ] Migrate remaining editor emojis and ad-hoc symbols to the shared Lucide registry.
 - [ ] Add component search, favorites, and concise contextual documentation.
 - [ ] Preserve the existing compact Photoshop/Unity-like value scrubbing behavior.
 
@@ -347,7 +351,8 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 - [ ] `EditorCommandHistoryTests` — execute, undo, redo, redo invalidation, bounded history, scene invalidation, and command descriptions.
 - [x] `EditorPropertyTransactionTests` — begin/preview/commit/cancel, unchanged edits, compound values, text commits, and one history entry per gesture.
-- [ ] `InspectorCommandTests` — entity rename and Sprite, RigidBody, Collider, Tilemap, Animator, Camera, and component add/remove restoration.
+- [x] `InspectorCommandTests` — entity rename, Sprite compound edits, RigidBody/Collider component presence, exact restoration, and physics fixture rebuild.
+- [ ] Extend `InspectorCommandTests` with Tilemap, Animator, Camera, and their component-specific side effects as those drawers migrate.
 - [ ] `MultiEditTransactionTests` — mixed values, partial component availability, atomic multi-entity commit, cancel, undo, and redo.
 
 ### Phase 2 — Component and Serialization Suites
@@ -422,7 +427,7 @@ These items are useful but should not interrupt the architecture work above unle
 - [ ] Guide naming, locking, visibility groups, and persistence policies.
 - [ ] Additional snapping targets such as vertices, edges, pivots, and tile boundaries.
 - [ ] Customizable toolbox composition and multiple reusable editor toolboxes.
-- [ ] Further icon-system refinement and platform-specific DPI visual checks.
+- [ ] Platform-specific DPI visual checks and final icon optical alignment.
 
 ---
 
@@ -440,10 +445,10 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increment
 
-Implement the second Phase 1 slice:
+Implement the third Phase 1 slice:
 
-1. Add component-specific side-effect hooks to property transactions.
-2. Migrate RigidBody and Collider properties without rebuilding physics once per preview frame.
-3. Add complete undoable component add/remove commands.
-4. Add `InspectorCommandTests` for rename, Sprite, physics components, and component presence.
-5. Extract `RigidBodyInspectorDrawer` and `ColliderInspectorDrawer` after their transaction behavior is validated.
+1. Extract and migrate Tilemap settings and destructive operations, including generated-collider cleanup and rebuild hooks.
+2. Separate Animator authored data from preview/playback state, then migrate clips and spritesheet settings.
+3. Extract Camera and remaining Transform Inspector code onto the common transaction infrastructure.
+4. Add `EditorCommandHistoryTests` and extend `InspectorCommandTests` for Tilemap, Animator, and Camera.
+5. Define centralized component/property validation policies before adding multi-selection transactions.

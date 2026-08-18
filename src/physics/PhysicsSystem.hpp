@@ -355,6 +355,34 @@ public:
     s_b2_world.reset();
   }
 
+  // Recreates one ECS-backed body and its fixtures from the current authored
+  // components. Editor previews remain cheap; callers invoke this only when a
+  // property gesture commits/cancels or when undo/redo applies a snapshot.
+  static void rebuild_body(EntityManager &em, EntityID id) {
+    if (!s_b2_world) return;
+
+    for (auto it = s_b2_joints.begin(); it != s_b2_joints.end();) {
+      const EntityID joint_entity = it->first;
+      bool references_body = joint_entity == id;
+      if (!references_body && em.is_alive(joint_entity) && em.has_component<JointComponent>(joint_entity)) {
+        references_body = em.get_component<JointComponent>(joint_entity).target_entity == id;
+      }
+      if (references_body) {
+        if (it->second) s_b2_world->DestroyJoint(it->second);
+        it = s_b2_joints.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+    auto body = s_b2_bodies.find(id);
+    if (body != s_b2_bodies.end()) {
+      if (body->second) s_b2_world->DestroyBody(body->second);
+      s_b2_bodies.erase(body);
+    }
+    create_body(em, id);
+  }
+
   static void set_position(EntityManager &em, EntityID id, const glm::vec2 &position) {
     if (em.has_component<TransformComponent>(id)) {
       auto &tx = em.get_component<TransformComponent>(id);
@@ -478,70 +506,12 @@ public:
           auto it = s_b2_bodies.find(id);
 
           if (it == s_b2_bodies.end()) {
-            b2BodyDef bodyDef;
-            if (rb.body_type == BodyType::Static) {
-              bodyDef.type = b2_staticBody;
-            } else if (rb.body_type == BodyType::Kinematic) {
-              bodyDef.type = b2_kinematicBody;
-            } else {
-              bodyDef.type = b2_dynamicBody;
-            }
-
-            bodyDef.position.Set(transform.world_position.x * k_p2m,
-                                 transform.world_position.y * k_p2m);
-            bodyDef.angle = glm::radians(-transform.world_rotation);
-            bodyDef.fixedRotation = rb.fixed_rotation;
-            bodyDef.userData.pointer = static_cast<uintptr_t>(id);
-
-            body = s_b2_world->CreateBody(&bodyDef);
-
-            for (const auto &shape : collider.shapes) {
-              b2FixtureDef fixtureDef;
-              fixtureDef.isSensor = shape.is_trigger;
-              fixtureDef.density = rb.mass;
-              fixtureDef.friction = rb.friction;
-              fixtureDef.restitution = rb.restitution;
-              fixtureDef.filter.categoryBits = shape.category_bits;
-              fixtureDef.filter.maskBits = shape.mask_bits;
-              fixtureDef.userData.pointer = shape.is_one_way ? 1 : 0;
-
-              if (shape.type == ColliderShapeType::Circle) {
-                b2CircleShape circle;
-                circle.m_p.Set(shape.offset.x * k_p2m, shape.offset.y * k_p2m);
-                circle.m_radius =
-                    (shape.radius * transform.world_scale.x) * k_p2m;
-                fixtureDef.shape = &circle;
-                body->CreateFixture(&fixtureDef);
-              } else if (shape.type == ColliderShapeType::Box) {
-                b2PolygonShape box;
-                glm::vec2 half =
-                    (shape.size * transform.world_scale) * 0.5f * k_p2m;
-                box.SetAsBox(
-                    half.x, half.y,
-                    b2Vec2(shape.offset.x * k_p2m, shape.offset.y * k_p2m),
-                    0.0f);
-                fixtureDef.shape = &box;
-                body->CreateFixture(&fixtureDef);
-              } else if (shape.type == ColliderShapeType::Polygon) {
-                b2PolygonShape polygon;
-                std::vector<b2Vec2> b2_verts;
-                b2_verts.reserve(shape.vertices.size());
-                for (const auto &v : shape.vertices) {
-                  b2_verts.emplace_back((v.x * transform.world_scale.x + shape.offset.x) * k_p2m,
-                                        (v.y * transform.world_scale.y + shape.offset.y) * k_p2m);
-                }
-                if (b2_verts.size() >= 3) {
-                  polygon.Set(b2_verts.data(), static_cast<int32>(b2_verts.size()));
-                  fixtureDef.shape = &polygon;
-                  body->CreateFixture(&fixtureDef);
-                }
-              }
-            }
-
-            s_b2_bodies[id] = body;
+            body = create_body(entity_manager, id);
           } else {
             body = it->second;
           }
+
+          if (!body) return;
 
           if (rb.body_type == BodyType::Kinematic) {
             body->SetLinearVelocity(
@@ -713,6 +683,76 @@ public:
   }
 
 private:
+  static b2Body *create_body(EntityManager &em, EntityID id) {
+    if (!s_b2_world || !em.is_alive(id) ||
+        !em.has_component<TransformComponent>(id) ||
+        !em.has_component<RigidBodyComponent>(id) ||
+        !em.has_component<ColliderComponent>(id)) {
+      return nullptr;
+    }
+
+    auto &transform = em.get_component<TransformComponent>(id);
+    auto &rb = em.get_component<RigidBodyComponent>(id);
+    auto &collider = em.get_component<ColliderComponent>(id);
+    if (!transform.world_visible) return nullptr;
+
+    b2BodyDef body_def;
+    body_def.type = rb.body_type == BodyType::Static
+        ? b2_staticBody
+        : rb.body_type == BodyType::Kinematic ? b2_kinematicBody : b2_dynamicBody;
+    body_def.position.Set(transform.world_position.x * k_p2m,
+                         transform.world_position.y * k_p2m);
+    body_def.angle = glm::radians(-transform.world_rotation);
+    body_def.fixedRotation = rb.fixed_rotation;
+    body_def.gravityScale = rb.gravity_scale;
+    body_def.linearVelocity.Set(rb.velocity.x * k_p2m, rb.velocity.y * k_p2m);
+    body_def.angularVelocity = glm::radians(-rb.angular_velocity);
+    body_def.userData.pointer = static_cast<uintptr_t>(id);
+
+    b2Body *body = s_b2_world->CreateBody(&body_def);
+    for (const auto &shape : collider.shapes) {
+      b2FixtureDef fixture_def;
+      fixture_def.isSensor = shape.is_trigger;
+      fixture_def.density = rb.mass;
+      fixture_def.friction = rb.friction;
+      fixture_def.restitution = rb.restitution;
+      fixture_def.filter.categoryBits = shape.category_bits;
+      fixture_def.filter.maskBits = shape.mask_bits;
+      fixture_def.userData.pointer = shape.is_one_way ? 1 : 0;
+
+      if (shape.type == ColliderShapeType::Circle) {
+        b2CircleShape circle;
+        circle.m_p.Set(shape.offset.x * k_p2m, shape.offset.y * k_p2m);
+        circle.m_radius = shape.radius * transform.world_scale.x * k_p2m;
+        fixture_def.shape = &circle;
+        body->CreateFixture(&fixture_def);
+      } else if (shape.type == ColliderShapeType::Box) {
+        b2PolygonShape box;
+        const glm::vec2 half = shape.size * transform.world_scale * 0.5f * k_p2m;
+        box.SetAsBox(half.x, half.y,
+                     b2Vec2(shape.offset.x * k_p2m, shape.offset.y * k_p2m),
+                     0.0f);
+        fixture_def.shape = &box;
+        body->CreateFixture(&fixture_def);
+      } else if (shape.type == ColliderShapeType::Polygon && shape.vertices.size() >= 3) {
+        b2PolygonShape polygon;
+        std::vector<b2Vec2> vertices;
+        vertices.reserve(shape.vertices.size());
+        for (const auto &vertex : shape.vertices) {
+          vertices.emplace_back(
+              (vertex.x * transform.world_scale.x + shape.offset.x) * k_p2m,
+              (vertex.y * transform.world_scale.y + shape.offset.y) * k_p2m);
+        }
+        polygon.Set(vertices.data(), static_cast<int32>(vertices.size()));
+        fixture_def.shape = &polygon;
+        body->CreateFixture(&fixture_def);
+      }
+    }
+
+    s_b2_bodies[id] = body;
+    return body;
+  }
+
   static inline glm::vec2 s_gravity{0.0f, 0.0f};
   static inline std::unique_ptr<b2World> s_b2_world{nullptr};
   static inline std::unique_ptr<PhysicsContactListener> s_contact_listener{

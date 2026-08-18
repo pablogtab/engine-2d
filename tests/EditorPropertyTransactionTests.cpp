@@ -189,6 +189,72 @@ void test_missing_target_drops_transaction_safely() {
     assert(history.get_undo_count() == 0);
 }
 
+void test_finalize_runs_once_only_for_changed_commit() {
+    Engine::EditorCommandHistory history;
+    Engine::EditorPropertyTransaction transactions;
+    int value = 10;
+    int finalize_count = 0;
+    int apply_count = 0;
+    const auto key = Engine::EditorPropertyTransaction::make_key(7, "Finalize");
+
+    assert(transactions.begin<int>(
+        key,
+        value,
+        [&]() -> std::optional<int> { return value; },
+        [&](int state) {
+            value = state;
+            ++apply_count;
+        },
+        "Edit Finalized Value",
+        std::equal_to<int>{},
+        [&]() { ++finalize_count; }
+    ));
+    value = 20;
+    value = 30;
+    assert(transactions.commit(key, history));
+    assert(finalize_count == 1);
+
+    history.undo();
+    assert(apply_count == 1);
+    history.redo();
+    assert(apply_count == 2);
+    assert(finalize_count == 1);
+
+    assert(transactions.begin<int>(
+        key,
+        value,
+        [&]() -> std::optional<int> { return value; },
+        [&](int state) {
+            value = state;
+            ++apply_count;
+        },
+        "Edit Unchanged Finalized Value",
+        std::equal_to<int>{},
+        [&]() { ++finalize_count; }
+    ));
+    assert(!transactions.commit(key, history));
+    assert(finalize_count == 1);
+    assert(apply_count == 2);
+
+    assert(transactions.begin<int>(
+        key,
+        value,
+        [&]() -> std::optional<int> { return value; },
+        [&](int state) {
+            value = state;
+            ++apply_count;
+        },
+        "Cancel Finalized Value",
+        std::equal_to<int>{},
+        [&]() { ++finalize_count; }
+    ));
+    value = 50;
+    assert(transactions.cancel(key));
+    assert(value == 30);
+    assert(apply_count == 3);
+    assert(finalize_count == 1);
+}
+
 } // namespace
 
 int main() {
@@ -200,6 +266,7 @@ int main() {
     test_duplicate_begin_preserves_original_snapshot();
     test_texture_assignment_round_trips();
     test_missing_target_drops_transaction_safely();
+    test_finalize_runs_once_only_for_changed_commit();
     std::cout << "EditorPropertyTransactionTests passed\n";
     return 0;
 }

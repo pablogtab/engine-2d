@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../tools/EditorIcons.hpp"
 #include <imgui.h>
 
 namespace Engine::InspectorWidgets {
@@ -11,12 +12,27 @@ struct PropertyInteraction {
     bool cancelled{false};
 };
 
+struct ComponentHeaderResult {
+    bool open{false};
+    bool remove_requested{false};
+};
+
 void begin_property_interaction(const char* label);
 void capture_property_interaction();
 // Called by the platform event route before the ImGui frame begins. This
 // preserves Escape cancellation even when the widget consumes the key itself.
 void request_cancel_active_property();
 [[nodiscard]] const PropertyInteraction& last_property_interaction();
+
+// Unity-style component header. Removable components expose a compact options
+// menu in their own header instead of relying on a global removal picker.
+[[nodiscard]] ComponentHeaderResult component_header(
+    const char* label,
+    const char* id,
+    bool removable = true,
+    bool default_open = true,
+    EditorIcon icon = EditorIcon::Component
+);
 
 void begin_property_row(const char* label, bool reserve_reset = false);
 bool property_float(const char* label, float* value, float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f");

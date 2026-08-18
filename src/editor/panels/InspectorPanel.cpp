@@ -4,6 +4,8 @@
 #include "../commands/EntityCommands.hpp"
 #include "../inspector/InspectorWidgets.hpp"
 #include "../inspector/SpriteInspectorDrawer.hpp"
+#include "../inspector/RigidBodyInspectorDrawer.hpp"
+#include "../inspector/ColliderInspectorDrawer.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
@@ -276,10 +278,13 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
     // --- 2. TransformComponent ---
     if (em.has_component<TransformComponent>(entity)) {
-        if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (component_header("Transform", "TransformHeader", false, true, EditorIcon::Move).open) {
             if (is_locked_tilemap_collider) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.75f, 1.0f, 1.0f));
-                ImGui::TextWrapped("🔒 Auto-generated Tilemap Collider (Managed by Tilemap)");
+                const std::string locked_label = editor_icon_label(
+                    EditorIcon::Lock, "Auto-generated Tilemap Collider (Managed by Tilemap)"
+                );
+                ImGui::TextWrapped("%s", locked_label.c_str());
                 ImGui::PopStyleColor();
                 ImGui::TextDisabled("Transform is locked to Tilemap grid geometry.");
                 ImGui::Spacing();
@@ -374,66 +379,33 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         &m_property_transactions
     });
 
-    // --- 4. RigidBodyComponent ---
-    if (em.has_component<RigidBodyComponent>(entity)) {
-        if (ImGui::CollapsingHeader("RigidBody 2D", ImGuiTreeNodeFlags_DefaultOpen)) {
-            auto& rb = em.get_component<RigidBodyComponent>(entity);
-
-            const char* body_types[] = { "Dynamic", "Static", "Kinematic" };
-            int current_type = static_cast<int>(rb.body_type);
-            begin_property_row("Body Type");
-            ImGui::PushID("body_type");
-            if (ImGui::Combo("##value", &current_type, body_types, 3)) {
-                rb.body_type = static_cast<BodyType>(current_type);
-            }
-            ImGui::PopID();
-
-            property_float("Mass", &rb.mass, 0.1f, 0.01f, 1000.0f);
-            property_float("Gravity Scale", &rb.gravity_scale, 0.1f, -10.0f, 10.0f);
-            property_float("Friction", &rb.friction, 0.01f, 0.0f, 1.0f);
-            property_float("Restitution", &rb.restitution, 0.01f, 0.0f, 1.0f);
-            begin_property_row("Fixed Rotation");
-            ImGui::Checkbox("##fixed_rotation", &rb.fixed_rotation);
-
-            ImGui::Text("Velocity: (%.1f, %.1f)", rb.velocity.x, rb.velocity.y);
-        }
-    }
-
-    // --- 5. ColliderComponent ---
-    if (em.has_component<ColliderComponent>(entity)) {
-        if (ImGui::CollapsingHeader("Collider 2D", ImGuiTreeNodeFlags_DefaultOpen)) {
-            auto& col = em.get_component<ColliderComponent>(entity);
-            for (size_t i = 0; i < col.shapes.size(); ++i) {
-                auto& shape = col.shapes[i];
-                ImGui::PushID(static_cast<int>(i));
-                ImGui::Text("Shape #%zu: %s", i + 1, shape.type == ColliderShapeType::Box ? "Box" : "Circle");
-                
-                if (shape.type == ColliderShapeType::Box) {
-                    float sz[2] = {shape.size.x, shape.size.y};
-                    if (property_vec2("Size", sz, 1.0f)) {
-                        shape.size = glm::vec2(sz[0], sz[1]);
-                    }
-                } else if (shape.type == ColliderShapeType::Circle) {
-                    property_float("Radius", &shape.radius, 1.0f, 1.0f, 500.0f);
-                }
-
-                float off[2] = {shape.offset.x, shape.offset.y};
-                if (property_vec2("Offset", off, 1.0f)) {
-                    shape.offset = glm::vec2(off[0], off[1]);
-                }
-
-                ImGui::Checkbox("Is Trigger", &shape.is_trigger);
-                ImGui::SameLine();
-                ImGui::Checkbox("Is One-Way", &shape.is_one_way);
-                ImGui::PopID();
-                ImGui::Separator();
-            }
-        }
-    }
+    const ComponentTransactionContext physics_context{
+        m_command_history.get(),
+        &m_property_transactions
+    };
+    RigidBodyInspectorDrawer::draw(em, entity, physics_context);
+    ColliderInspectorDrawer::draw(em, entity, physics_context);
 
     // --- 5. TilemapComponent ---
     if (em.has_component<TilemapComponent>(entity)) {
-        if (ImGui::CollapsingHeader("Tilemap Grid", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const auto header = component_header("Tilemap Grid", "TilemapHeader", true, true, EditorIcon::Grid);
+        if (header.remove_requested && m_command_history) {
+            const auto rebuild_tilemap = [](EntityManager& command_em, EntityID id) {
+                if (command_em.has_component<TilemapComponent>(id)) {
+                    TilemapColliderSystem::build_composite_colliders(command_em, id);
+                } else {
+                    TilemapColliderSystem::clear_composite_colliders(command_em, id);
+                }
+            };
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<TilemapComponent>>(
+                &em,
+                entity,
+                em.get_component<TilemapComponent>(entity),
+                std::nullopt,
+                "Remove Tilemap Grid",
+                rebuild_tilemap
+            ));
+        } else if (header.open) {
             auto& tilemap = em.get_component<TilemapComponent>(entity);
 
             ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Tile Count: %zu painted tiles", tilemap.tile_count());
@@ -507,11 +479,13 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             }
 
             ImGui::Spacing();
-            if (ImGui::Button("⚡ Rebuild Box2D Colliders", ImVec2(ImGui::GetContentRegionAvail().x, 24))) {
+            const std::string rebuild_label = editor_icon_label(EditorIcon::Zap, "Rebuild Box2D Colliders");
+            if (ImGui::Button(rebuild_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 24))) {
                 TilemapColliderSystem::build_composite_colliders(em, entity);
             }
 
-            if (ImGui::Button("🗑️ Clear Tilemap", ImVec2(ImGui::GetContentRegionAvail().x, 24))) {
+            const std::string clear_label = editor_icon_label(EditorIcon::Trash, "Clear Tilemap");
+            if (ImGui::Button(clear_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 24))) {
                 tilemap.clear();
                 TilemapColliderSystem::build_composite_colliders(em, entity);
             }
@@ -520,7 +494,16 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
     // --- 6. CameraComponent ---
     if (em.has_component<CameraComponent>(entity)) {
-        if (ImGui::CollapsingHeader("🎥 Camera 2D", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const auto header = component_header("Camera 2D", "CameraHeader", true, true, EditorIcon::Camera);
+        if (header.remove_requested && m_command_history) {
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<CameraComponent>>(
+                &em,
+                entity,
+                em.get_component<CameraComponent>(entity),
+                std::nullopt,
+                "Remove Camera 2D"
+            ));
+        } else if (header.open) {
             auto& cam = em.get_component<CameraComponent>(entity);
 
             if (cam.is_primary) {
@@ -603,11 +586,25 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
     // --- 7. AnimationComponent (Sprite Animator) ---
     if (em.has_component<AnimationComponent>(entity)) {
-        if (ImGui::CollapsingHeader("🎬 Sprite Animator 2D", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const auto header = component_header(
+            "Sprite Animator 2D", "AnimationHeader", true, true, EditorIcon::Animation
+        );
+        if (header.remove_requested && m_command_history) {
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<AnimationComponent>>(
+                &em,
+                entity,
+                em.get_component<AnimationComponent>(entity),
+                std::nullopt,
+                "Remove Sprite Animator 2D"
+            ));
+        } else if (header.open) {
             auto& anim = em.get_component<AnimationComponent>(entity);
 
             if (m_anim_studio) {
-                if (ImGui::Button("🎬 Open in Animation Studio ↗", ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
+                const std::string studio_label = editor_icon_label(
+                    EditorIcon::ExternalLink, "Open in Animation Studio"
+                );
+                if (ImGui::Button(studio_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
                     m_anim_studio->open_for_entity(entity);
                 }
                 ImGui::Spacing();
@@ -679,12 +676,15 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                     ImGui::TextDisabled("Frame: %d | Total Frames: %d", anim.current_frame, active_clip->get_total_frames());
 
                     if (anim.is_playing) {
-                        if (ImGui::Button("⏸ Pause", ImVec2(90, 24))) anim.is_playing = false;
+                        const std::string pause_label = editor_icon_label(EditorIcon::Pause, "Pause");
+                        if (ImGui::Button(pause_label.c_str(), ImVec2(90, 24))) anim.is_playing = false;
                     } else {
-                        if (ImGui::Button("▶ Play", ImVec2(90, 24))) anim.is_playing = true;
+                        const std::string play_label = editor_icon_label(EditorIcon::Play, "Play");
+                        if (ImGui::Button(play_label.c_str(), ImVec2(90, 24))) anim.is_playing = true;
                     }
                     ImGui::SameLine();
-                    if (ImGui::Button("⏹ Reset", ImVec2(90, 24))) {
+                    const std::string reset_label = editor_icon_label(EditorIcon::Rotate, "Reset");
+                    if (ImGui::Button(reset_label.c_str(), ImVec2(90, 24))) {
                         anim.current_frame = active_clip->start_frame;
                         anim.timer = 0.0f;
                         anim.is_finished = false;
@@ -714,7 +714,8 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                     ImGui::SetNextItemWidth(60);
                     ImGui::DragInt("Count", &c.frame_count, 1.0f, 1, anim.columns * anim.rows);
                     ImGui::SameLine();
-                    if (ImGui::Button("🗑")) {
+                    const std::string remove_clip_label = editor_icon_label(EditorIcon::Trash, "##RemoveClip");
+                    if (ImGui::Button(remove_clip_label.c_str())) {
                         clip_to_remove = static_cast<int>(i);
                     }
                     ImGui::PopID();
@@ -737,21 +738,37 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
     // --- Bottom Add Component Popup ---
     ImGui::Spacing();
-    if (ImGui::Button(" + Add Component... ", ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
+    const auto rebuild_physics = [](EntityManager& command_em, EntityID id) {
+        PhysicsSystem::rebuild_body(command_em, id);
+    };
+    const auto rebuild_tilemap = [](EntityManager& command_em, EntityID id) {
+        if (command_em.has_component<TilemapComponent>(id)) {
+            TilemapColliderSystem::build_composite_colliders(command_em, id);
+        } else {
+            TilemapColliderSystem::clear_composite_colliders(command_em, id);
+        }
+    };
+
+    const std::string add_component_label = editor_icon_label(EditorIcon::Plus, "Add Component...");
+    if (ImGui::Button(add_component_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
         ImGui::OpenPopup("AddComponentPopup");
     }
 
     if (ImGui::BeginPopup("AddComponentPopup")) {
-        if (!em.has_component<TransformComponent>(entity) && ImGui::MenuItem("Transform")) {
-            em.add_component<TransformComponent>(entity, TransformComponent{glm::vec3(0.0f)});
+        if (!em.has_component<TransformComponent>(entity) && ImGui::MenuItem("Transform") && m_command_history) {
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<TransformComponent>>(
+                &em, entity, std::nullopt, TransformComponent{glm::vec3(0.0f)}, "Add Transform", rebuild_physics
+            ));
         }
-        if (!em.has_component<SpriteComponent>(entity) && ImGui::MenuItem("Sprite Renderer")) {
+        if (!em.has_component<SpriteComponent>(entity) && ImGui::MenuItem("Sprite Renderer") && m_command_history) {
             Texture* tex = m_renderer && m_asset_manager
                 ? m_asset_manager->get_white_texture(m_renderer)
                 : nullptr;
-            em.add_component<SpriteComponent>(entity, SpriteComponent{tex, glm::vec2(64.0f, 64.0f)});
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
+                &em, entity, std::nullopt, SpriteComponent{tex, glm::vec2(64.0f, 64.0f)}, "Add Sprite Renderer"
+            ));
         }
-        if (!em.has_component<AnimationComponent>(entity) && ImGui::MenuItem("Sprite Animator 2D")) {
+        if (!em.has_component<AnimationComponent>(entity) && ImGui::MenuItem("Sprite Animator 2D") && m_command_history) {
             AnimationComponent anim;
             anim.columns = 8;
             anim.rows = 3;
@@ -761,36 +778,35 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             anim.add_clip("Run", 8, 6, 11.0f, true);
             anim.add_clip("Jump", 16, 4, 8.0f, false);
             anim.add_clip("Fall", 20, 4, 8.0f, true);
-            em.add_component<AnimationComponent>(entity, anim);
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<AnimationComponent>>(
+                &em, entity, std::nullopt, std::move(anim), "Add Sprite Animator 2D"
+            ));
         }
-        if (!em.has_component<CameraComponent>(entity) && ImGui::MenuItem("Camera 2D")) {
+        if (!em.has_component<CameraComponent>(entity) && ImGui::MenuItem("Camera 2D") && m_command_history) {
             CameraComponent camera;
             camera.is_primary = !CameraSystem::has_camera(em);
-            if (m_command_history) {
-                m_command_history->execute_command(std::make_unique<ModifyEntityCommand>(
-                    &em,
-                    entity,
-                    [](EntityManager& command_em, EntityID id) {
-                        if (command_em.has_component<CameraComponent>(id)) command_em.remove_component<CameraComponent>(id);
-                    },
-                    [camera](EntityManager& command_em, EntityID id) {
-                        if (!command_em.has_component<CameraComponent>(id)) command_em.add_component<CameraComponent>(id, camera);
-                    },
-                    "Add Camera 2D"
-                ));
-            }
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<CameraComponent>>(
+                &em, entity, std::nullopt, camera, "Add Camera 2D"
+            ));
         }
-        if (!em.has_component<TilemapComponent>(entity) && ImGui::MenuItem("Tilemap Grid")) {
-            em.add_component<TilemapComponent>(entity, TilemapComponent{});
+        if (!em.has_component<TilemapComponent>(entity) && ImGui::MenuItem("Tilemap Grid") && m_command_history) {
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<TilemapComponent>>(
+                &em, entity, std::nullopt, TilemapComponent{}, "Add Tilemap Grid", rebuild_tilemap
+            ));
         }
-        if (!em.has_component<RigidBodyComponent>(entity) && ImGui::MenuItem("RigidBody 2D")) {
-            em.add_component<RigidBodyComponent>(entity, RigidBodyComponent::Dynamic());
+        if (!em.has_component<RigidBodyComponent>(entity) && ImGui::MenuItem("RigidBody 2D") && m_command_history) {
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<RigidBodyComponent>>(
+                &em, entity, std::nullopt, RigidBodyComponent::Dynamic(), "Add RigidBody 2D", rebuild_physics
+            ));
         }
-        if (!em.has_component<ColliderComponent>(entity) && ImGui::MenuItem("Collider 2D")) {
-            em.add_component<ColliderComponent>(entity, ColliderComponent::Box(glm::vec2(64.0f, 64.0f)));
+        if (!em.has_component<ColliderComponent>(entity) && ImGui::MenuItem("Collider 2D") && m_command_history) {
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<ColliderComponent>>(
+                &em, entity, std::nullopt, ColliderComponent::Box(glm::vec2(64.0f, 64.0f)), "Add Collider 2D", rebuild_physics
+            ));
         }
         ImGui::EndPopup();
     }
+
 }
 
 } // namespace Engine

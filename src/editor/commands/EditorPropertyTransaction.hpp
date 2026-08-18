@@ -38,14 +38,21 @@ public:
 
     [[nodiscard]] static Key make_key(std::uint32_t owner, std::string_view property);
 
-    template<typename State, typename Capture, typename Apply, typename Equal = std::equal_to<State>>
+    template<
+        typename State,
+        typename Capture,
+        typename Apply,
+        typename Equal = std::equal_to<State>,
+        typename Finalize = std::function<void()>
+    >
     bool begin(
         Key key,
         State before,
         Capture capture,
         Apply apply,
         std::string description,
-        Equal equal = Equal{}
+        Equal equal = Equal{},
+        Finalize finalize = [] {}
     ) {
         if (m_pending.contains(key)) return false;
 
@@ -57,12 +64,14 @@ public:
             capture = std::move(capture),
             apply = std::move(apply),
             description = std::move(description),
-            equal = std::move(equal)
+            equal = std::move(equal),
+            finalize = std::move(finalize)
         ]() mutable -> std::unique_ptr<IEditorCommand> {
             std::optional<State> current = capture();
             if (!current || equal(before, *current)) return nullptr;
 
             State after = std::move(*current);
+            finalize();
             return std::make_unique<EditorValueCommand>(
                 [apply, before]() mutable { apply(before); },
                 [apply, after]() mutable { apply(after); },

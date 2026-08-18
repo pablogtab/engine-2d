@@ -67,6 +67,8 @@ set(SOURCES
     src/editor/gizmos/TransformGizmo2D.cpp
     src/editor/inspector/InspectorWidgets.cpp
     src/editor/inspector/SpriteInspectorDrawer.cpp
+    src/editor/inspector/RigidBodyInspectorDrawer.cpp
+    src/editor/inspector/ColliderInspectorDrawer.cpp
     src/editor/tools/ViewportCameraController.cpp
     src/editor/tools/ViewportArrangementTool.cpp
     src/editor/tools/EditorIcons.cpp
@@ -173,6 +175,21 @@ target_include_directories(EditorPropertyTransactionTests PRIVATE
 )
 add_test(NAME EditorPropertyTransactionTests COMMAND EditorPropertyTransactionTests)
 
+add_executable(InspectorCommandTests
+    tests/InspectorCommandTests.cpp
+    src/core/Log.cpp
+    src/ecs/EntityManager.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EditorPropertyTransaction.cpp
+)
+target_include_directories(InspectorCommandTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(InspectorCommandTests PRIVATE SDL3::SDL3 glm::glm box2d)
+add_test(NAME InspectorCommandTests COMMAND InspectorCommandTests)
+
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
@@ -184,6 +201,17 @@ target_link_libraries(Engine2D PRIVATE
     SDL3::SDL3
     glm::glm
     box2d
+)
+
+# Lucide is an editor-only visual dependency. Keep it next to the editor
+# executable instead of copying it into game assets or standalone packages.
+add_custom_command(TARGET Engine2D POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:Engine2D>/editor_assets/lucide"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/lucide/lucide.ttf"
+        "$<TARGET_FILE_DIR:Engine2D>/editor_assets/lucide/lucide.ttf"
+    VERBATIM
 )
 
 if (WIN32 AND MINGW)

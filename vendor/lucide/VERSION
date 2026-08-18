@@ -1,0 +1,3 @@
+lucide-static 1.32.0
+Source: https://www.npmjs.com/package/lucide-static
+Editor-only dependency. Do not package with standalone runtime builds.
