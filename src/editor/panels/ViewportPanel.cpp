@@ -238,6 +238,76 @@ void ViewportPanel::render_arrange_menu() {
     }
 }
 
+void ViewportPanel::render_transform_toolbar() {
+    if (!m_transform_toolbox.begin("Transform Toolbar")) {
+        m_transform_toolbox.end();
+        return;
+    }
+
+    ImGui::SetCursorPosX(18.0f);
+    if (editor_icon_button("move", EditorIcon::Move, "Move (W)", m_gizmo.get_tool() == TransformTool::Move)) {
+        m_gizmo.set_tool(TransformTool::Move);
+    }
+    ImGui::SameLine(0.0f, 1.0f);
+    if (editor_icon_button("rotate", EditorIcon::Rotate, "Rotate (R)", m_gizmo.get_tool() == TransformTool::Rotate)) {
+        m_gizmo.set_tool(TransformTool::Rotate);
+    }
+    ImGui::SameLine(0.0f, 1.0f);
+    if (editor_icon_button("scale", EditorIcon::Scale, "Scale (S)", m_gizmo.get_tool() == TransformTool::Scale)) {
+        m_gizmo.set_tool(TransformTool::Scale);
+    }
+    ImGui::SameLine(0.0f, 5.0f);
+
+    const bool multiple_selection = m_selection && m_selection->get_selected().size() > 1;
+    if (multiple_selection) m_gizmo.set_space(GizmoSpace::World);
+    const GizmoSpace space = m_gizmo.get_space();
+    const char* space_tooltip = multiple_selection
+        ? "Space: World (multiple selections use World)"
+        : (space == GizmoSpace::World ? "Space: World (click for Local)" : "Space: Local (click for World)");
+    const EditorIcon space_icon = space == GizmoSpace::World ? EditorIcon::World : EditorIcon::Local;
+    if (editor_icon_button("space", space_icon, space_tooltip, true) && !multiple_selection) {
+        m_gizmo.set_space(space == GizmoSpace::Local ? GizmoSpace::World : GizmoSpace::Local);
+    }
+    ImGui::SameLine(0.0f, 1.0f);
+
+    auto& snap = m_gizmo.snap_settings();
+    if (editor_icon_button("grid", EditorIcon::Grid, "Grid settings (G toggles visibility)", m_grid_settings.visible)) {
+        ImGui::OpenPopup("Viewport Grid Settings");
+    }
+    ImGui::SameLine(0.0f, 1.0f);
+    if (editor_icon_button("snap", EditorIcon::Snap, "Snap (Shift temporarily inverts it)", snap.enabled)) {
+        snap.enabled = !snap.enabled;
+    }
+    ImGui::SameLine(0.0f, 1.0f);
+    if (editor_icon_button("settings", EditorIcon::Settings, "Configure snap increments")) {
+        ImGui::OpenPopup("Transform Snap Settings");
+    }
+
+    if (ImGui::BeginPopup("Transform Snap Settings")) {
+        ImGui::TextUnformatted("Snap increments");
+        ImGui::Separator();
+        ImGui::SetNextItemWidth(140.0f);
+        ImGui::DragFloat("Position", &snap.position_step, 1.0f, 0.1f, 1024.0f, "%.0f");
+        ImGui::SetNextItemWidth(140.0f);
+        ImGui::DragFloat("Rotation", &snap.rotation_step, 1.0f, 1.0f, 180.0f, "%.0f deg");
+        float scale_snap_percent = snap.scale_step * 100.0f;
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::DragFloat("Scale", &scale_snap_percent, 1.0f, 1.0f, 100.0f, "%.0f%%")) {
+            snap.scale_step = scale_snap_percent / 100.0f;
+        }
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopup("Viewport Grid Settings")) {
+        ImGui::TextUnformatted("Viewport grid");
+        ImGui::Separator();
+        render_grid_settings_menu();
+        ImGui::EndPopup();
+    }
+
+    m_transform_toolbox.end();
+}
+
 
 void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entity) {
     if (!em.is_alive(entity)) return;
@@ -449,6 +519,7 @@ void ViewportPanel::on_gui() {
             ImGui::GetIO().Framerate);
 
         ImGui::Spacing();
+        render_transform_toolbar();
 
         // --- 2. Canvas Image Rendering (Aspect-Ratio Fitted) ---
         ImVec2 avail_size = ImGui::GetContentRegionAvail();
@@ -491,78 +562,6 @@ void ViewportPanel::on_gui() {
                 if (ImGui::IsKeyPressed(ImGuiKey_S)) m_gizmo.set_tool(TransformTool::Scale);
                 if (ImGui::IsKeyPressed(ImGuiKey_G)) m_grid_settings.visible = !m_grid_settings.visible;
             }
-
-            // Compact contextual toolbar hosted by the Scene Viewport.
-            constexpr ImVec2 toolbox_size(148.0f, 20.0f);
-            m_transform_toolbox.begin("Transform Toolbar", toolbox_size, img_min, img_max);
-            bool is_toolbox_hovered = m_transform_toolbox.is_hovered();
-            m_transform_toolbox.render_drag_handle("##toolbox_grip");
-            ImGui::SameLine(0.0f, 1.0f);
-
-            if (editor_icon_button("move", EditorIcon::Move, "Move (W)", m_gizmo.get_tool() == TransformTool::Move)) {
-                m_gizmo.set_tool(TransformTool::Move);
-            }
-            ImGui::SameLine(0.0f, 1.0f);
-            if (editor_icon_button("rotate", EditorIcon::Rotate, "Rotate (R)", m_gizmo.get_tool() == TransformTool::Rotate)) {
-                m_gizmo.set_tool(TransformTool::Rotate);
-            }
-            ImGui::SameLine(0.0f, 1.0f);
-            if (editor_icon_button("scale", EditorIcon::Scale, "Scale (S)", m_gizmo.get_tool() == TransformTool::Scale)) {
-                m_gizmo.set_tool(TransformTool::Scale);
-            }
-            ImGui::SameLine(0.0f, 4.0f);
-
-            const bool multiple_selection = m_selection && m_selection->get_selected().size() > 1;
-            if (multiple_selection) m_gizmo.set_space(GizmoSpace::World);
-            const GizmoSpace space = m_gizmo.get_space();
-            const char* space_tooltip = multiple_selection
-                ? "Space: World (multiple selections use World)"
-                : (space == GizmoSpace::World ? "Space: World (click for Local)" : "Space: Local (click for World)");
-            const EditorIcon space_icon = space == GizmoSpace::World ? EditorIcon::World : EditorIcon::Local;
-            if (editor_icon_button("space", space_icon, space_tooltip, true) && !multiple_selection) {
-                m_gizmo.set_space(space == GizmoSpace::Local ? GizmoSpace::World : GizmoSpace::Local);
-            }
-            ImGui::SameLine(0.0f, 1.0f);
-
-            auto& snap = m_gizmo.snap_settings();
-            if (editor_icon_button("grid", EditorIcon::Grid, "Grid settings (G toggles visibility)", m_grid_settings.visible)) {
-                ImGui::OpenPopup("Viewport Grid Settings");
-            }
-            ImGui::SameLine(0.0f, 1.0f);
-            if (editor_icon_button("snap", EditorIcon::Snap, "Snap (Shift temporarily inverts it)", snap.enabled)) {
-                snap.enabled = !snap.enabled;
-            }
-            ImGui::SameLine(0.0f, 1.0f);
-            if (editor_icon_button("settings", EditorIcon::Settings, "Configure snap increments")) {
-                ImGui::OpenPopup("Transform Snap Settings");
-            }
-
-            if (ImGui::BeginPopup("Transform Snap Settings")) {
-                is_toolbox_hovered = true;
-                ImGui::TextUnformatted("Snap increments");
-                ImGui::Separator();
-                ImGui::SetNextItemWidth(140.0f);
-                ImGui::DragFloat("Position", &snap.position_step, 1.0f, 0.1f, 1024.0f, "%.0f");
-                ImGui::SetNextItemWidth(140.0f);
-                ImGui::DragFloat("Rotation", &snap.rotation_step, 1.0f, 1.0f, 180.0f, "%.0f deg");
-                float scale_snap_percent = snap.scale_step * 100.0f;
-                ImGui::SetNextItemWidth(140.0f);
-                if (ImGui::DragFloat("Scale", &scale_snap_percent, 1.0f, 1.0f, 100.0f, "%.0f%%")) {
-                    snap.scale_step = scale_snap_percent / 100.0f;
-                }
-                ImGui::EndPopup();
-            }
-
-            if (ImGui::BeginPopup("Viewport Grid Settings")) {
-                is_toolbox_hovered = true;
-                ImGui::TextUnformatted("Viewport grid");
-                ImGui::Separator();
-                render_grid_settings_menu();
-                ImGui::EndPopup();
-            }
-
-            m_transform_toolbox.end();
-            m_is_hovered = m_is_hovered && !is_toolbox_hovered;
 
             if (img_size.x > 0.0f && img_size.y > 0.0f) {
                 float norm_x = (mouse_pos.x - img_min.x) / img_size.x;

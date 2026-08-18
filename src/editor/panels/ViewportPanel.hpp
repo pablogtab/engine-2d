@@ -97,6 +97,7 @@ private:
 
     void render_entity_context_menu(EntityManager& em, EntityID entity);
     void render_rename_entity_popup(EntityManager& em);
+    void render_transform_toolbar();
 
     // Sub-tools
     TransformGizmo2D m_gizmo;
