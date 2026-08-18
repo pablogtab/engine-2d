@@ -7,8 +7,8 @@
 namespace Engine {
 
 struct ProjectDisplaySettings {
-    int reference_width{1920};
-    int reference_height{1080};
+    int reference_width{1280};
+    int reference_height{720};
     PresentationMode presentation{PresentationMode::Fit};
     WindowMode default_window_mode{WindowMode::Windowed};
     int default_window_width{1280};

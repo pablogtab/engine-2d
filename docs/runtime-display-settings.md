@@ -4,6 +4,12 @@
 confirmation flow, and persistence. Project display settings are defaults and must
 not be modified to store a player's preferences.
 
+The project authoring reference is not a desktop resolution. It defines game-space
+composition and the internal reference used by cameras and presentation. Window
+size, fullscreen mode, monitor resolution, framebuffer pixels, and DPI are managed
+separately by `DisplayManager`. Changing a player's window resolution must not
+change the project authoring reference.
+
 ## Build a settings menu
 
 Query capabilities before showing controls:

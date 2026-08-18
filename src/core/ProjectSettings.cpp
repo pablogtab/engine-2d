@@ -55,8 +55,8 @@ bool ProjectSettings::load(const std::string& filepath) {
     }
 
     const auto& display = root.contains("display") ? root["display"] : nlohmann::json::object();
-    m_display.reference_width = std::clamp(display.value("reference_width", 1920), 64, 16384);
-    m_display.reference_height = std::clamp(display.value("reference_height", 1080), 64, 16384);
+    m_display.reference_width = std::clamp(display.value("reference_width", 1280), 64, 16384);
+    m_display.reference_height = std::clamp(display.value("reference_height", 720), 64, 16384);
     m_display.presentation = presentation_from_string(display.value("presentation", std::string{"fit"}));
     m_display.default_window_mode = window_mode_from_string(display.value("default_window_mode", std::string{"windowed"}));
     m_display.default_window_width = std::clamp(display.value("default_window_width", 1280), 320, 16384);
@@ -64,7 +64,7 @@ bool ProjectSettings::load(const std::string& filepath) {
     m_display.default_refresh_rate = std::max(display.value("default_refresh_rate", 0.0f), 0.0f);
     m_display.default_vsync = display.value("default_vsync", true);
     ENGINE_LOG_INFO(
-        "[PROJECT SETTINGS] Game output: {}x{} ({})",
+        "[PROJECT SETTINGS] Authoring reference: {}x{} ({})",
         m_display.reference_width,
         m_display.reference_height,
         presentation_to_string(m_display.presentation)

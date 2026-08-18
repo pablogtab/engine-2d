@@ -62,25 +62,27 @@ void ProjectSettingsPanel::on_gui() {
 
             ImGui::TableNextColumn();
             ImGui::TextUnformatted("Display");
-            ImGui::TextDisabled("Reference canvas and window presentation used by the game.");
+            ImGui::TextDisabled("Authoring reference and independent desktop window defaults.");
             ImGui::Separator();
             ImGui::Spacing();
 
-            ImGui::TextUnformatted("Reference resolution");
-            if (ImGui::Button("1920 x 1080")) {
-                m_pending.reference_width = 1920;
-                m_pending.reference_height = 1080;
-            }
-            ImGui::SameLine();
+            ImGui::TextUnformatted("Authoring reference");
             if (ImGui::Button("1280 x 720")) {
                 m_pending.reference_width = 1280;
                 m_pending.reference_height = 720;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("1920 x 1080")) {
+                m_pending.reference_width = 1920;
+                m_pending.reference_height = 1080;
             }
             ImGui::SameLine();
             if (ImGui::Button("1080 x 1920")) {
                 m_pending.reference_width = 1080;
                 m_pending.reference_height = 1920;
             }
+
+            ImGui::TextDisabled("Defines game coordinates and camera composition, not the player's monitor resolution.");
 
             ImGui::Spacing();
             ImGui::SetNextItemWidth(150.0f);
@@ -102,7 +104,7 @@ void ProjectSettingsPanel::on_gui() {
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::TextUnformatted("Desktop defaults");
-            ImGui::TextDisabled("Initial standalone values. Runtime player preferences remain separate.");
+            ImGui::TextDisabled("Initial window values. Runtime player preferences remain separate.");
 
             int window_mode = static_cast<int>(m_pending.default_window_mode);
             ImGui::SetNextItemWidth(190.0f);
