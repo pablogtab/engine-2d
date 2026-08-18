@@ -70,6 +70,7 @@ set(SOURCES
     src/editor/inspector/RigidBodyInspectorDrawer.cpp
     src/editor/inspector/ColliderInspectorDrawer.cpp
     src/editor/inspector/TilemapInspectorDrawer.cpp
+    src/editor/inspector/AnimationInspectorDrawer.cpp
     src/editor/tools/ViewportCameraController.cpp
     src/editor/tools/ViewportArrangementTool.cpp
     src/editor/tools/EditorIcons.cpp
@@ -192,6 +193,17 @@ target_include_directories(InspectorCommandTests PRIVATE
 )
 target_link_libraries(InspectorCommandTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME InspectorCommandTests COMMAND InspectorCommandTests)
+
+add_executable(AnimationSystemTests
+    tests/AnimationSystemTests.cpp
+    src/ecs/EntityManager.cpp
+    src/renderer/SpriteAnimationSystem.cpp
+)
+target_include_directories(AnimationSystemTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(AnimationSystemTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME AnimationSystemTests COMMAND AnimationSystemTests)
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

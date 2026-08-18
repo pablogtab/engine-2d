@@ -115,19 +115,18 @@ void GenericScene::on_update(float delta_time) {
 
         // Player Animation State Machine (Idle, Run, Jump, Fall)
         if (m_entity_manager.has_component<AnimationComponent>(player_id)) {
-            auto& anim = m_entity_manager.get_component<AnimationComponent>(player_id);
             bool is_grounded = std::abs(rb.velocity.y) < 15.0f;
             if (!is_grounded) {
                 if (rb.velocity.y > 20.0f) {
-                    anim.play_clip("Jump");
+                    SpriteAnimationSystem::play_clip(m_entity_manager, player_id, "Jump");
                 } else if (rb.velocity.y < -20.0f) {
-                    anim.play_clip("Fall");
+                    SpriteAnimationSystem::play_clip(m_entity_manager, player_id, "Fall");
                 }
             } else {
                 if (std::abs(rb.velocity.x) > 10.0f) {
-                    anim.play_clip("Run");
+                    SpriteAnimationSystem::play_clip(m_entity_manager, player_id, "Run");
                 } else {
-                    anim.play_clip("Idle");
+                    SpriteAnimationSystem::play_clip(m_entity_manager, player_id, "Idle");
                 }
             }
         }

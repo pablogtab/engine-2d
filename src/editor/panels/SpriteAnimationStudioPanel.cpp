@@ -2,12 +2,24 @@
 #include "../../ecs/Components.hpp"
 #include "../../renderer/Texture.hpp"
 #include "../../core/Log.hpp"
+#include "../../renderer/SpriteAnimationSystem.hpp"
+#include "../commands/EntityCommands.hpp"
+#include "../inspector/ComponentInspectorTransaction.hpp"
+#include "../inspector/InspectorWidgets.hpp"
 #include <imgui.h>
 #include <string>
 #include <algorithm>
 #include <cmath>
 
 namespace Engine {
+
+namespace {
+
+void reset_animation_runtime(EntityManager& em, EntityID entity) {
+    SpriteAnimationSystem::reset_playback(em, entity);
+}
+
+} // namespace
 
 SpriteAnimationStudioPanel::SpriteAnimationStudioPanel(
     SceneManager* scene_manager,
@@ -16,6 +28,46 @@ SpriteAnimationStudioPanel::SpriteAnimationStudioPanel(
     : m_scene_manager(scene_manager),
       m_selection(selection) {
     is_open = false; // Closed by default
+}
+
+void SpriteAnimationStudioPanel::reset_preview(
+    EntityID entity,
+    const AnimationComponent& animation,
+    int clip_index
+) {
+    m_preview_entity = entity;
+    m_preview_clip_index = clip_index >= 0 ? clip_index : animation.default_clip_index;
+    m_preview_clip_index = std::clamp(
+        m_preview_clip_index,
+        0,
+        std::max(0, static_cast<int>(animation.clips.size()) - 1)
+    );
+    const AnimationClip* clip = animation.get_clip(m_preview_clip_index);
+    m_preview_frame = clip ? (clip->custom_frames.empty() ? clip->start_frame : 0) : 0;
+    m_preview_timer = 0.0f;
+    m_preview_playing = false;
+    m_preview_finished = false;
+}
+
+void SpriteAnimationStudioPanel::track_edit(
+    EntityManager& em,
+    EntityID entity,
+    const AnimationComponent& before,
+    const std::string& property,
+    const char* description,
+    bool force_commit
+) {
+    track_component_edit<AnimationComponent>(
+        em,
+        entity,
+        before,
+        property.c_str(),
+        description,
+        {m_command_history.get(), &m_property_transactions},
+        std::equal_to<AnimationComponent>{},
+        reset_animation_runtime,
+        force_commit
+    );
 }
 
 void SpriteAnimationStudioPanel::on_gui() {
@@ -43,6 +95,7 @@ void SpriteAnimationStudioPanel::on_gui() {
         if (m_selection && !m_selection->empty()) {
             EntityID sel_primary = m_selection->get_primary();
             if (em.is_alive(sel_primary) && em.has_component<SpriteComponent>(sel_primary)) {
+                if (m_target_entity != sel_primary) m_preview_entity = 0;
                 m_target_entity = sel_primary;
             }
         }
@@ -60,7 +113,8 @@ void SpriteAnimationStudioPanel::on_gui() {
             return;
         }
 
-        // Auto-add AnimationComponent if missing
+        // Opening the studio may author a default animator, so it follows the
+        // same reversible component lifecycle as the Inspector.
         if (!em.has_component<AnimationComponent>(m_target_entity)) {
             AnimationComponent new_anim;
             new_anim.columns = 8;
@@ -68,7 +122,23 @@ void SpriteAnimationStudioPanel::on_gui() {
             new_anim.frame_width = 96.0f;
             new_anim.frame_height = 96.0f;
             new_anim.add_clip("Idle", 0, 8, 8.0f, true);
-            em.add_component<AnimationComponent>(m_target_entity, new_anim);
+            if (!m_command_history) {
+                ImGui::TextDisabled("Animation editing requires command history.");
+                ImGui::End();
+                return;
+            }
+            m_command_history->execute_command(std::make_unique<SetComponentCommand<AnimationComponent>>(
+                &em,
+                m_target_entity,
+                std::nullopt,
+                std::move(new_anim),
+                "Add Sprite Animator 2D",
+                reset_animation_runtime
+            ));
+        }
+
+        if (m_preview_entity != m_target_entity) {
+            reset_preview(m_target_entity, em.get_component<AnimationComponent>(m_target_entity));
         }
 
         render_top_bar(em, m_target_entity);
@@ -152,17 +222,18 @@ void SpriteAnimationStudioPanel::render_preview_viewport(EntityManager& em, Enti
     dl->AddRect(box_pos, ImVec2(box_pos.x + preview_box_size, box_pos.y + preview_box_size), IM_COL32(63, 63, 70, 255), 6.0f, 0, 1.5f);
 
     // Live frame advancement inside Animation Studio
-    const AnimationClip* clip = anim.get_active_clip();
-    if (anim.is_playing && clip) {
+    if (!anim.get_clip(m_preview_clip_index)) reset_preview(entity, anim);
+    const AnimationClip* clip = anim.get_clip(m_preview_clip_index);
+    if (m_preview_playing && clip) {
         float dt = ImGui::GetIO().DeltaTime;
-        anim.timer += dt;
+        m_preview_timer += dt;
         float frame_duration = 1.0f / (clip->fps > 0.1f ? clip->fps : 10.0f);
 
-        while (anim.timer >= frame_duration && anim.is_playing) {
-            anim.timer -= frame_duration;
+        while (m_preview_timer >= frame_duration && m_preview_playing) {
+            m_preview_timer -= frame_duration;
             int total = clip->get_total_frames();
             if (total > 0) {
-                int rel_frame = clip->custom_frames.empty() ? (anim.current_frame - clip->start_frame) : anim.current_frame;
+                int rel_frame = clip->custom_frames.empty() ? (m_preview_frame - clip->start_frame) : m_preview_frame;
                 rel_frame++;
 
                 if (rel_frame >= total) {
@@ -170,22 +241,18 @@ void SpriteAnimationStudioPanel::render_preview_viewport(EntityManager& em, Enti
                         rel_frame = 0;
                     } else {
                         rel_frame = total - 1;
-                        anim.is_playing = false;
-                        anim.is_finished = true;
+                        m_preview_playing = false;
+                        m_preview_finished = true;
                     }
                 }
-                anim.current_frame = clip->custom_frames.empty() ? (clip->start_frame + rel_frame) : rel_frame;
+                m_preview_frame = clip->custom_frames.empty() ? (clip->start_frame + rel_frame) : rel_frame;
             }
         }
-
-        // Keep entity sprite in sync with live studio preview
-        sprite.src_rect = anim.get_frame_rect(anim.current_frame, clip);
-        sprite.use_src_rect = true;
     }
 
     // Draw active animated frame
     if (tex && tex->get_sdl_texture()) {
-        SDL_FRect frame_rect = anim.get_frame_rect(anim.current_frame, clip);
+        SDL_FRect frame_rect = anim.get_frame_rect(m_preview_frame, clip);
 
         float tex_w = static_cast<float>(tex->get_width());
         float tex_h = static_cast<float>(tex->get_height());
@@ -222,37 +289,56 @@ void SpriteAnimationStudioPanel::render_preview_viewport(EntityManager& em, Enti
     ImGui::Dummy(ImVec2(preview_box_size, preview_box_size));
 
     // Playback Transport Bar
-    const AnimationClip* active_clip = anim.get_active_clip();
-    int total_frames = active_clip ? active_clip->get_total_frames() : 1;
+    const AnimationClip* active_clip = anim.get_clip(m_preview_clip_index);
+    int total_frames = active_clip ? std::max(1, active_clip->get_total_frames()) : 1;
 
     ImGui::Spacing();
-    if (anim.is_playing) {
-        if (ImGui::Button("⏸", ImVec2(32, 24))) anim.is_playing = false;
+    if (m_preview_playing) {
+        if (ImGui::Button("⏸", ImVec2(32, 24))) m_preview_playing = false;
     } else {
-        if (ImGui::Button("▶", ImVec2(32, 24))) anim.is_playing = true;
+        if (ImGui::Button("▶", ImVec2(32, 24))) m_preview_playing = true;
     }
     ImGui::SameLine();
     if (ImGui::Button("⏮", ImVec2(32, 24))) {
-        anim.is_playing = false;
-        anim.current_frame = std::max(0, anim.current_frame - 1);
+        m_preview_playing = false;
+        if (active_clip) {
+            const int relative = active_clip->custom_frames.empty()
+                ? m_preview_frame - active_clip->start_frame
+                : m_preview_frame;
+            const int previous = (relative - 1 + total_frames) % total_frames;
+            m_preview_frame = active_clip->custom_frames.empty()
+                ? active_clip->start_frame + previous
+                : previous;
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("⏭", ImVec2(32, 24))) {
-        anim.is_playing = false;
-        anim.current_frame = (anim.current_frame + 1) % total_frames;
+        m_preview_playing = false;
+        if (active_clip) {
+            const int relative = active_clip->custom_frames.empty()
+                ? m_preview_frame - active_clip->start_frame
+                : m_preview_frame;
+            const int next = (relative + 1) % total_frames;
+            m_preview_frame = active_clip->custom_frames.empty()
+                ? active_clip->start_frame + next
+                : next;
+        }
     }
     ImGui::SameLine();
     if (ImGui::Button("⏹", ImVec2(32, 24))) {
-        anim.is_playing = false;
-        anim.current_frame = active_clip ? active_clip->start_frame : 0;
-        anim.timer = 0.0f;
+        m_preview_playing = false;
+        m_preview_frame = active_clip ? (active_clip->custom_frames.empty() ? active_clip->start_frame : 0) : 0;
+        m_preview_timer = 0.0f;
     }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(70.0f);
     ImGui::SliderFloat("##PZoom", &m_preview_zoom, 0.5f, 4.0f, "%.1fx");
 
     if (active_clip) {
-        ImGui::Text("Frame: %d / %d", anim.current_frame, total_frames);
+        const int relative = active_clip->custom_frames.empty()
+            ? m_preview_frame - active_clip->start_frame
+            : m_preview_frame;
+        ImGui::Text("Frame: %d / %d", relative + 1, total_frames);
     }
 }
 
@@ -267,7 +353,7 @@ void SpriteAnimationStudioPanel::render_clip_tabs(EntityManager& em, EntityID en
 
     for (size_t i = 0; i < anim.clips.size(); ++i) {
         auto& c = anim.clips[i];
-        bool is_selected = (anim.active_clip_index == static_cast<int>(i));
+        bool is_selected = (m_preview_clip_index == static_cast<int>(i));
 
         ImGui::PushID(static_cast<int>(i));
         if (is_selected) {
@@ -276,10 +362,7 @@ void SpriteAnimationStudioPanel::render_clip_tabs(EntityManager& em, EntityID en
 
         std::string btn_label = c.name + " (" + std::to_string(c.get_total_frames()) + "f)";
         if (ImGui::Button(btn_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x - 30.0f, 24))) {
-            anim.active_clip_index = static_cast<int>(i);
-            anim.current_frame = c.start_frame;
-            anim.timer = 0.0f;
-            anim.is_finished = false;
+            reset_preview(entity, anim, static_cast<int>(i));
         }
 
         if (is_selected) {
@@ -294,19 +377,26 @@ void SpriteAnimationStudioPanel::render_clip_tabs(EntityManager& em, EntityID en
     }
 
     if (clip_to_remove >= 0 && clip_to_remove < static_cast<int>(anim.clips.size())) {
+        const AnimationComponent before = anim;
         anim.clips.erase(anim.clips.begin() + clip_to_remove);
-        if (anim.active_clip_index >= static_cast<int>(anim.clips.size())) {
-            anim.active_clip_index = std::max(0, static_cast<int>(anim.clips.size()) - 1);
-        }
+        anim.default_clip_index = std::clamp(
+            anim.default_clip_index,
+            0,
+            std::max(0, static_cast<int>(anim.clips.size()) - 1)
+        );
+        track_edit(em, entity, before, "AnimationStudio.RemoveClip", "Remove Animation Clip", true);
+        reset_preview(entity, anim);
     }
 
     if (ImGui::Button("+ Add New Clip", ImVec2(ImGui::GetContentRegionAvail().x, 24))) {
+        const AnimationComponent before = anim;
         anim.add_clip("NewClip", 0, 4, 10.0f, true);
-        anim.active_clip_index = static_cast<int>(anim.clips.size()) - 1;
+        track_edit(em, entity, before, "AnimationStudio.AddClip", "Add Animation Clip", true);
+        reset_preview(entity, anim, static_cast<int>(anim.clips.size()) - 1);
     }
 
     // Active Clip Properties
-    auto* active_clip = anim.get_active_clip();
+    auto* active_clip = anim.get_clip(m_preview_clip_index);
     if (active_clip) {
         ImGui::Spacing();
         ImGui::TextDisabled("Clip Settings: '%s'", active_clip->name.c_str());
@@ -314,12 +404,23 @@ void SpriteAnimationStudioPanel::render_clip_tabs(EntityManager& em, EntityID en
         char name_buf[64];
         strncpy(name_buf, active_clip->name.c_str(), sizeof(name_buf));
         name_buf[sizeof(name_buf) - 1] = '\0';
-        if (ImGui::InputText("Clip Name", name_buf, sizeof(name_buf))) {
-            active_clip->name = name_buf;
-        }
+        const AnimationComponent name_before = anim;
+        InspectorWidgets::begin_property_interaction("AnimationStudio.ClipName");
+        if (ImGui::InputText("Clip Name", name_buf, sizeof(name_buf))) active_clip->name = name_buf;
+        InspectorWidgets::capture_property_interaction();
+        track_edit(em, entity, name_before, "AnimationStudio.ClipName", "Rename Animation Clip");
 
+        const AnimationComponent speed_before = anim;
+        InspectorWidgets::begin_property_interaction("AnimationStudio.ClipSpeed");
         ImGui::SliderFloat("Speed", &active_clip->fps, 1.0f, 60.0f, "%.0f FPS");
+        InspectorWidgets::capture_property_interaction();
+        track_edit(em, entity, speed_before, "AnimationStudio.ClipSpeed", "Edit Animation Clip Speed");
+
+        const AnimationComponent loop_before = anim;
+        InspectorWidgets::begin_property_interaction("AnimationStudio.ClipLoop");
         ImGui::Checkbox("Looping", &active_clip->loop);
+        InspectorWidgets::capture_property_interaction();
+        track_edit(em, entity, loop_before, "AnimationStudio.ClipLoop", "Toggle Animation Clip Loop");
     }
 }
 
@@ -340,21 +441,42 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(EntityManager& em, En
 
     if (!m_slicer_mode_freeform) {
         // Grid Slicer Controls
+        const AnimationComponent columns_before = anim;
         ImGui::SetNextItemWidth(70.0f);
+        InspectorWidgets::begin_property_interaction("AnimationStudio.Columns");
         ImGui::DragInt("Cols", &anim.columns, 1.0f, 1, 64);
+        InspectorWidgets::capture_property_interaction();
+        track_edit(em, entity, columns_before, "AnimationStudio.Columns", "Edit Animation Columns");
         ImGui::SameLine();
+        const AnimationComponent rows_before = anim;
         ImGui::SetNextItemWidth(70.0f);
+        InspectorWidgets::begin_property_interaction("AnimationStudio.Rows");
         ImGui::DragInt("Rows", &anim.rows, 1.0f, 1, 64);
+        InspectorWidgets::capture_property_interaction();
+        track_edit(em, entity, rows_before, "AnimationStudio.Rows", "Edit Animation Rows");
         ImGui::SameLine();
+        const AnimationComponent width_before = anim;
         ImGui::SetNextItemWidth(80.0f);
+        InspectorWidgets::begin_property_interaction("AnimationStudio.FrameWidth");
         ImGui::DragFloat("Width", &anim.frame_width, 1.0f, 4.0f, 1024.0f, "%.0fpx");
+        InspectorWidgets::capture_property_interaction();
+        track_edit(em, entity, width_before, "AnimationStudio.FrameWidth", "Edit Animation Frame Width");
         ImGui::SameLine();
+        const AnimationComponent height_before = anim;
         ImGui::SetNextItemWidth(80.0f);
+        InspectorWidgets::begin_property_interaction("AnimationStudio.FrameHeight");
         ImGui::DragFloat("Height", &anim.frame_height, 1.0f, 4.0f, 1024.0f, "%.0fpx");
+        InspectorWidgets::capture_property_interaction();
+        track_edit(em, entity, height_before, "AnimationStudio.FrameHeight", "Edit Animation Frame Height");
         ImGui::SameLine();
+        const AnimationComponent spacing_before = anim;
         ImGui::SetNextItemWidth(60.0f);
-        ImGui::DragFloat("Spacing", &anim.spacing_x, 1.0f, 0.0f, 64.0f, "%.0fpx");
-        anim.spacing_y = anim.spacing_x;
+        InspectorWidgets::begin_property_interaction("AnimationStudio.Spacing");
+        if (ImGui::DragFloat("Spacing", &anim.spacing_x, 1.0f, 0.0f, 64.0f, "%.0fpx")) {
+            anim.spacing_y = anim.spacing_x;
+        }
+        InspectorWidgets::capture_property_interaction();
+        track_edit(em, entity, spacing_before, "AnimationStudio.Spacing", "Edit Animation Spacing");
     } else {
         ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "💡 Click & drag a box over the texture to carve any custom frame!");
     }
@@ -380,7 +502,7 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(EntityManager& em, En
         ImVec2(canvas_pos.x + canvas_w, canvas_pos.y + canvas_h)
     );
 
-    const AnimationClip* active_clip = anim.get_active_clip();
+    const AnimationClip* active_clip = anim.get_clip(m_preview_clip_index);
 
     // Draw Grid Slices Overlay
     if (!m_slicer_mode_freeform && anim.columns > 0 && anim.rows > 0) {
@@ -395,7 +517,7 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(EntityManager& em, En
                 in_active_clip = (i >= active_clip->start_frame && i < active_clip->start_frame + active_clip->frame_count);
             }
 
-            bool is_current_playing = (in_active_clip && anim.current_frame == i);
+            bool is_current_playing = (in_active_clip && m_preview_frame == i);
 
             // Fill & Border Colors
             ImU32 fill_col = in_active_clip ? IM_COL32(59, 130, 246, 45) : IM_COL32(0, 0, 0, 0);
@@ -420,7 +542,7 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(EntityManager& em, En
             ImVec2 p_min(canvas_pos.x + r.x * m_sheet_zoom, canvas_pos.y + r.y * m_sheet_zoom);
             ImVec2 p_max(p_min.x + r.w * m_sheet_zoom, p_min.y + r.h * m_sheet_zoom);
 
-            bool is_current = (anim.current_frame == static_cast<int>(i));
+            bool is_current = (m_preview_frame == static_cast<int>(i));
             ImU32 border_col = is_current ? IM_COL32(234, 179, 8, 255) : IM_COL32(16, 185, 129, 220);
 
             dl->AddRectFilled(p_min, p_max, IM_COL32(16, 185, 129, 45));
@@ -449,10 +571,19 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(EntityManager& em, En
 
                 // Click to assign to current clip
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                    if (auto* c = anim.get_active_clip()) {
+                    if (auto* c = anim.get_clip(m_preview_clip_index)) {
                         if (c->custom_frames.empty()) {
+                            const AnimationComponent before = anim;
                             c->start_frame = clicked_frame;
-                            anim.current_frame = clicked_frame;
+                            track_edit(
+                                em,
+                                entity,
+                                before,
+                                "AnimationStudio.ClipStartFromCanvas",
+                                "Set Animation Clip Start Frame",
+                                true
+                            );
+                            m_preview_frame = clicked_frame;
                         }
                     }
                 }
@@ -488,8 +619,17 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(EntityManager& em, En
             float rh = std::abs(m_drag_end_uv.y - m_drag_start_uv.y);
 
             if (rw > 4.0f && rh > 4.0f) {
-                if (auto* c = anim.get_active_clip()) {
+                if (auto* c = anim.get_clip(m_preview_clip_index)) {
+                    const AnimationComponent before = anim;
                     c->custom_frames.push_back(SDL_FRect{rx, ry, rw, rh});
+                    track_edit(
+                        em,
+                        entity,
+                        before,
+                        "AnimationStudio.AddCustomFrame",
+                        "Add Custom Animation Frame",
+                        true
+                    );
                 }
             }
         }
@@ -503,7 +643,7 @@ void SpriteAnimationStudioPanel::render_timeline(EntityManager& em, EntityID ent
     auto& sprite = em.get_component<SpriteComponent>(entity);
     Texture* tex = sprite.texture;
 
-    const AnimationClip* active_clip = anim.get_active_clip();
+    const AnimationClip* active_clip = anim.get_clip(m_preview_clip_index);
     if (!active_clip || !tex) return;
 
     int total_frames = active_clip->get_total_frames();
@@ -525,7 +665,7 @@ void SpriteAnimationStudioPanel::render_timeline(EntityManager& em, EntityID ent
         ImVec2 uv0(f_rect.x / tex_w, f_rect.y / tex_h);
         ImVec2 uv1((f_rect.x + f_rect.w) / tex_w, (f_rect.y + f_rect.h) / tex_h);
 
-        bool is_current = (anim.current_frame == frame_idx);
+        bool is_current = (m_preview_frame == frame_idx);
 
         ImVec2 btn_pos = ImGui::GetCursorScreenPos();
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -538,8 +678,8 @@ void SpriteAnimationStudioPanel::render_timeline(EntityManager& em, EntityID ent
 
         // Clickable Thumbnail Image Button
         if (ImGui::ImageButton("##frame_btn", (ImTextureID)(intptr_t)tex->get_sdl_texture(), ImVec2(thumb_size - 6.0f, thumb_size - 6.0f), uv0, uv1)) {
-            anim.current_frame = frame_idx;
-            anim.is_playing = false;
+            m_preview_frame = frame_idx;
+            m_preview_playing = false;
         }
 
         // Frame number label

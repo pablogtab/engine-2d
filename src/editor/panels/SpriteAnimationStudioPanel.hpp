@@ -3,6 +3,8 @@
 #include "../EditorPanel.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../EditorSelection.hpp"
+#include "../commands/EditorCommandHistory.hpp"
+#include "../commands/EditorPropertyTransaction.hpp"
 #include <imgui.h>
 #include <memory>
 #include <string>
@@ -21,8 +23,12 @@ public:
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
     void open_for_entity(EntityID entity) {
+        if (m_target_entity != entity) m_preview_entity = 0;
         m_target_entity = entity;
         is_open = true;
+    }
+    void set_command_history(std::shared_ptr<EditorCommandHistory> command_history) {
+        m_command_history = std::move(command_history);
     }
 
 private:
@@ -31,9 +37,20 @@ private:
     void render_spritesheet_canvas(EntityManager& em, EntityID entity);
     void render_timeline(EntityManager& em, EntityID entity);
     void render_clip_tabs(EntityManager& em, EntityID entity);
+    void reset_preview(EntityID entity, const AnimationComponent& animation, int clip_index = -1);
+    void track_edit(
+        EntityManager& em,
+        EntityID entity,
+        const AnimationComponent& before,
+        const std::string& property,
+        const char* description,
+        bool force_commit = false
+    );
 
     SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
+    std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
+    EditorPropertyTransaction m_property_transactions;
     EntityID m_target_entity{0};
 
     float m_sheet_zoom{1.5f};
@@ -47,6 +64,11 @@ private:
 
     // Frame step timer for preview
     float m_preview_timer{0.0f};
+    EntityID m_preview_entity{0};
+    int m_preview_clip_index{0};
+    int m_preview_frame{0};
+    bool m_preview_playing{false};
+    bool m_preview_finished{false};
     int m_timeline_selected_frame{-1};
 
     std::string m_name{"Animation Studio"};

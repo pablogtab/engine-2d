@@ -169,9 +169,22 @@ struct AnimationClip {
     int get_total_frames() const {
         return custom_frames.empty() ? frame_count : static_cast<int>(custom_frames.size());
     }
+
+    bool operator==(const AnimationClip& other) const {
+        if (name != other.name || start_frame != other.start_frame ||
+            frame_count != other.frame_count || fps != other.fps || loop != other.loop ||
+            custom_frames.size() != other.custom_frames.size()) return false;
+        for (std::size_t index = 0; index < custom_frames.size(); ++index) {
+            const auto& lhs = custom_frames[index];
+            const auto& rhs = other.custom_frames[index];
+            if (lhs.x != rhs.x || lhs.y != rhs.y || lhs.w != rhs.w || lhs.h != rhs.h) return false;
+        }
+        return true;
+    }
 };
 
-// Animation Component for 2D spritesheet animation playback
+// Serializable authoring data for a 2D sprite animator. Playback state lives
+// in AnimationPlaybackStateComponent and is never serialized with the scene.
 struct AnimationComponent {
     int columns{1};
     int rows{1};
@@ -183,12 +196,8 @@ struct AnimationComponent {
     float margin_y{0.0f};
 
     std::vector<AnimationClip> clips;
-    int active_clip_index{0};
-
-    int current_frame{0};
-    float timer{0.0f};
-    bool is_playing{true};
-    bool is_finished{false};
+    int default_clip_index{0};
+    bool play_on_start{true};
 
     AnimationComponent() = default;
 
@@ -196,18 +205,18 @@ struct AnimationComponent {
         clips.emplace_back(name, start_frame, frame_count, fps, loop);
     }
 
-    AnimationClip* get_active_clip() {
-        if (clips.empty() || active_clip_index < 0 || active_clip_index >= static_cast<int>(clips.size())) return nullptr;
-        return &clips[active_clip_index];
+    AnimationClip* get_clip(int index) {
+        if (clips.empty() || index < 0 || index >= static_cast<int>(clips.size())) return nullptr;
+        return &clips[index];
     }
 
-    const AnimationClip* get_active_clip() const {
-        if (clips.empty() || active_clip_index < 0 || active_clip_index >= static_cast<int>(clips.size())) return nullptr;
-        return &clips[active_clip_index];
+    const AnimationClip* get_clip(int index) const {
+        if (clips.empty() || index < 0 || index >= static_cast<int>(clips.size())) return nullptr;
+        return &clips[index];
     }
 
     SDL_FRect get_frame_rect(int frame_index, const AnimationClip* clip = nullptr) const {
-        if (!clip) clip = get_active_clip();
+        if (!clip) clip = get_clip(default_clip_index);
         if (clip && !clip->custom_frames.empty()) {
             if (frame_index >= 0 && frame_index < static_cast<int>(clip->custom_frames.size())) {
                 return clip->custom_frames[frame_index];
@@ -225,21 +234,24 @@ struct AnimationComponent {
         };
     }
 
-    bool play_clip(const std::string& clip_name) {
-        for (size_t i = 0; i < clips.size(); ++i) {
-            if (clips[i].name == clip_name) {
-                if (active_clip_index != static_cast<int>(i)) {
-                    active_clip_index = static_cast<int>(i);
-                    current_frame = clips[i].start_frame;
-                    timer = 0.0f;
-                    is_finished = false;
-                }
-                is_playing = true;
-                return true;
-            }
-        }
-        return false;
+    bool operator==(const AnimationComponent& other) const {
+        return columns == other.columns && rows == other.rows &&
+            frame_width == other.frame_width && frame_height == other.frame_height &&
+            spacing_x == other.spacing_x && spacing_y == other.spacing_y &&
+            margin_x == other.margin_x && margin_y == other.margin_y &&
+            clips == other.clips && default_clip_index == other.default_clip_index &&
+            play_on_start == other.play_on_start;
     }
+};
+
+// Runtime-only state generated and controlled by SpriteAnimationSystem.
+struct AnimationPlaybackStateComponent {
+    int active_clip_index{0};
+    int current_frame{0};
+    float timer{0.0f};
+    bool is_playing{false};
+    bool is_finished{false};
+    bool initialized{false};
 };
 
 namespace CollisionCategory {

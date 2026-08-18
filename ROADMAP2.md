@@ -93,8 +93,8 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Migrate every authored RigidBody property to the common transaction lifecycle.
 - [x] Migrate every Collider property and shape edit to the common transaction lifecycle.
 - [x] Migrate every currently exposed Tilemap setting and destructive action to reversible commands.
-- [ ] Separate Animator authoring data from editor preview/playback state.
-- [ ] Migrate Animator clips and spritesheet settings to reversible commands.
+- [x] Separate Animator authoring data from editor preview/playback state.
+- [x] Migrate Animator clips and spritesheet settings to reversible commands.
 - [x] Route texture loading and fallbacks through `AssetManager`; never allocate unmanaged textures from Inspector code.
 - [x] Add generic undoable component add/remove commands, while keeping structural Transform non-removable.
 
@@ -342,7 +342,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [ ] `Renderer2DTests` — sorting layer/order/depth stability, batching boundaries, material state reset, flips, pivots, source rectangles, and render-target routing.
 - [ ] `PhysicsSystemTests` — body creation/destruction, synchronization, collision filters, triggers, one-way collisions, fixed rotation, and transform ownership.
 - [ ] `TilemapTests` — sparse tile storage, painting commands, bounds, serialization, composite collider rebuild, and generated-entity cleanup.
-- [ ] `AnimationSystemTests` — frame selection, looping, non-loop completion, custom frames, spacing/margins, and authored/runtime state separation.
+- [x] `AnimationSystemTests` — frame selection, looping, non-loop completion, custom frames, spacing/margins, and authored/runtime state separation.
 - [ ] `InputRoutingTests` — Edit/Play isolation, text-input capture, viewport focus/hover, mouse-coordinate conversion, and keyboard state transitions.
 - [ ] `SaveSystemTests` — binary/JSON round trips, version rejection, corruption handling, atomic replacement, and failure recovery.
 - [ ] `AssetManagerLifetimeTests` — cache identity, fallback ownership, clear/reload behavior, duplicate loads, and no unmanaged Inspector resources.
@@ -351,8 +351,8 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 - [ ] `EditorCommandHistoryTests` — execute, undo, redo, redo invalidation, bounded history, scene invalidation, and command descriptions.
 - [x] `EditorPropertyTransactionTests` — begin/preview/commit/cancel, unchanged edits, compound values, text commits, and one history entry per gesture.
-- [x] `InspectorCommandTests` — entity rename, Sprite compound edits, RigidBody/Collider component presence, exact restoration, physics fixture rebuild, and Tilemap edit/clear/remove/delete lifecycle.
-- [ ] Extend `InspectorCommandTests` with Animator and Camera side effects as those drawers migrate.
+- [x] `InspectorCommandTests` — entity rename, Sprite and Animator compound edits, authored/runtime separation, RigidBody/Collider component presence, exact restoration, physics fixture rebuild, and Tilemap edit/clear/remove/delete lifecycle.
+- [ ] Extend `InspectorCommandTests` with Camera side effects when that drawer migrates.
 - [ ] `MultiEditTransactionTests` — mixed values, partial component availability, atomic multi-entity commit, cancel, undo, and redo.
 
 ### Phase 2 — Component and Serialization Suites
@@ -447,7 +447,6 @@ These items are useful but should not interrupt the architecture work above unle
 
 Implement the third Phase 1 slice:
 
-1. Separate Animator authored data from preview/playback state, then migrate clips and spritesheet settings.
-2. Extract Camera and remaining Transform Inspector code onto the common transaction infrastructure.
-3. Add `EditorCommandHistoryTests` and extend `InspectorCommandTests` for Animator and Camera.
-4. Define centralized component/property validation policies before adding multi-selection transactions.
+1. Extract Camera and remaining Transform Inspector code onto the common transaction infrastructure.
+2. Add `EditorCommandHistoryTests` and extend `InspectorCommandTests` for Camera.
+3. Define centralized component/property validation policies before adding multi-selection transactions.

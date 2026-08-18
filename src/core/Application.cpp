@@ -121,6 +121,7 @@ Application::Application(const std::string& name, int width, int height, bool st
     });
 
     auto anim_studio_panel = std::make_shared<SpriteAnimationStudioPanel>(&m_scene_manager, selection);
+    anim_studio_panel->set_command_history(command_history);
     inspector_panel->set_animation_studio(anim_studio_panel.get());
 
     viewport_panel->set_palette_panel(palette_panel.get());

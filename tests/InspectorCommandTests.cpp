@@ -336,6 +336,64 @@ void test_delete_tilemap_cleans_and_restores_generated_colliders() {
     assert(generated_collider_count(em, entity) == 0);
 }
 
+void test_animation_authored_edits_round_trip_without_runtime_state() {
+    EntityManager em;
+    EditorCommandHistory history;
+    EditorPropertyTransaction transactions;
+    const EntityID entity = em.create_entity();
+    AnimationComponent initial;
+    initial.columns = 4;
+    initial.rows = 2;
+    initial.add_clip("Idle", 0, 2, 8.0f, true);
+    em.add_component<AnimationComponent>(entity, initial);
+    em.add_component<AnimationPlaybackStateComponent>(
+        entity,
+        AnimationPlaybackStateComponent{0, 1, 0.5f, true, false, true}
+    );
+
+    const auto reset_runtime = [&](EntityManager& command_em, EntityID id) {
+        if (command_em.has_component<AnimationPlaybackStateComponent>(id)) {
+            command_em.remove_component<AnimationPlaybackStateComponent>(id);
+        }
+    };
+    const auto key = EditorPropertyTransaction::make_key(entity, "Animation.Clips");
+    assert(transactions.begin<AnimationComponent>(
+        key,
+        initial,
+        [&]() -> std::optional<AnimationComponent> { return em.get_component<AnimationComponent>(entity); },
+        [&](const AnimationComponent& value) {
+            em.get_component<AnimationComponent>(entity) = value;
+            reset_runtime(em, entity);
+        },
+        "Edit Animation Clips",
+        std::equal_to<AnimationComponent>{},
+        [&]() { reset_runtime(em, entity); }
+    ));
+
+    auto& animation = em.get_component<AnimationComponent>(entity);
+    animation.columns = 8;
+    animation.spacing_x = 2.0f;
+    animation.add_clip("Run", 2, 4, 12.0f, true);
+    animation.default_clip_index = 1;
+    assert(em.has_component<AnimationPlaybackStateComponent>(entity));
+
+    assert(transactions.commit(key, history));
+    assert(!em.has_component<AnimationPlaybackStateComponent>(entity));
+    assert(history.get_undo_count() == 1);
+
+    history.undo();
+    assert(em.get_component<AnimationComponent>(entity) == initial);
+    assert(!em.has_component<AnimationPlaybackStateComponent>(entity));
+
+    history.redo();
+    const auto& redone = em.get_component<AnimationComponent>(entity);
+    assert(redone.columns == 8);
+    assert(redone.clips.size() == 2);
+    assert(redone.clips[1].name == "Run");
+    assert(redone.default_clip_index == 1);
+    assert(!em.has_component<AnimationPlaybackStateComponent>(entity));
+}
+
 } // namespace
 
 int main() {
@@ -346,6 +404,7 @@ int main() {
     test_tilemap_edit_rebuilds_only_on_commit_and_round_trips();
     test_clear_and_remove_tilemap_restore_authored_and_generated_state();
     test_delete_tilemap_cleans_and_restores_generated_colliders();
+    test_animation_authored_edits_round_trip_without_runtime_state();
     std::cout << "InspectorCommandTests passed\n";
     return 0;
 }

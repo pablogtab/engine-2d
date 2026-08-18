@@ -145,8 +145,8 @@ std::string SceneSerializer::serialize_to_string() {
             anim_json["spacing_y"] = anim.spacing_y;
             anim_json["margin_x"] = anim.margin_x;
             anim_json["margin_y"] = anim.margin_y;
-            anim_json["active_clip_index"] = anim.active_clip_index;
-            anim_json["is_playing"] = anim.is_playing;
+            anim_json["default_clip_index"] = anim.default_clip_index;
+            anim_json["play_on_start"] = anim.play_on_start;
 
             json clips_arr = json::array();
             for (const auto& clip : anim.clips) {
@@ -397,8 +397,8 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     if (a_j.contains("spacing_y")) anim.spacing_y = a_j["spacing_y"].get<float>();
                     if (a_j.contains("margin_x")) anim.margin_x = a_j["margin_x"].get<float>();
                     if (a_j.contains("margin_y")) anim.margin_y = a_j["margin_y"].get<float>();
-                    if (a_j.contains("active_clip_index")) anim.active_clip_index = a_j["active_clip_index"].get<int>();
-                    if (a_j.contains("is_playing")) anim.is_playing = a_j["is_playing"].get<bool>();
+                    if (a_j.contains("default_clip_index")) anim.default_clip_index = a_j["default_clip_index"].get<int>();
+                    if (a_j.contains("play_on_start")) anim.play_on_start = a_j["play_on_start"].get<bool>();
 
                     if (a_j.contains("clips") && a_j["clips"].is_array()) {
                         for (const auto& c_j : a_j["clips"]) {
@@ -421,9 +421,6 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                             }
                             anim.clips.push_back(clip);
                         }
-                    }
-                    if (auto* c = anim.get_active_clip()) {
-                        anim.current_frame = c->start_frame;
                     }
                     em.add_component<AnimationComponent>(id, anim);
                 }

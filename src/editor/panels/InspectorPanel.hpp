@@ -4,6 +4,7 @@
 #include "../EditorSelection.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/EditorPropertyTransaction.hpp"
+#include "../inspector/AnimationInspectorDrawer.hpp"
 #include "../../ecs/Components.hpp"
 #include <imgui.h>
 #include <unordered_map>
@@ -48,6 +49,7 @@ private:
     std::unordered_map<ImGuiID, TransformComponent> m_pending_transform_edits;
     std::unordered_map<ImGuiID, CameraComponent> m_pending_camera_edits;
     EditorPropertyTransaction m_property_transactions;
+    AnimationPreviewState m_animation_preview;
     struct SDL_Renderer* m_renderer{nullptr};
     AssetManager* m_asset_manager{nullptr};
     class SpriteAnimationStudioPanel* m_anim_studio{nullptr};

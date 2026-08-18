@@ -7,6 +7,7 @@
 #include "../inspector/RigidBodyInspectorDrawer.hpp"
 #include "../inspector/ColliderInspectorDrawer.hpp"
 #include "../inspector/TilemapInspectorDrawer.hpp"
+#include "../inspector/AnimationInspectorDrawer.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
@@ -14,6 +15,7 @@
 #include "../../core/AssetManager.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../renderer/Texture.hpp"
+#include "../../renderer/SpriteAnimationSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include "../../tilemap/TilemapColliderSystem.hpp"
 #include <imgui.h>
@@ -473,157 +475,12 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         }
     }
 
-    // --- 7. AnimationComponent (Sprite Animator) ---
-    if (em.has_component<AnimationComponent>(entity)) {
-        const auto header = component_header(
-            "Sprite Animator 2D", "AnimationHeader", true, true, EditorIcon::Animation
-        );
-        if (header.remove_requested && m_command_history) {
-            m_command_history->execute_command(std::make_unique<SetComponentCommand<AnimationComponent>>(
-                &em,
-                entity,
-                em.get_component<AnimationComponent>(entity),
-                std::nullopt,
-                "Remove Sprite Animator 2D"
-            ));
-        } else if (header.open) {
-            auto& anim = em.get_component<AnimationComponent>(entity);
-
-            if (m_anim_studio) {
-                const std::string studio_label = editor_icon_label(
-                    EditorIcon::ExternalLink, "Open in Animation Studio"
-                );
-                if (ImGui::Button(studio_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
-                    m_anim_studio->open_for_entity(entity);
-                }
-                ImGui::Spacing();
-            }
-
-            ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "SPRITESHEET GRID");
-            ImGui::DragInt("Columns", &anim.columns, 1.0f, 1, 64);
-            ImGui::DragInt("Rows", &anim.rows, 1.0f, 1, 64);
-            ImGui::DragFloat("Frame Width", &anim.frame_width, 1.0f, 4.0f, 1024.0f, "%.0f px");
-            ImGui::DragFloat("Frame Height", &anim.frame_height, 1.0f, 4.0f, 1024.0f, "%.0f px");
-            ImGui::DragFloat("Spacing", &anim.spacing_x, 1.0f, 0.0f, 64.0f, "%.0f px");
-            anim.spacing_y = anim.spacing_x;
-
-            ImGui::Separator();
-            ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "CLIPS & PLAYBACK");
-
-            if (!anim.clips.empty()) {
-                // Combo of available clips
-                std::vector<const char*> clip_names;
-                for (const auto& c : anim.clips) clip_names.push_back(c.name.c_str());
-
-                int sel_idx = anim.active_clip_index;
-                if (sel_idx < 0 || sel_idx >= (int)anim.clips.size()) sel_idx = 0;
-
-                if (ImGui::Combo("Active Clip", &sel_idx, clip_names.data(), (int)clip_names.size())) {
-                    anim.active_clip_index = sel_idx;
-                    anim.current_frame = anim.clips[sel_idx].start_frame;
-                    anim.timer = 0.0f;
-                    anim.is_finished = false;
-                }
-
-                auto* active_clip = anim.get_active_clip();
-                if (active_clip) {
-                    // Live playback in edit mode when Play is active
-                    if (anim.is_playing) {
-                        float dt = ImGui::GetIO().DeltaTime;
-                        anim.timer += dt;
-                        float frame_duration = 1.0f / (active_clip->fps > 0.1f ? active_clip->fps : 10.0f);
-
-                        while (anim.timer >= frame_duration && anim.is_playing) {
-                            anim.timer -= frame_duration;
-                            int total = active_clip->get_total_frames();
-                            if (total > 0) {
-                                int rel_frame = active_clip->custom_frames.empty() ? (anim.current_frame - active_clip->start_frame) : anim.current_frame;
-                                rel_frame++;
-
-                                if (rel_frame >= total) {
-                                    if (active_clip->loop) {
-                                        rel_frame = 0;
-                                    } else {
-                                        rel_frame = total - 1;
-                                        anim.is_playing = false;
-                                        anim.is_finished = true;
-                                    }
-                                }
-                                anim.current_frame = active_clip->custom_frames.empty() ? (active_clip->start_frame + rel_frame) : rel_frame;
-                            }
-                        }
-
-                        if (em.has_component<SpriteComponent>(entity)) {
-                            auto& sprite = em.get_component<SpriteComponent>(entity);
-                            sprite.src_rect = anim.get_frame_rect(anim.current_frame, active_clip);
-                            sprite.use_src_rect = true;
-                        }
-                    }
-
-                    ImGui::SliderFloat("Speed (FPS)", &active_clip->fps, 1.0f, 60.0f, "%.0f FPS");
-                    ImGui::Checkbox("Loop Clip", &active_clip->loop);
-                    ImGui::TextDisabled("Frame: %d | Total Frames: %d", anim.current_frame, active_clip->get_total_frames());
-
-                    if (anim.is_playing) {
-                        const std::string pause_label = editor_icon_label(EditorIcon::Pause, "Pause");
-                        if (ImGui::Button(pause_label.c_str(), ImVec2(90, 24))) anim.is_playing = false;
-                    } else {
-                        const std::string play_label = editor_icon_label(EditorIcon::Play, "Play");
-                        if (ImGui::Button(play_label.c_str(), ImVec2(90, 24))) anim.is_playing = true;
-                    }
-                    ImGui::SameLine();
-                    const std::string reset_label = editor_icon_label(EditorIcon::Rotate, "Reset");
-                    if (ImGui::Button(reset_label.c_str(), ImVec2(90, 24))) {
-                        anim.current_frame = active_clip->start_frame;
-                        anim.timer = 0.0f;
-                        anim.is_finished = false;
-                    }
-                }
-            } else {
-                ImGui::TextDisabled("No animation clips created yet.");
-            }
-
-            ImGui::Spacing();
-            if (ImGui::TreeNode("Clip Management")) {
-                int clip_to_remove = -1;
-                for (size_t i = 0; i < anim.clips.size(); ++i) {
-                    auto& c = anim.clips[i];
-                    ImGui::PushID(static_cast<int>(i));
-
-                    char name_buf[64];
-                    strncpy(name_buf, c.name.c_str(), sizeof(name_buf));
-                    name_buf[sizeof(name_buf) - 1] = '\0';
-                    if (ImGui::InputText("##Name", name_buf, sizeof(name_buf))) {
-                        c.name = name_buf;
-                    }
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(60);
-                    ImGui::DragInt("Start", &c.start_frame, 1.0f, 0, anim.columns * anim.rows - 1);
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(60);
-                    ImGui::DragInt("Count", &c.frame_count, 1.0f, 1, anim.columns * anim.rows);
-                    ImGui::SameLine();
-                    const std::string remove_clip_label = editor_icon_label(EditorIcon::Trash, "##RemoveClip");
-                    if (ImGui::Button(remove_clip_label.c_str())) {
-                        clip_to_remove = static_cast<int>(i);
-                    }
-                    ImGui::PopID();
-                }
-
-                if (clip_to_remove >= 0 && clip_to_remove < (int)anim.clips.size()) {
-                    anim.clips.erase(anim.clips.begin() + clip_to_remove);
-                    if (anim.active_clip_index >= (int)anim.clips.size()) {
-                        anim.active_clip_index = std::max(0, (int)anim.clips.size() - 1);
-                    }
-                }
-
-                if (ImGui::Button("+ Add Clip", ImVec2(100, 22))) {
-                    anim.add_clip("NewClip", 0, 4, 10.0f, true);
-                }
-                ImGui::TreePop();
-            }
-        }
-    }
+    AnimationInspectorDrawer::draw(em, entity, {
+        m_command_history.get(),
+        &m_property_transactions,
+        &m_animation_preview,
+        m_anim_studio
+    });
 
     // --- Bottom Add Component Popup ---
     ImGui::Spacing();
@@ -668,7 +525,14 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             anim.add_clip("Jump", 16, 4, 8.0f, false);
             anim.add_clip("Fall", 20, 4, 8.0f, true);
             m_command_history->execute_command(std::make_unique<SetComponentCommand<AnimationComponent>>(
-                &em, entity, std::nullopt, std::move(anim), "Add Sprite Animator 2D"
+                &em,
+                entity,
+                std::nullopt,
+                std::move(anim),
+                "Add Sprite Animator 2D",
+                [](EntityManager& command_em, EntityID id) {
+                    SpriteAnimationSystem::reset_playback(command_em, id);
+                }
             ));
         }
         if (!em.has_component<CameraComponent>(entity) && ImGui::MenuItem("Camera 2D") && m_command_history) {
