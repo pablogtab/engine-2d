@@ -1,153 +1,449 @@
-# Roadmap 2 — Editor and Authoring Workflow
+# Roadmap 2 — Engine and Editor Production Path
 
-This roadmap extends the current engine roadmap with the systems needed to make the integrated IDE a reliable content-authoring tool. Work is ordered by dependency and user-facing impact.
+This is the active roadmap for evolving the current engine prototype into a reliable, scalable authoring environment. It reflects the systems already implemented, the remaining product work, and the architectural gates that must be crossed before adding features that would otherwise multiply technical debt.
+
+The engine is intentionally incomplete. An unchecked item is not automatically a defect: it is planned work. Reengineering is required only when the current design would make the next roadmap modules fragile, repetitive, or difficult to validate.
+
+## Status Rules
+
+- `[x]` means implemented and validated at the level required by the current phase.
+- `[ ]` means pending, incomplete, or implemented visually but not yet meeting its completion criteria.
+- A module is complete only when its behavior, undo/redo rules, serialization, and relevant tests are complete.
+- `GenericScene` remains a temporary integration helper until its hardcoded behavior is represented by configurable engine and editor systems.
 
 ## Guiding Rules
 
-- Every content mutation made from the editor must support undo and redo.
-- Scene data must remain serializable, deterministic, and independent from runtime pointers.
-- Authoring features belong in the editor; reusable runtime capabilities belong in the engine core.
-- Complete and validate one module before starting the next one.
+- Every authoring mutation made from the editor must support undo and redo.
+- A continuous gesture creates one history entry, not one entry per frame.
+- Scene data must be deterministic, versioned, and independent from runtime pointers.
+- Runtime resources must be referenced through stable asset identities.
+- Authoring features belong in the editor; reusable game capabilities belong in the runtime.
+- Editor-only state must never leak into scenes, standalone settings, or player preferences.
+- New components must not require unrelated manual edits across Inspector, history, serialization, validation, and cloning.
+- Hardcoded demo behavior must not become an implicit engine API.
+- Build and focused tests must remain green after each increment.
 
 ---
 
-## Module A — Sprite Authoring Essentials
+## Foundation Already Established
 
-**Goal:** Make common visual adjustments obvious, fast, and production-ready.
+These systems form the current baseline and should be extended rather than rewritten.
 
-- [ ] Add an explicit `Opacity` slider (0–100%) bound to `SpriteComponent::color.a`, while keeping RGB color editing separate.
-- [ ] Expose `TransformComponent::pivot` in the Inspector with presets: Center, Top, Bottom, Left, Right, and custom values.
-- [ ] Add `Sorting Layer` and `Order in Layer` to sprite rendering and scene serialization.
-- [ ] Expose Z-depth with a clear label and explain its relationship to parallax and sorting.
-- [ ] Make sprite flip, visibility, tint, outline, and material properties use the common compact property grid.
-- [ ] Register every visual property edit as a single reversible command.
+### Viewport and Transform Tools
 
-**Completion criteria:** A designer can control color, opacity, pivot, depth, and draw order from the Inspector and undo every change.
+- [x] Move, Rotate, and Scale gizmos with reversible gestures.
+- [x] World and Local transform spaces.
+- [x] Configurable position, rotation, and scale snapping.
+- [x] Multi-selection alignment and distribution commands.
+- [x] Transformed selection geometry shared by outlines, picking, and marquee selection.
+- [x] Free-form Scene View camera with cursor-centered exponential zoom and DPI-aware panning.
+- [x] Configurable grid, viewport rulers, and draggable guides.
+- [x] Compact viewport toolbox and contextual viewport menus.
+- [x] Frame Selection, Zoom to Fit, and Reset View shortcuts.
+
+### Camera, Presentation, and Display
+
+- [x] Camera 2D as an editable ECS entity with undo/redo.
+- [x] Primary camera selection and stable follow targets.
+- [x] Fixed Height, Fixed Width, Expand, and Pixel Perfect projection policies.
+- [x] Separation between free-form Scene View and project Game View framing.
+- [x] Fit, Fill, Stretch, and Responsive presentation policies.
+- [x] Independent Game View render-quality scaling.
+- [x] Runtime `DisplayManager` API with desktop window modes, displays, refresh rates, VSync, DPI, orientation, capabilities, and rollback.
+- [x] Project display defaults separated from runtime `PlayerPrefs` and editor window state.
+
+### Rendering and Post-Processing
+
+- [x] Global post-processing pipeline with reusable profiles.
+- [x] GPU material abstraction shared by sprites and fullscreen passes.
+- [x] Night Vision GPU material validated on sprites and fullscreen output.
+- [x] Backend-neutral shader variants with an SDL GPU material backend.
+- [x] Regression tests for post-process state, history, material uniforms, and source/destination routing.
+
+### Current Automated Baseline
+
+- [x] Camera projection tests.
+- [x] Display manager and display persistence tests.
+- [x] Post-processing and material tests.
+- [x] Clean CMake build and CTest execution.
 
 ---
 
-## Module B — Transform and Viewport Tools
+## Phase 1 — Editor Mutation Architecture
 
-**Goal:** Provide direct, predictable scene manipulation.
+**Priority:** Immediate.
 
-- [x] Add rotate and scale gizmos in addition to translation.
-- [x] Add a World / Local gizmo-space toggle.
-- [x] Add grid snapping, angle snapping, and configurable snap increments.
-- [ ] Add viewport rulers, guides, and optional safe-area overlays.
-- [x] Add alignment and distribution commands for multi-selection.
-- [x] Add viewport shortcuts for frame selection, zoom to fit, and reset view.
-- [x] Decouple the free-form Scene View from the project's reference resolution and physical presentation.
-- [x] Centralize Fit, Fill, Stretch, and Responsive presentation for editor and standalone output.
-- [x] Add per-camera Fixed Height, Fixed Width, Expand, and Pixel Perfect projection policies.
-- [x] Scale Game View render quality independently from its logical camera framing.
-- [x] Add a runtime `DisplayManager` API for desktop window modes, monitors, refresh rates, VSync, DPI, and mobile-ready capabilities.
-- [ ] Add standalone render scale, dynamic resolution, Canvas safe areas, and validated iOS/Android lifecycle support.
-- [ ] Add entity lock and editor-only visibility states.
-- [x] Make rotated bounds, picking, and marquee selection use the same transformed geometry.
+**Goal:** Finish Modules A and C on a shared reversible editing foundation before adding more authorable component types.
 
-**Completion criteria:** Objects can be positioned, aligned, rotated, scaled, locked, and selected precisely without leaving the viewport.
+### Common Property Transactions
+
+- [ ] Introduce a reusable `EditorPropertyTransaction` lifecycle: begin, live preview, commit, and cancel.
+- [ ] Support scalar, integer, boolean, enum, text, color, vector, list, and asset-reference edits.
+- [ ] Guarantee one undo entry per drag, scrub, text commit, toggle, or compound edit.
+- [ ] Make cancellation restore the exact previous state.
+- [ ] Add property validation and component-specific side-effect hooks, such as physics or tilemap rebuilds.
+- [ ] Make the same transaction system work with multi-selection and mixed values.
+
+### Inspector Migration
+
+- [ ] Make entity rename reversible.
+- [ ] Migrate every Sprite property to the common transaction lifecycle.
+- [ ] Migrate every RigidBody property to the common transaction lifecycle.
+- [ ] Migrate every Collider property and shape edit to the common transaction lifecycle.
+- [ ] Migrate every Tilemap setting and destructive action to reversible commands.
+- [ ] Separate Animator authoring data from editor preview/playback state.
+- [ ] Migrate Animator clips and spritesheet settings to reversible commands.
+- [ ] Route texture loading and fallbacks through `AssetManager`; never allocate unmanaged textures from Inspector code.
+- [ ] Add complete undoable component add/remove commands.
+
+### Inspector Structure
+
+- [ ] Split the monolithic Inspector into component drawers with a shared compact property layout.
+- [ ] Keep component UI extensions separate from runtime component definitions.
+- [ ] Add component search, favorites, and concise contextual documentation.
+- [ ] Preserve the existing compact Photoshop/Unity-like value scrubbing behavior.
+
+### Sprite Authoring Completion
+
+- [x] Expose RGB tint and independent opacity.
+- [x] Expose pivot, Z-depth, flip, visibility, sorting layer, and order in layer.
+- [x] Render texture previews in the Sprite Inspector.
+- [ ] Expose outline and material assignment through the common property grid.
+- [ ] Make every visual property fully reversible.
+
+**Completion criteria:** Every Inspector and Hierarchy content mutation is reversible, continuous gestures create one command, preview state is not serialized as authoring data, and no Inspector-owned runtime resources leak.
 
 ---
 
-## Module C — Hierarchy and Inspector Workflow
+## Phase 2 — Component Registry and Scene Data
 
-**Goal:** Make large scenes manageable and consistent.
+**Priority:** Immediate after the common property transaction core; establish before adding Light, Canvas, Script, or prefab components.
 
-- [ ] Implement true multi-selection editing for common component properties.
+**Goal:** Stop duplicating component knowledge across snapshots, serialization, cloning, validation, add/remove menus, and editor tooling.
+
+### Component Descriptors
+
+- [ ] Introduce an explicit typed component registry without requiring a complex reflection system.
+- [ ] Register component name, stable serialized key, schema version, and runtime type.
+- [ ] Register serialize, deserialize, clone, capture, restore, add, remove, and validate operations.
+- [ ] Allow editor builds to attach a component drawer and creation metadata without coupling runtime code to ImGui.
+- [ ] Reject duplicate serialized keys and component-count overflow with explicit diagnostics.
+
+### Serialization and Snapshots
+
+- [ ] Migrate `SceneSerializer` component switches to registered serializers.
+- [ ] Migrate `EntitySnapshot` manual fields to registry-backed component snapshots.
+- [ ] Preserve stable entity IDs and hierarchy references across save/load and undo/redo.
+- [ ] Add scene schema versioning and explicit migrations.
+- [ ] Define which fields are authored, derived, transient, or runtime-only.
+- [ ] Add round-trip determinism tests for every serializable component.
+- [ ] Add snapshot restore tests for every registered component.
+
+### ECS Scope
+
+- [ ] Keep the current ECS storage model unless profiling demonstrates a real limitation.
+- [ ] Add assertions and diagnostics for invalid entities, component overflow, and hierarchy cycles.
+- [ ] Split `Components.hpp` by domain once the registry removes cross-file manual coupling.
+
+**Completion criteria:** Adding a new component requires one registration and its domain implementation, not edits to multiple unrelated switch statements. Scene round trips and command snapshots preserve all authored data.
+
+---
+
+## Phase 3 — Hierarchy, Multi-Selection, and Scene Reliability
+
+**Priority:** High.
+
+**Goal:** Make larger scenes safe to edit before introducing prefabs and scripting.
+
+### Hierarchy Workflow
+
+- [ ] Implement true multi-selection editing with mixed-value presentation.
 - [ ] Add group/container entities and group-aware duplication.
-- [ ] Add hierarchy commands for duplicate, reparent, reorder, lock, and visibility.
-- [ ] Add component add/remove commands with complete undo/redo support.
-- [ ] Migrate Sprite, RigidBody, Collider, Tilemap, and Animator Inspector controls to the common command-backed edit lifecycle.
-- [x] Make Camera 2D an editable ECS entity that drives the runtime view, supports stable follow targets, and participates in undo/redo.
-- [ ] Add component search, favorites, and contextual documentation/tooltips.
-- [ ] Show scene dirty state and provide Save All.
+- [ ] Add reversible hierarchy duplicate, reparent, reorder, lock, and visibility commands.
+- [ ] Preserve local and world transforms correctly during reparenting.
+- [ ] Add entity lock and editor-only visibility states.
+- [ ] Detect and reject hierarchy cycles.
 
-**Completion criteria:** All content changes from Hierarchy and Inspector are reversible, discoverable, and safe across complex entity trees.
+### Dirty State and Saving
+
+- [ ] Derive scene dirty state from committed authoring commands.
+- [ ] Add Save, Save As, Save All, and recent scenes.
+- [ ] Warn before loading, switching, closing, or entering destructive workflows with unsaved changes.
+- [ ] Add configurable autosave and crash/interruption recovery.
+- [ ] Keep editor layout, snapping, guides, and view preferences separate from scene content.
+
+### Validation and Diagnostics
+
+- [ ] Add a Scene Validator for missing assets, invalid colliders, absent or duplicate primary cameras, hierarchy errors, and invalid tilemaps.
+- [ ] Add a diagnostics panel with entity/asset navigation and safe fix actions.
+- [ ] Make every automatic fix reversible when it changes authored content.
+- [ ] Add tests for history invalidation, scene switching, hierarchy commands, and recovery.
+
+**Completion criteria:** Complex scenes can be edited, reorganized, recovered, validated, and saved without losing authoring state or producing stale history entries.
 
 ---
 
-## Module D — Asset Pipeline and Prefabs
+## Phase 4 — Asset Pipeline and Prefabs
 
-**Goal:** Turn raw files into reusable, configurable game content.
+**Architecture gate:** Stable asset identities must exist before prefab serialization and dependency-aware reload.
 
+**Goal:** Replace provisional paths and runtime pointers with reusable, inspectable project assets.
+
+### Asset Database
+
+- [ ] Introduce stable `AssetHandle` identities and project-relative source paths.
+- [ ] Make components serialize asset handles instead of runtime pointers.
+- [ ] Resolve handles to runtime resources through the asset system.
+- [ ] Add explicit missing, loading, failed, and ready states with safe fallback assets.
+- [ ] Add metadata and import settings for filtering, pixels per unit, pivot, compression, and platform overrides.
+- [ ] Add dependency tracking and dependency-safe reload.
 - [ ] Add drag-and-drop from Asset Browser to Viewport, Hierarchy, and Inspector fields.
-- [ ] Add asset import settings: filtering, pixels per unit, pivot, compression, and metadata.
-- [ ] Introduce stable asset references (path or asset ID) in serialized scene data.
-- [ ] Add asset validation and clear missing-asset diagnostics.
-- [ ] Add prefab assets, reusable entity templates, and per-instance overrides.
-- [ ] Add prefab apply/revert workflow and dependency-safe reload behavior.
 
-**Completion criteria:** Assets can be placed, configured, reused, and serialized without runtime-pointer fragility.
+### Materials and Shaders as Assets
 
----
+- [ ] Register materials, shader variants, textures, and post-process profiles as project assets.
+- [ ] Add an offline shader compilation/validation pipeline for Metal, Vulkan, and Direct3D variants.
+- [ ] Report unavailable shader variants before runtime.
+- [ ] Add material parameter inspection, serialization, duplication, and missing-shader diagnostics.
 
-## Module E — Scene Reliability and Project Workflow
+### Prefabs
 
-**Goal:** Protect authoring work and make scenes safe to evolve.
+- [ ] Add prefab assets backed by registry-based entity/component serialization.
+- [ ] Add instance identity and explicit property overrides.
+- [ ] Add Apply, Revert, Unpack, and nested-prefab policies.
+- [ ] Make prefab operations reversible and dependency-safe.
 
-- [ ] Add autosave with configurable interval and recovery on restart.
-- [ ] Warn about unsaved scenes before loading, switching, or closing.
-- [ ] Add Save As, Save All, recent scenes, and scene metadata.
-- [ ] Add a Scene Validator for missing textures, invalid colliders, absent primary cameras, broken hierarchy references, and invalid tilemaps.
-- [ ] Add a diagnostics panel with actionable fix buttons when possible.
-- [ ] Add editor settings persistence for workspace, snapping, autosave, and view preferences.
-
-**Completion criteria:** Scene editing survives interruption and reports invalid project state before export.
+**Completion criteria:** Assets and prefabs remain valid across reload, move, duplication, save/load, and standalone packaging without runtime-pointer fragility.
 
 ---
 
-## Module F — Runtime Authoring Systems
+## Phase 5 — Render Architecture for Advanced Systems
 
-**Goal:** Expose core game systems through the editor.
+**Architecture gate:** Introduce explicit render stages before local multipass effects, lighting, shadows, and Canvas composition create special-case render paths.
 
-- [ ] Implement dynamic 2D lighting: ambient light, point lights, colors, radius, intensity, and blend mode.
-- [ ] Add editor light gizmos and a dedicated Light Inspector section.
+**Goal:** Extend the current renderer rather than replace it, while making ordering and intermediate surfaces explicit.
+
+- [ ] Define render stages for scene geometry, local effect surfaces, lighting, global post-processing, Canvas/UI, and final presentation.
+- [ ] Introduce render layers shared by sprites, tilemaps, particles, lights, and cameras.
+- [ ] Support entity- or layer-scoped multipass effects through managed intermediate surfaces.
+- [ ] Keep simple single-pass sprite materials on the direct fast path.
+- [ ] Define clear ownership and pooling for render targets.
+- [ ] Track draw calls, material switches, pass timings, and render-target memory.
+- [ ] Remove obsolete renderer compatibility stubs after all callers use the current batching path.
+- [ ] Add GPU integration tests or deterministic validation scenes for pass ordering and state reset.
+
+**Completion criteria:** New effects and lighting can be composed through explicit stages without embedding feature-specific branches throughout `Renderer2D` or scene code.
+
+---
+
+## Phase 6 — Runtime Authoring Systems
+
+**Goal:** Expose core game presentation systems through registered, serializable components.
+
+### Lighting
+
+- [ ] Implement ambient and point lights with color, radius, intensity, and blend mode.
+- [ ] Add Light components, Inspector drawers, viewport gizmos, serialization, undo/redo, and validation.
 - [ ] Implement 2D shadow casters from colliders and static geometry.
-- [ ] Add render/sorting layers shared by sprites, lights, particles, and tilemaps.
-- [ ] Add a Canvas/UI system for HUDs: text, images, buttons, anchors, and responsive layout.
-- [ ] Add UI authoring panels and scene serialization for Canvas content.
 
-**Completion criteria:** Lighting, render order, and game UI can be authored visually and saved in scenes.
+### Canvas and Responsive UI
 
----
+- [ ] Add Canvas, text, image, and button components.
+- [ ] Add anchors, pivots, responsive layout, scaling policy, and input routing.
+- [ ] Add safe-area and notch support.
+- [ ] Add UI authoring tools, serialization, undo/redo, and validation.
 
-## Module G — Scripting and Play Mode
+### Display and Mobile Follow-Up
 
-**Goal:** Enable rapid gameplay iteration without recompiling C++.
+- [ ] Add standalone render scale and dynamic resolution.
+- [ ] Add configurable orientation policies.
+- [ ] Handle mobile lifecycle, suspend/resume, surface recreation, rotation, and split-screen changes.
+- [ ] Add real iOS and Android targets before claiming mobile support.
 
-- [ ] Add Lua runtime integration and `ScriptComponent`.
-- [ ] Bind entities, transforms, input, audio, physics, events, and scene loading to scripts.
-- [ ] Add script creation, attachment, editing, error reporting, and hot reload in the IDE.
-- [ ] Add Play in Editor apply-back controls for explicitly selected changes.
-- [ ] Preserve the current safe default: Stop restores the original authoring snapshot.
-- [ ] Add runtime inspection for script fields and public variables.
-
-**Completion criteria:** Gameplay behavior can be authored, debugged, and reloaded from the editor without compromising authoring state.
+**Completion criteria:** Lighting and responsive UI can be authored visually, survive display changes, and serialize without platform-specific game code.
 
 ---
 
-## Module H — Debugging, Profiling, and Export
+## Phase 7 — Scripting and Play Mode
 
-**Goal:** Make projects diagnosable and shippable.
+**Goal:** Enable rapid gameplay iteration without recompiling C++ or compromising authoring state.
 
-- [ ] Add physics debug overlays: colliders, contacts, velocities, centers of mass, and collision layers.
+- [ ] Add Lua runtime integration and a registered `ScriptComponent`.
+- [ ] Bind entities, transforms, input, audio, physics, events, assets, display, and scene loading.
+- [ ] Add script creation, attachment, field inspection, editing, and error reporting.
+- [ ] Add hot reload with explicit lifecycle and failure behavior.
+- [ ] Preserve the current safe default: Stop restores the authoring snapshot.
+- [ ] Add opt-in Play Mode apply-back for explicitly selected properties.
+- [ ] Keep runtime script state distinct from serialized public fields.
+
+**Completion criteria:** Gameplay behavior can be authored, inspected, debugged, and reloaded while Edit and Play state remain predictably isolated.
+
+---
+
+## Phase 8 — Debugging and Performance
+
+**Goal:** Make correctness and performance problems visible before export.
+
+- [ ] Add physics overlays for colliders, contacts, velocities, centers of mass, and collision layers.
 - [ ] Add entity-scoped logs and script error locations.
-- [ ] Add frame profiling for update, render, physics, UI, memory, draw calls, and culling.
-- [ ] Add debugging controls such as pause, step frame, timescale, and runtime entity inspection.
-- [ ] Implement standalone build/export for macOS, Windows, and Linux.
-- [ ] Package required assets, validate export configuration, and provide build logs.
+- [ ] Add frame profiling for update, render, physics, editor UI, memory, draw calls, culling, and GPU passes.
+- [ ] Add pause, step frame, timescale, and runtime entity inspection.
+- [ ] Add stress scenes and budgets for entity count, sprites, physics bodies, particles, and render targets.
+- [ ] Move large header implementations into source files when compile time or ownership boundaries justify it.
+- [ ] Optimize only after profiling identifies a measurable bottleneck.
 
-**Completion criteria:** Developers can diagnose performance and correctness problems, then export a self-contained game build.
+**Completion criteria:** Developers can identify which system, entity, asset, or render pass causes a correctness or performance problem.
 
 ---
 
-## Suggested Execution Order
+## Phase 9 — Runtime/Editor Separation and Export
 
-1. Module A — Sprite Authoring Essentials
-2. Module B — Transform and Viewport Tools
-3. Module C — Hierarchy and Inspector Workflow
-4. Module E — Scene Reliability and Project Workflow
-5. Module D — Asset Pipeline and Prefabs
-6. Module F — Runtime Authoring Systems
-7. Module G — Scripting and Play Mode
-8. Module H — Debugging, Profiling, and Export
+**Architecture gate:** Runtime, editor, demos, and game code must become separate build targets before standalone packaging is considered complete.
+
+**Goal:** Produce self-contained desktop games without linking or initializing editor-only systems.
+
+- [ ] Split CMake targets into runtime library, editor application, sandbox/demos, tests, and standalone game.
+- [ ] Move editor panel construction out of the runtime `Application` path.
+- [ ] Ensure standalone startup never initializes ImGui, editor panels, editor history, or demo-only helpers.
+- [ ] Replace manual source duplication in test targets with reusable engine libraries.
+- [ ] Package required scenes, assets, shader variants, project settings, and native dependencies.
+- [ ] Add export configuration validation and actionable build logs.
+- [ ] Implement standalone builds for macOS, Windows, and Linux.
+- [ ] Add clean-machine smoke tests for exported builds.
+
+**Completion criteria:** A standalone build contains only runtime and game dependencies, launches with project defaults, resolves every packaged asset, and does not depend on editor state.
+
+---
+
+## Required Test Suites by Module
+
+Tests are part of each module's completion criteria. They must be added with the behavior they protect, not postponed until the debugging or export phases. Pure logic should run headlessly in CTest; SDL, GPU, window, audio, and filesystem behavior should use injected fake backends where practical and retain a smaller real-platform smoke layer.
+
+### Existing Suites
+
+- [x] `Camera2DTests` — projection policies, reference framing, zoom, and coordinate conversion.
+- [x] `DisplayManagerTests` — capabilities, modes, atomic apply, rollback, hot-plug, DPI, and mobile-style read-only behavior.
+- [x] `DisplayPersistenceTests` — separation between project defaults, runtime preferences, and editor window state.
+- [x] `PostProcessTests` — profile state, command history, material uniforms, source/destination routing, and shader/material validation.
+
+### Existing-System Regression Backlog
+
+These suites protect systems that already exist but do not yet have dedicated automated coverage.
+
+- [ ] `EntityManagerTests` — entity reuse, stable-ID restoration, component lifecycle callbacks, cloning, filtered views, and invalid access.
+- [ ] `TransformHierarchyTests` — local/world composition, rotated/scaled parents, visibility propagation, reparenting, cycle rejection, and stable child transforms.
+- [ ] `ViewportGeometryTests` — transformed bounds, point picking, marquee intersection, strict marquee, pivots, colliders, and child entities.
+- [ ] `ViewportCameraControllerTests` — exponential zoom, cursor anchoring, limits, pan scaling, focus rules, and DPI independence.
+- [ ] `TransformGizmoTests` — Move/Rotate/Scale deltas, World/Local axes, snapping, multi-selection, child transforms, and one-command-per-gesture behavior.
+- [ ] `Renderer2DTests` — sorting layer/order/depth stability, batching boundaries, material state reset, flips, pivots, source rectangles, and render-target routing.
+- [ ] `PhysicsSystemTests` — body creation/destruction, synchronization, collision filters, triggers, one-way collisions, fixed rotation, and transform ownership.
+- [ ] `TilemapTests` — sparse tile storage, painting commands, bounds, serialization, composite collider rebuild, and generated-entity cleanup.
+- [ ] `AnimationSystemTests` — frame selection, looping, non-loop completion, custom frames, spacing/margins, and authored/runtime state separation.
+- [ ] `InputRoutingTests` — Edit/Play isolation, text-input capture, viewport focus/hover, mouse-coordinate conversion, and keyboard state transitions.
+- [ ] `SaveSystemTests` — binary/JSON round trips, version rejection, corruption handling, atomic replacement, and failure recovery.
+- [ ] `AssetManagerLifetimeTests` — cache identity, fallback ownership, clear/reload behavior, duplicate loads, and no unmanaged Inspector resources.
+
+### Phase 1 — Editor Mutation Suites
+
+- [ ] `EditorCommandHistoryTests` — execute, undo, redo, redo invalidation, bounded history, scene invalidation, and command descriptions.
+- [ ] `EditorPropertyTransactionTests` — begin/preview/commit/cancel, unchanged edits, compound values, text commits, and one history entry per gesture.
+- [ ] `InspectorCommandTests` — entity rename and Sprite, RigidBody, Collider, Tilemap, Animator, Camera, and component add/remove restoration.
+- [ ] `MultiEditTransactionTests` — mixed values, partial component availability, atomic multi-entity commit, cancel, undo, and redo.
+
+### Phase 2 — Component and Serialization Suites
+
+- [ ] `ComponentRegistryTests` — registration, duplicate keys, schema versions, add/remove, clone, capture/restore, validation, and component-limit diagnostics.
+- [ ] `SceneSerializationTests` — deterministic output, complete component round trips, stable IDs, hierarchy references, missing fields, malformed data, and migrations.
+- [ ] `EntitySnapshotTests` — delete/restore, duplicate, component completeness, hierarchy restoration, asset references, and runtime-only field exclusion.
+- [ ] `SceneMigrationTests` — every supported historical schema migrates forward or fails with an actionable error.
+
+### Phase 3 — Hierarchy and Reliability Suites
+
+- [ ] `HierarchyCommandTests` — duplicate, group, reparent, reorder, lock, visibility, local/world preservation, undo, and redo.
+- [ ] `SceneLifecycleTests` — dirty state, save, Save As, Save All, switch/close prompts, Play snapshot restoration, and stale-history prevention.
+- [ ] `AutosaveRecoveryTests` — interval policy, atomic autosave, crash recovery, conflict handling, and cleanup after successful save.
+- [ ] `SceneValidatorTests` — missing assets, invalid colliders/tilemaps, camera rules, hierarchy errors, diagnostics navigation, and reversible fixes.
+
+### Phase 4 — Asset and Prefab Suites
+
+- [ ] `AssetDatabaseTests` — stable handles, path moves, duplicate metadata, missing assets, dependency graphs, reload, and deterministic discovery.
+- [ ] `AssetImportTests` — texture settings, platform overrides, metadata changes, failed imports, reimport, and cache invalidation.
+- [ ] `ShaderAssetTests` — variant discovery, backend selection, offline validation, uniform layouts, unsupported formats, and actionable diagnostics.
+- [ ] `MaterialAssetTests` — parameter serialization, defaults, duplication, missing shaders, dependency reload, and sprite/fullscreen compatibility.
+- [ ] `PrefabTests` — creation, instantiation, overrides, Apply, Revert, Unpack, nesting policy, dependency reload, undo, and scene round trips.
+
+### Phase 5 — Render Architecture Suites
+
+- [ ] `RenderPipelineTests` — stage ordering, layer filtering, intermediate-surface lifetime, pooling, resize, state reset, and direct fast-path selection.
+- [ ] `LocalEffectsTests` — per-entity and per-layer isolation, multipass ordering, transformed sprites, alpha composition, and coexistence with global post-processing.
+- [ ] `RenderMetricsTests` — draw calls, material switches, pass timings, surface memory, and stable counter reset per frame.
+- [ ] `GPURenderSmokeTests` — deterministic image or pixel probes for supported Metal, Vulkan, and Direct3D backends where CI hardware permits.
+
+### Phase 6 — Runtime Authoring Suites
+
+- [ ] `Lighting2DTests` — light bounds, intensity/color, layer masks, blending, shadow-caster geometry, serialization, and command restoration.
+- [ ] `CanvasLayoutTests` — anchors, pivots, nested layout, reference scaling, Fit/Fill/Stretch/Responsive behavior, and safe areas.
+- [ ] `UIInputTests` — hit testing, focus, navigation, pointer capture, viewport conversion, and overlap ordering.
+- [ ] `MobileSurfaceTests` — orientation, safe-area updates, surface recreation, suspend/resume, split-screen resize, and capability restrictions using a fake backend.
+- [ ] Real-device iOS and Android smoke tests before mobile support is declared complete.
+
+### Phase 7 — Scripting and Play Mode Suites
+
+- [ ] `LuaRuntimeTests` — VM lifecycle, component bindings, entity validity, errors, events, assets, display API, and deterministic teardown.
+- [ ] `ScriptHotReloadTests` — successful reload, syntax/runtime failure, state policy, removed fields, and recovery without corrupting the scene.
+- [ ] `ScriptSerializationTests` — public fields, defaults, type changes, missing scripts, asset/entity references, and schema evolution.
+- [ ] `PlayModeIsolationTests` — authoring snapshot restoration, runtime-only mutations, explicit apply-back, script state, physics state, and command-history isolation.
+
+### Phases 8 and 9 — Performance and Export Suites
+
+- [ ] `ProfilerInstrumentationTests` — counter scope, nested timings, frame reset, disabled overhead, and entity/pass attribution.
+- [ ] `StressRegressionTests` — recorded budgets for entities, sprites, physics, particles, scripts, and render-target allocation.
+- [ ] `RuntimeBoundaryTests` — runtime targets do not link or initialize ImGui, editor panels, command history, or sandbox helpers.
+- [ ] `AssetPackagingTests` — dependency closure, shader variants, scene inclusion, missing-file failure, and deterministic package manifests.
+- [ ] `StandaloneSmokeTests` — launch, load initial scene, input, audio initialization, display defaults, save path, and clean shutdown.
+- [ ] Export smoke coverage on macOS, Windows, and Linux, including a clean environment without source-tree assets.
+
+### Continuous Test Gates
+
+- [ ] Every bug fix receives a regression test at the lowest practical layer.
+- [ ] Every new serializable component receives registry, round-trip, snapshot, validation, and command tests.
+- [ ] Every new platform backend receives a fake-backend contract suite plus real-platform smoke validation.
+- [ ] CTest remains headless and deterministic by default; hardware-dependent suites are labeled separately.
+- [ ] CI runs formatting/static checks, build, unit tests, integration tests, and the applicable platform smoke tests.
+- [ ] Test fixtures never write into project scenes, project settings, `PlayerPrefs`, or editor layout state unless isolation is the behavior under test.
+
+---
+
+## Deferred Viewport Polish
+
+These items are useful but should not interrupt the architecture work above unless required by an active workflow.
+
+- [ ] Optional safe-area overlays in Scene View.
+- [ ] Guide naming, locking, visibility groups, and persistence policies.
+- [ ] Additional snapping targets such as vertices, edges, pivots, and tile boundaries.
+- [ ] Customizable toolbox composition and multiple reusable editor toolboxes.
+- [ ] Further icon-system refinement and platform-specific DPI visual checks.
+
+---
+
+## Execution Order
+
+1. Phase 1 — Editor Mutation Architecture.
+2. Phase 2 — Component Registry and Scene Data.
+3. Phase 3 — Hierarchy, Multi-Selection, and Scene Reliability.
+4. Phase 4 — Asset Pipeline and Prefabs.
+5. Phase 5 — Render Architecture for Advanced Systems.
+6. Phase 6 — Runtime Authoring Systems.
+7. Phase 7 — Scripting and Play Mode.
+8. Phase 8 — Debugging and Performance.
+9. Phase 9 — Runtime/Editor Separation and Export.
+
+## Next Concrete Increment
+
+Implement the first Phase 1 slice:
+
+1. Add `EditorPropertyTransaction` for single-entity component edits.
+2. Migrate Sprite properties and entity rename.
+3. Route Inspector texture resolution through `AssetManager`.
+4. Add undo/redo tests covering drag, toggle, text commit, cancel, and texture assignment.
+5. Extract `SpriteInspectorDrawer` only after the transaction API is proven by those controls.
