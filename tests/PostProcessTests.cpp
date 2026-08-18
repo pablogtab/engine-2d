@@ -4,6 +4,10 @@
 #include "renderer/postprocess/PostProcessProfile.hpp"
 #include "renderer/SpriteSortKey.hpp"
 #include "renderer/Renderer2D.hpp"
+#include "renderer/material/FragmentShader.hpp"
+#include "renderer/material/IMaterialBackend.hpp"
+#include "renderer/material/Material.hpp"
+#include "renderer/postprocess/MaterialPostProcessPass.hpp"
 #include "renderer/Texture.hpp"
 #include "scene/Camera2D.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
@@ -11,6 +15,93 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+
+namespace {
+
+class RecordingMaterialBackend final : public Engine::IMaterialBackend {
+public:
+    bool is_available() const override { return true; }
+    const char* backend_name() const override { return "recording"; }
+
+    bool bind(const Engine::Material& material, const Engine::MaterialRenderContext&) override {
+        ++bind_count;
+        last_material = &material;
+        return true;
+    }
+
+    void unbind() override { ++unbind_count; }
+
+    bool draw_fullscreen(
+        const Engine::Material& material,
+        SDL_Texture*,
+        const Engine::MaterialRenderContext&
+    ) override {
+        ++fullscreen_count;
+        last_material = &material;
+        return true;
+    }
+
+    int bind_count{0};
+    int unbind_count{0};
+    int fullscreen_count{0};
+    const Engine::Material* last_material{nullptr};
+};
+
+void test_material_contract_is_shared_by_sprites_and_post_process() {
+    auto shader = std::make_shared<Engine::FragmentShader>("TestGrade");
+    shader->set_uniform_buffer_count(1);
+    shader->add_variant({Engine::ShaderBinaryFormat::Msl, {1, 2, 3}, "main0"});
+
+    auto material = std::make_shared<Engine::Material>("TestGradeInstance", shader);
+    struct alignas(16) GradeUniforms {
+        float exposure;
+        float saturation;
+        float padding[2];
+    } uniforms{1.25f, 0.75f, {0.0f, 0.0f}};
+    material->set_uniform(0, uniforms);
+    assert(material->uniform_bytes(0).size() == sizeof(GradeUniforms));
+
+    auto backend = std::make_shared<RecordingMaterialBackend>();
+    Engine::MaterialPostProcessPass pass(material, backend);
+    Engine::PostProcessContext context{1280, 720, 1280, 720};
+    pass.apply(nullptr, reinterpret_cast<SDL_Texture*>(1), nullptr, context);
+    assert(backend->fullscreen_count == 1);
+    assert(backend->last_material == material.get());
+
+    SDL_Surface* surface = SDL_CreateSurface(64, 64, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+
+    Engine::Renderer2D renderer(sdl_renderer);
+    renderer.set_material_backend(backend);
+    Engine::Camera2D camera(64.0f, 64.0f);
+    renderer.begin_scene(camera);
+    renderer.submit_sprite(
+        nullptr,
+        {0.0f, 0.0f, 0.0f},
+        {8.0f, 8.0f},
+        0.0f,
+        {255, 255, 255, 255},
+        nullptr,
+        {0.5f, 0.5f},
+        false,
+        false,
+        false,
+        0,
+        0,
+        material
+    );
+    renderer.end_scene();
+    assert(backend->bind_count == 1);
+    assert(backend->unbind_count == 1);
+    assert(backend->last_material == material.get());
+
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
+} // namespace
 
 namespace {
 
@@ -270,6 +361,7 @@ void test_world_is_processed_before_screen_space_hud_is_composited() {
 } // namespace
 
 int main() {
+    test_material_contract_is_shared_by_sprites_and_post_process();
     test_effect_scale_matches_authoring_resolution();
     test_non_uniform_output_uses_area_preserving_pixel_scale();
     test_world_sort_keys_never_overlap_the_screen_space_partition();

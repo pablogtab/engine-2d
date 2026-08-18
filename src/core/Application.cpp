@@ -21,6 +21,7 @@
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "../ecs/TransformSystem.hpp"
+#include "../renderer/material/SDLGPUMaterialBackend.hpp"
 #include <algorithm>
 
 namespace Engine {
@@ -44,6 +45,9 @@ Application::Application(const std::string& name, int width, int height, bool st
         m_window->get_sdl_renderer()
     ));
     m_renderer = std::make_unique<Renderer2D>(m_window->get_sdl_renderer());
+    m_renderer->set_material_backend(std::make_shared<SDLGPUMaterialBackend>(
+        m_window->get_sdl_renderer()
+    ));
     m_renderer->set_thread_pool(&m_thread_pool);
 
     if (!start_with_editor) {

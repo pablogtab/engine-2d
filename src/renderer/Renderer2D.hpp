@@ -4,6 +4,7 @@
 #include "../scene/Camera2D.hpp"
 #include <glm/glm.hpp>
 #include <vector>
+#include <memory>
 #include <SDL3/SDL.h>
 
 namespace Engine {
@@ -11,6 +12,8 @@ namespace Engine {
 class ThreadPool;
 class PostProcessPipeline;
 class Font;
+class Material;
+class IMaterialBackend;
 
 struct SpriteCommand {
     Texture* texture{nullptr};
@@ -27,6 +30,7 @@ struct SpriteCommand {
     bool is_screen_space{false};
     int16_t sorting_layer{0};
     int16_t order_in_layer{0};
+    std::shared_ptr<const Material> material;
 };
 
 class Renderer2D {
@@ -39,6 +43,8 @@ public:
 
     void set_post_process_pipeline(PostProcessPipeline* pipeline) { m_post_process_pipeline = pipeline; }
     PostProcessPipeline* get_post_process_pipeline() const { return m_post_process_pipeline; }
+    void set_material_backend(std::shared_ptr<IMaterialBackend> backend) { m_material_backend = std::move(backend); }
+    [[nodiscard]] const std::shared_ptr<IMaterialBackend>& get_material_backend() const { return m_material_backend; }
 
     void set_custom_render_target(SDL_Texture* target) { 
         m_custom_render_target = target; 
@@ -63,7 +69,8 @@ public:
         bool flip_x = false,
         bool flip_y = false,
         int16_t sorting_layer = 0,
-        int16_t order_in_layer = 0
+        int16_t order_in_layer = 0,
+        std::shared_ptr<const Material> material = nullptr
     );
     void submit_screen_sprite(
         Texture* texture,
@@ -75,7 +82,8 @@ public:
         const glm::vec2& pivot = {0.0f, 0.0f},
         float z_layer = 0.0f,
         bool flip_x = false,
-        bool flip_y = false
+        bool flip_y = false,
+        std::shared_ptr<const Material> material = nullptr
     );
     void submit_text(
         const Font& font,
@@ -110,6 +118,7 @@ private:
     SDL_Color m_scene_clear_color{24, 28, 36, 255};
     ThreadPool* m_thread_pool{nullptr};
     PostProcessPipeline* m_post_process_pipeline{nullptr};
+    std::shared_ptr<IMaterialBackend> m_material_backend;
     SDL_Texture* m_custom_render_target{nullptr};
     const Camera2D* m_active_camera{nullptr};
     std::vector<SpriteCommand> m_sprite_queue;

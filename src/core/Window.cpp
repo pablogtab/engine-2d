@@ -83,7 +83,14 @@ Window::Window(const std::string& title, int width, int height, bool persist_edi
     // Bring window to front and give it input focus on macOS when launched from scripts
     SDL_RaiseWindow(m_window);
 
-    m_renderer = SDL_CreateRenderer(m_window, nullptr);
+    // The SDL GPU-backed 2D renderer preserves the SDL_Renderer API used by
+    // the engine and editor while enabling custom fragment shaders. Keep a
+    // regular renderer fallback for unsupported hardware and headless setups.
+    m_renderer = SDL_CreateGPURenderer(nullptr, m_window);
+    if (!m_renderer) {
+        ENGINE_LOG_WARN("GPU-backed SDL renderer unavailable, using standard renderer: {}", SDL_GetError());
+        m_renderer = SDL_CreateRenderer(m_window, nullptr);
+    }
     if (!m_renderer) {
         ENGINE_LOG_ERROR("Could not create SDL3 renderer: {}", SDL_GetError());
         return;

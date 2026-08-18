@@ -160,7 +160,8 @@ private:
             sprite.flip_x,
             sprite.flip_y,
             sprite.sorting_layer,
-            sprite.order_in_layer
+            sprite.order_in_layer,
+            sprite.material
         );
     }
 public:

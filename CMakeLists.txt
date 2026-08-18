@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Find dependencies
-find_package(SDL3 REQUIRED)
+find_package(SDL3 3.4 REQUIRED)
 find_package(glm REQUIRED)
 
 # Source files
@@ -33,6 +33,8 @@ set(SOURCES
     src/particles/ParticleSystem2D.cpp
     src/renderer/Animation2D.cpp
     src/renderer/Font.cpp
+    src/renderer/material/FragmentShader.cpp
+    src/renderer/material/SDLGPUMaterialBackend.cpp
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp
@@ -139,6 +141,7 @@ add_executable(PostProcessTests
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
     src/renderer/Font.cpp
+    src/renderer/material/FragmentShader.cpp
     src/renderer/Renderer2D.cpp
     src/renderer/Texture.cpp
     src/renderer/postprocess/PostProcessPipeline.cpp
@@ -160,23 +163,14 @@ target_include_directories(Engine2D PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
 
-if (WIN32)
-    set(SDL3_WIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/windows/SDL3-3.2.4/x86_64-w64-mingw32")
-    target_include_directories(Engine2D PRIVATE ${SDL3_WIN_DIR}/include)
-    target_link_directories(Engine2D PRIVATE ${SDL3_WIN_DIR}/lib)
-    target_link_libraries(Engine2D PRIVATE 
-        ${SDL3_WIN_DIR}/lib/libSDL3.dll.a
-        box2d
-        -static-libgcc -static-libstdc++
-    )
-else()
-    find_package(SDL3 REQUIRED)
-    find_package(glm REQUIRED)
-    target_link_libraries(Engine2D PRIVATE 
-        SDL3::SDL3
-        glm::glm
-        box2d
-    )
+target_link_libraries(Engine2D PRIVATE
+    SDL3::SDL3
+    glm::glm
+    box2d
+)
+
+if (WIN32 AND MINGW)
+    target_link_options(Engine2D PRIVATE -static-libgcc -static-libstdc++)
 endif()
 
 # Automatically copy compile_commands.json to workspace root for IDE / IntelliSense

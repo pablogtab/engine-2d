@@ -165,3 +165,17 @@ Custom User Passes            ← Inherit IPostProcessPass without modifying the
 - **Resolution-Independent Effects**: `PostProcessContext` separates physical output size from the profile's effect-authoring reference. Pixel-based radii, offsets, grain density, and scanline spacing scale consistently across output resolutions.
 - **Scene-Level Authoring Contract**: Scenes expose their active pipeline and editable base profile through the common `Scene` interface. Runtime volumes blend over the base profile without coupling editor tools to a concrete demo scene.
 - **Sprite Outline & Material Highlighting**: Supported directly via `SpriteComponent::has_outline`, `outline_color`, `outline_thickness`, and `outline_pulse` within `RenderSystem`.
+
+### 7. Shared Shader Materials (`Engine::Material`)
+**Architecture rule**: shader algorithms and their parameters are independent
+from the geometry scope that invokes them. A `Material` may be bound to a
+sprite batch or adapted to a fullscreen pass with `MaterialPostProcessPass`.
+Do not duplicate an effect implementation only because one caller is a sprite
+and another is the camera image.
+
+- `FragmentShader` stores backend-neutral metadata plus MSL, SPIR-V and DXIL variants.
+- `SDLGPUMaterialBackend` is the only layer that handles SDL GPU shader objects and render states.
+- `Renderer2D` batches by both texture and material to avoid leaking shader state between sprites.
+- Multi-pass effects remain render graphs/pipelines; a material represents one shader pass.
+- Shader compilation belongs to the asset build pipeline, never to hardcoded scene setup or per-frame runtime code.
+- See `docs/RENDER_MATERIALS.md` for the contract and current limitations.

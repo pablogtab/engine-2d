@@ -2,6 +2,8 @@
 #include "SpriteSortKey.hpp"
 #include "Font.hpp"
 #include "postprocess/PostProcessPipeline.hpp"
+#include "material/IMaterialBackend.hpp"
+#include "material/Material.hpp"
 #include "core/ThreadPool.hpp"
 #include "core/Log.hpp"
 #include "core/SIMD.hpp"
@@ -53,7 +55,8 @@ void Renderer2D::submit_sprite(
     bool flip_x,
     bool flip_y,
     int16_t sorting_layer,
-    int16_t order_in_layer
+    int16_t order_in_layer,
+    std::shared_ptr<const Material> material
 ) {
     // 2D Frustum Culling Check
     if (m_active_camera && !m_active_camera->is_visible(position, size)) {
@@ -70,6 +73,7 @@ void Renderer2D::submit_sprite(
     cmd.flip_y = flip_y;
     cmd.sorting_layer = sorting_layer;
     cmd.order_in_layer = order_in_layer;
+    cmd.material = std::move(material);
 
     if (is_overlay) {
         cmd.sort_key = 0xFFFFFFFFFFFFFFFFULL; // Force overlay to sort after all game world sprites!
@@ -97,7 +101,8 @@ void Renderer2D::submit_screen_sprite(
     const glm::vec2& pivot,
     float z_layer,
     bool flip_x,
-    bool flip_y
+    bool flip_y,
+    std::shared_ptr<const Material> material
 ) {
     if (!texture) return;
 
@@ -115,6 +120,7 @@ void Renderer2D::submit_screen_sprite(
     cmd.flip_x = flip_x;
     cmd.flip_y = flip_y;
     cmd.is_screen_space = true;
+    cmd.material = std::move(material);
 
     // Screen-space sort key: Bit 63 is 1 to guarantee rendering on top of all world geometry!
     cmd.sort_key = SpriteSortKey::screen(z_layer, texture);
@@ -410,16 +416,25 @@ void Renderer2D::end_scene() {
         }
     }
 
+    int material_output_width = 1;
+    int material_output_height = 1;
+    SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &material_output_width, &material_output_height);
+    const MaterialRenderContext material_context{material_output_width, material_output_height};
+
     auto flush_range = [&](size_t start_idx, size_t end_idx) {
         if (start_idx >= end_idx) return;
         size_t batch_start = start_idx;
         Texture* current_texture = m_sprite_queue[start_idx].texture;
+        auto current_material = m_sprite_queue[start_idx].material;
 
         for (size_t i = start_idx + 1; i <= end_idx; ++i) {
             Texture* tex = (i < end_idx) ? m_sprite_queue[i].texture : nullptr;
-            if (tex != current_texture || i == end_idx) {
+            auto material = (i < end_idx) ? m_sprite_queue[i].material : nullptr;
+            if (tex != current_texture || material != current_material || i == end_idx) {
                 size_t batch_count = i - batch_start;
                 if (batch_count > 0) {
+                    const bool material_bound = current_material && m_material_backend &&
+                        m_material_backend->bind(*current_material, material_context);
                     SDL_Texture* sdl_tex = current_texture ? current_texture->get_sdl_texture() : nullptr;
                     SDL_RenderGeometry(
                         m_sdl_renderer,
@@ -431,9 +446,11 @@ void Renderer2D::end_scene() {
                     );
                     m_draw_calls++;
                     m_rendered_sprites += batch_count;
+                    if (material_bound) m_material_backend->unbind();
                 }
                 batch_start = i;
                 current_texture = tex;
+                current_material = std::move(material);
             }
         }
     };

@@ -8,8 +8,11 @@
 #include <string>
 #include <functional>
 #include <bitset>
+#include <memory>
 
 namespace Engine {
+
+class Material;
 
 using EntityID = uint32_t;
 using ComponentTypeID = uint8_t;
@@ -96,6 +99,7 @@ struct SpriteComponent {
     bool use_src_rect{false};
     bool visible{true};
     glm::vec2 size{64.0f, 64.0f};
+    std::shared_ptr<const Material> material;
 
     // Material / Shader Highlighting (Outline & Glow)
     bool has_outline{false};
