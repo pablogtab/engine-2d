@@ -71,6 +71,18 @@ void draw_editor_icon(ImDrawList* draw_list, EditorIcon icon, ImVec2 center, flo
                 draw_list->AddCircleFilled(p(knob, y), half * 0.18f, color, 10);
             }
             break;
+        case EditorIcon::Camera:
+            // A solid lens avoids the detached-arrow look produced by an
+            // outlined triangle at the small size used by viewport gizmos.
+            draw_list->AddRect(p(-0.88f, -0.52f), p(0.28f, 0.52f), color, 0.0f, 0, stroke);
+            draw_list->AddTriangleFilled(
+                p(0.28f, -0.38f),
+                p(0.92f, 0.0f),
+                p(0.28f, 0.38f),
+                color
+            );
+            draw_list->AddCircle(p(-0.30f, 0.0f), half * 0.18f, color, 10, stroke * 0.75f);
+            break;
     }
 }
 

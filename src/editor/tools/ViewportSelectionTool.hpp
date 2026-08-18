@@ -34,13 +34,15 @@ public:
 
     // Shared with the Viewport context menu so left-click selection and
     // right-click contextual actions resolve the same transformed geometry.
-    [[nodiscard]] EntityID pick_entity(EntityManager& em, const glm::vec2& world_position) const;
+    [[nodiscard]] EntityID pick_entity(EntityManager& em, const glm::vec2& world_position, const Camera2D* view_camera = nullptr) const;
+    void set_camera_output_size(const glm::vec2& size) { m_camera_output_size = glm::max(size, glm::vec2(1.0f)); }
 
     [[nodiscard]] bool is_box_selecting() const { return m_is_box_selecting; }
 
 private:
     bool m_is_box_selecting{false};
     ImVec2 m_box_select_start{0.0f, 0.0f};
+    glm::vec2 m_camera_output_size{1920.0f, 1080.0f};
 };
 
 } // namespace Engine

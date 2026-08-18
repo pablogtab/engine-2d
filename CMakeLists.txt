@@ -24,6 +24,7 @@ set(SOURCES
     src/core/ThreadPool.cpp
     src/core/Time.cpp
     src/core/Window.cpp
+    src/ecs/CameraSystem.cpp
     src/ecs/EntityManager.cpp
     src/particles/ParticleSystem2D.cpp
     src/renderer/Animation2D.cpp

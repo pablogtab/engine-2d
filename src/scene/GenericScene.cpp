@@ -4,6 +4,7 @@
 #include "../audio/AudioPresets.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
+#include "../ecs/CameraSystem.hpp"
 #include "../ecs/RenderSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
 #include <algorithm>
@@ -26,24 +27,8 @@ void GenericScene::on_attach() {
     Engine::PhysicsSystem::clear();
     Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, -980.0f));
 
-    // Reset Gameplay Camera to focus on player with zoom 1.0f
-    EntityID player_id = 0;
-    m_entity_manager.for_each<TagComponent>([&](EntityID id, const TagComponent& tag) {
-        if (tag.tag == "Player_Knight" || tag.tag == "Player") {
-            player_id = id;
-        }
-    });
-
-    if (player_id != 0 && m_entity_manager.has_component<TransformComponent>(player_id)) {
-        const auto& p_tx = m_entity_manager.get_component<TransformComponent>(player_id);
-        glm::vec2 start_cam = glm::vec2(p_tx.position.x, p_tx.position.y + 60.0f);
-        m_camera.set_position(start_cam);
-        m_camera_controller.set_target(start_cam);
-    } else {
-        m_camera.set_position(glm::vec2(0.0f, 0.0f));
-        m_camera_controller.set_target(glm::vec2(0.0f, 0.0f));
-    }
-    m_camera.set_zoom(1.0f);
+    TransformSystem::update(m_entity_manager);
+    synchronize_game_camera(0.0f, true);
 }
 
 void GenericScene::on_detach() {
@@ -147,10 +132,6 @@ void GenericScene::on_update(float delta_time) {
             }
         }
 
-        // Camera follow
-        glm::vec2 target_cam = glm::vec2(tx.position.x, tx.position.y + 60.0f);
-        m_camera_controller.set_target(target_cam);
-
         // --- 2. Coin Collection & Trampoline Trigger Overlap Checks ---
         glm::vec2 p_pos = glm::vec2(tx.position.x, tx.position.y);
         std::vector<EntityID> coins_to_destroy;
@@ -189,7 +170,46 @@ void GenericScene::on_update(float delta_time) {
     }
     Engine::SpriteAnimationSystem::update(m_entity_manager, delta_time);
     Engine::TransformSystem::update(m_entity_manager);
-    m_camera_controller.update(delta_time);
+    synchronize_game_camera(delta_time, false);
+}
+
+void GenericScene::synchronize_game_camera(float delta_time, bool reset_controller) {
+    const EntityID primary = CameraSystem::find_primary(m_entity_manager);
+    if (primary == 0) {
+        m_active_camera_entity = 0;
+        m_camera.set_position(glm::vec2(0.0f));
+        m_camera.set_rotation(0.0f);
+        m_camera.set_zoom(1.0f);
+        return;
+    }
+
+    const bool camera_changed = primary != m_active_camera_entity;
+    m_active_camera_entity = primary;
+    if (!CameraSystem::apply_to_runtime(m_entity_manager, primary, m_camera, true)) return;
+
+    const auto& camera = m_entity_manager.get_component<CameraComponent>(primary);
+    const auto& camera_transform = m_entity_manager.get_component<TransformComponent>(primary);
+    const glm::vec2 authored_position(camera_transform.world_position);
+    if (reset_controller || camera_changed) m_camera_controller.reset_center(authored_position);
+
+    m_camera_controller.set_follow_speed(camera.follow_speed);
+    m_camera_controller.enable_bounds(camera.enable_bounds);
+    if (camera.enable_bounds) {
+        m_camera_controller.set_bounds(
+            glm::vec2(camera.bounds.x, camera.bounds.y),
+            glm::vec2(camera.bounds.z, camera.bounds.w)
+        );
+    }
+
+    if (camera.follow_target != 0 &&
+        m_entity_manager.is_alive(camera.follow_target) &&
+        m_entity_manager.has_component<TransformComponent>(camera.follow_target)) {
+        const auto& target = m_entity_manager.get_component<TransformComponent>(camera.follow_target);
+        m_camera_controller.set_target(glm::vec2(target.world_position) + camera.follow_offset);
+        m_camera_controller.update(delta_time);
+    } else {
+        m_camera.set_position(authored_position);
+    }
 }
 
 void GenericScene::on_render(Renderer2D& renderer) {

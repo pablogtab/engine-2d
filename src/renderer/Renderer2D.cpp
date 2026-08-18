@@ -342,7 +342,10 @@ void Renderer2D::end_scene() {
         };
 
         glm::vec2 corners[4];
-        SIMD::transform_quad_corners(corners_rel, corners, screen_pos, cmd.rotation);
+        const float view_rotation = cmd.is_screen_space
+            ? cmd.rotation
+            : cmd.rotation + m_active_camera->get_rotation();
+        SIMD::transform_quad_corners(corners_rel, corners, screen_pos, view_rotation);
 
         // Normalize UVs (0.0f to 1.0f)
         float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;

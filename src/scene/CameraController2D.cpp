@@ -20,6 +20,14 @@ void CameraController2D::snap_to_target() {
     }
 }
 
+void CameraController2D::reset_center(const glm::vec2& center) {
+    m_current_center = center;
+    m_target_pos = center;
+    m_target_velocity = glm::vec2(0.0f);
+    m_lookahead_offset = glm::vec2(0.0f);
+    if (m_camera) m_camera->set_position(center);
+}
+
 void CameraController2D::update(float dt) {
     if (!m_camera) return;
 

@@ -1,4 +1,5 @@
 #include "Camera2D.hpp"
+#include <cmath>
 
 namespace Engine {
 
@@ -23,13 +24,21 @@ glm::vec2 Camera2D::world_to_screen(const glm::vec3& world_pos) const {
     // Parallax Factor: Distant layers (Z < 0) move slower
     float parallax_factor = z_scale;
     
-    // Cartesian Y-up to Screen Y-down mapping: +Y is UP, -Y is DOWN
     glm::vec2 delta = glm::vec2(
         world_pos.x - m_position.x * parallax_factor,
-        -(world_pos.y - m_position.y * parallax_factor)
+        world_pos.y - m_position.y * parallax_factor
+    );
+    const float radians = glm::radians(-m_rotation);
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    const glm::vec2 local(
+        delta.x * cosine - delta.y * sine,
+        delta.x * sine + delta.y * cosine
     );
 
-    glm::vec2 relative_pos = delta * get_effective_zoom() * z_scale;
+    // Cartesian Y-up to screen Y-down mapping happens after camera rotation.
+    glm::vec2 relative_pos(local.x, -local.y);
+    relative_pos *= get_effective_zoom() * z_scale;
     glm::vec2 screen_center = m_viewport_size * 0.5f;
 
     return relative_pos + screen_center;
@@ -42,10 +51,20 @@ glm::vec2 Camera2D::screen_to_world(const glm::vec2& screen_pos, float z) const 
     glm::vec2 screen_center = m_viewport_size * 0.5f;
 
     glm::vec2 relative_pos = physical_screen_pos - screen_center;
-    glm::vec2 delta = relative_pos / (get_effective_zoom() * z_scale);
+    const glm::vec2 local(
+        relative_pos.x / (get_effective_zoom() * z_scale),
+        -relative_pos.y / (get_effective_zoom() * z_scale)
+    );
+    const float radians = glm::radians(m_rotation);
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    const glm::vec2 delta(
+        local.x * cosine - local.y * sine,
+        local.x * sine + local.y * cosine
+    );
 
     float world_x = delta.x + m_position.x * parallax_factor;
-    float world_y = -delta.y + m_position.y * parallax_factor;
+    float world_y = delta.y + m_position.y * parallax_factor;
 
     return glm::vec2(world_x, world_y);
 }
@@ -67,12 +86,19 @@ bool Camera2D::is_visible(const glm::vec3& world_pos, const glm::vec2& size) con
 SDL_FRect Camera2D::get_world_bounds(float z) const {
     float z_scale = get_z_scale(z) * get_effective_zoom();
     glm::vec2 half_world_dim = (m_viewport_size / z_scale) * 0.5f;
+    const float radians = glm::radians(m_rotation);
+    const float cosine = std::abs(std::cos(radians));
+    const float sine = std::abs(std::sin(radians));
+    const glm::vec2 rotated_extent(
+        half_world_dim.x * cosine + half_world_dim.y * sine,
+        half_world_dim.x * sine + half_world_dim.y * cosine
+    );
 
     return SDL_FRect{
-        m_position.x - half_world_dim.x,
-        m_position.y - half_world_dim.y,
-        half_world_dim.x * 2.0f,
-        half_world_dim.y * 2.0f
+        m_position.x - rotated_extent.x,
+        m_position.y - rotated_extent.y,
+        rotated_extent.x * 2.0f,
+        rotated_extent.y * 2.0f
     };
 }
 

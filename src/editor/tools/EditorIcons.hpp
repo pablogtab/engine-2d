@@ -12,7 +12,8 @@ enum class EditorIcon {
     Local,
     Grid,
     Snap,
-    Settings
+    Settings,
+    Camera
 };
 
 // DPI-independent editor glyphs drawn from normalized vector primitives.

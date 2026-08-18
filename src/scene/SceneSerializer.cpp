@@ -108,7 +108,8 @@ std::string SceneSerializer::serialize_to_string() {
             json cam_json;
             cam_json["is_primary"] = cam.is_primary;
             cam_json["zoom"] = cam.zoom;
-            cam_json["follow_player"] = cam.follow_player;
+            cam_json["follow_target"] = cam.follow_target;
+            cam_json["follow_offset"] = {cam.follow_offset.x, cam.follow_offset.y};
             cam_json["follow_speed"] = cam.follow_speed;
             cam_json["enable_bounds"] = cam.enable_bounds;
             cam_json["bounds"] = { cam.bounds.x, cam.bounds.y, cam.bounds.z, cam.bounds.w };
@@ -227,10 +228,18 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
         json root = json::parse(json_text);
         EntityManager& em = m_scene->get_entity_manager();
         em.clear();
+        std::vector<EntityID> tilemaps_to_rebuild;
 
         if (root.contains("entities") && root["entities"].is_array()) {
             for (const auto& entity_json : root["entities"]) {
-                EntityID id = em.create_entity();
+                const EntityID serialized_id = entity_json.value("id", EntityID{0});
+                const EntityID id = serialized_id != 0
+                    ? em.create_entity_with_id(serialized_id)
+                    : em.create_entity();
+                if (id == 0) {
+                    ENGINE_LOG_ERROR("[SERIALIZER] Duplicate or invalid entity ID {}", serialized_id);
+                    return false;
+                }
 
                 // TagComponent
                 if (entity_json.contains("tag") && entity_json["tag"].is_string()) {
@@ -337,7 +346,7 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                         }
                     }
                     em.add_component<TilemapComponent>(id, tm);
-                    TilemapColliderSystem::build_composite_colliders(em, id);
+                    tilemaps_to_rebuild.push_back(id);
                 }
 
                 // CameraComponent
@@ -346,7 +355,10 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     CameraComponent cam;
                     if (c_j.contains("is_primary")) cam.is_primary = c_j["is_primary"].get<bool>();
                     if (c_j.contains("zoom")) cam.zoom = c_j["zoom"].get<float>();
-                    if (c_j.contains("follow_player")) cam.follow_player = c_j["follow_player"].get<bool>();
+                    if (c_j.contains("follow_target")) cam.follow_target = c_j["follow_target"].get<EntityID>();
+                    if (c_j.contains("follow_offset") && c_j["follow_offset"].size() >= 2) {
+                        cam.follow_offset = glm::vec2(c_j["follow_offset"][0].get<float>(), c_j["follow_offset"][1].get<float>());
+                    }
                     if (c_j.contains("follow_speed")) cam.follow_speed = c_j["follow_speed"].get<float>();
                     if (c_j.contains("enable_bounds")) cam.enable_bounds = c_j["enable_bounds"].get<bool>();
                     if (c_j.contains("bounds") && c_j["bounds"].size() >= 4) {
@@ -449,6 +461,12 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     }
                     em.add_component<ColliderComponent>(id, cc);
                 }
+            }
+
+            // Generated entities are created only after every serialized ID
+            // has been restored, preventing collisions with stable references.
+            for (EntityID tilemap : tilemaps_to_rebuild) {
+                TilemapColliderSystem::build_composite_colliders(em, tilemap);
             }
         }
 

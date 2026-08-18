@@ -93,6 +93,29 @@ void TransformEntitiesCommand::apply(const std::unordered_map<EntityID, Transfor
 void TransformEntitiesCommand::execute() { apply(m_after); }
 void TransformEntitiesCommand::undo() { apply(m_before); }
 
+SetPrimaryCameraCommand::SetPrimaryCameraCommand(EntityManager* em, EntityID primary_camera)
+    : m_em(em) {
+    if (!m_em || !m_em->is_alive(primary_camera) || !m_em->has_component<CameraComponent>(primary_camera)) return;
+    m_em->for_each<CameraComponent>([&](EntityID id, const CameraComponent& camera) {
+        m_before[id] = camera;
+        CameraComponent updated = camera;
+        updated.is_primary = id == primary_camera;
+        m_after[id] = updated;
+    });
+}
+
+void SetPrimaryCameraCommand::apply(const std::unordered_map<EntityID, CameraComponent>& states) {
+    if (!m_em) return;
+    for (const auto& [id, camera] : states) {
+        if (m_em->is_alive(id) && m_em->has_component<CameraComponent>(id)) {
+            m_em->get_component<CameraComponent>(id) = camera;
+        }
+    }
+}
+
+void SetPrimaryCameraCommand::execute() { apply(m_after); }
+void SetPrimaryCameraCommand::undo() { apply(m_before); }
+
 // ---------------------------------------------------------------------------
 // 2. Delete Entities Command
 // ---------------------------------------------------------------------------

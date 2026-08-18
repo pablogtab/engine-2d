@@ -64,6 +64,22 @@ private:
     std::string m_description;
 };
 
+class SetPrimaryCameraCommand final : public IEditorCommand {
+public:
+    SetPrimaryCameraCommand(EntityManager* em, EntityID primary_camera);
+
+    void execute() override;
+    void undo() override;
+    [[nodiscard]] std::string get_description() const override { return "Set Primary Camera"; }
+
+private:
+    void apply(const std::unordered_map<EntityID, CameraComponent>& states);
+
+    EntityManager* m_em{nullptr};
+    std::unordered_map<EntityID, CameraComponent> m_before;
+    std::unordered_map<EntityID, CameraComponent> m_after;
+};
+
 // 2. Delete Entities Command (with full snapshot restore on undo)
 struct EntitySnapshot {
     EntityID id{0};

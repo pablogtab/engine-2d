@@ -17,6 +17,9 @@ public:
     const glm::vec2& get_position() const { return m_position; }
     void move(const glm::vec2& offset) { m_position += offset; }
 
+    void set_rotation(float degrees) { m_rotation = degrees; }
+    float get_rotation() const { return m_rotation; }
+
     void set_zoom(float zoom) { m_zoom = glm::clamp(zoom, MIN_ZOOM, MAX_ZOOM); }
     float get_zoom() const { return m_zoom; }
 
@@ -51,6 +54,7 @@ private:
     glm::vec2 m_position{0.0f, 0.0f};
     glm::vec2 m_viewport_size{1280.0f, 720.0f};
     float m_zoom{1.0f};
+    float m_rotation{0.0f};
     float m_dpi_scale{1.0f};
 };
 

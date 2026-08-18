@@ -52,7 +52,8 @@ This roadmap extends the current engine roadmap with the systems needed to make 
 - [ ] Add group/container entities and group-aware duplication.
 - [ ] Add hierarchy commands for duplicate, reparent, reorder, lock, and visibility.
 - [ ] Add component add/remove commands with complete undo/redo support.
-- [ ] Migrate Sprite, RigidBody, Collider, Tilemap, Camera, and Animator Inspector controls to the common command-backed edit lifecycle.
+- [ ] Migrate Sprite, RigidBody, Collider, Tilemap, and Animator Inspector controls to the common command-backed edit lifecycle.
+- [x] Make Camera 2D an editable ECS entity that drives the runtime view, supports stable follow targets, and participates in undo/redo.
 - [ ] Add component search, favorites, and contextual documentation/tooltips.
 - [ ] Show scene dirty state and provide Save All.
 

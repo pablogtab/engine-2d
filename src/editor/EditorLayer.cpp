@@ -9,6 +9,7 @@
 #include "../scene/SceneSerializer.hpp"
 #include "panels/ViewportPanel.hpp"
 #include "../ecs/Components.hpp"
+#include "../ecs/CameraSystem.hpp"
 #include "../tilemap/Tilemap.hpp"
 #include <filesystem>
 
@@ -242,6 +243,13 @@ void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
 void EditorLayer::create_new_scene(const std::string& name) {
     if (!m_scene_manager) return;
     auto new_scene = std::make_shared<GenericScene>(name);
+    EntityManager& entity_manager = new_scene->get_entity_manager();
+    const EntityID camera_entity = entity_manager.create_entity();
+    entity_manager.add_component<TagComponent>(camera_entity, TagComponent{"Main Camera"});
+    entity_manager.add_component<TransformComponent>(camera_entity, TransformComponent{glm::vec3(0.0f)});
+    CameraComponent camera;
+    camera.is_primary = true;
+    entity_manager.add_component<CameraComponent>(camera_entity, camera);
     m_scene_manager->add_scene(new_scene);
     m_scene_manager->set_active_scene(name);
     ENGINE_LOG_INFO("[EDITOR] Created new blank scene: '{}'", name);
@@ -454,6 +462,7 @@ void EditorLayer::render_main_menu_bar() {
                     snapshot.transform = TransformComponent{glm::vec3(0.0f, 60.0f, 0.0f)};
                     snapshot.has_camera = true;
                     snapshot.camera = CameraComponent{};
+                    snapshot.camera.is_primary = !CameraSystem::has_camera(em);
                     if (m_command_history) m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, nullptr, std::move(snapshot)));
                 }
             }

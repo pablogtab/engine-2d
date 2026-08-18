@@ -30,12 +30,15 @@ private:
     void draw_components(EntityManager& em, EntityID entity);
     void track_transform_edit(EntityManager& em, EntityID entity, const TransformComponent& before, const char* description);
     void push_transform_change(EntityManager& em, EntityID entity, const TransformComponent& before, const char* description);
+    void track_camera_edit(EntityManager& em, EntityID entity, const CameraComponent& before, const char* description);
+    void push_camera_change(EntityManager& em, EntityID entity, const CameraComponent& before, const char* description);
 
     std::string m_name{"Entity Inspector"};
     SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     std::unordered_map<ImGuiID, TransformComponent> m_pending_transform_edits;
+    std::unordered_map<ImGuiID, CameraComponent> m_pending_camera_edits;
     struct SDL_Renderer* m_renderer{nullptr};
     class SpriteAnimationStudioPanel* m_anim_studio{nullptr};
 };

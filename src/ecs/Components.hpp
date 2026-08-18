@@ -133,14 +133,16 @@ struct BehaviorComponent {
 
 // Camera Component for entity-based cameras
 struct CameraComponent {
-    bool is_primary{true};
+    bool is_primary{false};
     float zoom{1.0f};
-    bool follow_player{true};
+    EntityID follow_target{0};
+    glm::vec2 follow_offset{0.0f, 0.0f};
     float follow_speed{6.0f};
     bool enable_bounds{false};
     glm::vec4 bounds{-2000.0f, -1000.0f, 2000.0f, 1000.0f}; // min_x, min_y, max_x, max_y
 
     CameraComponent() = default;
+    bool operator==(const CameraComponent&) const = default;
 };
 
 // Animation Clip definition for 2D Spritesheets

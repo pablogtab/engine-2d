@@ -6,11 +6,13 @@
 #include "../../scene/GenericScene.hpp"
 #include "../../core/Log.hpp"
 #include "../../core/Time.hpp"
+#include "../../ecs/CameraSystem.hpp"
 #include "../../ecs/Components.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -625,6 +627,10 @@ void ViewportPanel::on_gui() {
             Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
             auto* generic_scene = dynamic_cast<GenericScene*>(active_scene);
             Camera2D* active_cam = generic_scene ? &generic_scene->get_editor_camera() : nullptr;
+            if (m_project_settings) {
+                const auto& game_view = m_project_settings->game_view();
+                m_selection_tool.set_camera_output_size(glm::vec2(game_view.width, game_view.height));
+            }
 
             // --- 3. Viewport Camera Navigation (Pan / Zoom / Focus 'F') ---
             if (is_editing && active_cam && generic_scene && m_selection) {
@@ -642,7 +648,7 @@ void ViewportPanel::on_gui() {
                 right_drag.x * right_drag.x + right_drag.y * right_drag.y < 16.0f;
             if (is_editing && m_is_hovered && is_context_click) {
                 m_context_entity = active_scene && active_cam
-                    ? m_selection_tool.pick_entity(active_scene->get_entity_manager(), active_cam->screen_to_world(m_viewport_mouse_pos))
+                    ? m_selection_tool.pick_entity(active_scene->get_entity_manager(), active_cam->screen_to_world(m_viewport_mouse_pos), active_cam)
                     : 0;
                 if (m_context_entity != 0 && m_selection && !m_selection->is_selected(m_context_entity)) {
                     m_selection->select(m_context_entity);
@@ -686,45 +692,72 @@ void ViewportPanel::on_gui() {
                 
                 glm::vec2 cam_pos(0.0f, 0.0f);
                 float cam_zoom = 1.0f;
+                float cam_rotation = 0.0f;
                 const GameViewSettings output = m_project_settings
                     ? m_project_settings->game_view()
                     : GameViewSettings{};
                 glm::vec2 vp_sz(static_cast<float>(output.width), static_cast<float>(output.height));
-                bool is_cam_selected = false;
-                bool found_camera = false;
+                EntityID displayed_camera = CameraSystem::find_primary(em);
+                em.for_each<CameraComponent>([&](EntityID id, const CameraComponent&) {
+                    if (m_selection && m_selection->is_selected(id)) displayed_camera = id;
+                });
+                const bool found_camera = displayed_camera != 0 && em.has_component<TransformComponent>(displayed_camera);
+                const bool is_cam_selected = found_camera && m_selection && m_selection->is_selected(displayed_camera);
+                if (found_camera) {
+                    const auto& component = em.get_component<CameraComponent>(displayed_camera);
+                    const auto& transform = em.get_component<TransformComponent>(displayed_camera);
+                    cam_pos = glm::vec2(transform.world_position);
+                    cam_zoom = component.zoom;
+                    cam_rotation = transform.world_rotation;
+                }
 
-                em.for_each<CameraComponent, TransformComponent>([&](EntityID id, const CameraComponent& cc, const TransformComponent& tc) {
-                    bool sel = m_selection && m_selection->is_selected(id);
-                    if (!found_camera || sel || cc.is_primary) {
-                        cam_pos = glm::vec2(tc.position.x, tc.position.y);
-                        cam_zoom = cc.zoom;
-                        is_cam_selected = sel;
-                        found_camera = true;
-                    }
+                em.for_each<CameraComponent, TransformComponent>([&](EntityID id, const CameraComponent& camera_component, const TransformComponent& transform) {
+                    const glm::vec2 icon_viewport = active_cam->world_to_screen(transform.world_position);
+                    const ImVec2 icon_center(
+                        img_min.x + icon_viewport.x * img_size.x / active_cam->get_viewport_size().x,
+                        img_min.y + icon_viewport.y * img_size.y / active_cam->get_viewport_size().y
+                    );
+                    const bool selected = m_selection && m_selection->is_selected(id);
+                    const ImU32 color = selected
+                        ? IM_COL32(116, 170, 255, 255)
+                        : (camera_component.is_primary ? IM_COL32(110, 205, 155, 230) : IM_COL32(154, 164, 184, 210));
+                    draw_editor_icon(ImGui::GetWindowDrawList(), EditorIcon::Camera, icon_center, 18.0f, color);
                 });
 
-                float half_w = (vp_sz.x * 0.5f) / (cam_zoom > 0.001f ? cam_zoom : 1.0f);
-                float half_h = (vp_sz.y * 0.5f) / (cam_zoom > 0.001f ? cam_zoom : 1.0f);
+                if (found_camera) {
+                    const float half_w = (vp_sz.x * 0.5f) / std::max(cam_zoom, 0.001f);
+                    const float half_h = (vp_sz.y * 0.5f) / std::max(cam_zoom, 0.001f);
+                    const float radians = glm::radians(-cam_rotation);
+                    const float cosine = std::cos(radians);
+                    const float sine = std::sin(radians);
+                    const std::array<glm::vec2, 4> local{{
+                        {-half_w, half_h}, {half_w, half_h}, {half_w, -half_h}, {-half_w, -half_h}
+                    }};
+                    ImVec2 screen_corners[4];
+                    ImVec2 label_position(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+                    for (size_t index = 0; index < local.size(); ++index) {
+                        const glm::vec2 rotated(
+                            local[index].x * cosine - local[index].y * sine,
+                            local[index].x * sine + local[index].y * cosine
+                        );
+                        const glm::vec2 viewport_point = active_cam->world_to_screen(glm::vec3(cam_pos + rotated, 0.0f));
+                        screen_corners[index] = ImVec2(
+                            img_min.x + viewport_point.x * img_size.x / active_cam->get_viewport_size().x,
+                            img_min.y + viewport_point.y * img_size.y / active_cam->get_viewport_size().y
+                        );
+                        label_position.x = std::min(label_position.x, screen_corners[index].x);
+                        label_position.y = std::min(label_position.y, screen_corners[index].y);
+                    }
 
-                glm::vec3 p_min_world(cam_pos.x - half_w, cam_pos.y - half_h, 0.0f);
-                glm::vec3 p_max_world(cam_pos.x + half_w, cam_pos.y + half_h, 0.0f);
-                glm::vec2 s_min = active_cam->world_to_screen(p_min_world);
-                glm::vec2 s_max = active_cam->world_to_screen(p_max_world);
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const ImU32 frame_col = is_cam_selected ? IM_COL32(59, 130, 246, 220) : IM_COL32(148, 163, 184, 80);
+                    const float frame_thick = is_cam_selected ? 2.0f : 1.0f;
+                    dl->AddPolyline(screen_corners, 4, frame_col, ImDrawFlags_Closed, frame_thick);
 
-                float scale_x = img_size.x / active_cam->get_viewport_size().x;
-                float scale_y = img_size.y / active_cam->get_viewport_size().y;
-
-                ImVec2 screen_rect_min(img_min.x + s_min.x * scale_x, img_min.y + s_max.y * scale_y);
-                ImVec2 screen_rect_max(img_min.x + s_max.x * scale_x, img_min.y + s_min.y * scale_y);
-
-                ImDrawList* dl = ImGui::GetWindowDrawList();
-                ImU32 frame_col = is_cam_selected ? IM_COL32(59, 130, 246, 220) : IM_COL32(148, 163, 184, 80);
-                float frame_thick = is_cam_selected ? 2.0f : 1.0f;
-                dl->AddRect(screen_rect_min, screen_rect_max, frame_col, 0.0f, 0, frame_thick);
-                
-                char cam_label[64];
-                snprintf(cam_label, sizeof(cam_label), "🎥 Camera Frame (%.0fx%.0f | Zoom: %.2fx)", vp_sz.x, vp_sz.y, cam_zoom);
-                dl->AddText(ImVec2(screen_rect_min.x + 8.0f, screen_rect_min.y + 8.0f), is_cam_selected ? IM_COL32(96, 165, 250, 255) : IM_COL32(148, 163, 184, 150), cam_label);
+                    char cam_label[64];
+                    snprintf(cam_label, sizeof(cam_label), "Camera Frame (%.0fx%.0f | Zoom: %.2fx)", vp_sz.x, vp_sz.y, cam_zoom);
+                    dl->AddText(ImVec2(label_position.x + 8.0f, label_position.y + 8.0f), is_cam_selected ? IM_COL32(96, 165, 250, 255) : IM_COL32(148, 163, 184, 150), cam_label);
+                }
             }
 
             // --- 5. Selection Outlines & Centroid Transform Gizmo ---

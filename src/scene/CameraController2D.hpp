@@ -31,6 +31,7 @@ public:
 
     // Instantly snaps the camera to the target position (useful on respawns / level load)
     void snap_to_target();
+    void reset_center(const glm::vec2& center);
 
     // --- Deadzone (tolerance area in world units where target moves without moving camera) ---
     void set_deadzone(const glm::vec2& half_extents) { m_deadzone = glm::max(glm::vec2(0.0f), half_extents); }

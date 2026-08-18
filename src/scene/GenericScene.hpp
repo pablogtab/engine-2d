@@ -48,9 +48,12 @@ public:
     [[nodiscard]] bool is_editing() const override { return m_is_editing; }
 
 private:
+    void synchronize_game_camera(float delta_time, bool reset_controller);
+
     Camera2D m_camera;
     Camera2D m_editor_camera;
     CameraController2D m_camera_controller;
+    EntityID m_active_camera_entity{0};
     bool m_physics_enabled{true};
     bool m_show_debug_colliders{false};
     bool m_is_editing{true};

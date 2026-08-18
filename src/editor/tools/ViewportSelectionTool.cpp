@@ -38,7 +38,7 @@ void ViewportSelectionTool::render_selection_outlines(EntityManager& em, const E
     }
 }
 
-EntityID ViewportSelectionTool::pick_entity(EntityManager& em, const glm::vec2& world_position) const {
+EntityID ViewportSelectionTool::pick_entity(EntityManager& em, const glm::vec2& world_position, const Camera2D* view_camera) const {
     EntityID hit_entity = 0;
     float closest_distance = std::numeric_limits<float>::max();
 
@@ -52,6 +52,40 @@ EntityID ViewportSelectionTool::pick_entity(EntityManager& em, const glm::vec2& 
             hit_entity = id;
         }
     });
+
+    // Camera gizmos are constant-size editor icons rather than scene geometry.
+    // Test them in world units derived from the active editor zoom.
+    const float camera_pick_radius = view_camera
+        ? 14.0f / std::max(view_camera->get_effective_zoom(), 0.001f)
+        : 14.0f;
+    em.for_each<CameraComponent, TransformComponent>([&](EntityID id, const CameraComponent&, const TransformComponent& transform) {
+        if (!transform.world_visible) return;
+        const float distance = glm::distance(world_position, glm::vec2(transform.world_position));
+        if (distance <= camera_pick_radius && distance < closest_distance) {
+            closest_distance = distance;
+            hit_entity = id;
+        }
+    });
+
+    if (hit_entity == 0) {
+        const float edge_tolerance = view_camera
+            ? 5.0f / std::max(view_camera->get_effective_zoom(), 0.001f)
+            : 5.0f;
+        em.for_each<CameraComponent, TransformComponent>([&](EntityID id, const CameraComponent& camera, const TransformComponent& transform) {
+            const glm::vec2 relative = world_position - glm::vec2(transform.world_position);
+            const float radians = glm::radians(-transform.world_rotation);
+            const float cosine = std::cos(radians);
+            const float sine = std::sin(radians);
+            const glm::vec2 local(
+                relative.x * cosine - relative.y * sine,
+                relative.x * sine + relative.y * cosine
+            );
+            const glm::vec2 half = m_camera_output_size * 0.5f / std::max(camera.zoom, 0.001f);
+            const bool near_vertical = std::abs(std::abs(local.x) - half.x) <= edge_tolerance && std::abs(local.y) <= half.y + edge_tolerance;
+            const bool near_horizontal = std::abs(std::abs(local.y) - half.y) <= edge_tolerance && std::abs(local.x) <= half.x + edge_tolerance;
+            if (near_vertical || near_horizontal) hit_entity = id;
+        });
+    }
 
     if (hit_entity != 0 && em.has_component<HierarchyComponent>(hit_entity)) {
         const EntityID parent = em.get_component<HierarchyComponent>(hit_entity).parent;
@@ -99,7 +133,13 @@ void ViewportSelectionTool::handle_selection_input(Scene* active_scene, const Ca
             em.for_each<TransformComponent>([&](EntityID id, const TransformComponent& transform) {
                 if (!transform.world_visible) return;
                 ViewportSelectionQuad quad;
-                if (!get_selection_quad(em, id, quad)) return;
+                if (!get_selection_quad(em, id, quad)) {
+                    if (em.has_component<CameraComponent>(id) &&
+                        point_in_world_rect(glm::vec2(transform.world_position), rect_min, rect_max)) {
+                        found_entities.insert(id);
+                    }
+                    return;
+                }
                 const bool matched = is_alt_strict
                     ? std::all_of(quad.corners.begin(), quad.corners.end(), [&](const glm::vec2& corner) { return point_in_world_rect(corner, rect_min, rect_max); })
                     : selection_quad_intersects_world_rect(quad, rect_min, rect_max);
@@ -117,7 +157,7 @@ void ViewportSelectionTool::handle_selection_input(Scene* active_scene, const Ca
         } else {
             const glm::vec2 mouse_viewport((mouse_pos.x - img_min.x) / scale_x, (mouse_pos.y - img_min.y) / scale_y);
             const glm::vec2 mouse_world = camera.screen_to_world(mouse_viewport);
-            const EntityID hit_entity = pick_entity(em, mouse_world);
+            const EntityID hit_entity = pick_entity(em, mouse_world, &camera);
             selection.select(hit_entity, is_additive);
         }
     }

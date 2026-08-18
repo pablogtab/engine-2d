@@ -5,6 +5,7 @@
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
+#include "../../ecs/CameraSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../renderer/Texture.hpp"
 #include "../../tilemap/Tilemap.hpp"
@@ -61,7 +62,7 @@ bool property_axis_float(const char* label, const char* axis, float* value, floa
     begin_property_row(label, reserve_reset);
     begin_property_interaction(label);
     ImGui::PushID(label);
-    ImGui::TextDisabled(axis);
+    ImGui::TextDisabled("%s", axis);
     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
     const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
     // A scalar Z value shares the vector grid but only needs half of the
@@ -182,6 +183,36 @@ void InspectorPanel::track_transform_edit(EntityManager& em, EntityID entity, co
         if (pending != m_pending_transform_edits.end()) {
             push_transform_change(em, entity, pending->second, description);
             m_pending_transform_edits.erase(pending);
+        }
+    }
+}
+
+void InspectorPanel::push_camera_change(EntityManager& em, EntityID entity, const CameraComponent& before, const char* description) {
+    if (!m_command_history || !em.is_alive(entity) || !em.has_component<CameraComponent>(entity)) return;
+    const CameraComponent after = em.get_component<CameraComponent>(entity);
+    if (before == after) return;
+    m_command_history->push_executed_command(std::make_unique<ModifyEntityCommand>(
+        &em,
+        entity,
+        [before](EntityManager& command_em, EntityID id) {
+            if (command_em.has_component<CameraComponent>(id)) command_em.get_component<CameraComponent>(id) = before;
+        },
+        [after](EntityManager& command_em, EntityID id) {
+            if (command_em.has_component<CameraComponent>(id)) command_em.get_component<CameraComponent>(id) = after;
+        },
+        description
+    ));
+}
+
+void InspectorPanel::track_camera_edit(EntityManager& em, EntityID entity, const CameraComponent& before, const char* description) {
+    if (g_property_interaction.activated) {
+        m_pending_camera_edits.try_emplace(g_property_interaction.id, before);
+    }
+    if (g_property_interaction.deactivated_after_edit) {
+        auto pending = m_pending_camera_edits.find(g_property_interaction.id);
+        if (pending != m_pending_camera_edits.end()) {
+            push_camera_change(em, entity, pending->second, description);
+            m_pending_camera_edits.erase(pending);
         }
     }
 }
@@ -616,18 +647,67 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         if (ImGui::CollapsingHeader("🎥 Camera 2D", ImGuiTreeNodeFlags_DefaultOpen)) {
             auto& cam = em.get_component<CameraComponent>(entity);
 
-            ImGui::Checkbox("Primary Scene Camera", &cam.is_primary);
-            property_float("Camera Zoom", &cam.zoom, 0.02f, 0.1f, 5.0f, "%.2fx");
-            ImGui::Checkbox("Follow Player Smoothly", &cam.follow_player);
-            if (cam.follow_player) {
-                property_float("Follow Speed", &cam.follow_speed, 0.1f, 1.0f, 20.0f, "%.1f");
+            if (cam.is_primary) {
+                ImGui::TextColored(ImVec4(0.35f, 0.78f, 0.52f, 1.0f), "Primary Scene Camera");
+            } else if (ImGui::Button("Make Primary", ImVec2(-1.0f, 0.0f)) && m_command_history) {
+                m_command_history->execute_command(std::make_unique<SetPrimaryCameraCommand>(&em, entity));
             }
-            ImGui::Checkbox("Enable Camera Bounds", &cam.enable_bounds);
+
+            const CameraComponent zoom_before = cam;
+            property_float("Camera Zoom", &cam.zoom, 0.02f, 0.1f, 20.0f, "%.2fx");
+            track_camera_edit(em, entity, zoom_before, "Edit Camera Zoom");
+
+            const char* target_preview = "None";
+            if (cam.follow_target != 0 && em.is_alive(cam.follow_target)) {
+                target_preview = em.has_component<TagComponent>(cam.follow_target)
+                    ? em.get_component<TagComponent>(cam.follow_target).tag.c_str()
+                    : "Entity";
+            }
+            begin_property_row("Follow Target");
+            ImGui::PushID("camera_follow_target");
+            if (ImGui::BeginCombo("##value", target_preview)) {
+                if (ImGui::Selectable("None", cam.follow_target == 0)) {
+                    const CameraComponent before = cam;
+                    cam.follow_target = 0;
+                    push_camera_change(em, entity, before, "Change Camera Follow Target");
+                }
+                for (EntityID candidate : em.get_living_entities()) {
+                    if (candidate == entity || !em.has_component<TransformComponent>(candidate)) continue;
+                    const std::string label = em.has_component<TagComponent>(candidate)
+                        ? em.get_component<TagComponent>(candidate).tag
+                        : "Entity #" + std::to_string(candidate);
+                    const std::string item_label = label + "##" + std::to_string(candidate);
+                    if (ImGui::Selectable(item_label.c_str(), cam.follow_target == candidate)) {
+                        const CameraComponent before = cam;
+                        cam.follow_target = candidate;
+                        push_camera_change(em, entity, before, "Change Camera Follow Target");
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::PopID();
+
+            if (cam.follow_target != 0) {
+                const CameraComponent offset_before = cam;
+                property_vec2("Follow Offset", &cam.follow_offset.x, 1.0f);
+                track_camera_edit(em, entity, offset_before, "Edit Camera Follow Offset");
+                const CameraComponent speed_before = cam;
+                property_float("Follow Speed", &cam.follow_speed, 0.1f, 0.1f, 20.0f, "%.1f");
+                track_camera_edit(em, entity, speed_before, "Edit Camera Follow Speed");
+            }
+
+            const CameraComponent bounds_enabled_before = cam;
+            property_bool("Enable Bounds", &cam.enable_bounds);
+            track_camera_edit(em, entity, bounds_enabled_before, "Toggle Camera Bounds");
             if (cam.enable_bounds) {
+                const CameraComponent bounds_before = cam;
                 begin_property_row("Bounds");
+                begin_property_interaction("Camera Bounds");
                 ImGui::PushID("camera_bounds");
                 ImGui::DragFloat4("##value", &cam.bounds.x, 10.0f);
+                capture_property_interaction();
                 ImGui::PopID();
+                track_camera_edit(em, entity, bounds_before, "Edit Camera Bounds");
             }
             ImGui::TextDisabled("Output resolution is configured in Project Settings");
         }
@@ -794,7 +874,21 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             em.add_component<AnimationComponent>(entity, anim);
         }
         if (!em.has_component<CameraComponent>(entity) && ImGui::MenuItem("Camera 2D")) {
-            em.add_component<CameraComponent>(entity, CameraComponent{});
+            CameraComponent camera;
+            camera.is_primary = !CameraSystem::has_camera(em);
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<ModifyEntityCommand>(
+                    &em,
+                    entity,
+                    [](EntityManager& command_em, EntityID id) {
+                        if (command_em.has_component<CameraComponent>(id)) command_em.remove_component<CameraComponent>(id);
+                    },
+                    [camera](EntityManager& command_em, EntityID id) {
+                        if (!command_em.has_component<CameraComponent>(id)) command_em.add_component<CameraComponent>(id, camera);
+                    },
+                    "Add Camera 2D"
+                ));
+            }
         }
         if (!em.has_component<TilemapComponent>(entity) && ImGui::MenuItem("Tilemap Grid")) {
             em.add_component<TilemapComponent>(entity, TilemapComponent{});
