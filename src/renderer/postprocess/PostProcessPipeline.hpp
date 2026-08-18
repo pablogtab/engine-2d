@@ -15,8 +15,15 @@ public:
     PostProcessPipeline(const PostProcessPipeline&) = delete;
     PostProcessPipeline& operator=(const PostProcessPipeline&) = delete;
 
-    void init(SDL_Renderer* renderer, int width, int height);
+    void init(
+        SDL_Renderer* renderer,
+        int width,
+        int height,
+        int authoring_width = 1280,
+        int authoring_height = 720
+    );
     void resize(int width, int height);
+    void set_effect_reference_size(int width, int height);
     void destroy_targets();
 
     // Actualizar todos los pases registrados (animaciones, tweens, ruidos)
@@ -49,6 +56,7 @@ public:
     SDL_Texture* get_capture_target() const { return m_target_a; }
     int get_width() const { return m_width; }
     int get_height() const { return m_height; }
+    [[nodiscard]] const PostProcessContext& get_context() const { return m_context; }
 
     // Buffers auxiliares de resolución reducida (para Bloom / Gaussian Blur)
     SDL_Texture* get_half_target_a() const { return m_half_target_a; }
@@ -69,6 +77,7 @@ private:
 
     int m_width{1280};
     int m_height{720};
+    PostProcessContext m_context;
 
     std::vector<std::shared_ptr<IPostProcessPass>> m_passes;
     bool m_is_capturing{false};

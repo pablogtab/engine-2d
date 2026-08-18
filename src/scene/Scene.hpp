@@ -7,6 +7,8 @@
 namespace Engine {
 
 class Renderer2D;
+class PostProcessPipeline;
+struct PostProcessProfile;
 
 class Scene {
 public:
@@ -17,6 +19,9 @@ public:
     virtual void on_update(float delta_time) {}
     virtual void on_render(Renderer2D& renderer) {}
     virtual void on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) {}
+
+    [[nodiscard]] virtual PostProcessPipeline* get_post_process_pipeline() { return nullptr; }
+    [[nodiscard]] virtual PostProcessProfile* get_editable_post_process_profile() { return nullptr; }
 
     virtual void set_is_editing(bool is_editing) {}
     [[nodiscard]] virtual bool is_editing() const { return true; }

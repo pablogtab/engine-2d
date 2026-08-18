@@ -6,26 +6,26 @@
 
 namespace Engine {
 
-class ModifyGameViewSettingsCommand final : public IEditorCommand {
+class ModifyProjectDisplaySettingsCommand final : public IEditorCommand {
 public:
-    ModifyGameViewSettingsCommand(
+    ModifyProjectDisplaySettingsCommand(
         ProjectSettings* settings,
-        GameViewSettings before,
-        GameViewSettings after,
-        std::function<void(const GameViewSettings&)> on_changed = {}
+        ProjectDisplaySettings before,
+        ProjectDisplaySettings after,
+        std::function<void(const ProjectDisplaySettings&)> on_changed = {}
     );
 
     void execute() override;
     void undo() override;
-    [[nodiscard]] std::string get_description() const override { return "Change Game Output"; }
+    [[nodiscard]] std::string get_description() const override { return "Change Project Display Settings"; }
 
 private:
-    void apply(const GameViewSettings& value);
+    void apply(const ProjectDisplaySettings& value);
 
     ProjectSettings* m_settings{nullptr};
-    GameViewSettings m_before;
-    GameViewSettings m_after;
-    std::function<void(const GameViewSettings&)> m_on_changed;
+    ProjectDisplaySettings m_before;
+    ProjectDisplaySettings m_after;
+    std::function<void(const ProjectDisplaySettings&)> m_on_changed;
 };
 
 } // namespace Engine

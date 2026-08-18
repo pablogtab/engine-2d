@@ -194,7 +194,7 @@ void ViewportPanel::configure_scene_view() {
     if (!m_scene_manager) return;
     const RenderViewKind view = m_scene_manager->is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
     if (view == RenderViewKind::Game && m_project_settings) {
-        const auto& game_view = m_project_settings->game_view();
+        const auto& game_view = m_project_settings->display();
         m_scene_manager->configure_view(view, {
             m_render_width, m_render_height,
             game_view.reference_width, game_view.reference_height
@@ -571,7 +571,7 @@ void ViewportPanel::on_gui() {
                 m_editor_view_width = std::max(1, static_cast<int>(std::round(avail_size.x * framebuffer_scale.x)));
                 m_editor_view_height = std::max(1, static_cast<int>(std::round(avail_size.y * framebuffer_scale.y)));
             } else if (m_project_settings) {
-                const GameViewSettings& game_view = m_project_settings->game_view();
+                const ProjectDisplaySettings& game_view = m_project_settings->display();
                 const glm::vec2 presentation_source = game_view.presentation == PresentationMode::Responsive
                     ? glm::vec2(std::max(m_render_width, 1), std::max(m_render_height, 1))
                     : glm::vec2(game_view.reference_width, game_view.reference_height);
@@ -653,7 +653,7 @@ void ViewportPanel::on_gui() {
             auto* generic_scene = dynamic_cast<GenericScene*>(active_scene);
             Camera2D* active_cam = generic_scene ? &generic_scene->get_editor_camera() : nullptr;
             if (m_project_settings) {
-                const auto& game_view = m_project_settings->game_view();
+                const auto& game_view = m_project_settings->display();
                 m_selection_tool.set_camera_output_size(glm::vec2(game_view.reference_width, game_view.reference_height));
             }
 
@@ -718,9 +718,9 @@ void ViewportPanel::on_gui() {
                 glm::vec2 cam_pos(0.0f, 0.0f);
                 float cam_zoom = 1.0f;
                 float cam_rotation = 0.0f;
-                const GameViewSettings output = m_project_settings
-                    ? m_project_settings->game_view()
-                    : GameViewSettings{};
+                const ProjectDisplaySettings output = m_project_settings
+                    ? m_project_settings->display()
+                    : ProjectDisplaySettings{};
                 glm::vec2 vp_sz(static_cast<float>(output.reference_width), static_cast<float>(output.reference_height));
                 EntityID displayed_camera = CameraSystem::find_primary(em);
                 em.for_each<CameraComponent>([&](EntityID id, const CameraComponent&) {

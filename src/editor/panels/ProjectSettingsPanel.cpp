@@ -21,15 +21,15 @@ ProjectSettingsPanel::ProjectSettingsPanel(
 }
 
 void ProjectSettingsPanel::apply_changes() {
-    if (!m_settings || !m_command_history || m_pending == m_settings->game_view()) return;
+    if (!m_settings || !m_command_history || m_pending == m_settings->display()) return;
 
-    const GameViewSettings before = m_settings->game_view();
-    const GameViewSettings after = m_pending;
-    m_command_history->execute_command(std::make_unique<ModifyGameViewSettingsCommand>(
+    const ProjectDisplaySettings before = m_settings->display();
+    const ProjectDisplaySettings after = m_pending;
+    m_command_history->execute_command(std::make_unique<ModifyProjectDisplaySettingsCommand>(
         m_settings,
         before,
         after,
-        [scene_manager = m_scene_manager](const GameViewSettings& value) {
+        [scene_manager = m_scene_manager](const ProjectDisplaySettings& value) {
             if (scene_manager) {
                 scene_manager->configure_view(RenderViewKind::Game, {
                     value.reference_width, value.reference_height,
@@ -38,21 +38,21 @@ void ProjectSettingsPanel::apply_changes() {
             }
         }
     ));
-    m_observed = m_settings->game_view();
+    m_observed = m_settings->display();
     m_pending = m_observed;
 }
 
 void ProjectSettingsPanel::on_gui() {
     if (!is_open || !m_settings) return;
 
-    const GameViewSettings current = m_settings->game_view();
+    const ProjectDisplaySettings current = m_settings->display();
     if (!m_initialized || (m_pending == m_observed && current != m_observed)) {
         m_pending = current;
         m_observed = current;
         m_initialized = true;
     }
 
-    ImGui::SetNextWindowSize(ImVec2(560.0f, 380.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(560.0f, 520.0f), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
         if (ImGui::BeginTable("ProjectSettingsLayout", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV)) {
             ImGui::TableSetupColumn("Categories", ImGuiTableColumnFlags_WidthFixed, 145.0f);
@@ -67,11 +67,20 @@ void ProjectSettingsPanel::on_gui() {
             ImGui::Spacing();
 
             ImGui::TextUnformatted("Reference resolution");
-            if (ImGui::Button("1920 x 1080")) m_pending = {1920, 1080, m_pending.presentation};
+            if (ImGui::Button("1920 x 1080")) {
+                m_pending.reference_width = 1920;
+                m_pending.reference_height = 1080;
+            }
             ImGui::SameLine();
-            if (ImGui::Button("1280 x 720")) m_pending = {1280, 720, m_pending.presentation};
+            if (ImGui::Button("1280 x 720")) {
+                m_pending.reference_width = 1280;
+                m_pending.reference_height = 720;
+            }
             ImGui::SameLine();
-            if (ImGui::Button("1080 x 1920")) m_pending = {1080, 1920, m_pending.presentation};
+            if (ImGui::Button("1080 x 1920")) {
+                m_pending.reference_width = 1080;
+                m_pending.reference_height = 1920;
+            }
 
             ImGui::Spacing();
             ImGui::SetNextItemWidth(150.0f);
@@ -89,6 +98,33 @@ void ProjectSettingsPanel::on_gui() {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Fit preserves the image, Fill crops, Stretch distorts, Responsive reprojects for the available aspect ratio.");
             }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextUnformatted("Desktop defaults");
+            ImGui::TextDisabled("Initial standalone values. Runtime player preferences remain separate.");
+
+            int window_mode = static_cast<int>(m_pending.default_window_mode);
+            ImGui::SetNextItemWidth(190.0f);
+            if (ImGui::Combo("Window mode", &window_mode, "Windowed\0Borderless Fullscreen\0Exclusive Fullscreen\0")) {
+                m_pending.default_window_mode = static_cast<WindowMode>(window_mode);
+            }
+
+            ImGui::BeginDisabled(m_pending.default_window_mode == WindowMode::BorderlessFullscreen);
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::InputInt("Window width", &m_pending.default_window_width, 0);
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::InputInt("Window height", &m_pending.default_window_height, 0);
+            ImGui::EndDisabled();
+            m_pending.default_window_width = std::clamp(m_pending.default_window_width, 320, 16384);
+            m_pending.default_window_height = std::clamp(m_pending.default_window_height, 240, 16384);
+
+            ImGui::BeginDisabled(m_pending.default_window_mode != WindowMode::ExclusiveFullscreen);
+            ImGui::SetNextItemWidth(150.0f);
+            ImGui::InputFloat("Refresh rate", &m_pending.default_refresh_rate, 0.0f, 0.0f, "%.2f Hz");
+            ImGui::EndDisabled();
+            m_pending.default_refresh_rate = std::max(m_pending.default_refresh_rate, 0.0f);
+            ImGui::Checkbox("VSync", &m_pending.default_vsync);
 
             ImGui::Spacing();
             ImGui::Separator();

@@ -40,6 +40,8 @@ This roadmap extends the current engine roadmap with the systems needed to make 
 - [x] Centralize Fit, Fill, Stretch, and Responsive presentation for editor and standalone output.
 - [x] Add per-camera Fixed Height, Fixed Width, Expand, and Pixel Perfect projection policies.
 - [x] Scale Game View render quality independently from its logical camera framing.
+- [x] Add a runtime `DisplayManager` API for desktop window modes, monitors, refresh rates, VSync, DPI, and mobile-ready capabilities.
+- [ ] Add standalone render scale, dynamic resolution, Canvas safe areas, and validated iOS/Android lifecycle support.
 - [ ] Add entity lock and editor-only visibility states.
 - [x] Make rotated bounds, picking, and marquee selection use the same transformed geometry.
 

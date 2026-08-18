@@ -8,10 +8,17 @@ PostProcessPipeline::~PostProcessPipeline() {
     destroy_targets();
 }
 
-void PostProcessPipeline::init(SDL_Renderer* renderer, int width, int height) {
+void PostProcessPipeline::init(
+    SDL_Renderer* renderer,
+    int width,
+    int height,
+    int authoring_width,
+    int authoring_height
+) {
     m_renderer = renderer;
     m_width = std::max(1, width);
     m_height = std::max(1, height);
+    m_context = {m_width, m_height, std::max(1, authoring_width), std::max(1, authoring_height)};
     create_targets();
 }
 
@@ -21,7 +28,14 @@ void PostProcessPipeline::resize(int width, int height) {
 
     m_width = width;
     m_height = height;
+    m_context.output_width = width;
+    m_context.output_height = height;
     create_targets();
+}
+
+void PostProcessPipeline::set_effect_reference_size(int width, int height) {
+    m_context.authoring_width = std::max(1, width);
+    m_context.authoring_height = std::max(1, height);
 }
 
 void PostProcessPipeline::destroy_targets() {
@@ -72,8 +86,14 @@ void PostProcessPipeline::create_targets() {
     int quarter_h = std::max(1, m_height / 4);
     m_quarter_target = create_rt(quarter_w, quarter_h);
 
-    ENGINE_LOG_INFO("[POST-PROCESS] Created Framebuffers (Full: {}x{}, Half: {}x{}, Quarter: {}x{})",
-                    m_width, m_height, half_w, half_h, quarter_w, quarter_h);
+    ENGINE_LOG_INFO(
+        "[POST-PROCESS] Created framebuffers: output {}x{}, effect reference {}x{}, scale {:.2f}x",
+        m_width,
+        m_height,
+        m_context.authoring_width,
+        m_context.authoring_height,
+        m_context.pixel_scale()
+    );
 }
 
 void PostProcessPipeline::update(float delta_time) {
@@ -176,7 +196,7 @@ void PostProcessPipeline::end_capture_and_process(SDL_Texture* final_destination
         SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 0);
         SDL_RenderClear(m_renderer);
 
-        active_passes[i]->apply(m_renderer, current_src, current_dst, m_width, m_height);
+        active_passes[i]->apply(m_renderer, current_src, current_dst, m_context);
 
         // Swap ping-pong pointers for next pass
         std::swap(current_src, current_dst);

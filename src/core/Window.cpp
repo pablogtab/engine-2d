@@ -12,7 +12,7 @@ namespace {
 }
 
 void Window::save_state() {
-    if (!m_window) return;
+    if (!m_window || !m_persist_editor_state) return;
 
     int x = 0, y = 0;
     int w = 0, h = 0;
@@ -45,8 +45,11 @@ bool Window::load_state(int& x, int& y, int& w, int& h) {
     return false;
 }
 
-Window::Window(const std::string& title, int width, int height)
-    : m_title(title), m_width(width), m_height(height) {
+Window::Window(const std::string& title, int width, int height, bool persist_editor_state)
+    : m_title(title),
+      m_width(width),
+      m_height(height),
+      m_persist_editor_state(persist_editor_state) {
     
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
         ENGINE_LOG_ERROR("Failed to initialize SDL3: {}", SDL_GetError());
@@ -54,7 +57,7 @@ Window::Window(const std::string& title, int width, int height)
     }
 
     int saved_x = 0, saved_y = 0, saved_w = 0, saved_h = 0;
-    bool has_saved_state = load_state(saved_x, saved_y, saved_w, saved_h);
+    bool has_saved_state = m_persist_editor_state && load_state(saved_x, saved_y, saved_w, saved_h);
 
     if (has_saved_state) {
         m_width = saved_w;
@@ -123,12 +126,7 @@ void Window::poll_events() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (m_uses_logical_presentation) SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
-        if (m_event_callback) {
-            m_event_callback(event);
-        } else {
-            Input::process_event(event);
-        }
-
+        bool display_changed = false;
         if (event.type == SDL_EVENT_QUIT) {
             m_should_close = true;
         }
@@ -136,6 +134,10 @@ void Window::poll_events() {
                  event.type == SDL_EVENT_WINDOW_MOVED ||
                  event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
                  event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED ||
+                 event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED ||
+                 event.type == SDL_EVENT_WINDOW_SAFE_AREA_CHANGED ||
+                 event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
+                 event.type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN ||
                  event.type == SDL_EVENT_WINDOW_RESTORED ||
                  event.type == SDL_EVENT_WINDOW_MAXIMIZED ||
                  event.type == SDL_EVENT_WINDOW_EXPOSED) {
@@ -145,15 +147,31 @@ void Window::poll_events() {
             update_sizes();
             save_state();
 
-            if (m_resize_callback && (m_pixel_width != prev_w || m_pixel_height != prev_h || 
+            if (m_pixel_width != prev_w || m_pixel_height != prev_h ||
                 event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED ||
+                event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED ||
+                event.type == SDL_EVENT_WINDOW_SAFE_AREA_CHANGED ||
+                event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
+                event.type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN ||
                 event.type == SDL_EVENT_WINDOW_RESIZED || 
-                event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)) {
+                event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
                 float dpi = get_dpi_scale();
                 ENGINE_LOG_INFO("[WINDOW DPI/RESIZE] Render target updated: {}x{} (Physical: {}x{}, DPI Scale: {:.2f})",
                                 m_width, m_height, m_pixel_width, m_pixel_height, dpi);
-                m_resize_callback(m_pixel_width, m_pixel_height, dpi);
+                display_changed = true;
             }
+        }
+        else if (event.type >= SDL_EVENT_DISPLAY_FIRST && event.type <= SDL_EVENT_DISPLAY_LAST) {
+            update_sizes();
+            display_changed = true;
+        }
+
+        if (display_changed && m_display_change_callback) m_display_change_callback();
+
+        if (m_event_callback) {
+            m_event_callback(event);
+        } else {
+            Input::process_event(event);
         }
     }
 }

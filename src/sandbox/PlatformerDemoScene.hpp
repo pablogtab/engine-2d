@@ -34,6 +34,8 @@ public:
     void on_update(float delta_time) override;
     void on_render(Engine::Renderer2D& renderer) override;
     void on_viewport_resize(Engine::RenderViewKind view, const Engine::RenderViewConfiguration& configuration) override;
+    [[nodiscard]] Engine::PostProcessPipeline* get_post_process_pipeline() override { return &m_post_process_pipeline; }
+    [[nodiscard]] Engine::PostProcessProfile* get_editable_post_process_profile() override { return &m_base_profile; }
 
 private:
     SDL_Renderer* m_sdl_renderer{nullptr};

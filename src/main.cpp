@@ -11,10 +11,36 @@
 #include <string>
 #include <algorithm>
 
+namespace {
+
+bool should_start_with_editor(int argc, char* argv[]) {
+    bool standalone_or_demo = false;
+    bool force_editor = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string argument = argv[i];
+        std::transform(argument.begin(), argument.end(), argument.begin(), ::tolower);
+        if (argument == "--editor" || argument == "-e" || argument == "--ide") {
+            force_editor = true;
+        } else if (argument == "--standalone" || argument == "-s" || argument == "--no-editor" || argument == "--game" ||
+                   argument == "--demo" || argument == "-d" || argument.rfind("--demo=", 0) == 0 ||
+                   (!argument.empty() && argument[0] != '-')) {
+            standalone_or_demo = true;
+        }
+    }
+    return force_editor || !standalone_or_demo;
+}
+
+} // namespace
+
 class EngineTestbedApp : public Engine::Application {
 public:
   EngineTestbedApp(int argc, char* argv[])
-      : Engine::Application("Cross-Platform 2D Engine - Testbed Framework", 1280, 720),
+      : Engine::Application(
+            "Cross-Platform 2D Engine - Testbed Framework",
+            1280,
+            720,
+            should_start_with_editor(argc, argv)
+        ),
         m_argc(argc), m_argv(argv) {
     parse_arguments();
   }

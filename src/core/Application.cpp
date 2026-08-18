@@ -2,6 +2,7 @@
 #include "Log.hpp"
 #include "Input.hpp"
 #include "Time.hpp"
+#include "SDLDisplayBackend.hpp"
 #include "../audio/AudioEngine.hpp"
 #include "../editor/EditorLayer.hpp"
 #include "../editor/EditorSelection.hpp"
@@ -24,7 +25,8 @@
 
 namespace Engine {
 
-Application::Application(const std::string& name, int width, int height) {
+Application::Application(const std::string& name, int width, int height, bool start_with_editor)
+{
     Log::init("engine.log");
     ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{})", name, width, height);
     m_project_settings.load();
@@ -33,13 +35,35 @@ Application::Application(const std::string& name, int width, int height) {
     AudioEngine::init();
 
     // 1. Create Window & SDL Renderer
-    m_window = std::make_unique<Window>(name, width, height);
+    const auto& project_display = m_project_settings.display();
+    const int initial_width = start_with_editor ? width : project_display.default_window_width;
+    const int initial_height = start_with_editor ? height : project_display.default_window_height;
+    m_window = std::make_unique<Window>(name, initial_width, initial_height, start_with_editor);
+    m_display_manager = std::make_unique<DisplayManager>(std::make_unique<SDLDisplayBackend>(
+        m_window->get_sdl_window(),
+        m_window->get_sdl_renderer()
+    ));
     m_renderer = std::make_unique<Renderer2D>(m_window->get_sdl_renderer());
     m_renderer->set_thread_pool(&m_thread_pool);
+
+    if (!start_with_editor) {
+        DisplaySettings defaults;
+        defaults.window_mode = project_display.default_window_mode;
+        defaults.window_width = project_display.default_window_width;
+        defaults.window_height = project_display.default_window_height;
+        defaults.refresh_rate = project_display.default_refresh_rate;
+        defaults.vsync = project_display.default_vsync;
+        const DisplayApplyResult result = m_display_manager->apply(defaults);
+        if (!result.success) {
+            ENGINE_LOG_WARN("[DISPLAY] Could not apply project defaults: {}", result.message);
+        }
+    }
 
     // Initialize Editor Layer & Modular Panels
     m_editor_layer = std::make_unique<EditorLayer>();
     m_editor_layer->init(m_window->get_sdl_window(), m_window->get_sdl_renderer());
+    m_editor_layer->set_visible(start_with_editor);
+    m_display_manager->set_apply_enabled(!start_with_editor);
     m_editor_layer->set_scene_manager(&m_scene_manager);
     m_scene_manager.set_renderer(m_window->get_sdl_renderer());
 
@@ -58,7 +82,7 @@ Application::Application(const std::string& name, int width, int height) {
         command_history,
         &m_project_settings
     );
-    const auto& game_view = m_project_settings.game_view();
+    const auto& game_view = m_project_settings.display();
     m_scene_manager.configure_view(RenderViewKind::Game, {
         game_view.reference_width, game_view.reference_height,
         game_view.reference_width, game_view.reference_height
@@ -69,7 +93,7 @@ Application::Application(const std::string& name, int width, int height) {
     auto console_panel = std::make_shared<ConsolePanel>();
     auto stats_panel = std::make_shared<StatsPanel>();
     auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");
-    auto postprocess_panel = std::make_shared<PostProcessTunerPanel>();
+    auto postprocess_panel = std::make_shared<PostProcessTunerPanel>(&m_scene_manager, command_history);
     postprocess_panel->is_open = false; // Closed by default at startup (accessible via View / Windows menu)
     auto project_settings_panel = std::make_shared<ProjectSettingsPanel>(&m_project_settings, &m_scene_manager, command_history);
     auto shortcuts_panel = std::make_shared<ShortcutsPreferencesPanel>();
@@ -117,24 +141,21 @@ Application::Application(const std::string& name, int width, int height) {
         Input::process_event(event);
     });
 
-    // Register window resize / High-DPI scale change callback
-    m_window->set_resize_callback([this](int w, int h, float) {
-        this->on_resize(w, h);
-        if (this->m_editor_layer && !this->m_editor_layer->is_visible() &&
-            this->m_project_settings.game_view().presentation == PresentationMode::Responsive) {
-            const auto& game_view = this->m_project_settings.game_view();
-            const RenderViewKind view = this->m_scene_manager.is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
-            this->m_scene_manager.configure_view(view, {
-                w, h, game_view.reference_width, game_view.reference_height
-            });
-        }
+    m_display_manager->set_change_callback([this](const DisplayState& state) {
+        this->on_resize(state.pixel_width, state.pixel_height);
+        this->apply_display_mode(this->m_editor_layer && this->m_editor_layer->is_visible());
+        this->on_display_changed(state);
+    });
+    m_window->set_display_change_callback([this]() {
+        if (this->m_display_manager) this->m_display_manager->refresh_from_system();
     });
 }
 
 Application::~Application() {}
 
 void Application::apply_display_mode(bool editor_visible) {
-    const auto& game_view = m_project_settings.game_view();
+    m_display_manager->set_apply_enabled(!editor_visible);
+    const auto& game_view = m_project_settings.display();
     if (editor_visible) {
         m_window->disable_logical_presentation();
         auto* viewport = m_editor_layer ? m_editor_layer->get_viewport_panel() : nullptr;
@@ -149,7 +170,8 @@ void Application::apply_display_mode(bool editor_visible) {
     m_window->set_logical_presentation(game_view.reference_width, game_view.reference_height, game_view.presentation);
     if (game_view.presentation == PresentationMode::Responsive) {
         m_scene_manager.configure_view(view, {
-            m_window->get_pixel_width(), m_window->get_pixel_height(),
+            m_display_manager->current_state().pixel_width,
+            m_display_manager->current_state().pixel_height,
             game_view.reference_width, game_view.reference_height
         });
     } else {
@@ -164,8 +186,9 @@ void Application::run() {
     on_init();
 
     // Trigger initial on_resize
-    int pixel_w = m_window->get_pixel_width();
-    int pixel_h = m_window->get_pixel_height();
+    const DisplayState& display_state = m_display_manager->current_state();
+    int pixel_w = display_state.pixel_width;
+    int pixel_h = display_state.pixel_height;
     on_resize(pixel_w, pixel_h);
     apply_display_mode(m_editor_layer && m_editor_layer->is_visible());
 

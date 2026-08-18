@@ -1,16 +1,42 @@
 #pragma once
 
 #include <SDL3/SDL.h>
+#include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace Engine {
 
+struct PostProcessContext {
+    int output_width{1};
+    int output_height{1};
+    int authoring_width{1280};
+    int authoring_height{720};
+
+    [[nodiscard]] float horizontal_scale() const {
+        return static_cast<float>(std::max(output_width, 1)) /
+               static_cast<float>(std::max(authoring_width, 1));
+    }
+
+    [[nodiscard]] float vertical_scale() const {
+        return static_cast<float>(std::max(output_height, 1)) /
+               static_cast<float>(std::max(authoring_height, 1));
+    }
+
+    [[nodiscard]] float pixel_scale() const {
+        return std::sqrt(horizontal_scale() * vertical_scale());
+    }
+
+    [[nodiscard]] float scale_pixels(float pixels) const {
+        return pixels * pixel_scale();
+    }
+};
+
 // ---------------------------------------------------------------------------
 // IPostProcessPass
 // ---------------------------------------------------------------------------
-// Interfaz base pura para todos los pases de post-procesado en espacio de pantalla.
-// Soporta ciclo de vida, actualización temporal para animaciones/tweens y
-// hook para inspección visual automática en Dear ImGui (Fase 8).
+// Base interface for screen-space post-processing passes. Supports lifecycle,
+// temporal updates for animation, and editor inspection hooks.
 // ---------------------------------------------------------------------------
 class IPostProcessPass {
 public:
@@ -20,22 +46,21 @@ public:
     virtual bool is_enabled() const = 0;
     virtual void set_enabled(bool enabled) = 0;
 
-    // Actualización temporal de animaciones, decaimientos y ruidos procedurales
+    // Update animations, decays, and procedural noise.
     virtual void update(float /*delta_time*/) {}
 
-    // Aplicar el pase desde la textura origen hacia el render target de destino
+    // Apply this pass from the source texture into the current render target.
     virtual void apply(
         SDL_Renderer* renderer, 
         SDL_Texture* source, 
         SDL_Texture* destination, 
-        int width, 
-        int height
+        const PostProcessContext& context
     ) = 0;
 
-    // Hook para que herramientas y editores (Dear ImGui) inspeccionen sus controles
+    // Optional editor inspection hook.
     virtual void on_gui() {}
 
-    // Reiniciar valores por defecto
+    // Restore default runtime state.
     virtual void reset() {}
 };
 

@@ -17,11 +17,13 @@ set(SOURCES
     src/core/Application.cpp
     src/core/AssetManager.cpp
     src/core/BinarySerializer.cpp
+    src/core/DisplayManager.cpp
     src/core/FileSystem.cpp
     src/core/Input.cpp
     src/core/Log.cpp
     src/core/PlayerPrefs.cpp
     src/core/ProjectSettings.cpp
+    src/core/SDLDisplayBackend.cpp
     src/core/SaveSystem.cpp
     src/core/ThreadPool.cpp
     src/core/Time.cpp
@@ -70,6 +72,7 @@ set(SOURCES
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/ProjectSettingsCommands.cpp
+    src/editor/commands/PostProcessProfileCommands.cpp
     src/editor/shortcuts/ShortcutManager.cpp
     src/tilemap/Tilemap.cpp
     src/tilemap/TilemapColliderSystem.cpp
@@ -101,6 +104,47 @@ target_include_directories(Camera2DTests PRIVATE
 )
 target_link_libraries(Camera2DTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME Camera2DTests COMMAND Camera2DTests)
+
+add_executable(DisplayManagerTests
+    tests/DisplayManagerTests.cpp
+    src/core/DisplayManager.cpp
+)
+target_include_directories(DisplayManagerTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME DisplayManagerTests COMMAND DisplayManagerTests)
+
+add_executable(DisplayPersistenceTests
+    tests/DisplayPersistenceTests.cpp
+    src/core/BinarySerializer.cpp
+    src/core/DisplayManager.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+    src/core/PlayerPrefs.cpp
+    src/core/ProjectSettings.cpp
+    src/core/SaveSystem.cpp
+)
+target_include_directories(DisplayPersistenceTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(DisplayPersistenceTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME DisplayPersistenceTests COMMAND DisplayPersistenceTests)
+
+add_executable(PostProcessTests
+    tests/PostProcessTests.cpp
+    src/core/Log.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/PostProcessProfileCommands.cpp
+    src/renderer/postprocess/PostProcessPipeline.cpp
+    src/renderer/postprocess/PostProcessProfile.cpp
+)
+target_include_directories(PostProcessTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(PostProcessTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME PostProcessTests COMMAND PostProcessTests)
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

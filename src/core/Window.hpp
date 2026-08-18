@@ -9,7 +9,7 @@ namespace Engine {
 
 class Window {
 public:
-    Window(const std::string& title, int width, int height);
+    Window(const std::string& title, int width, int height, bool persist_editor_state = true);
     ~Window();
 
     Window(const Window&) = delete;
@@ -33,8 +33,8 @@ public:
         return (m_height > 0) ? (static_cast<float>(m_pixel_height) / static_cast<float>(m_height)) : 1.0f;
     }
 
-    void set_resize_callback(std::function<void(int, int, float)> callback) {
-        m_resize_callback = callback;
+    void set_display_change_callback(std::function<void()> callback) {
+        m_display_change_callback = std::move(callback);
     }
 
     void set_event_callback(std::function<void(const SDL_Event&)> callback) {
@@ -55,7 +55,8 @@ private:
     int m_pixel_height{0};
     bool m_should_close{false};
     bool m_uses_logical_presentation{false};
-    std::function<void(int, int, float)> m_resize_callback;
+    bool m_persist_editor_state{true};
+    std::function<void()> m_display_change_callback;
     std::function<void(const SDL_Event&)> m_event_callback;
 };
 

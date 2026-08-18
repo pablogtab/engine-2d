@@ -10,12 +10,13 @@ class PostProcessPipeline;
 // ---------------------------------------------------------------------------
 // PostProcessProfile
 // ---------------------------------------------------------------------------
-// Configuración completa del stack de post-procesamiento.
-// Permite interpolación continua (lerp) para transiciones de zonas y
-// serialización / guardado a archivos JSON de presets.
+// Complete post-processing stack configuration. Supports continuous profile
+// blending for volumes and JSON serialization for reusable presets.
 // ---------------------------------------------------------------------------
 struct PostProcessProfile {
     std::string name{"Custom"};
+    int effect_reference_width{1280};
+    int effect_reference_height{720};
 
     // Vignette
     bool vignette_enabled{true};
@@ -50,13 +51,13 @@ struct PostProcessProfile {
     float crt_scanline_spacing{4.0f};
     float crt_flicker{0.02f};
 
-    // Aplicar los parámetros de este perfil a un pipeline activo
+    // Apply this profile to an active pipeline.
     void apply_to_pipeline(PostProcessPipeline& pipeline) const;
 
-    // Interpolar suavemente entre dos perfiles
+    // Blend smoothly between two profiles.
     static PostProcessProfile lerp(const PostProcessProfile& a, const PostProcessProfile& b, float t);
 
-    // Presets integrados listos para producción
+    // Built-in reference presets.
     static PostProcessProfile PresetDefault();
     static PostProcessProfile PresetCinematic();
     static PostProcessProfile PresetRetroCRT();
@@ -64,7 +65,7 @@ struct PostProcessProfile {
     static PostProcessProfile PresetNightVision();
     static PostProcessProfile PresetDreamyBloom();
 
-    // Serialización / Deserialización JSON
+    // JSON serialization.
     std::string to_json() const;
     bool from_json(const std::string& json_str);
     bool save_to_file(const std::string& filepath) const;

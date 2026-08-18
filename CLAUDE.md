@@ -155,11 +155,13 @@ With `ProceduralTextureDesc` containing:
 
 ```
 Engine::PostProcessPipeline   ← Pure engine runtime (ping-pong FBOs, pass dispatcher)
-Engine::IPostProcessPass      ← Abstract contract: apply(renderer, source, destination, w, h)
+Engine::IPostProcessPass      ← Abstract contract driven by PostProcessContext
 Engine::PostProcessPasses     ← Decoupled reference passes (Vignette, ChromaticAberration, ScreenFlash)
 Custom User Passes            ← Inherit IPostProcessPass without modifying the engine core
 ```
 
 - **Ping-Pong Render Targets**: Dual off-screen hardware textures (`SDL_TEXTUREACCESS_TARGET`) in VRAM. Zero CPU round-trips.
 - **Dynamic Pass Management**: Passes can be registered (`add_pass`), removed, enabled/disabled in real time.
+- **Resolution-Independent Effects**: `PostProcessContext` separates physical output size from the profile's effect-authoring reference. Pixel-based radii, offsets, grain density, and scanline spacing scale consistently across output resolutions.
+- **Scene-Level Authoring Contract**: Scenes expose their active pipeline and editable base profile through the common `Scene` interface. Runtime volumes blend over the base profile without coupling editor tools to a concrete demo scene.
 - **Sprite Outline & Material Highlighting**: Supported directly via `SpriteComponent::has_outline`, `outline_color`, `outline_thickness`, and `outline_pulse` within `RenderSystem`.

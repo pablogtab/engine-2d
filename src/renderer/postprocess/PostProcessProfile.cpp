@@ -5,8 +5,32 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cmath>
+#include <nlohmann/json.hpp>
 
 namespace Engine {
+
+using json = nlohmann::json;
+
+namespace {
+
+json color_to_json(SDL_Color color) {
+    return json::array({color.r, color.g, color.b, color.a});
+}
+
+SDL_Color color_from_json(const json& value) {
+    if (!value.is_array() || value.size() != 4) {
+        throw json::type_error::create(302, "post-process color must contain four channels", &value);
+    }
+    return SDL_Color{
+        value.at(0).get<uint8_t>(),
+        value.at(1).get<uint8_t>(),
+        value.at(2).get<uint8_t>(),
+        value.at(3).get<uint8_t>()
+    };
+}
+
+} // namespace
 
 static inline float lerp_f(float a, float b, float t) {
     return a + (b - a) * t;
@@ -26,6 +50,8 @@ static inline SDL_Color lerp_col(SDL_Color a, SDL_Color b, float t) {
 }
 
 void PostProcessProfile::apply_to_pipeline(PostProcessPipeline& pipeline) const {
+    pipeline.set_effect_reference_size(effect_reference_width, effect_reference_height);
+
     // 1. Vignette
     if (auto vig = pipeline.get_pass<VignettePass>("Vignette")) {
         vig->set_enabled(vignette_enabled);
@@ -78,6 +104,16 @@ PostProcessProfile PostProcessProfile::lerp(const PostProcessProfile& a, const P
     t = std::clamp(t, 0.0f, 1.0f);
     PostProcessProfile result;
     result.name = (t < 0.5f) ? a.name : b.name;
+    result.effect_reference_width = std::max(1, static_cast<int>(std::lround(lerp_f(
+        static_cast<float>(a.effect_reference_width),
+        static_cast<float>(b.effect_reference_width),
+        t
+    ))));
+    result.effect_reference_height = std::max(1, static_cast<int>(std::lround(lerp_f(
+        static_cast<float>(a.effect_reference_height),
+        static_cast<float>(b.effect_reference_height),
+        t
+    ))));
 
     result.vignette_enabled = a.vignette_enabled || b.vignette_enabled;
     result.vignette_intensity = lerp_f(a.vignette_intensity, b.vignette_intensity, t);
@@ -202,77 +238,96 @@ PostProcessProfile PostProcessProfile::PresetDreamyBloom() {
 }
 
 std::string PostProcessProfile::to_json() const {
-    std::ostringstream ss;
-    ss << "{\n";
-    ss << "  \"name\": \"" << name << "\",\n";
-    ss << "  \"vignette\": {\n";
-    ss << "    \"enabled\": " << (vignette_enabled ? "true" : "false") << ",\n";
-    ss << "    \"intensity\": " << vignette_intensity << ",\n";
-    ss << "    \"color\": [" << (int)vignette_color.r << ", " << (int)vignette_color.g << ", " << (int)vignette_color.b << ", " << (int)vignette_color.a << "]\n";
-    ss << "  },\n";
-    ss << "  \"chromatic\": {\n";
-    ss << "    \"enabled\": " << (chromatic_enabled ? "true" : "false") << ",\n";
-    ss << "    \"offset\": " << chromatic_offset << "\n";
-    ss << "  },\n";
-    ss << "  \"bloom\": {\n";
-    ss << "    \"enabled\": " << (bloom_enabled ? "true" : "false") << ",\n";
-    ss << "    \"intensity\": " << bloom_intensity << ",\n";
-    ss << "    \"radius\": " << bloom_radius << "\n";
-    ss << "  },\n";
-    ss << "  \"blur\": {\n";
-    ss << "    \"enabled\": " << (blur_enabled ? "true" : "false") << ",\n";
-    ss << "    \"radius\": " << blur_radius << "\n";
-    ss << "  },\n";
-    ss << "  \"color_grading\": {\n";
-    ss << "    \"enabled\": " << (color_grading_enabled ? "true" : "false") << ",\n";
-    ss << "    \"tint\": [" << (int)color_tint.r << ", " << (int)color_tint.g << ", " << (int)color_tint.b << ", " << (int)color_tint.a << "],\n";
-    ss << "    \"shadow_tint\": [" << (int)shadow_tint.r << ", " << (int)shadow_tint.g << ", " << (int)shadow_tint.b << ", " << (int)shadow_tint.a << "]\n";
-    ss << "  },\n";
-    ss << "  \"film_grain\": {\n";
-    ss << "    \"enabled\": " << (film_grain_enabled ? "true" : "false") << ",\n";
-    ss << "    \"intensity\": " << film_grain_intensity << "\n";
-    ss << "  },\n";
-    ss << "  \"crt\": {\n";
-    ss << "    \"enabled\": " << (crt_enabled ? "true" : "false") << ",\n";
-    ss << "    \"scanline_intensity\": " << crt_scanline_intensity << ",\n";
-    ss << "    \"scanline_spacing\": " << crt_scanline_spacing << ",\n";
-    ss << "    \"flicker\": " << crt_flicker << "\n";
-    ss << "  }\n";
-    ss << "}\n";
-    return ss.str();
+    const json document = {
+        {"name", name},
+        {"effect_reference", {
+            {"width", effect_reference_width},
+            {"height", effect_reference_height}
+        }},
+        {"vignette", {
+            {"enabled", vignette_enabled},
+            {"intensity", vignette_intensity},
+            {"color", color_to_json(vignette_color)}
+        }},
+        {"chromatic", {
+            {"enabled", chromatic_enabled},
+            {"offset", chromatic_offset}
+        }},
+        {"bloom", {
+            {"enabled", bloom_enabled},
+            {"intensity", bloom_intensity},
+            {"radius", bloom_radius}
+        }},
+        {"blur", {
+            {"enabled", blur_enabled},
+            {"radius", blur_radius}
+        }},
+        {"color_grading", {
+            {"enabled", color_grading_enabled},
+            {"tint", color_to_json(color_tint)},
+            {"shadow_tint", color_to_json(shadow_tint)}
+        }},
+        {"film_grain", {
+            {"enabled", film_grain_enabled},
+            {"intensity", film_grain_intensity}
+        }},
+        {"crt", {
+            {"enabled", crt_enabled},
+            {"scanline_intensity", crt_scanline_intensity},
+            {"scanline_spacing", crt_scanline_spacing},
+            {"flicker", crt_flicker}
+        }}
+    };
+    return document.dump(2) + '\n';
 }
 
 bool PostProcessProfile::from_json(const std::string& json_str) {
-    auto find_float = [&json_str](const std::string& key, float default_val) -> float {
-        size_t pos = json_str.find("\"" + key + "\"");
-        if (pos == std::string::npos) return default_val;
-        size_t col = json_str.find(':', pos);
-        if (col == std::string::npos) return default_val;
-        return std::stof(json_str.substr(col + 1));
-    };
-
-    auto find_bool = [&json_str](const std::string& key, bool default_val) -> bool {
-        size_t pos = json_str.find("\"" + key + "\"");
-        if (pos == std::string::npos) return default_val;
-        size_t col = json_str.find(':', pos);
-        if (col == std::string::npos) return default_val;
-        size_t t_pos = json_str.find("true", col);
-        size_t f_pos = json_str.find("false", col);
-        if (t_pos < f_pos) return true;
-        if (f_pos < t_pos) return false;
-        return default_val;
-    };
-
     try {
-        vignette_intensity = find_float("vignette_intensity", vignette_intensity);
-        chromatic_offset = find_float("offset", chromatic_offset);
-        bloom_intensity = find_float("intensity", bloom_intensity);
-        bloom_radius = find_float("radius", bloom_radius);
-        blur_radius = find_float("blur_radius", blur_radius);
-        film_grain_intensity = find_float("film_grain_intensity", film_grain_intensity);
-        crt_scanline_intensity = find_float("scanline_intensity", crt_scanline_intensity);
+        const json document = json::parse(json_str);
+        PostProcessProfile parsed;
+        parsed.name = document.at("name").get<std::string>();
+
+        const auto& reference = document.at("effect_reference");
+        parsed.effect_reference_width = std::max(1, reference.at("width").get<int>());
+        parsed.effect_reference_height = std::max(1, reference.at("height").get<int>());
+
+        const auto& vignette = document.at("vignette");
+        parsed.vignette_enabled = vignette.at("enabled").get<bool>();
+        parsed.vignette_intensity = vignette.at("intensity").get<float>();
+        parsed.vignette_color = color_from_json(vignette.at("color"));
+
+        const auto& chromatic = document.at("chromatic");
+        parsed.chromatic_enabled = chromatic.at("enabled").get<bool>();
+        parsed.chromatic_offset = chromatic.at("offset").get<float>();
+
+        const auto& bloom = document.at("bloom");
+        parsed.bloom_enabled = bloom.at("enabled").get<bool>();
+        parsed.bloom_intensity = bloom.at("intensity").get<float>();
+        parsed.bloom_radius = bloom.at("radius").get<float>();
+
+        const auto& blur = document.at("blur");
+        parsed.blur_enabled = blur.at("enabled").get<bool>();
+        parsed.blur_radius = blur.at("radius").get<float>();
+
+        const auto& color_grading = document.at("color_grading");
+        parsed.color_grading_enabled = color_grading.at("enabled").get<bool>();
+        parsed.color_tint = color_from_json(color_grading.at("tint"));
+        parsed.shadow_tint = color_from_json(color_grading.at("shadow_tint"));
+
+        const auto& film_grain = document.at("film_grain");
+        parsed.film_grain_enabled = film_grain.at("enabled").get<bool>();
+        parsed.film_grain_intensity = film_grain.at("intensity").get<float>();
+
+        const auto& crt = document.at("crt");
+        parsed.crt_enabled = crt.at("enabled").get<bool>();
+        parsed.crt_scanline_intensity = crt.at("scanline_intensity").get<float>();
+        parsed.crt_scanline_spacing = crt.at("scanline_spacing").get<float>();
+        parsed.crt_flicker = crt.at("flicker").get<float>();
+
+        *this = std::move(parsed);
         return true;
-    } catch (...) {
+    } catch (const json::exception& error) {
+        ENGINE_LOG_ERROR("[POST-PROCESS] Invalid profile JSON: {}", error.what());
         return false;
     }
 }

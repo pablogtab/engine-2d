@@ -37,12 +37,12 @@ public:
         }
     }
 
-    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, int width, int height) override {
+    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, const PostProcessContext& context) override {
         SDL_RenderTexture(renderer, source, nullptr, nullptr);
         if (m_current_color.a > 0) {
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(renderer, m_current_color.r, m_current_color.g, m_current_color.b, m_current_color.a);
-            SDL_FRect screen_rect{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)};
+            SDL_FRect screen_rect{0.0f, 0.0f, static_cast<float>(context.output_width), static_cast<float>(context.output_height)};
             SDL_RenderFillRect(renderer, &screen_rect);
         }
     }
@@ -83,7 +83,7 @@ public:
     void set_color(SDL_Color color) { m_color = color; }
     SDL_Color get_color() const { return m_color; }
 
-    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, int, int) override {
+    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, const PostProcessContext&) override {
         // 1. Draw base scene
         SDL_RenderTexture(renderer, source, nullptr, nullptr);
 
@@ -178,9 +178,9 @@ public:
         }
     }
 
-    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, int width, int height) override {
-        float w = static_cast<float>(width);
-        float h = static_cast<float>(height);
+    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, const PostProcessContext& context) override {
+        float w = static_cast<float>(context.output_width);
+        float h = static_cast<float>(context.output_height);
 
         SDL_SetTextureBlendMode(source, SDL_BLENDMODE_BLEND);
         SDL_SetTextureColorMod(source, 255, 255, 255);
@@ -197,12 +197,13 @@ public:
 
             // Red shifted left
             SDL_SetTextureColorMod(source, 255, 30, 30);
-            SDL_FRect dst_red{-m_offset, 0.0f, w, h};
+            const float scaled_offset = context.scale_pixels(m_offset);
+            SDL_FRect dst_red{-scaled_offset, 0.0f, w, h};
             SDL_RenderTexture(renderer, source, nullptr, &dst_red);
 
             // Cyan shifted right
             SDL_SetTextureColorMod(source, 0, 210, 255);
-            SDL_FRect dst_blue{m_offset, 0.0f, w, h};
+            SDL_FRect dst_blue{scaled_offset, 0.0f, w, h};
             SDL_RenderTexture(renderer, source, nullptr, &dst_blue);
 
             // Restore source state
@@ -253,9 +254,9 @@ public:
         }
     }
 
-    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, int width, int height) override {
-        float w = static_cast<float>(width);
-        float h = static_cast<float>(height);
+    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, const PostProcessContext& context) override {
+        float w = static_cast<float>(context.output_width);
+        float h = static_cast<float>(context.output_height);
 
         // 1. Draw base crisp scene
         SDL_SetTextureBlendMode(source, SDL_BLENDMODE_BLEND);
@@ -272,7 +273,7 @@ public:
             SDL_SetTextureAlphaMod(source, alpha);
             SDL_SetTextureColorMod(source, 240, 245, 255);
 
-            float r = m_radius * 1.5f;
+            float r = context.scale_pixels(m_radius) * 1.5f;
             SDL_FRect tap1{-r, 0.0f, w, h};
             SDL_FRect tap2{r, 0.0f, w, h};
             SDL_FRect tap3{0.0f, -r, w, h};
@@ -312,9 +313,9 @@ public:
     void set_radius(float radius) { m_radius = std::clamp(radius, 0.0f, 6.0f); }
     float get_radius() const { return m_radius; }
 
-    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, int width, int height) override {
-        float w = static_cast<float>(width);
-        float h = static_cast<float>(height);
+    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, const PostProcessContext& context) override {
+        float w = static_cast<float>(context.output_width);
+        float h = static_cast<float>(context.output_height);
 
         SDL_SetTextureBlendMode(source, SDL_BLENDMODE_BLEND);
         SDL_SetTextureColorMod(source, 255, 255, 255);
@@ -329,7 +330,7 @@ public:
             float blur_weight = std::clamp(m_radius / 3.0f, 0.0f, 1.0f);
             uint8_t tap_alpha = static_cast<uint8_t>(35.0f * blur_weight);
             SDL_SetTextureAlphaMod(source, tap_alpha);
-            float r = m_radius;
+            float r = context.scale_pixels(m_radius);
             SDL_FRect t1{-r, 0.0f, w, h};
             SDL_FRect t2{r, 0.0f, w, h};
             SDL_FRect t3{0.0f, -r, w, h};
@@ -364,7 +365,7 @@ public:
     void set_shadow_tint(SDL_Color shadow_tint) { m_shadow_tint = shadow_tint; }
     SDL_Color get_shadow_tint() const { return m_shadow_tint; }
 
-    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, int width, int height) override {
+    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, const PostProcessContext& context) override {
         // Base textured scene with tint color modulation
         SDL_SetTextureBlendMode(source, SDL_BLENDMODE_BLEND);
         SDL_SetTextureColorMod(source, m_tint.r, m_tint.g, m_tint.b);
@@ -375,7 +376,7 @@ public:
         if (m_shadow_tint.a > 0) {
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(renderer, m_shadow_tint.r, m_shadow_tint.g, m_shadow_tint.b, m_shadow_tint.a);
-            SDL_FRect full_rect{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)};
+            SDL_FRect full_rect{0.0f, 0.0f, static_cast<float>(context.output_width), static_cast<float>(context.output_height)};
             SDL_RenderFillRect(renderer, &full_rect);
         }
 
@@ -415,25 +416,27 @@ public:
         }
     }
 
-    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, int width, int height) override {
+    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, const PostProcessContext& context) override {
         SDL_RenderTexture(renderer, source, nullptr, nullptr);
 
         if (m_intensity > 0.005f) {
-            float w = static_cast<float>(width);
-            float h = static_cast<float>(height);
+            float w = static_cast<float>(context.output_width);
+            float h = static_cast<float>(context.output_height);
 
             uint8_t alpha = static_cast<uint8_t>(m_intensity * 22.0f);
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, alpha);
 
-            int grain_count = static_cast<int>(w * 0.08f * m_intensity);
+            const float area_scale = context.horizontal_scale() * context.vertical_scale();
+            int grain_count = static_cast<int>(static_cast<float>(context.authoring_width) * 0.08f * m_intensity * area_scale);
+            const float grain_size = std::max(1.0f, context.pixel_scale());
             uint32_t s = m_seed;
             for (int i = 0; i < grain_count; ++i) {
                 s = (s * 1103515245u + 12345u);
                 float gx = static_cast<float>(s % static_cast<uint32_t>(w));
                 s = (s * 1103515245u + 12345u);
                 float gy = static_cast<float>(s % static_cast<uint32_t>(h));
-                SDL_FRect pt{gx, gy, 1.0f, 1.0f};
+                SDL_FRect pt{gx, gy, grain_size, grain_size};
                 SDL_RenderFillRect(renderer, &pt);
             }
         }
@@ -468,11 +471,11 @@ public:
         m_time += delta_time;
     }
 
-    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, int width, int height) override {
+    void apply(SDL_Renderer* renderer, SDL_Texture* source, SDL_Texture*, const PostProcessContext& context) override {
         SDL_RenderTexture(renderer, source, nullptr, nullptr);
 
-        float w = static_cast<float>(width);
-        float h = static_cast<float>(height);
+        float w = static_cast<float>(context.output_width);
+        float h = static_cast<float>(context.output_height);
 
         // Draw fine, subtle horizontal raster scanlines
         if (m_scanline_intensity > 0.01f) {
@@ -481,9 +484,10 @@ public:
             SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
             SDL_SetRenderDrawColor(renderer, 0, 0, 0, alpha);
 
-            float step = m_scanline_spacing;
+            const float step = std::max(1.0f, m_scanline_spacing * context.vertical_scale());
+            const float thickness = std::max(0.5f, context.vertical_scale());
             for (float y = 0; y < h; y += step) {
-                SDL_FRect line_rect{0.0f, y, w, 1.0f};
+                SDL_FRect line_rect{0.0f, y, w, thickness};
                 SDL_RenderFillRect(renderer, &line_rect);
             }
         }

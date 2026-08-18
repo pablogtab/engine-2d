@@ -28,8 +28,8 @@ private:
     ProjectSettings* m_settings{nullptr};
     SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history;
-    GameViewSettings m_pending;
-    GameViewSettings m_observed;
+    ProjectDisplaySettings m_pending;
+    ProjectDisplaySettings m_observed;
     bool m_initialized{false};
 };
 

@@ -26,6 +26,21 @@ PresentationMode presentation_from_string(const std::string& value) {
     return PresentationMode::Fit;
 }
 
+const char* window_mode_to_string(WindowMode mode) {
+    switch (mode) {
+        case WindowMode::Windowed: return "windowed";
+        case WindowMode::BorderlessFullscreen: return "borderless";
+        case WindowMode::ExclusiveFullscreen: return "exclusive";
+    }
+    return "windowed";
+}
+
+WindowMode window_mode_from_string(const std::string& value) {
+    if (value == "borderless") return WindowMode::BorderlessFullscreen;
+    if (value == "exclusive") return WindowMode::ExclusiveFullscreen;
+    return WindowMode::Windowed;
+}
+
 } // namespace
 
 bool ProjectSettings::load(const std::string& filepath) {
@@ -39,33 +54,46 @@ bool ProjectSettings::load(const std::string& filepath) {
         return false;
     }
 
-    const auto& game_view = root.contains("game_view") ? root["game_view"] : nlohmann::json::object();
-    m_game_view.reference_width = std::clamp(game_view.value("reference_width", 1920), 64, 16384);
-    m_game_view.reference_height = std::clamp(game_view.value("reference_height", 1080), 64, 16384);
-    m_game_view.presentation = presentation_from_string(game_view.value("presentation", std::string{"fit"}));
+    const auto& display = root.contains("display") ? root["display"] : nlohmann::json::object();
+    m_display.reference_width = std::clamp(display.value("reference_width", 1920), 64, 16384);
+    m_display.reference_height = std::clamp(display.value("reference_height", 1080), 64, 16384);
+    m_display.presentation = presentation_from_string(display.value("presentation", std::string{"fit"}));
+    m_display.default_window_mode = window_mode_from_string(display.value("default_window_mode", std::string{"windowed"}));
+    m_display.default_window_width = std::clamp(display.value("default_window_width", 1280), 320, 16384);
+    m_display.default_window_height = std::clamp(display.value("default_window_height", 720), 240, 16384);
+    m_display.default_refresh_rate = std::max(display.value("default_refresh_rate", 0.0f), 0.0f);
+    m_display.default_vsync = display.value("default_vsync", true);
     ENGINE_LOG_INFO(
         "[PROJECT SETTINGS] Game output: {}x{} ({})",
-        m_game_view.reference_width,
-        m_game_view.reference_height,
-        presentation_to_string(m_game_view.presentation)
+        m_display.reference_width,
+        m_display.reference_height,
+        presentation_to_string(m_display.presentation)
     );
     return true;
 }
 
 bool ProjectSettings::save() const {
     nlohmann::json root;
-    root["game_view"] = {
-        {"reference_width", m_game_view.reference_width},
-        {"reference_height", m_game_view.reference_height},
-        {"presentation", presentation_to_string(m_game_view.presentation)}
+    root["display"] = {
+        {"reference_width", m_display.reference_width},
+        {"reference_height", m_display.reference_height},
+        {"presentation", presentation_to_string(m_display.presentation)},
+        {"default_window_mode", window_mode_to_string(m_display.default_window_mode)},
+        {"default_window_width", m_display.default_window_width},
+        {"default_window_height", m_display.default_window_height},
+        {"default_refresh_rate", m_display.default_refresh_rate},
+        {"default_vsync", m_display.default_vsync}
     };
     return FileSystem::write_text(m_filepath, root.dump(2) + "\n");
 }
 
-void ProjectSettings::set_game_view(const GameViewSettings& settings) {
-    m_game_view.reference_width = std::clamp(settings.reference_width, 64, 16384);
-    m_game_view.reference_height = std::clamp(settings.reference_height, 64, 16384);
-    m_game_view.presentation = settings.presentation;
+void ProjectSettings::set_display(const ProjectDisplaySettings& settings) {
+    m_display = settings;
+    m_display.reference_width = std::clamp(settings.reference_width, 64, 16384);
+    m_display.reference_height = std::clamp(settings.reference_height, 64, 16384);
+    m_display.default_window_width = std::clamp(settings.default_window_width, 320, 16384);
+    m_display.default_window_height = std::clamp(settings.default_window_height, 240, 16384);
+    m_display.default_refresh_rate = std::max(settings.default_refresh_rate, 0.0f);
     save();
 }
 
