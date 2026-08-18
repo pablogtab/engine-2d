@@ -47,6 +47,7 @@ set(SOURCES
     src/sandbox/AnimatedSpriteDemoScene.cpp
     src/sandbox/DepthDemoScene.cpp
     src/sandbox/PlatformerDemoScene.cpp
+    src/sandbox/PostProcessValidationScene.cpp
     src/sandbox/StressTestScene.cpp
     src/editor/EditorTheme.cpp
     src/editor/EditorLayer.cpp
@@ -134,10 +135,16 @@ add_test(NAME DisplayPersistenceTests COMMAND DisplayPersistenceTests)
 add_executable(PostProcessTests
     tests/PostProcessTests.cpp
     src/core/Log.cpp
+    src/core/ThreadPool.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
+    src/renderer/Font.cpp
+    src/renderer/Renderer2D.cpp
+    src/renderer/Texture.cpp
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
+    src/scene/Camera2D.cpp
+    vendor/stb/stb_impl.cpp
 )
 target_include_directories(PostProcessTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

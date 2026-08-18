@@ -286,6 +286,7 @@ void Application::run() {
             m_window->clear(23, 26, 33, 255);
         } else {
             m_renderer->set_custom_render_target(nullptr);
+            m_renderer->set_scene_clear_color(SDL_Color{24, 28, 36, 255});
             m_window->clear(24, 28, 36, 255);
             on_render();
             m_scene_manager.render(*m_renderer);

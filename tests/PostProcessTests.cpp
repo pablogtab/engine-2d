@@ -1,6 +1,11 @@
 #include "renderer/postprocess/IPostProcessPass.hpp"
 #include "renderer/postprocess/PostProcessPipeline.hpp"
+#include "renderer/postprocess/PostProcessPasses.hpp"
 #include "renderer/postprocess/PostProcessProfile.hpp"
+#include "renderer/SpriteSortKey.hpp"
+#include "renderer/Renderer2D.hpp"
+#include "renderer/Texture.hpp"
+#include "scene/Camera2D.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/commands/PostProcessProfileCommands.hpp"
 #include <cassert>
@@ -34,6 +39,18 @@ void test_non_uniform_output_uses_area_preserving_pixel_scale() {
     assert(nearly_equal(context.horizontal_scale(), 1.5f));
     assert(nearly_equal(context.vertical_scale(), 1.0f));
     assert(nearly_equal(context.pixel_scale(), std::sqrt(1.5f)));
+}
+
+void test_world_sort_keys_never_overlap_the_screen_space_partition() {
+    const uint64_t lowest_world = Engine::SpriteSortKey::world(-32768, -1000.0f, -32768.0f, -32768);
+    const uint64_t highest_world = Engine::SpriteSortKey::world(32767, 10000.0f, 32767.0f, 32767);
+    const uint64_t screen = Engine::SpriteSortKey::screen(0.0f, nullptr);
+
+    assert(!Engine::SpriteSortKey::is_screen_space(lowest_world));
+    assert(!Engine::SpriteSortKey::is_screen_space(highest_world));
+    assert(Engine::SpriteSortKey::is_screen_space(screen));
+    assert(lowest_world < highest_world);
+    assert(highest_world < screen);
 }
 
 void test_profile_round_trip_preserves_effect_reference_and_parameters() {
@@ -101,14 +118,167 @@ void test_profile_edit_is_undoable() {
     assert(pipeline.get_context().authoring_width == 1920);
 }
 
+void test_pipeline_processes_the_existing_camera_backdrop() {
+    constexpr int width = 32;
+    constexpr int height = 24;
+    SDL_Surface* surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+    assert(surface != nullptr);
+    SDL_Renderer* renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(renderer != nullptr);
+
+    SDL_Texture* backdrop = SDL_CreateTexture(
+        renderer,
+        SDL_PIXELFORMAT_RGBA8888,
+        SDL_TEXTUREACCESS_TARGET,
+        width,
+        height
+    );
+    assert(backdrop != nullptr);
+    SDL_SetRenderTarget(renderer, backdrop);
+    SDL_SetRenderDrawColor(renderer, 100, 120, 140, 255);
+    SDL_RenderClear(renderer);
+
+    Engine::PostProcessPipeline pipeline;
+    pipeline.init(renderer, width, height, width, height);
+    auto grading = std::make_shared<Engine::ColorGradingPass>();
+    grading->set_tint(SDL_Color{128, 255, 255, 255});
+    pipeline.add_pass(grading);
+
+    pipeline.begin_capture(backdrop);
+    pipeline.end_capture_and_process(nullptr);
+    SDL_RenderPresent(renderer);
+
+    Uint8 red = 0;
+    Uint8 green = 0;
+    Uint8 blue = 0;
+    Uint8 alpha = 0;
+    assert(SDL_ReadSurfacePixel(surface, width / 2, height / 2, &red, &green, &blue, &alpha));
+    assert(red >= 48 && red <= 52);
+    assert(green >= 118 && green <= 122);
+    assert(blue >= 138 && blue <= 142);
+    assert(alpha == 255);
+
+    pipeline.destroy_targets();
+    SDL_DestroyTexture(backdrop);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroySurface(surface);
+}
+
+void test_pipeline_processes_the_standalone_clear_color() {
+    constexpr int width = 32;
+    constexpr int height = 24;
+    SDL_Surface* surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+    assert(surface != nullptr);
+    SDL_Renderer* renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(renderer != nullptr);
+
+    Engine::PostProcessPipeline pipeline;
+    pipeline.init(renderer, width, height, width, height);
+    auto grading = std::make_shared<Engine::ColorGradingPass>();
+    grading->set_tint(SDL_Color{128, 255, 255, 255});
+    pipeline.add_pass(grading);
+
+    pipeline.begin_capture(nullptr, SDL_Color{100, 120, 140, 255});
+    pipeline.end_capture_and_process(nullptr);
+    SDL_RenderPresent(renderer);
+
+    Uint8 red = 0;
+    Uint8 green = 0;
+    Uint8 blue = 0;
+    Uint8 alpha = 0;
+    assert(SDL_ReadSurfacePixel(surface, width / 2, height / 2, &red, &green, &blue, &alpha));
+    assert(red >= 48 && red <= 52);
+    assert(green >= 118 && green <= 122);
+    assert(blue >= 138 && blue <= 142);
+    assert(alpha == 255);
+
+    pipeline.destroy_targets();
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroySurface(surface);
+}
+
+void test_world_is_processed_before_screen_space_hud_is_composited() {
+    constexpr int width = 64;
+    constexpr int height = 32;
+    SDL_Surface* surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+    assert(surface != nullptr);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer != nullptr);
+
+    Engine::Renderer2D renderer(sdl_renderer);
+    renderer.set_scene_clear_color(SDL_Color{0, 0, 0, 255});
+    Engine::Camera2D camera(static_cast<float>(width), static_cast<float>(height));
+
+    Engine::PostProcessPipeline pipeline;
+    pipeline.init(sdl_renderer, width, height, width, height);
+    auto grading = std::make_shared<Engine::ColorGradingPass>();
+    grading->set_tint(SDL_Color{128, 255, 128, 255});
+    pipeline.add_pass(grading);
+
+    std::unique_ptr<Engine::Texture> white(
+        Engine::Texture::create_solid(sdl_renderer, 4, 4, 255, 255, 255, 255)
+    );
+    assert(white != nullptr);
+
+    renderer.set_post_process_pipeline(&pipeline);
+    renderer.begin_scene(camera);
+    renderer.submit_sprite(
+        white.get(),
+        glm::vec3(-16.0f, 0.0f, 0.0f),
+        glm::vec2(16.0f, 16.0f),
+        0.0f,
+        SDL_Color{255, 255, 255, 255}
+    );
+    renderer.submit_screen_sprite(
+        white.get(),
+        glm::vec2(48.0f, 16.0f),
+        glm::vec2(16.0f, 16.0f),
+        0.0f,
+        SDL_Color{255, 255, 255, 255},
+        nullptr,
+        glm::vec2(0.5f, 0.5f)
+    );
+    renderer.end_scene();
+    SDL_RenderPresent(sdl_renderer);
+
+    Uint8 world_r = 0;
+    Uint8 world_g = 0;
+    Uint8 world_b = 0;
+    Uint8 world_a = 0;
+    assert(SDL_ReadSurfacePixel(surface, 16, 16, &world_r, &world_g, &world_b, &world_a));
+    assert(world_r >= 126 && world_r <= 130);
+    assert(world_g == 255);
+    assert(world_b >= 126 && world_b <= 130);
+    assert(world_a == 255);
+
+    Uint8 hud_r = 0;
+    Uint8 hud_g = 0;
+    Uint8 hud_b = 0;
+    Uint8 hud_a = 0;
+    assert(SDL_ReadSurfacePixel(surface, 48, 16, &hud_r, &hud_g, &hud_b, &hud_a));
+    assert(hud_r == 255);
+    assert(hud_g == 255);
+    assert(hud_b == 255);
+    assert(hud_a == 255);
+
+    pipeline.destroy_targets();
+    white.reset();
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
     test_effect_scale_matches_authoring_resolution();
     test_non_uniform_output_uses_area_preserving_pixel_scale();
+    test_world_sort_keys_never_overlap_the_screen_space_partition();
     test_profile_round_trip_preserves_effect_reference_and_parameters();
     test_profile_updates_pipeline_reference_without_renderer();
     test_profile_edit_is_undoable();
+    test_pipeline_processes_the_existing_camera_backdrop();
+    test_pipeline_processes_the_standalone_clear_color();
+    test_world_is_processed_before_screen_space_hud_is_composited();
     std::cout << "PostProcessTests passed\n";
     return 0;
 }

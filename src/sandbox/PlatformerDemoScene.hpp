@@ -48,6 +48,7 @@ private:
     Engine::PostProcessVolumeManager m_volume_manager;
     Engine::PostProcessProfile m_base_profile;
     Engine::PostProcessProfile m_current_profile;
+    int m_post_process_mode{0}; // 0 = spatial volumes, 1-6 = global preset override
 
     Engine::EntityID m_player_id{0};
     Engine::EntityID m_elevator_id{0};

@@ -27,6 +27,17 @@ namespace Layer {
     constexpr uint16_t HAZARD   = 0x0010; // Layer 4: Hazards / Spikes
 }
 
+Engine::PostProcessProfile post_process_profile_for_mode(int mode) {
+    switch (mode) {
+        case 2: return Engine::PostProcessProfile::PresetRetroCRT();
+        case 3: return Engine::PostProcessProfile::PresetUnderwater();
+        case 4: return Engine::PostProcessProfile::PresetCinematic();
+        case 5: return Engine::PostProcessProfile::PresetNightVision();
+        case 6: return Engine::PostProcessProfile::PresetDreamyBloom();
+        default: return Engine::PostProcessProfile::PresetDefault();
+    }
+}
+
 PlatformerDemoScene::PlatformerDemoScene(SDL_Renderer* renderer)
     : Engine::Scene("2D Platformer & Collision Layer Matrix"),
       m_sdl_renderer(renderer),
@@ -81,16 +92,10 @@ void PlatformerDemoScene::on_attach() {
     m_post_process_pipeline.add_pass(std::make_shared<Engine::ScanlinesCRTPass>());
     m_post_process_pipeline.add_pass(std::make_shared<Engine::ScreenFlashPass>());
 
-    // Restore user post-processing preset preference (1 = Default, 2 = CRT, etc.)
-    int saved_preset = Engine::PlayerPrefs::get_int("post_process_preset", 1);
-    switch (saved_preset) {
-        case 2: m_base_profile = Engine::PostProcessProfile::PresetRetroCRT(); break;
-        case 3: m_base_profile = Engine::PostProcessProfile::PresetUnderwater(); break;
-        case 4: m_base_profile = Engine::PostProcessProfile::PresetCinematic(); break;
-        case 5: m_base_profile = Engine::PostProcessProfile::PresetNightVision(); break;
-        case 6: m_base_profile = Engine::PostProcessProfile::PresetDreamyBloom(); break;
-        default: m_base_profile = Engine::PostProcessProfile::PresetDefault(); break;
-    }
+    // Mode 0 demonstrates spatial volumes. Modes 1-6 are explicit global
+    // overrides so selecting a preset cannot be silently replaced by a volume.
+    m_post_process_mode = std::clamp(Engine::PlayerPrefs::get_int("post_process_mode", 0), 0, 6);
+    m_base_profile = post_process_profile_for_mode(m_post_process_mode);
     m_base_profile.apply_to_pipeline(m_post_process_pipeline);
 
     // Setup 2D Spatial Post-Process Atmospheric Volumes
@@ -788,37 +793,30 @@ void PlatformerDemoScene::on_update(float delta_time) {
         }
     }
 
-    // Post-Processing Presets (Keys 1 - 6) & Persist in PlayerPrefs
-    if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_1)) {
-        m_base_profile = Engine::PostProcessProfile::PresetDefault();
-        Engine::PlayerPrefs::set_int("post_process_preset", 1);
+    // Post-processing showcase modes. 0 restores automatic spatial volumes;
+    // 1-6 select a global profile that remains authoritative everywhere.
+    int requested_post_process_mode = -1;
+    if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_0)) requested_post_process_mode = 0;
+    else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_1)) requested_post_process_mode = 1;
+    else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_2)) requested_post_process_mode = 2;
+    else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_3)) requested_post_process_mode = 3;
+    else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_4)) requested_post_process_mode = 4;
+    else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_5)) requested_post_process_mode = 5;
+    else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_6)) requested_post_process_mode = 6;
+
+    if (requested_post_process_mode >= 0) {
+        m_post_process_mode = requested_post_process_mode;
+        m_base_profile = post_process_profile_for_mode(m_post_process_mode);
+        Engine::PlayerPrefs::set_int("post_process_mode", m_post_process_mode);
         Engine::PlayerPrefs::save();
-        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'Default' profile.");
-    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_2)) {
-        m_base_profile = Engine::PostProcessProfile::PresetRetroCRT();
-        Engine::PlayerPrefs::set_int("post_process_preset", 2);
-        Engine::PlayerPrefs::save();
-        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'RetroCRT' scanline profile.");
-    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_3)) {
-        m_base_profile = Engine::PostProcessProfile::PresetUnderwater();
-        Engine::PlayerPrefs::set_int("post_process_preset", 3);
-        Engine::PlayerPrefs::save();
-        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'Underwater' profile.");
-    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_4)) {
-        m_base_profile = Engine::PostProcessProfile::PresetCinematic();
-        Engine::PlayerPrefs::set_int("post_process_preset", 4);
-        Engine::PlayerPrefs::save();
-        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'Cinematic' film-grain profile.");
-    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_5)) {
-        m_base_profile = Engine::PostProcessProfile::PresetNightVision();
-        Engine::PlayerPrefs::set_int("post_process_preset", 5);
-        Engine::PlayerPrefs::save();
-        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'NightVision' high-gain profile.");
-    } else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_6)) {
-        m_base_profile = Engine::PostProcessProfile::PresetDreamyBloom();
-        Engine::PlayerPrefs::set_int("post_process_preset", 6);
-        Engine::PlayerPrefs::save();
-        ENGINE_LOG_INFO("[POST-PROCESS PRESET] Switched to 'DreamyBloom' profile.");
+        if (m_post_process_mode == 0) {
+            ENGINE_LOG_INFO("[POST-PROCESS] Automatic spatial volumes enabled with the Default base profile.");
+        } else {
+            ENGINE_LOG_INFO(
+                "[POST-PROCESS] Global '{}' override enabled; spatial volumes are bypassed. Press 0 for automatic volumes.",
+                m_base_profile.name
+            );
+        }
     }
 
     // --- F5: QuickSave (Binary save with Magic 'E2DS' Header + CRC32 Checksum) ---
@@ -979,29 +977,34 @@ void PlatformerDemoScene::on_update(float delta_time) {
     std::string current_vol_name = "";
     float current_vol_weight = 0.0f;
 
-    for (const auto& vol : m_volume_manager.get_volumes()) {
-        float w = vol.calculate_weight(eval_pos);
-        if (w > 0.01f && w > current_vol_weight) {
-            current_vol_weight = w;
-            current_vol_name = vol.get_name();
+    if (m_post_process_mode == 0) {
+        for (const auto& vol : m_volume_manager.get_volumes()) {
+            float w = vol.calculate_weight(eval_pos);
+            if (w > 0.01f && w > current_vol_weight) {
+                current_vol_weight = w;
+                current_vol_name = vol.get_name();
+            }
         }
-    }
 
-    if (!current_vol_name.empty()) {
-        if (std::abs(current_vol_weight - s_last_logged_weight) >= 0.15f || current_vol_name != s_last_active_vol) {
-            s_last_active_vol = current_vol_name;
-            s_last_logged_weight = current_vol_weight;
-            ENGINE_LOG_INFO("[VOLUME TRANSITION] Inside '{}' | Atmospheric Blend: {:.0f}% | Player at ({:.0f}, {:.0f})",
-                            current_vol_name, current_vol_weight * 100.0f, eval_pos.x, eval_pos.y);
+        if (!current_vol_name.empty()) {
+            if (std::abs(current_vol_weight - s_last_logged_weight) >= 0.15f || current_vol_name != s_last_active_vol) {
+                s_last_active_vol = current_vol_name;
+                s_last_logged_weight = current_vol_weight;
+                ENGINE_LOG_INFO("[VOLUME TRANSITION] Inside '{}' | Atmospheric Blend: {:.0f}% | Player at ({:.0f}, {:.0f})",
+                                current_vol_name, current_vol_weight * 100.0f, eval_pos.x, eval_pos.y);
+            }
+        } else if (!s_last_active_vol.empty()) {
+            ENGINE_LOG_INFO("[VOLUME TRANSITION] Exited '{}' -> Smoothly returned to '{}' base profile.",
+                            s_last_active_vol, m_base_profile.name);
+            s_last_active_vol = "";
+            s_last_logged_weight = 0.0f;
         }
-    } else if (!s_last_active_vol.empty()) {
-        ENGINE_LOG_INFO("[VOLUME TRANSITION] Exited '{}' -> Smoothly returned to '{}' base profile.",
-                        s_last_active_vol, m_base_profile.name);
+        m_current_profile = m_volume_manager.evaluate(eval_pos, m_base_profile);
+    } else {
         s_last_active_vol = "";
-        s_last_logged_weight = 0.0f;
+        s_last_logged_weight = -1.0f;
+        m_current_profile = m_base_profile;
     }
-
-    m_current_profile = m_volume_manager.evaluate(eval_pos, m_base_profile);
     m_current_profile.apply_to_pipeline(m_post_process_pipeline);
 
     // Update Post-Processing Pipeline & Tweens

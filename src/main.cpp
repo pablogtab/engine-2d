@@ -5,6 +5,7 @@
 #include "sandbox/AnimatedSpriteDemoScene.hpp"
 #include "sandbox/DepthDemoScene.hpp"
 #include "sandbox/PlatformerDemoScene.hpp"
+#include "sandbox/PostProcessValidationScene.hpp"
 #include "sandbox/StressTestScene.hpp"
 #include <iostream>
 #include <memory>
@@ -63,6 +64,8 @@ protected:
         std::make_shared<Sandbox::AnimatedSpriteDemoScene>(renderer));
     get_scene_manager().add_scene(
         std::make_shared<Sandbox::DepthDemoScene>(renderer));
+    get_scene_manager().add_scene(
+        std::make_shared<Sandbox::PostProcessValidationScene>(renderer));
     get_scene_manager().add_scene(std::make_shared<Sandbox::StressTestScene>(
         renderer, &get_thread_pool(), 3000));
 
@@ -129,7 +132,9 @@ private:
         m_requested_scene_name = "2D Animated Sprites & Asset Loader";
     } else if (lower == "4" || lower == "depth" || lower == "parallax" || lower == "2.5d") {
         m_requested_scene_name = "2.5D Depth & Parallax Test";
-    } else if (lower == "5" || lower == "stress" || lower == "benchmark" || lower == "gpu") {
+    } else if (lower == "5" || lower == "postfx" || lower == "post-process" || lower == "postprocess") {
+        m_requested_scene_name = "Post-Processing Validation";
+    } else if (lower == "6" || lower == "stress" || lower == "benchmark" || lower == "gpu") {
         m_requested_scene_name = "GPU/CPU Stress Test";
     } else {
         m_requested_scene_name = input;
@@ -143,7 +148,8 @@ private:
     std::cout << " 2. testbed     - 2D Platformer & Collision Layer Matrix (C++ Box2D)" << std::endl;
     std::cout << " 3. sprites     - Top-Down Physics & 2D Animated Sprites" << std::endl;
     std::cout << " 4. depth       - 2.5D Depth & Parallax Test" << std::endl;
-    std::cout << " 5. stress      - GPU/CPU Stress Test (3,000 Sprites)" << std::endl;
+    std::cout << " 5. postfx      - Isolated Post-Processing Validation" << std::endl;
+    std::cout << " 6. stress      - GPU/CPU Stress Test (3,000 Sprites)" << std::endl;
     std::cout << "=======================================================\n" << std::endl;
   }
 
@@ -159,7 +165,8 @@ private:
               << "  2, testbed, physics    2D Platformer & Collision Layer Matrix (C++)\n"
               << "  3, sprites, anim       Top-Down Physics & Animated Sprites\n"
               << "  4, depth, parallax     2.5D Depth & Parallax Test\n"
-              << "  5, stress, benchmark   GPU/CPU Stress Test (3,000 Sprites)\n\n"
+              << "  5, postfx              Isolated Post-Processing Validation\n"
+              << "  6, stress, benchmark   GPU/CPU Stress Test (3,000 Sprites)\n\n"
               << "In-Game Controls:\n"
               << "  TAB / Shift+TAB        Cycle between demo scenes at runtime\n"
               << "  F1 or ` (Tilde)        Toggle Editor UI Overlay\n"
@@ -175,7 +182,8 @@ private:
     std::cout << " - Scene 2: 2D Platformer & Collision Layer Matrix (C++ Testbed)" << std::endl;
     std::cout << " - Scene 3: Top-Down Physics & Animated Sprites" << std::endl;
     std::cout << " - Scene 4: 2.5D Depth & Parallax Test" << std::endl;
-    std::cout << " - Scene 5: GPU/CPU Stress Test (3,000 Sprites)" << std::endl;
+    std::cout << " - Scene 5: Isolated Post-Processing Validation" << std::endl;
+    std::cout << " - Scene 6: GPU/CPU Stress Test (3,000 Sprites)" << std::endl;
     std::cout << "=======================================================\n" << std::endl;
   }
 
@@ -200,7 +208,8 @@ int main(int argc, char *argv[]) {
       std::cout << " 2. testbed     - 2D Platformer & Collision Layer Matrix (C++ Box2D)" << std::endl;
       std::cout << " 3. sprites     - Top-Down Physics & 2D Animated Sprites" << std::endl;
       std::cout << " 4. depth       - 2.5D Depth & Parallax Test" << std::endl;
-      std::cout << " 5. stress      - GPU/CPU Stress Test (3,000 Sprites)" << std::endl;
+      std::cout << " 5. postfx      - Isolated Post-Processing Validation" << std::endl;
+      std::cout << " 6. stress      - GPU/CPU Stress Test (3,000 Sprites)" << std::endl;
       std::cout << "=======================================================\n" << std::endl;
       return 0;
     }
@@ -216,7 +225,8 @@ int main(int argc, char *argv[]) {
                 << "  2, testbed, physics    2D Platformer & Collision Layer Matrix (C++)\n"
                 << "  3, sprites, anim       Top-Down Physics & Animated Sprites\n"
                 << "  4, depth, parallax     2.5D Depth & Parallax Test\n"
-                << "  5, stress, benchmark   GPU/CPU Stress Test (3,000 Sprites)\n\n"
+                << "  5, postfx              Isolated Post-Processing Validation\n"
+                << "  6, stress, benchmark   GPU/CPU Stress Test (3,000 Sprites)\n\n"
                 << "In-Game Controls:\n"
                 << "  TAB / Shift+TAB        Cycle between demo scenes at runtime\n"
                 << "  F1 or ` (Tilde)        Toggle Editor UI Overlay\n"

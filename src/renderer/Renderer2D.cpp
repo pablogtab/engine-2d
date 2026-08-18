@@ -1,4 +1,5 @@
 #include "Renderer2D.hpp"
+#include "SpriteSortKey.hpp"
 #include "Font.hpp"
 #include "postprocess/PostProcessPipeline.hpp"
 #include "core/ThreadPool.hpp"
@@ -33,7 +34,10 @@ void Renderer2D::begin_scene(const Camera2D& camera) {
     }
 
     if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
-        m_post_process_pipeline->begin_capture();
+        // The editor clears its Viewport render target before scene rendering.
+        // Include that backdrop in the capture so full-screen passes affect the
+        // entire camera frame, not only geometry drawn after begin_scene().
+        m_post_process_pipeline->begin_capture(m_custom_render_target, m_scene_clear_color);
     }
 }
 
@@ -72,11 +76,12 @@ void Renderer2D::submit_sprite(
     } else {
         // Explicit layer/order precede depth and Y sorting. Texture batching is
         // handled later by contiguous equal-texture commands where possible.
-        uint16_t layer_key = static_cast<uint16_t>(static_cast<int32_t>(sorting_layer) + 32768);
-        uint16_t z_key = static_cast<uint16_t>(std::clamp(static_cast<int32_t>((position.z + 1000.0f) * 16.0f), 0, 65535));
-        uint16_t y_key = static_cast<uint16_t>(position.y + 32768.0f);
-        uint16_t order_key = static_cast<uint16_t>(static_cast<int32_t>(order_in_layer) + 32768);
-        cmd.sort_key = (static_cast<uint64_t>(layer_key) << 48) | (static_cast<uint64_t>(z_key) << 32) | (static_cast<uint64_t>(y_key) << 16) | order_key;
+        cmd.sort_key = SpriteSortKey::world(
+            sorting_layer,
+            position.z,
+            position.y,
+            order_in_layer
+        );
     }
 
     m_sprite_queue.push_back(cmd);
@@ -112,9 +117,7 @@ void Renderer2D::submit_screen_sprite(
     cmd.is_screen_space = true;
 
     // Screen-space sort key: Bit 63 is 1 to guarantee rendering on top of all world geometry!
-    uint32_t z_key = static_cast<uint32_t>(z_layer + 1000.0f);
-    uint32_t tex_key = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(texture) & 0xFFFFFFFF);
-    cmd.sort_key = (1ULL << 63) | (static_cast<uint64_t>(z_key) << 32) | tex_key;
+    cmd.sort_key = SpriteSortKey::screen(z_layer, texture);
 
     m_sprite_queue.push_back(cmd);
 }

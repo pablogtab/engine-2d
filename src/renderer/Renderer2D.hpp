@@ -47,6 +47,7 @@ public:
         }
     }
     SDL_Texture* get_custom_render_target() const { return m_custom_render_target; }
+    void set_scene_clear_color(SDL_Color color) { m_scene_clear_color = color; }
 
     void reserve_capacity(size_t max_sprites);
     void begin_scene(const Camera2D& camera);
@@ -106,6 +107,7 @@ private:
     void flush_batch(Texture* texture);
 
     SDL_Renderer* m_sdl_renderer{nullptr};
+    SDL_Color m_scene_clear_color{24, 28, 36, 255};
     ThreadPool* m_thread_pool{nullptr};
     PostProcessPipeline* m_post_process_pipeline{nullptr};
     SDL_Texture* m_custom_render_target{nullptr};
