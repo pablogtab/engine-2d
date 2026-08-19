@@ -5,10 +5,34 @@
 #include <vector>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <functional>
 
 namespace Engine {
 
 class EditorCommandHistory;
+class Window;
+class Scene;
+
+struct EditorSceneSession {
+    std::shared_ptr<EditorCommandHistory> command_history;
+    std::string file_path;
+    std::string initial_snapshot_json;
+};
+
+enum class PendingActionType {
+    None,
+    NewScene,
+    LoadScene,
+    SwitchScene,
+    ExitApp
+};
+
+struct PendingDestructiveAction {
+    PendingActionType type{PendingActionType::None};
+    std::string target;
+    std::function<void()> action;
+};
 
 class EditorLayer {
 public:
@@ -47,26 +71,43 @@ public:
     [[nodiscard]] class ViewportPanel* get_viewport_panel() const { return m_viewport_panel; }
     void set_viewport_panel(class ViewportPanel* vp) { m_viewport_panel = vp; }
     void set_scene_manager(class SceneManager* sm) { m_scene_manager = sm; }
+    void set_window_wrapper(Window* window) { m_window_wrapper = window; }
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
     [[nodiscard]] std::shared_ptr<EditorCommandHistory> get_command_history() const { return m_command_history; }
+
+    // Session & Action Pipeline
+    EditorSceneSession& get_or_create_session(const Scene* scene, const std::string& default_name = "");
+    void sync_active_scene_session();
+    void cleanup_stale_sessions();
+    void update_window_title();
+    bool request_destructive_action(PendingDestructiveAction action);
+    bool request_exit();
+    bool save_active_scene(const std::string& custom_path = "");
+    bool discard_active_scene_changes();
+    void load_scene(const std::string& path);
+    void create_new_scene(const std::string& name = "Untitled Scene");
 
 private:
     void render_main_menu_bar();
     void setup_default_dockspace_layout(uint32_t dockspace_id);
-    void save_active_scene(const std::string& custom_path = "");
-    void load_scene(const std::string& path);
-    void create_new_scene(const std::string& name = "Untitled Scene");
+    void update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch);
 
     SDL_Window* m_window{nullptr};
     SDL_Renderer* m_renderer{nullptr};
+    Window* m_window_wrapper{nullptr};
     class ViewportPanel* m_viewport_panel{nullptr};
     class SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
+
+    std::unordered_map<const Scene*, EditorSceneSession> m_scene_sessions;
+    const Scene* m_last_active_scene{nullptr};
 
     bool m_initialized{false};
     bool m_visible{true}; // Enabled by default in editor builds
     bool m_dockspace_initialized{false};
     bool m_show_save_as_popup{false};
+    bool m_show_unsaved_changes_modal{false};
+    PendingDestructiveAction m_pending_action;
     char m_save_as_buf[128]{"NewLevel.scene"};
 
     // Keyboard Repeat Acceleration Curve for Undo / Redo

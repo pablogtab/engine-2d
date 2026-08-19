@@ -266,6 +266,7 @@ add_executable(SceneSerializerTests
     src/scene/ComponentRegistry.cpp
     src/scene/SceneSchema.cpp
     src/scene/SceneSerializer.cpp
+    src/editor/commands/EditorCommandHistory.cpp
     src/tilemap/Tilemap.cpp
     src/tilemap/TilemapColliderSystem.cpp
     vendor/stb/stb_impl.cpp

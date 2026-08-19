@@ -48,7 +48,13 @@ void SceneHierarchyPanel::on_gui() {
         }
 
         // --- Active Scene Header ---
-        ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "ACTIVE SCENE: %s", active_scene->get_name().c_str());
+        const bool is_dirty = m_command_history && m_command_history->is_dirty();
+        std::string dirty_indicator = is_dirty ? " *" : "";
+        ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "ACTIVE SCENE: %s%s", active_scene->get_name().c_str(), dirty_indicator.c_str());
+        if (is_dirty) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "(Unsaved Changes)");
+        }
         ImGui::Separator();
 
         // --- Search Filter ---

@@ -162,6 +162,98 @@ void test_null_commands_are_ignored() {
     assert(history.get_redo_count() == 0);
 }
 
+void test_dirty_state_execute_and_mark_saved() {
+    int val = 0;
+    EditorCommandHistory history;
+    assert(!history.is_dirty());
+    assert(history.get_current_revision() == 0);
+
+    history.execute_command(std::make_unique<SetIntegerCommand>(val, 0, 10, "Set 10"));
+    assert(history.is_dirty());
+    assert(history.get_current_revision() == 1);
+
+    history.mark_saved();
+    assert(!history.is_dirty());
+    assert(history.get_saved_revision() == 1);
+}
+
+void test_dirty_state_undo_and_redo_revisions() {
+    int val = 0;
+    EditorCommandHistory history;
+    // Initial state: rev 0, saved 0 (clean)
+    assert(!history.is_dirty());
+
+    // Cmd 1 -> rev 1
+    history.execute_command(std::make_unique<SetIntegerCommand>(val, 0, 1, "Set 1"));
+    assert(history.is_dirty());
+
+    // Save at rev 1
+    history.mark_saved();
+    assert(!history.is_dirty());
+
+    // Cmd 2 -> rev 2
+    history.execute_command(std::make_unique<SetIntegerCommand>(val, 1, 2, "Set 2"));
+    assert(history.is_dirty());
+
+    // Undo Cmd 2 -> back to rev 1 (saved revision point!)
+    history.undo();
+    assert(history.get_current_revision() == 1);
+    assert(!history.is_dirty());
+
+    // Undo Cmd 1 -> back to rev 0 (dirty, because saved was rev 1!)
+    history.undo();
+    assert(history.get_current_revision() == 0);
+    assert(history.is_dirty());
+
+    // Redo Cmd 1 -> back to rev 1 (clean again!)
+    history.redo();
+    assert(history.get_current_revision() == 1);
+    assert(!history.is_dirty());
+
+    // Redo Cmd 2 -> forward to rev 2 (dirty!)
+    history.redo();
+    assert(history.get_current_revision() == 2);
+    assert(history.is_dirty());
+}
+
+void test_dirty_state_branching_history() {
+    int val = 0;
+    EditorCommandHistory history;
+    history.execute_command(std::make_unique<SetIntegerCommand>(val, 0, 1, "Cmd 1"));
+    history.execute_command(std::make_unique<SetIntegerCommand>(val, 1, 2, "Cmd 2"));
+    history.mark_saved(); // Saved at rev 2
+    assert(!history.is_dirty());
+
+    // Undo Cmd 2 (rev 1), then execute Cmd 3 (rev 3) -> branching history
+    history.undo();
+    assert(history.is_dirty());
+    history.execute_command(std::make_unique<SetIntegerCommand>(val, 1, 3, "Cmd 3"));
+    assert(history.get_current_revision() == 3);
+    assert(history.is_dirty()); // rev 3 != saved rev 2
+
+    // Undo Cmd 3 -> rev 1 (still dirty, since saved was 2 and 2 is no longer reachable)
+    history.undo();
+    assert(history.get_current_revision() == 1);
+    assert(history.is_dirty());
+}
+
+void test_clear_preserving_dirty_state_vs_reset_baseline() {
+    int val = 0;
+    EditorCommandHistory history;
+    history.execute_command(std::make_unique<SetIntegerCommand>(val, 0, 5, "Cmd 5"));
+    assert(history.is_dirty());
+
+    // clear_history_preserving_dirty_state clears undo stack but retains dirty flag
+    history.clear_history_preserving_dirty_state();
+    assert(history.get_undo_count() == 0);
+    assert(history.is_dirty());
+
+    // reset_clean_baseline sets clean state for a freshly loaded/created scene
+    history.reset_clean_baseline(0);
+    assert(history.get_undo_count() == 0);
+    assert(!history.is_dirty());
+}
+
 } // namespace
 
 int main() {
@@ -173,6 +265,10 @@ int main() {
     test_bounded_history_discards_oldest_command();
     test_push_executed_and_clear();
     test_null_commands_are_ignored();
+    test_dirty_state_execute_and_mark_saved();
+    test_dirty_state_undo_and_redo_revisions();
+    test_dirty_state_branching_history();
+    test_clear_preserving_dirty_state_vs_reset_baseline();
     std::cout << "EditorCommandHistoryTests passed\n";
     return 0;
 }

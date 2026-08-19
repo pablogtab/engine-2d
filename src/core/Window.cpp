@@ -129,13 +129,36 @@ void Window::update_sizes() {
     SDL_GetRenderOutputSize(m_renderer, &m_pixel_width, &m_pixel_height);
 }
 
+void Window::set_title(const std::string& title) {
+    m_title = title;
+    if (m_window) {
+        SDL_SetWindowTitle(m_window, title.c_str());
+    }
+}
+
+void Window::request_close() {
+    if (m_close_request_callback) {
+        if (m_close_request_callback()) {
+            m_should_close = true;
+        }
+    } else {
+        m_should_close = true;
+    }
+}
+
 void Window::poll_events() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (m_uses_logical_presentation) SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
         bool display_changed = false;
-        if (event.type == SDL_EVENT_QUIT) {
-            m_should_close = true;
+        if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+            if (m_close_request_callback) {
+                if (m_close_request_callback()) {
+                    m_should_close = true;
+                }
+            } else {
+                m_should_close = true;
+            }
         }
         else if (event.type == SDL_EVENT_WINDOW_RESIZED || 
                  event.type == SDL_EVENT_WINDOW_MOVED ||

@@ -6,8 +6,10 @@
 #include "scene/Scene.hpp"
 #include "scene/ComponentRegistry.hpp"
 #include "scene/SceneSerializer.hpp"
+#include "editor/commands/EditorCommandHistory.hpp"
 #include <algorithm>
 #include <cassert>
+#include <filesystem>
 #include <iostream>
 #include <nlohmann/json.hpp>
 
@@ -275,6 +277,83 @@ void test_commit_failure_rolls_back_live_scene() {
     assert(scene.get_entity_manager().get_component<TransformComponent>(preserved).position.x == 42.0f);
 }
 
+void test_discard_changes_reloads_saved_scene_file() {
+    const std::string temp_path = "assets/scenes/temp_discard_test.scene";
+    std::filesystem::create_directories("assets/scenes");
+
+    // 1. Create a scene with 1 entity and serialize it to disk
+    TestScene scene;
+    EntityManager& em = scene.get_entity_manager();
+    const EntityID original_entity = em.create_entity();
+    em.add_component<TagComponent>(original_entity, TagComponent{"SavedEntity"});
+    em.add_component<TransformComponent>(original_entity, TransformComponent{glm::vec3(10.0f, 20.0f, 0.0f)});
+
+    SceneSerializer serializer(&scene);
+    assert(serializer.serialize(temp_path));
+
+    // 2. Simulate editor session modifying the scene
+    EditorCommandHistory history;
+    assert(!history.is_dirty());
+    history.mark_saved();
+
+    // Modify scene in memory: change transform and add extra entity
+    em.get_component<TransformComponent>(original_entity).position.x = 999.0f;
+    const EntityID dirty_entity = em.create_entity();
+    em.add_component<TagComponent>(dirty_entity, TagComponent{"UnsavedEntity"});
+    em.add_component<TransformComponent>(dirty_entity, TransformComponent{});
+    assert(em.get_living_entities().size() == 2);
+
+    // 3. Perform Discard: reload from file and reset baseline
+    assert(serializer.deserialize(temp_path));
+    history.reset_clean_baseline(0);
+
+    // 4. Verify scene is restored and clean
+    assert(!history.is_dirty());
+    const auto& living = em.get_living_entities();
+    assert(living.size() == 1);
+    assert(em.is_alive(original_entity));
+    assert(em.get_component<TagComponent>(original_entity).tag == "SavedEntity");
+    assert(em.get_component<TransformComponent>(original_entity).position.x == 10.0f);
+    assert(em.get_component<TransformComponent>(original_entity).position.y == 20.0f);
+
+    std::filesystem::remove(temp_path);
+}
+
+void test_discard_changes_restores_initial_snapshot_for_new_scene() {
+    // 1. Create a new blank scene and capture its initial snapshot
+    TestScene scene;
+    EntityManager& em = scene.get_entity_manager();
+    const EntityID camera_entity = em.create_entity();
+    em.add_component<TagComponent>(camera_entity, TagComponent{"Main Camera"});
+    em.add_component<TransformComponent>(camera_entity, TransformComponent{glm::vec3(0.0f)});
+
+    SceneSerializer serializer(&scene);
+    const std::string initial_snapshot = serializer.serialize_to_string();
+    assert(!initial_snapshot.empty());
+
+    EditorCommandHistory history;
+    history.reset_clean_baseline(0);
+    assert(!history.is_dirty());
+
+    // 2. Dirty the new scene by adding entities
+    const EntityID new_entity = em.create_entity();
+    em.add_component<TagComponent>(new_entity, TagComponent{"TemporaryTilemap"});
+    em.add_component<TransformComponent>(new_entity, TransformComponent{glm::vec3(50.0f, 50.0f, 0.0f)});
+    assert(em.get_living_entities().size() == 2);
+
+    // 3. Perform Discard: restore initial snapshot string
+    assert(serializer.deserialize_from_string(initial_snapshot));
+    history.reset_clean_baseline(0);
+
+    // 4. Verify new scene is back to initial state and clean
+    assert(!history.is_dirty());
+    const auto& living = em.get_living_entities();
+    assert(living.size() == 1);
+    assert(em.is_alive(camera_entity));
+    assert(em.get_component<TagComponent>(camera_entity).tag == "Main Camera");
+    assert(!em.is_alive(new_entity));
+}
+
 } // namespace
 
 int main() {
@@ -288,6 +367,8 @@ int main() {
     test_v1_scene_migrates_to_current_schema();
     test_hierarchy_cycle_is_rejected_transactionally();
     test_commit_failure_rolls_back_live_scene();
+    test_discard_changes_reloads_saved_scene_file();
+    test_discard_changes_restores_initial_snapshot_for_new_scene();
     std::cout << "Scene serializer tests passed\n";
     return 0;
 }

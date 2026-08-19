@@ -66,17 +66,30 @@ Application::Application(const std::string& name, int width, int height, bool st
     // Initialize Editor Layer & Modular Panels
     m_editor_layer = std::make_unique<EditorLayer>();
     m_editor_layer->init(m_window->get_sdl_window(), m_window->get_sdl_renderer());
+    m_editor_layer->set_window_wrapper(m_window.get());
     m_editor_layer->set_visible(start_with_editor);
     m_display_manager->set_apply_enabled(!start_with_editor);
     m_editor_layer->set_scene_manager(&m_scene_manager);
     m_scene_manager.set_renderer(m_window->get_sdl_renderer());
 
+    m_window->set_close_request_callback([this]() {
+        if (m_editor_layer && m_editor_layer->is_visible()) {
+            return m_editor_layer->request_exit();
+        }
+        return true;
+    });
+
     auto selection = std::make_shared<EditorSelection>();
     auto command_history = std::make_shared<EditorCommandHistory>();
 
     m_editor_layer->set_command_history(command_history);
-    m_scene_manager.set_on_authoring_state_invalidated([command_history]() {
-        command_history->clear();
+    m_scene_manager.set_on_authoring_state_invalidated([this]() {
+        if (m_editor_layer) {
+            auto history = m_editor_layer->get_command_history();
+            if (history) {
+                history->clear_history_preserving_dirty_state();
+            }
+        }
     });
 
     auto viewport_panel = std::make_shared<ViewportPanel>(
@@ -104,19 +117,22 @@ Application::Application(const std::string& name, int width, int height, bool st
     auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");
     auto postprocess_panel = std::make_shared<PostProcessTunerPanel>(&m_scene_manager, command_history);
     postprocess_panel->is_open = false; // Closed by default at startup (accessible via View / Windows menu)
-    auto project_settings_panel = std::make_shared<ProjectSettingsPanel>(&m_project_settings, &m_scene_manager, command_history);
+
+    auto project_command_history = std::make_shared<EditorCommandHistory>();
+    auto project_settings_panel = std::make_shared<ProjectSettingsPanel>(&m_project_settings, &m_scene_manager, project_command_history);
     auto shortcuts_panel = std::make_shared<ShortcutsPreferencesPanel>();
     shortcuts_panel->is_open = false; // Closed by default until opened from Edit menu
     auto palette_panel = std::make_shared<TilemapPalettePanel>(m_window->get_sdl_renderer(), &m_scene_manager, selection);
 
     asset_browser->set_on_load_scene_callback([this](const std::string& scene_path) {
-        std::filesystem::path p(scene_path);
-        std::string scene_name = p.stem().string();
-        auto new_scene = std::make_shared<GenericScene>(scene_name);
-        SceneSerializer serializer(new_scene.get(), m_window->get_sdl_renderer());
-        if (serializer.deserialize(scene_path)) {
-            m_scene_manager.add_scene(new_scene);
-            m_scene_manager.set_active_scene(scene_name);
+        if (m_editor_layer) {
+            m_editor_layer->request_destructive_action({
+                .type = PendingActionType::LoadScene,
+                .target = scene_path,
+                .action = [this, scene_path]() {
+                    m_editor_layer->load_scene(scene_path);
+                }
+            });
         }
     });
 

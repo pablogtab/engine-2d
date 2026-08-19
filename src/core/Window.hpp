@@ -16,11 +16,16 @@ public:
     Window& operator=(const Window&) = delete;
 
     bool is_should_close() const { return m_should_close; }
+    void request_close();
+    void force_close() { m_should_close = true; }
     void poll_events();
     void clear(uint8_t r = 20, uint8_t g = 24, uint8_t b = 32, uint8_t a = 255);
     void present();
     void set_logical_presentation(int reference_width, int reference_height, PresentationMode mode);
     void disable_logical_presentation();
+
+    void set_title(const std::string& title);
+    [[nodiscard]] const std::string& get_title() const { return m_title; }
 
     SDL_Window* get_sdl_window() const { return m_window; }
     SDL_Renderer* get_sdl_renderer() const { return m_renderer; }
@@ -31,6 +36,10 @@ public:
     int get_pixel_height() const { return m_pixel_height; }
     float get_dpi_scale() const {
         return (m_height > 0) ? (static_cast<float>(m_pixel_height) / static_cast<float>(m_height)) : 1.0f;
+    }
+
+    void set_close_request_callback(std::function<bool()> callback) {
+        m_close_request_callback = std::move(callback);
     }
 
     void set_display_change_callback(std::function<void()> callback) {
@@ -56,6 +65,7 @@ private:
     bool m_should_close{false};
     bool m_uses_logical_presentation{false};
     bool m_persist_editor_state{true};
+    std::function<bool()> m_close_request_callback;
     std::function<void()> m_display_change_callback;
     std::function<void(const SDL_Event&)> m_event_callback;
 };
