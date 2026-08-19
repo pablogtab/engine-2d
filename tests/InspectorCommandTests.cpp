@@ -506,7 +506,7 @@ void test_transform_command_preserves_child_local_coordinates() {
     const EntityID child = em.create_entity();
     em.add_component<TransformComponent>(parent, TransformComponent{100.0f, 50.0f});
     em.add_component<TransformComponent>(child, TransformComponent{10.0f, 5.0f});
-    em.set_parent(child, parent);
+    assert(em.set_parent(child, parent).succeeded());
     TransformSystem::update(em);
 
     const TransformComponent before = em.get_component<TransformComponent>(child);

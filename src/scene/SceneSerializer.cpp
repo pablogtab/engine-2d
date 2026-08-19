@@ -155,7 +155,16 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
             // without losing their authoring hierarchy.
             for (const auto& [child, parent] : hierarchy_links) {
                 if (parent == 0) continue;
-                candidate.set_parent(child, parent);
+                const HierarchyOperationResult result = candidate.set_parent(child, parent);
+                if (!result.succeeded()) {
+                    ENGINE_LOG_ERROR(
+                        "[SERIALIZER] Cannot parent entity #{} to #{}: {}",
+                        child,
+                        parent,
+                        result.message()
+                    );
+                    return false;
+                }
             }
 
             TransformSystem::update(candidate);

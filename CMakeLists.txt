@@ -230,6 +230,16 @@ target_include_directories(AnimationSystemTests PRIVATE
 target_link_libraries(AnimationSystemTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME AnimationSystemTests COMMAND AnimationSystemTests)
 
+add_executable(EntityManagerTests
+    tests/EntityManagerTests.cpp
+    src/ecs/EntityManager.cpp
+)
+target_include_directories(EntityManagerTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(EntityManagerTests PRIVATE glm::glm)
+add_test(NAME EntityManagerTests COMMAND EntityManagerTests)
+
 add_executable(SceneSerializerTests
     tests/SceneSerializerTests.cpp
     src/core/AssetManager.cpp

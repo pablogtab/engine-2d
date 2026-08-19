@@ -13,6 +13,30 @@
 
 namespace Engine {
 
+enum class HierarchyOperationStatus {
+    Changed,
+    Unchanged,
+    InvalidChild,
+    InvalidParent,
+    SelfParent,
+    CycleDetected
+};
+
+struct HierarchyOperationResult {
+    HierarchyOperationStatus status{HierarchyOperationStatus::Unchanged};
+
+    [[nodiscard]] bool succeeded() const {
+        return status == HierarchyOperationStatus::Changed ||
+            status == HierarchyOperationStatus::Unchanged;
+    }
+
+    [[nodiscard]] bool changed() const {
+        return status == HierarchyOperationStatus::Changed;
+    }
+
+    [[nodiscard]] const char* message() const;
+};
+
 class EntityManager {
 public:
     EntityManager() = default;
@@ -39,8 +63,8 @@ public:
     bool is_alive(EntityID entity) const;
 
     // Parent-Child Hierarchy Management
-    void set_parent(EntityID child, EntityID parent);
-    void remove_parent(EntityID child);
+    [[nodiscard]] HierarchyOperationResult set_parent(EntityID child, EntityID parent);
+    [[nodiscard]] HierarchyOperationResult remove_parent(EntityID child);
 
     // Clone an existing entity and all its attached components
     EntityID clone_entity(EntityID src);
@@ -48,6 +72,11 @@ public:
     // Add / attach a component T to an entity
     template<typename T>
     T& add_component(EntityID entity, T component) {
+        if (!is_alive(entity)) {
+            throw std::invalid_argument(
+                "Cannot add component to invalid entity #" + std::to_string(entity)
+            );
+        }
         get_component_array<T>()->insert_data(entity, component);
         m_entity_masks[entity].set(get_component_type_id<T>());
         return get_component_array<T>()->get_data(entity);
@@ -56,11 +85,21 @@ public:
     // Get reference to component T on entity
     template<typename T>
     T& get_component(EntityID entity) {
+        if (!is_alive(entity)) {
+            throw std::invalid_argument(
+                "Cannot get component from invalid entity #" + std::to_string(entity)
+            );
+        }
         return get_component_array<T>()->get_data(entity);
     }
 
     template<typename T>
     const T& get_component(EntityID entity) const {
+        if (!is_alive(entity)) {
+            throw std::invalid_argument(
+                "Cannot get component from invalid entity #" + std::to_string(entity)
+            );
+        }
         const ComponentArray<T>* components = get_component_array_const<T>();
         if (!components) throw std::runtime_error("Retrieving non-existent component storage");
         return components->get_data(entity);
@@ -82,12 +121,15 @@ public:
 
     // Remove component T from entity
     template<typename T>
-    void remove_component(EntityID entity) {
-        get_component_array<T>()->remove_data(entity);
+    bool remove_component(EntityID entity) {
+        if (!is_alive(entity) || !has_component<T>(entity)) return false;
+        ComponentArray<T>* components = get_component_array<T>();
+        components->remove_data(entity);
         auto it = m_entity_masks.find(entity);
         if (it != m_entity_masks.end()) {
             it->second.reset(get_component_type_id<T>());
         }
+        return true;
     }
 
     // Register lifecycle callback when component T is constructed/attached
@@ -160,6 +202,8 @@ public:
     [[nodiscard]] const std::vector<EntityID>& get_living_entities() const { return m_living_entities; }
 
 private:
+    [[nodiscard]] bool would_create_hierarchy_cycle(EntityID child, EntityID parent) const;
+
     template<typename T>
     ComponentArray<T>* get_component_array() {
         std::type_index type_idx(typeid(T));

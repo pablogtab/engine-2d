@@ -150,8 +150,8 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### ECS Scope
 
-- [ ] Keep the current ECS storage model unless profiling demonstrates a real limitation.
-- [ ] Add assertions and diagnostics for invalid entities, component overflow, and hierarchy cycles.
+- [x] Keep the current ECS storage model unless profiling demonstrates a real limitation.
+- [x] Add explicit rejection and diagnostics for invalid component access, component overflow, invalid hierarchy entities, self-parenting, and hierarchy cycles.
 - [x] Split component definitions into explicit core, rendering, animation, physics, and particle domain headers; remove the aggregate `Components.hpp` dependency.
 
 **Completion criteria:** Adding a new component requires one registration and its domain implementation, not edits to multiple unrelated switch statements. Scene round trips and command snapshots preserve all authored data.
@@ -171,7 +171,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [ ] Add reversible hierarchy duplicate, reparent, reorder, lock, and visibility commands.
 - [ ] Preserve local and world transforms correctly during reparenting.
 - [ ] Add entity lock and editor-only visibility states.
-- [ ] Detect and reject hierarchy cycles.
+- [x] Detect and reject hierarchy cycles at the `EntityManager` boundary without partially mutating the previous relationship.
 
 ### Dirty State and Saving
 
@@ -343,7 +343,7 @@ Tests are part of each module's completion criteria. They must be added with the
 
 These suites protect systems that already exist but do not yet have dedicated automated coverage.
 
-- [ ] `EntityManagerTests` — entity reuse, stable-ID restoration, component lifecycle callbacks, cloning, filtered views, and invalid access.
+- [x] `EntityManagerTests` — entity reuse, stable-ID restoration, component lifecycle callbacks, cloning, filtered views, invalid access, reciprocal hierarchy links, and cycle rejection.
 - [ ] `TransformHierarchyTests` — local/world composition, rotated/scaled parents, visibility propagation, reparenting, cycle rejection, and stable child transforms.
 - [ ] `ViewportGeometryTests` — transformed bounds, point picking, marquee intersection, strict marquee, pivots, colliders, and child entities.
 - [ ] `ViewportCameraControllerTests` — exponential zoom, cursor anchoring, limits, pan scaling, focus rules, and DPI independence.
@@ -453,7 +453,8 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increment
 
-Finish the remaining Phase 2 ECS safety contract:
+Begin the Phase 3 hierarchy workflow:
 
-1. Reject hierarchy cycles and invalid entity operations at the `EntityManager` boundary with actionable diagnostics.
-2. Add focused hierarchy safety coverage before expanding reversible hierarchy workflows in Phase 3.
+1. Add a reversible reparent/unparent command that preserves the intended local or world transform explicitly.
+2. Route Hierarchy drag-and-drop and context actions through command history.
+3. Start `HierarchyCommandTests` with reparent, unparent, cycle rejection, undo, redo, and exact transform restoration.

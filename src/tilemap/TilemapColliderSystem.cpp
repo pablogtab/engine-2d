@@ -110,7 +110,17 @@ void TilemapColliderSystem::build_composite_colliders(EntityManager& em, EntityI
             rb.friction = tilemap.friction;
             rb.restitution = tilemap.restitution;
             em.add_component<RigidBodyComponent>(col_entity, rb);
-            em.set_parent(col_entity, entity_id);
+            const HierarchyOperationResult hierarchy = em.set_parent(col_entity, entity_id);
+            if (!hierarchy.succeeded()) {
+                ENGINE_LOG_ERROR(
+                    "[TILEMAP] Cannot parent generated collider #{} to entity #{}: {}",
+                    col_entity,
+                    entity_id,
+                    hierarchy.message()
+                );
+                em.destroy_entity(col_entity);
+                continue;
+            }
 
             merged_boxes_count++;
         }

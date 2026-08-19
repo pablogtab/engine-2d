@@ -1,9 +1,21 @@
 #include "EntityManager.hpp"
 #include "components/CoreComponents.hpp"
-#include "../core/Log.hpp"
 #include <algorithm>
+#include <unordered_set>
 
 namespace Engine {
+
+const char* HierarchyOperationResult::message() const {
+    switch (status) {
+        case HierarchyOperationStatus::Changed: return "Hierarchy changed";
+        case HierarchyOperationStatus::Unchanged: return "Hierarchy already matches the request";
+        case HierarchyOperationStatus::InvalidChild: return "Child entity does not exist";
+        case HierarchyOperationStatus::InvalidParent: return "Parent entity does not exist";
+        case HierarchyOperationStatus::SelfParent: return "An entity cannot be parented to itself";
+        case HierarchyOperationStatus::CycleDetected: return "Reparenting would create a hierarchy cycle";
+    }
+    return "Unknown hierarchy result";
+}
 
 void EntityManager::swap(EntityManager& other) noexcept {
     using std::swap;
@@ -48,9 +60,9 @@ void EntityManager::destroy_entity(EntityID entity) {
     if (has_component<HierarchyComponent>(entity)) {
         auto children_copy = get_component<HierarchyComponent>(entity).children;
         for (EntityID child : children_copy) {
-            remove_parent(child);
+            static_cast<void>(remove_parent(child));
         }
-        remove_parent(entity);
+        static_cast<void>(remove_parent(entity));
     }
 
     // Purge entity from all component arrays
@@ -86,7 +98,11 @@ EntityID EntityManager::clone_entity(EntityID src) {
         EntityID parent_id = get_component<HierarchyComponent>(src).parent;
         if (parent_id != 0 && is_alive(parent_id)) {
             get_component<HierarchyComponent>(dst).parent = 0;
-            set_parent(dst, parent_id);
+            const HierarchyOperationResult result = set_parent(dst, parent_id);
+            if (!result.succeeded()) {
+                destroy_entity(dst);
+                return 0;
+            }
         }
     }
 
@@ -117,44 +133,85 @@ bool EntityManager::is_alive(EntityID entity) const {
     return std::find(m_living_entities.begin(), m_living_entities.end(), entity) != m_living_entities.end();
 }
 
-void EntityManager::set_parent(EntityID child, EntityID parent) {
-    if (child == 0 || child == parent || !is_alive(child)) return;
-
-    // Remove old parent reference if exists
-    remove_parent(child);
-
-    if (parent != 0 && is_alive(parent)) {
-        // Ensure child has HierarchyComponent pointing to parent
-        if (!has_component<HierarchyComponent>(child)) {
-            add_component<HierarchyComponent>(child, HierarchyComponent{parent});
-        } else {
-            get_component<HierarchyComponent>(child).parent = parent;
-        }
-
-        // Ensure parent has HierarchyComponent listing child
-        if (!has_component<HierarchyComponent>(parent)) {
-            HierarchyComponent parent_hier{0};
-            parent_hier.children.push_back(child);
-            add_component<HierarchyComponent>(parent, parent_hier);
-        } else {
-            auto& children = get_component<HierarchyComponent>(parent).children;
-            if (std::find(children.begin(), children.end(), child) == children.end()) {
-                children.push_back(child);
-            }
-        }
+bool EntityManager::would_create_hierarchy_cycle(EntityID child, EntityID parent) const {
+    std::unordered_set<EntityID> visited;
+    EntityID current = parent;
+    while (current != 0) {
+        if (current == child) return true;
+        if (!is_alive(current)) return true;
+        if (!visited.insert(current).second) return true;
+        if (!has_component<HierarchyComponent>(current)) return false;
+        current = get_component<HierarchyComponent>(current).parent;
     }
+    return false;
 }
 
-void EntityManager::remove_parent(EntityID child) {
-    if (child == 0 || !has_component<HierarchyComponent>(child)) return;
+HierarchyOperationResult EntityManager::set_parent(EntityID child, EntityID parent) {
+    if (child == 0 || !is_alive(child)) return {HierarchyOperationStatus::InvalidChild};
+    if (parent == 0) return remove_parent(child);
+    if (!is_alive(parent)) return {HierarchyOperationStatus::InvalidParent};
+    if (child == parent) return {HierarchyOperationStatus::SelfParent};
+    if (would_create_hierarchy_cycle(child, parent)) {
+        return {HierarchyOperationStatus::CycleDetected};
+    }
+
+    EntityID old_parent = 0;
+    if (has_component<HierarchyComponent>(child)) {
+        old_parent = get_component<HierarchyComponent>(child).parent;
+    }
+
+    if (old_parent == parent) {
+        if (!has_component<HierarchyComponent>(parent)) {
+            HierarchyComponent parent_hierarchy;
+            parent_hierarchy.children.push_back(child);
+            add_component<HierarchyComponent>(parent, std::move(parent_hierarchy));
+            return {HierarchyOperationStatus::Changed};
+        }
+        auto& children = get_component<HierarchyComponent>(parent).children;
+        const std::size_t occurrences = static_cast<std::size_t>(
+            std::count(children.begin(), children.end(), child)
+        );
+        if (occurrences == 1) return {HierarchyOperationStatus::Unchanged};
+        children.erase(std::remove(children.begin(), children.end(), child), children.end());
+        children.push_back(child);
+        return {HierarchyOperationStatus::Changed};
+    }
+
+    static_cast<void>(remove_parent(child));
+
+    if (!has_component<HierarchyComponent>(child)) {
+        add_component<HierarchyComponent>(child, HierarchyComponent{parent});
+    } else {
+        get_component<HierarchyComponent>(child).parent = parent;
+    }
+
+    if (!has_component<HierarchyComponent>(parent)) {
+        HierarchyComponent parent_hierarchy;
+        parent_hierarchy.children.push_back(child);
+        add_component<HierarchyComponent>(parent, std::move(parent_hierarchy));
+    } else {
+        auto& children = get_component<HierarchyComponent>(parent).children;
+        children.erase(std::remove(children.begin(), children.end(), child), children.end());
+        children.push_back(child);
+    }
+    return {HierarchyOperationStatus::Changed};
+}
+
+HierarchyOperationResult EntityManager::remove_parent(EntityID child) {
+    if (child == 0 || !is_alive(child)) return {HierarchyOperationStatus::InvalidChild};
+    if (!has_component<HierarchyComponent>(child)) {
+        return {HierarchyOperationStatus::Unchanged};
+    }
 
     EntityID old_parent = get_component<HierarchyComponent>(child).parent;
+    if (old_parent == 0) return {HierarchyOperationStatus::Unchanged};
     get_component<HierarchyComponent>(child).parent = 0;
 
-    if (old_parent != 0 && has_component<HierarchyComponent>(old_parent)) {
+    if (is_alive(old_parent) && has_component<HierarchyComponent>(old_parent)) {
         auto& children = get_component<HierarchyComponent>(old_parent).children;
         children.erase(std::remove(children.begin(), children.end(), child), children.end());
     }
+    return {HierarchyOperationStatus::Changed};
 }
 
 void EntityManager::clear() {

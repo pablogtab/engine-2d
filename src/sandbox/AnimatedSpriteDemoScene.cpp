@@ -264,7 +264,7 @@ void AnimatedSpriteDemoScene::on_attach() {
                                            {255, 215, 0, 255}});
 
   // Set Parent Relationship!
-  m_entity_manager.set_parent(m_child_orb, m_player_entity);
+  static_cast<void>(m_entity_manager.set_parent(m_child_orb, m_player_entity));
 
   ENGINE_LOG_INFO("ECS Hierarchy initialized. Living entities: {}",
                   m_entity_manager.get_living_entity_count());
@@ -481,7 +481,7 @@ void AnimatedSpriteDemoScene::on_update(float delta_time) {
         m_child_orb, Engine::SpriteComponent{m_tree_texture.get(),
                                              glm::vec2(50.0f, 50.0f),
                                              {100, 220, 100, 255}});
-    m_entity_manager.set_parent(m_child_orb, m_player_entity);
+    static_cast<void>(m_entity_manager.set_parent(m_child_orb, m_player_entity));
 
     m_camera.set_position(glm::vec2(0.0f, 0.0f));
     ENGINE_LOG_INFO("[SCENE RESET] Full Scene Reset triggered! Player "

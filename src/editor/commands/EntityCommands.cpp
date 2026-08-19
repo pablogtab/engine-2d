@@ -235,10 +235,27 @@ void DeleteEntitiesCommand::undo() {
     for (const auto& snap : m_snapshots) {
         if (!snap.has_hierarchy || !m_em->is_alive(snap.id)) continue;
         if (snap.hierarchy.parent != 0 && m_em->is_alive(snap.hierarchy.parent)) {
-            m_em->set_parent(snap.id, snap.hierarchy.parent);
+            const HierarchyOperationResult result = m_em->set_parent(snap.id, snap.hierarchy.parent);
+            if (!result.succeeded()) {
+                ENGINE_LOG_ERROR(
+                    "[EDITOR COMMAND] Cannot restore parent #{} for entity #{}: {}",
+                    snap.hierarchy.parent,
+                    snap.id,
+                    result.message()
+                );
+            }
         }
         for (EntityID child : snap.hierarchy.children) {
-            if (m_em->is_alive(child)) m_em->set_parent(child, snap.id);
+            if (!m_em->is_alive(child)) continue;
+            const HierarchyOperationResult result = m_em->set_parent(child, snap.id);
+            if (!result.succeeded()) {
+                ENGINE_LOG_ERROR(
+                    "[EDITOR COMMAND] Cannot restore child #{} for entity #{}: {}",
+                    child,
+                    snap.id,
+                    result.message()
+                );
+            }
         }
     }
 
@@ -274,7 +291,21 @@ void CreateEntityCommand::execute() {
     m_created_id = m_snapshot.id;
 
     if (m_snapshot.has_hierarchy && m_snapshot.hierarchy.parent != 0 && m_em->is_alive(m_snapshot.hierarchy.parent)) {
-        m_em->set_parent(m_created_id, m_snapshot.hierarchy.parent);
+        const HierarchyOperationResult result = m_em->set_parent(
+            m_created_id,
+            m_snapshot.hierarchy.parent
+        );
+        if (!result.succeeded()) {
+            ENGINE_LOG_ERROR(
+                "[EDITOR COMMAND] Cannot parent created entity #{} to #{}: {}",
+                m_created_id,
+                m_snapshot.hierarchy.parent,
+                result.message()
+            );
+            m_em->destroy_entity(m_created_id);
+            m_created_id = 0;
+            return;
+        }
     }
 
     if (!finalize_snapshot_components(*m_em, m_created_id)) {

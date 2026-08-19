@@ -47,7 +47,7 @@ void test_round_trip_restores_destroyed_child_hierarchy() {
     const EntityID coin = em.create_entity();
     em.add_component<TagComponent>(coin, TagComponent{"Coin"});
     em.add_component<TransformComponent>(coin, TransformComponent{glm::vec3(32.0f, 0.0f, 0.0f)});
-    em.set_parent(coin, parent);
+    assert(em.set_parent(coin, parent).succeeded());
 
     SceneSerializer serializer(&scene);
     const std::string authoring_snapshot = serializer.serialize_to_string();
@@ -79,7 +79,7 @@ void test_forward_parent_reference_is_order_independent() {
     em.add_component<TransformComponent>(child, TransformComponent{});
     const EntityID parent = em.create_entity();
     em.add_component<TransformComponent>(parent, TransformComponent{});
-    em.set_parent(child, parent);
+    assert(em.set_parent(child, parent).succeeded());
 
     SceneSerializer serializer(&scene);
     const std::string snapshot = serializer.serialize_to_string();
