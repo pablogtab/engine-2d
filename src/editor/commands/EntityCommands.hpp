@@ -232,8 +232,6 @@ private:
     bool m_valid{true};
 };
 
-// Reversible viewport duplication. Full snapshots keep the operation forward
-// compatible when an entity gains additional serializable components.
 class DuplicateEntitiesCommand : public IEditorCommand {
 public:
     DuplicateEntitiesCommand(
@@ -252,10 +250,12 @@ private:
     EntityManager* m_em{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     std::vector<EntityID> m_source_entities;
-    std::vector<std::unique_ptr<CreateEntityCommand>> m_create_commands;
-    std::vector<EntityID> m_duplicate_entities;
+    std::vector<EntityID> m_source_roots;
+    std::vector<EntitySnapshot> m_cloned_snapshots;
+    std::vector<EntityID> m_new_root_ids;
     std::string m_description{"Duplicate Entities"};
     bool m_valid{true};
+    bool m_executed_once{false};
 };
 
 // 4. Paint Tiles Command (Tilemap Brush, Eraser, and Box Fill with Undo/Redo)

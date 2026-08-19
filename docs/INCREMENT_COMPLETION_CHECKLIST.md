@@ -10,19 +10,23 @@ Use this checklist when closing an editor, engine, runtime, or tooling increment
 - [ ] Existing approved behavior is preserved unless the increment explicitly changes it.
 - [ ] A temporary `GenericScene` integration remains isolated and has a clear future extraction path.
 
-## 2. Undo, redo, cancellation, and dirty state
+### 2. Undo, redo, cancellation, and dirty state
 
 - [ ] Every persistent mutation initiated by the editor is represented by one atomic `IEditorCommand`.
 - [ ] A continuous gesture creates one history entry on commit, not one per frame or per intermediate value.
 - [ ] Undo restores the exact prior state; redo reapplies the exact committed state.
+- [ ] Redo is as strictly transactional as execute: if snapshot restoration, reparenting, or component finalization fails midway during redo, it must cleanly roll back all restored entities/state, restore the previous selection, and return false rather than leaving a partial or corrupted state.
 - [ ] Escape/cancel restores the initial state immediately and does not create a history entry.
 - [ ] Commands that can fail are atomic: they leave no partially modified entities, hierarchy, physics state, or selection.
+- [ ] Multi-entity and subtree operations pre-validate all locks and constraints across all affected nodes before performing mutations.
 - [ ] Saving marks the correct history revision as clean; undoing back to it removes the dirty state.
 - [ ] View-only state (selection, pan, zoom, grid visibility, layout) does not enter undo/redo or dirty state.
 
 ## 3. Hierarchy and transforms
 
 - [ ] All authored transform edits preserve world-space intent, then convert to local space using the actual parent world transform.
+- [ ] Duplication and creation of entities under an unselected parent compute the target in world space and convert to local space using `world_to_local_transform` to honor rotated, scaled, or non-uniform parent coordinate frames.
+- [ ] Descendant entities in duplicated subtrees preserve their relative local transforms and hierarchy topology so world-space geometry remains intact.
 - [ ] Selected descendants are filtered when their selected ancestor already drives the subtree.
 - [ ] Parent changes, grouping, ungrouping, and snapshot restore preserve world transforms unless the operation explicitly says otherwise.
 - [ ] World transforms are current before they are used for centroids, bounds, picking, camera framing, or physics sync.
@@ -49,6 +53,7 @@ Use this checklist when closing an editor, engine, runtime, or tooling increment
 ## 6. Design and scalability
 
 - [ ] No new behavior depends on entity names, demo scene contents, magic IDs, screen resolution, or fixed hardcoded limits unless clearly documented as temporary integration code.
+- [ ] Presentation fallbacks (e.g. default framing half-sizes, padding, snap thresholds) use explicitly named constants or style tokens rather than hardcoded magic numbers.
 - [ ] Repeated geometry, coordinate conversion, filtering, or transaction logic is extracted into a shared helper with one source of truth.
 - [ ] Pure math/data logic is separated from ImGui and SDL so it can be tested directly.
 - [ ] The abstraction eliminates a concrete coupling or duplication; it is not added only to reduce line count.
@@ -57,7 +62,7 @@ Use this checklist when closing an editor, engine, runtime, or tooling increment
 
 ## 7. UI and interaction
 
-- [ ] Keyboard shortcuts only act when their intended panel has focus and no text widget is being edited.
+- [ ] Keyboard shortcuts only act when their intended panel has focus (or hover when intended) and no text widget is being edited (`!io.WantTextInput`).
 - [ ] Mouse coordinates, drag deltas, and viewport interactions are DPI-aware.
 - [ ] Disabled, locked, mixed, unsupported, and unavailable states are distinguishable without relying solely on color.
 - [ ] Context menus reflect the clicked context rather than exposing unrelated global commands.
@@ -69,7 +74,7 @@ Use this checklist when closing an editor, engine, runtime, or tooling increment
 - [ ] Tests exercise production helpers or commands—not duplicated copies of the implementation math.
 - [ ] Tests cover the successful path, expected rejection, cancellation/rollback, boundaries, and the regression that motivated the change.
 - [ ] For commands: test execute, undo, redo, and history branching when relevant.
-- [ ] For hierarchy/transform work: test transformed parents, selected parent plus child, locks, and degenerate cases.
+- [ ] For hierarchy/transform work: test transformed parents (translation, rotation, non-uniform scale), selected parent plus child, locks, and degenerate cases.
 - [ ] For rendering/platform work: add runtime diagnostics and a concrete manual validation protocol when hardware behavior cannot be unit tested.
 - [ ] Run focused tests while developing.
 - [ ] Run `cmake --build build`, `ctest --test-dir build --output-on-failure`, and `git diff --check` before handoff when applicable.

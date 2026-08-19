@@ -969,7 +969,7 @@ void ViewportPanel::on_gui() {
             }
 
             // --- 7. Duplicate Selected Entities ---
-            if (is_editing && m_is_hovered && ShortcutManager::get().is_triggered("editor.duplicate") && m_selection && !m_selection->empty() && active_scene) {
+            if (is_editing && (m_is_focused || m_is_hovered) && !io.WantTextInput && ShortcutManager::get().is_triggered("editor.duplicate") && m_selection && !m_selection->empty() && active_scene) {
                 EntityManager& em = active_scene->get_entity_manager();
                 if (m_command_history) {
                     std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());

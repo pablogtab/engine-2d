@@ -1,6 +1,7 @@
 #include "ViewportCameraController.hpp"
 #include "ViewportSelectionGeometry.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
+#include "../../ecs/TransformSystem.hpp"
 #include <cmath>
 #include <limits>
 
@@ -9,6 +10,7 @@ namespace Engine {
 namespace {
 
 constexpr float SCROLL_ZOOM_SENSITIVITY{0.04f};
+constexpr glm::vec2 DEFAULT_ENTITY_FRAME_HALF_SIZE{16.0f, 16.0f};
 
 bool collect_bounds(EntityManager& entity_manager, const std::unordered_set<EntityID>& entities, glm::vec2& bounds_min, glm::vec2& bounds_max) {
     bounds_min = glm::vec2(std::numeric_limits<float>::max());
@@ -21,12 +23,19 @@ bool collect_bounds(EntityManager& entity_manager, const std::unordered_set<Enti
         if (!transform.world_visible) continue;
 
         ViewportSelectionQuad quad;
-        if (!get_selection_quad(entity_manager, id, quad)) continue;
-        for (const glm::vec2& corner : quad.corners) {
-            bounds_min = glm::min(bounds_min, corner);
-            bounds_max = glm::max(bounds_max, corner);
+        if (get_selection_quad(entity_manager, id, quad)) {
+            for (const glm::vec2& corner : quad.corners) {
+                bounds_min = glm::min(bounds_min, corner);
+                bounds_max = glm::max(bounds_max, corner);
+            }
+            found_bounds = true;
+        } else {
+            // Fallback for entities without custom shape/sprite geometry (e.g. empty nodes, cameras, lights)
+            const glm::vec2 center(transform.world_position.x, transform.world_position.y);
+            bounds_min = glm::min(bounds_min, center - DEFAULT_ENTITY_FRAME_HALF_SIZE);
+            bounds_max = glm::max(bounds_max, center + DEFAULT_ENTITY_FRAME_HALF_SIZE);
+            found_bounds = true;
         }
-        found_bounds = true;
     }
     return found_bounds;
 }
@@ -64,9 +73,11 @@ void ViewportCameraController::handle_input(
         }
     }
 
-    if (!is_viewport_focused || io.WantTextInput) return;
+    if ((!is_viewport_focused && !is_viewport_hovered) || io.WantTextInput) return;
 
     EntityManager& entity_manager = scene->get_entity_manager();
+    TransformSystem::update(entity_manager);
+
     glm::vec2 bounds_min;
     glm::vec2 bounds_max;
     if (ShortcutManager::get().is_triggered("editor.focus_camera") &&

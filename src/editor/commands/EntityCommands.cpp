@@ -1,5 +1,6 @@
 #include "EntityCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
+#include "../tools/EditorTransformUtils.hpp"
 #include "../../core/Log.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
@@ -418,6 +419,18 @@ bool CreateEntityCommand::undo() {
 // ---------------------------------------------------------------------------
 // 3.5 Duplicate Entities Command
 // ---------------------------------------------------------------------------
+// 3.5 Duplicate Entities Command (Recursive Subtree Duplication)
+// ---------------------------------------------------------------------------
+static void collect_subtree_ids_ordered(const EntityManager& em, EntityID root, std::vector<EntityID>& out) {
+    if (!em.is_alive(root)) return;
+    out.push_back(root);
+    if (em.has_component<HierarchyComponent>(root)) {
+        for (EntityID child : em.get_component<HierarchyComponent>(root).children) {
+            collect_subtree_ids_ordered(em, child, out);
+        }
+    }
+}
+
 DuplicateEntitiesCommand::DuplicateEntitiesCommand(
     EntityManager* em,
     std::shared_ptr<EditorSelection> selection,
@@ -429,17 +442,38 @@ DuplicateEntitiesCommand::DuplicateEntitiesCommand(
         return;
     }
 
+    TransformSystem::update(*m_em);
+
+    const std::unordered_set<EntityID> source_set(m_source_entities.begin(), m_source_entities.end());
+
+    // Filter to selected roots only (entities that don't have a selected ancestor in the group)
+    for (EntityID id : m_source_entities) {
+        if (m_em->is_alive(id) && !has_selected_ancestor(*m_em, id, source_set)) {
+            m_source_roots.push_back(id);
+        }
+    }
+
+    if (m_source_roots.empty()) {
+        m_valid = false;
+        return;
+    }
+
+    // Verify locks across all subtrees and any unselected parent of a root
     if (state_store) {
-        for (EntityID id : m_source_entities) {
-            if (state_store->is_locked(id)) {
-                ENGINE_LOG_WARN("[COMMAND] Cannot duplicate locked entity #{}", id);
-                m_valid = false;
-                return;
-            }
-            if (m_em->has_component<HierarchyComponent>(id)) {
-                EntityID parent = m_em->get_component<HierarchyComponent>(id).parent;
+        for (EntityID root_id : m_source_roots) {
+            if (m_em->has_component<HierarchyComponent>(root_id)) {
+                EntityID parent = m_em->get_component<HierarchyComponent>(root_id).parent;
                 if (parent != 0 && state_store->is_locked(parent)) {
-                    ENGINE_LOG_WARN("[COMMAND] Cannot duplicate entity #{} under locked parent #{}", id, parent);
+                    ENGINE_LOG_WARN("[COMMAND] Cannot duplicate entity #{} under locked parent #{}", root_id, parent);
+                    m_valid = false;
+                    return;
+                }
+            }
+            std::vector<EntityID> subtree;
+            collect_subtree_ids_ordered(*m_em, root_id, subtree);
+            for (EntityID id : subtree) {
+                if (state_store->is_locked(id)) {
+                    ENGINE_LOG_WARN("[COMMAND] Cannot duplicate entity #{} because entity #{} in its subtree is locked", root_id, id);
                     m_valid = false;
                     return;
                 }
@@ -447,47 +481,177 @@ DuplicateEntitiesCommand::DuplicateEntitiesCommand(
         }
     }
 
-    for (EntityID source_id : m_source_entities) {
-        if (!m_em->is_alive(source_id)) continue;
-
-        EntitySnapshot snapshot = capture_entity_snapshot(*m_em, source_id);
-        snapshot.id = 0;
-        if (auto* tag = snapshot.registered_components.get<TagComponent>()) tag->tag += "_Copy";
-        if (auto* transform = snapshot.registered_components.get<TransformComponent>()) {
-            // Preserve the source's local coordinate space under a parent.
-            transform->position += glm::vec3(30.0f, 30.0f, 0.0f);
-            transform->world_position += glm::vec3(30.0f, 30.0f, 0.0f);
-        }
-        if (snapshot.has_hierarchy) snapshot.hierarchy.children.clear();
-        m_create_commands.push_back(std::make_unique<CreateEntityCommand>(m_em, m_selection, std::move(snapshot), state_store));
+    if (m_source_roots.size() == 1) {
+        m_description = "Duplicate " + snapshot_tag(capture_entity_snapshot(*m_em, m_source_roots[0]));
+    } else {
+        m_description = "Duplicate (" + std::to_string(m_source_roots.size()) + ") Entities";
     }
-
-    if (m_create_commands.empty()) {
-        m_valid = false;
-        return;
-    }
-
-    if (m_create_commands.size() == 1) m_description = "Duplicate Entity";
 }
 
 bool DuplicateEntitiesCommand::execute() {
     if (!m_valid || !m_em) return false;
 
-    m_duplicate_entities.clear();
-    for (auto& command : m_create_commands) {
-        if (!command->execute()) continue;
-        const EntityID id = command->get_created_entity();
-        if (id != 0 && m_em->is_alive(id)) m_duplicate_entities.push_back(id);
+    auto rollback_created = [this](const std::vector<EntityID>& created_ids) {
+        for (auto it = created_ids.rbegin(); it != created_ids.rend(); ++it) {
+            if (m_em->is_alive(*it)) {
+                if (m_em->has_component<TilemapComponent>(*it)) {
+                    TilemapColliderSystem::clear_composite_colliders(*m_em, *it);
+                }
+                m_em->destroy_entity(*it);
+            }
+        }
+        TransformSystem::update(*m_em);
+        if (m_selection) {
+            std::unordered_set<EntityID> sources;
+            for (EntityID id : m_source_entities) {
+                if (m_em->is_alive(id)) sources.insert(id);
+            }
+            m_selection->set_selection(sources);
+        }
+    };
+
+    if (!m_executed_once) {
+        m_cloned_snapshots.clear();
+        m_new_root_ids.clear();
+
+        // 1. Gather all subtrees and pre-allocate new EntityIDs
+        std::unordered_map<EntityID, EntityID> old_to_new;
+        std::unordered_set<EntityID> root_set(m_source_roots.begin(), m_source_roots.end());
+
+        std::vector<EntityID> all_entities_ordered;
+        std::vector<EntityID> all_new_ids;
+        for (EntityID root_id : m_source_roots) {
+            std::vector<EntityID> subtree;
+            collect_subtree_ids_ordered(*m_em, root_id, subtree);
+            for (EntityID id : subtree) {
+                const EntityID new_id = m_em->create_entity();
+                old_to_new[id] = new_id;
+                all_entities_ordered.push_back(id);
+                all_new_ids.push_back(new_id);
+                if (id == root_id) {
+                    m_new_root_ids.push_back(new_id);
+                }
+            }
+        }
+
+        // 2. Build snapshots with remapped hierarchy and offset applied to roots
+        for (EntityID orig_id : all_entities_ordered) {
+            EntitySnapshot snap = capture_entity_snapshot(*m_em, orig_id);
+            const EntityID new_id = old_to_new[orig_id];
+            snap.id = new_id;
+            const bool is_root = root_set.contains(orig_id);
+
+            if (is_root) {
+                if (auto* tag = snap.registered_components.get<TagComponent>()) {
+                    tag->tag += "_Copy";
+                }
+                if (auto* transform = snap.registered_components.get<TransformComponent>()) {
+                    TransformComponent target_world = *transform;
+                    target_world.world_position += glm::vec3(30.0f, 30.0f, 0.0f);
+                    const TransformComponent* parent_world = (snap.has_hierarchy && snap.hierarchy.parent != 0 && m_em->has_component<TransformComponent>(snap.hierarchy.parent))
+                        ? &m_em->get_component<TransformComponent>(snap.hierarchy.parent)
+                        : nullptr;
+                    auto local_opt = TransformSystem::world_to_local_transform(target_world, parent_world);
+                    if (local_opt) {
+                        *transform = *local_opt;
+                    } else {
+                        transform->position += glm::vec3(30.0f, 30.0f, 0.0f);
+                    }
+                    transform->world_position = target_world.world_position;
+                }
+            }
+
+            if (snap.has_hierarchy) {
+                const EntityID orig_parent = snap.hierarchy.parent;
+                if (is_root) {
+                    // Keep original parent link if root was parented to an unselected entity
+                    snap.hierarchy.parent = orig_parent;
+                } else {
+                    // Remap internal parent to the newly cloned parent
+                    snap.hierarchy.parent = old_to_new.contains(orig_parent) ? old_to_new[orig_parent] : 0;
+                }
+
+                std::vector<EntityID> remapped_children;
+                for (EntityID orig_child : snap.hierarchy.children) {
+                    if (old_to_new.contains(orig_child)) {
+                        remapped_children.push_back(old_to_new[orig_child]);
+                    }
+                }
+                snap.hierarchy.children = std::move(remapped_children);
+            }
+
+            attach_snapshot_components(*m_em, snap);
+            m_cloned_snapshots.push_back(std::move(snap));
+        }
+
+        // 3. Establish hierarchy links using set_parent
+        for (const auto& snap : m_cloned_snapshots) {
+            if (snap.has_hierarchy && snap.hierarchy.parent != 0 && m_em->is_alive(snap.hierarchy.parent)) {
+                const auto result = m_em->set_parent(snap.id, snap.hierarchy.parent);
+                if (!result.succeeded()) {
+                    ENGINE_LOG_ERROR("[COMMAND] Failed to parent duplicated entity #{} to #{}: {}", snap.id, snap.hierarchy.parent, result.message());
+                    rollback_created(all_new_ids);
+                    m_cloned_snapshots.clear();
+                    m_new_root_ids.clear();
+                    return false;
+                }
+            }
+        }
+
+        // 4. Finalize components
+        for (const auto& snap : m_cloned_snapshots) {
+            if (!finalize_snapshot_components(*m_em, snap.id)) {
+                ENGINE_LOG_ERROR("[COMMAND] Failed to finalize duplicated entity #{}", snap.id);
+                rollback_created(all_new_ids);
+                m_cloned_snapshots.clear();
+                m_new_root_ids.clear();
+                return false;
+            }
+        }
+
+        m_executed_once = true;
+    } else {
+        // Redo path: recreate all entities transactionally
+        std::vector<EntityID> restored_entities;
+        for (const auto& snap : m_cloned_snapshots) {
+            if (!restore_entity_snapshot(*m_em, snap)) {
+                ENGINE_LOG_ERROR("[COMMAND] Failed to restore entity snapshot #{} on redo", snap.id);
+                rollback_created(restored_entities);
+                return false;
+            }
+            restored_entities.push_back(snap.id);
+        }
+        for (const auto& snap : m_cloned_snapshots) {
+            if (snap.has_hierarchy && snap.hierarchy.parent != 0 && m_em->is_alive(snap.hierarchy.parent)) {
+                const auto result = m_em->set_parent(snap.id, snap.hierarchy.parent);
+                if (!result.succeeded()) {
+                    ENGINE_LOG_ERROR("[COMMAND] Failed to reparent entity #{} to #{} on redo: {}", snap.id, snap.hierarchy.parent, result.message());
+                    rollback_created(restored_entities);
+                    return false;
+                }
+            }
+        }
+        for (const auto& snap : m_cloned_snapshots) {
+            if (!finalize_snapshot_components(*m_em, snap.id)) {
+                ENGINE_LOG_ERROR("[COMMAND] Failed to finalize entity #{} on redo", snap.id);
+                rollback_created(restored_entities);
+                return false;
+            }
+        }
     }
 
     TransformSystem::update(*m_em);
-    for (EntityID id : m_duplicate_entities) {
-        if (!m_em->has_component<TransformComponent>(id)) continue;
-        PhysicsSystem::sync_body_hierarchy(*m_em, id);
+    for (const auto& snap : m_cloned_snapshots) {
+        if (m_em->has_component<TilemapComponent>(snap.id)) {
+            TilemapColliderSystem::build_composite_colliders(*m_em, snap.id);
+        }
+        if (m_em->has_component<TransformComponent>(snap.id)) {
+            PhysicsSystem::sync_body_hierarchy(*m_em, snap.id);
+        }
     }
 
     if (m_selection) {
-        std::unordered_set<EntityID> duplicated(m_duplicate_entities.begin(), m_duplicate_entities.end());
+        std::unordered_set<EntityID> duplicated(m_new_root_ids.begin(), m_new_root_ids.end());
         m_selection->set_selection(duplicated);
     }
     return true;
@@ -495,11 +659,25 @@ bool DuplicateEntitiesCommand::execute() {
 
 bool DuplicateEntitiesCommand::undo() {
     if (!m_valid || !m_em) return false;
-    for (auto it = m_create_commands.rbegin(); it != m_create_commands.rend(); ++it) (*it)->undo();
+
+    // Destroy in reverse order (children before parents)
+    for (auto it = m_cloned_snapshots.rbegin(); it != m_cloned_snapshots.rend(); ++it) {
+        const EntityID id = it->id;
+        if (m_em->is_alive(id)) {
+            if (m_em->has_component<TilemapComponent>(id)) {
+                TilemapColliderSystem::clear_composite_colliders(*m_em, id);
+            }
+            m_em->destroy_entity(id);
+        }
+    }
+
+    TransformSystem::update(*m_em);
 
     if (m_selection) {
         std::unordered_set<EntityID> sources;
-        for (EntityID id : m_source_entities) if (m_em->is_alive(id)) sources.insert(id);
+        for (EntityID id : m_source_entities) {
+            if (m_em->is_alive(id)) sources.insert(id);
+        }
         m_selection->set_selection(sources);
     }
     return true;

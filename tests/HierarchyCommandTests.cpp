@@ -1145,6 +1145,200 @@ void test_reparent_with_target_index() {
     std::cout << "test_reparent_with_target_index passed." << std::endl;
 }
 
+void test_duplicate_subtree_hierarchy_remaps_children_and_preserves_transforms() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+    auto selection = std::make_shared<EditorSelection>();
+
+    // Create hierarchy: Parent -> Child -> Grandchild
+    EntityID parent = em.create_entity();
+    em.add_component<TagComponent>(parent, TagComponent{"ParentNode"});
+    em.add_component<TransformComponent>(parent, TransformComponent{glm::vec3(100.0f, 50.0f, 0.0f)});
+
+    EntityID child = em.create_entity();
+    em.add_component<TagComponent>(child, TagComponent{"ChildNode"});
+    em.add_component<TransformComponent>(child, TransformComponent{glm::vec3(10.0f, 5.0f, 0.0f)});
+    assert(em.set_parent(child, parent).succeeded());
+
+    EntityID grandchild = em.create_entity();
+    em.add_component<TagComponent>(grandchild, TagComponent{"GrandchildNode"});
+    em.add_component<TransformComponent>(grandchild, TransformComponent{glm::vec3(2.0f, 3.0f, 0.0f)});
+    assert(em.set_parent(grandchild, child).succeeded());
+
+    TransformSystem::update(em);
+    selection->select(parent);
+
+    // Duplicate Parent (should duplicate the entire subtree: parent, child, grandchild)
+    auto cmd = std::make_unique<DuplicateEntitiesCommand>(&em, selection, std::vector<EntityID>{parent});
+    assert(cmd->is_valid());
+    history.execute_command(std::move(cmd));
+
+    // Selection must now contain only the newly duplicated root
+    assert(selection->count() == 1);
+    EntityID parent_copy = selection->get_primary();
+    assert(parent_copy != parent);
+    assert(em.is_alive(parent_copy));
+
+    // Verify parent copy properties
+    assert(em.get_component<TagComponent>(parent_copy).tag == "ParentNode_Copy");
+    assert(em.get_component<TransformComponent>(parent_copy).position == glm::vec3(130.0f, 80.0f, 0.0f));
+
+    // Verify child copy is parented to parent copy
+    assert(em.has_component<HierarchyComponent>(parent_copy));
+    const auto& parent_copy_hier = em.get_component<HierarchyComponent>(parent_copy);
+    assert(parent_copy_hier.children.size() == 1);
+    EntityID child_copy = parent_copy_hier.children[0];
+    assert(child_copy != child && child_copy != parent_copy);
+    assert(em.is_alive(child_copy));
+    assert(em.get_component<HierarchyComponent>(child_copy).parent == parent_copy);
+    assert(em.get_component<TransformComponent>(child_copy).position == glm::vec3(10.0f, 5.0f, 0.0f));
+
+    // Verify grandchild copy is parented to child copy
+    const auto& child_copy_hier = em.get_component<HierarchyComponent>(child_copy);
+    assert(child_copy_hier.children.size() == 1);
+    EntityID grandchild_copy = child_copy_hier.children[0];
+    assert(grandchild_copy != grandchild && grandchild_copy != child_copy);
+    assert(em.is_alive(grandchild_copy));
+    assert(em.get_component<HierarchyComponent>(grandchild_copy).parent == child_copy);
+    assert(em.get_component<TransformComponent>(grandchild_copy).position == glm::vec3(2.0f, 3.0f, 0.0f));
+
+    // Verify Undo destroys all copies and restores selection to original parent
+    history.undo();
+    assert(!em.is_alive(parent_copy));
+    assert(!em.is_alive(child_copy));
+    assert(!em.is_alive(grandchild_copy));
+    assert(selection->count() == 1 && selection->is_selected(parent));
+
+    // Verify Redo restores all copies with identical parent-child links
+    history.redo();
+    assert(em.is_alive(parent_copy));
+    assert(em.is_alive(child_copy));
+    assert(em.is_alive(grandchild_copy));
+    assert(em.get_component<HierarchyComponent>(child_copy).parent == parent_copy);
+    assert(em.get_component<HierarchyComponent>(grandchild_copy).parent == child_copy);
+    assert(selection->count() == 1 && selection->is_selected(parent_copy));
+
+    std::cout << "test_duplicate_subtree_hierarchy_remaps_children_and_preserves_transforms passed." << std::endl;
+}
+
+void test_duplicate_locked_entity_or_subtree_aborts_without_mutation() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+
+    EntityID parent = em.create_entity();
+    em.add_component<TransformComponent>(parent, TransformComponent{glm::vec3(0.0f)});
+
+    EntityID child = em.create_entity();
+    em.add_component<TransformComponent>(child, TransformComponent{glm::vec3(10.0f, 0.0f, 0.0f)});
+    assert(em.set_parent(child, parent).succeeded());
+
+    // Lock the child entity
+    state_store.set_locked(child, true);
+
+    // Duplicating parent must fail preflight check and leave state untouched
+    auto cmd = std::make_unique<DuplicateEntitiesCommand>(&em, selection, std::vector<EntityID>{parent}, &state_store);
+    assert(!cmd->is_valid());
+    history.execute_command(std::move(cmd));
+    assert(!history.can_undo());
+
+    std::cout << "test_duplicate_locked_entity_or_subtree_aborts_without_mutation passed." << std::endl;
+}
+
+void test_duplicate_subtree_under_rotated_scaled_external_parent_preserves_world_offset_and_relative_transforms() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+    auto selection = std::make_shared<EditorSelection>();
+
+    // External unselected parent with translation, rotation and non-uniform scale
+    EntityID external_parent = em.create_entity();
+    em.add_component<TagComponent>(external_parent, TagComponent{"ExternalParent"});
+    em.add_component<TransformComponent>(external_parent, TransformComponent{
+        glm::vec3(200.0f, 100.0f, 0.0f),
+        glm::vec2(2.0f, 0.5f),
+        45.0f
+    });
+
+    // Root entity parented to external_parent
+    EntityID root = em.create_entity();
+    em.add_component<TagComponent>(root, TagComponent{"SubtreeRoot"});
+    em.add_component<TransformComponent>(root, TransformComponent{glm::vec3(10.0f, 0.0f, 0.0f)});
+    assert(em.set_parent(root, external_parent).succeeded());
+
+    // Child entity parented to root
+    EntityID child = em.create_entity();
+    em.add_component<TagComponent>(child, TagComponent{"Child"});
+    em.add_component<TransformComponent>(child, TransformComponent{glm::vec3(5.0f, 5.0f, 0.0f)});
+    assert(em.set_parent(child, root).succeeded());
+
+    // Grandchild entity parented to child
+    EntityID grandchild = em.create_entity();
+    em.add_component<TagComponent>(grandchild, TagComponent{"Grandchild"});
+    em.add_component<TransformComponent>(grandchild, TransformComponent{glm::vec3(2.0f, -1.0f, 0.0f)});
+    assert(em.set_parent(grandchild, child).succeeded());
+
+    TransformSystem::update(em);
+    const glm::vec3 root_world_before = em.get_component<TransformComponent>(root).world_position;
+    const glm::vec3 child_world_before = em.get_component<TransformComponent>(child).world_position;
+    const glm::vec3 grandchild_world_before = em.get_component<TransformComponent>(grandchild).world_position;
+
+    // Relative world vector between root and child/grandchild
+    const glm::vec3 child_rel_world = child_world_before - root_world_before;
+    const glm::vec3 grandchild_rel_world = grandchild_world_before - root_world_before;
+
+    selection->select(root);
+
+    // Duplicate only the root (its subtree should be duplicated, preserving external parent)
+    auto cmd = std::make_unique<DuplicateEntitiesCommand>(&em, selection, std::vector<EntityID>{root});
+    assert(cmd->is_valid());
+    history.execute_command(std::move(cmd));
+
+    assert(selection->count() == 1);
+    EntityID root_copy = selection->get_primary();
+    assert(root_copy != root && em.is_alive(root_copy));
+
+    TransformSystem::update(em);
+
+    // 1. Root copy world position must be displaced by (+30, +30, 0) in world space
+    const glm::vec3 root_copy_world = em.get_component<TransformComponent>(root_copy).world_position;
+    assert(std::abs(root_copy_world.x - (root_world_before.x + 30.0f)) < 0.01f);
+    assert(std::abs(root_copy_world.y - (root_world_before.y + 30.0f)) < 0.01f);
+
+    // 2. Root copy is parented to the external parent
+    assert(em.get_component<HierarchyComponent>(root_copy).parent == external_parent);
+
+    // 3. Child copy is parented to root copy
+    const auto& root_copy_children = em.get_component<HierarchyComponent>(root_copy).children;
+    assert(root_copy_children.size() == 1);
+    EntityID child_copy = root_copy_children[0];
+    assert(em.get_component<HierarchyComponent>(child_copy).parent == root_copy);
+
+    // 4. Grandchild copy is parented to child copy
+    const auto& child_copy_children = em.get_component<HierarchyComponent>(child_copy).children;
+    assert(child_copy_children.size() == 1);
+    EntityID grandchild_copy = child_copy_children[0];
+    assert(em.get_component<HierarchyComponent>(grandchild_copy).parent == child_copy);
+
+    // 5. Child and grandchild maintain identical relative world offsets from the root copy
+    const glm::vec3 child_copy_world = em.get_component<TransformComponent>(child_copy).world_position;
+    const glm::vec3 grandchild_copy_world = em.get_component<TransformComponent>(grandchild_copy).world_position;
+    assert(glm::distance(child_copy_world - root_copy_world, child_rel_world) < 0.01f);
+    assert(glm::distance(grandchild_copy_world - root_copy_world, grandchild_rel_world) < 0.01f);
+
+    // 6. Undo/Redo preserves exact world geometry and hierarchy
+    history.undo();
+    assert(!em.is_alive(root_copy) && !em.is_alive(child_copy) && !em.is_alive(grandchild_copy));
+
+    history.redo();
+    assert(em.is_alive(root_copy) && em.is_alive(child_copy) && em.is_alive(grandchild_copy));
+    TransformSystem::update(em);
+    assert(std::abs(em.get_component<TransformComponent>(root_copy).world_position.x - (root_world_before.x + 30.0f)) < 0.01f);
+    assert(std::abs(em.get_component<TransformComponent>(root_copy).world_position.y - (root_world_before.y + 30.0f)) < 0.01f);
+
+    std::cout << "test_duplicate_subtree_under_rotated_scaled_external_parent_preserves_world_offset_and_relative_transforms passed." << std::endl;
+}
+
 int main() {
     test_reparent_preserves_world_transform();
     test_unparent_preserves_world_transform();
@@ -1175,6 +1369,9 @@ int main() {
     test_reorder_rejects_when_parent_changed_externally();
     test_reorder_locked_entity_rejection();
     test_reparent_with_target_index();
+    test_duplicate_subtree_hierarchy_remaps_children_and_preserves_transforms();
+    test_duplicate_locked_entity_or_subtree_aborts_without_mutation();
+    test_duplicate_subtree_under_rotated_scaled_external_parent_preserves_world_offset_and_relative_transforms();
 
     std::cout << "All HierarchyCommandTests passed successfully!" << std::endl;
     return 0;
