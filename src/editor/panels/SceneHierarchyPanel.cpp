@@ -10,9 +10,12 @@
 #include "../../scene/Scene.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
+#include "../../ecs/components/PhysicsComponents.hpp"
+#include "../../ecs/components/AnimationComponents.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../core/Log.hpp"
+#include "../tools/EditorHierarchyFilter.hpp"
 #include <imgui.h>
 #include <cstring>
 #include <algorithm>
@@ -62,8 +65,24 @@ void SceneHierarchyPanel::on_gui() {
         }
         ImGui::Separator();
 
-        // --- Search Filter ---
-        ImGui::InputTextWithHint("##search", "Search entity...", m_search_filter, sizeof(m_search_filter));
+        // --- Search Filter with Clear Button ---
+        float avail_w = ImGui::GetContentRegionAvail().x;
+        bool has_filter = m_search_filter[0] != '\0';
+        if (has_filter) {
+            ImGui::SetNextItemWidth(avail_w - 28.0f);
+        } else {
+            ImGui::SetNextItemWidth(avail_w);
+        }
+        ImGui::InputTextWithHint("##search", "Search name or :type (e.g. :sprite, :col, :locked)...", m_search_filter, sizeof(m_search_filter));
+        if (has_filter) {
+            ImGui::SameLine();
+            if (ImGui::Button("X##clear_search", ImVec2(22.0f, 0.0f))) {
+                m_search_filter[0] = '\0';
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Clear search filter");
+            }
+        }
         ImGui::Spacing();
 
         EntityManager& em = active_scene->get_entity_manager();
@@ -212,26 +231,7 @@ void SceneHierarchyPanel::on_gui() {
 }
 
 bool SceneHierarchyPanel::matches_filter_recursive(EntityManager& em, EntityID id, const std::string& filter_str) const {
-    if (filter_str.empty()) return true;
-
-    std::string label = "Entity";
-    if (em.has_component<TagComponent>(id)) {
-        label = em.get_component<TagComponent>(id).tag;
-    }
-    std::string lower_label = label;
-    std::transform(lower_label.begin(), lower_label.end(), lower_label.begin(), ::tolower);
-    if (lower_label.find(filter_str) != std::string::npos) {
-        return true;
-    }
-
-    if (em.has_component<HierarchyComponent>(id)) {
-        for (EntityID child_id : em.get_component<HierarchyComponent>(id).children) {
-            if (em.is_alive(child_id) && matches_filter_recursive(em, child_id, filter_str)) {
-                return true;
-            }
-        }
-    }
-    return false;
+    return EditorHierarchyFilter::matches_recursive(em, id, filter_str, m_entity_state_store.get());
 }
 
 bool SceneHierarchyPanel::is_descendant(EntityManager& em, EntityID potential_descendant, EntityID ancestor) const {
@@ -298,13 +298,25 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         }
     }
     const bool is_effectively_visible = is_visible && !is_ancestor_hidden;
+    const bool directly_matches = !filter_str.empty() && EditorHierarchyFilter::matches_single(em, id, filter_str, m_entity_state_store.get());
 
+    int style_color_count = 0;
     if (!is_effectively_visible) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.60f, 0.55f));
+        style_color_count++;
+    } else if (directly_matches) {
+        // Highlight matching node in vibrant cyan
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.85f, 1.0f, 1.0f));
+        style_color_count++;
+    } else if (!filter_str.empty()) {
+        // Ancestor container of matching child (subtle dimming)
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.72f, 0.78f, 0.75f));
+        style_color_count++;
     }
+
     bool node_open = ImGui::TreeNodeEx((void*)(uintptr_t)id, flags, "%s", name.c_str());
-    if (!is_effectively_visible) {
-        ImGui::PopStyleColor();
+    if (style_color_count > 0) {
+        ImGui::PopStyleColor(style_color_count);
     }
 
     // Single click / multi-click selection on the tree node item

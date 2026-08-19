@@ -2,9 +2,12 @@
 #include "ecs/EntityManager.hpp"
 #include "ecs/TransformSystem.hpp"
 #include "ecs/components/CoreComponents.hpp"
+#include "ecs/components/RenderingComponents.hpp"
+#include "ecs/components/PhysicsComponents.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/commands/HierarchyCommands.hpp"
 #include "editor/state/EditorEntityStateStore.hpp"
+#include "editor/tools/EditorHierarchyFilter.hpp"
 #include <cassert>
 #include <cmath>
 #include <iostream>
@@ -1506,6 +1509,70 @@ void test_reparent_multiple_entities_unparent_to_root() {
     std::cout << "test_reparent_multiple_entities_unparent_to_root passed." << std::endl;
 }
 
+void test_scene_hierarchy_smart_search_and_component_filters() {
+    EntityManager em;
+    auto state_store = std::make_shared<EditorEntityStateStore>();
+
+    EntityID parent = em.create_entity();
+    em.add_component<TransformComponent>(parent, TransformComponent{});
+    em.add_component<TagComponent>(parent, TagComponent{"Enemies_Group"});
+
+    EntityID goblin = em.create_entity();
+    em.add_component<TransformComponent>(goblin, TransformComponent{});
+    em.add_component<TagComponent>(goblin, TagComponent{"Goblin_Scout"});
+    em.add_component<SpriteComponent>(goblin, SpriteComponent{});
+    const auto res1 = em.set_parent(goblin, parent);
+    assert(res1.status == HierarchyOperationStatus::Changed);
+
+    EntityID boss = em.create_entity();
+    em.add_component<TransformComponent>(boss, TransformComponent{});
+    em.add_component<TagComponent>(boss, TagComponent{"Goblin_Boss"});
+    em.add_component<RigidBodyComponent>(boss, RigidBodyComponent{});
+    em.add_component<ColliderComponent>(boss, ColliderComponent{});
+    const auto res2 = em.set_parent(boss, parent);
+    assert(res2.status == HierarchyOperationStatus::Changed);
+
+    EntityID camera = em.create_entity();
+    em.add_component<TransformComponent>(camera, TransformComponent{});
+    em.add_component<TagComponent>(camera, TagComponent{"Main_Camera"});
+    em.add_component<CameraComponent>(camera, CameraComponent{});
+
+    const auto matches = [&](EntityID id, const std::string& filter) {
+        return EditorHierarchyFilter::matches_recursive(em, id, filter, state_store.get());
+    };
+
+    // 1. Text search (case-insensitive substring)
+    assert(matches(parent, "enemies"));
+    assert(matches(parent, "scout")); // Parent matches because child matches
+    assert(matches(goblin, "scout"));
+    assert(!matches(camera, "scout"));
+
+    // 2. Component type filters with prefix ":" or "t:"
+    assert(matches(goblin, ":sprite"));
+    assert(matches(parent, ":sprite")); // Parent contains child with sprite
+    assert(!matches(camera, ":sprite"));
+
+    assert(matches(boss, "t:rb"));
+    assert(matches(boss, ":collider"));
+    assert(!matches(goblin, ":collider"));
+
+    assert(matches(camera, ":camera"));
+    assert(!matches(parent, ":camera"));
+
+    // 3. State filters (:locked, :hidden)
+    assert(!matches(parent, ":locked"));
+    state_store->set_locked(goblin, true);
+    assert(matches(goblin, ":locked"));
+    assert(matches(parent, ":locked")); // Parent matches because child is locked
+    assert(!matches(boss, ":locked"));
+
+    state_store->set_visible(boss, false);
+    assert(matches(boss, ":hidden"));
+    assert(!matches(goblin, ":hidden"));
+
+    std::cout << "test_scene_hierarchy_smart_search_and_component_filters passed." << std::endl;
+}
+
 int main() {
     test_reparent_preserves_world_transform();
     test_unparent_preserves_world_transform();
@@ -1543,6 +1610,7 @@ int main() {
     test_reparent_multiple_entities_with_cycle_rejection();
     test_reparent_multiple_entities_with_locked_entity_rejection();
     test_reparent_multiple_entities_unparent_to_root();
+    test_scene_hierarchy_smart_search_and_component_filters();
 
     std::cout << "All HierarchyCommandTests passed successfully!" << std::endl;
     return 0;
