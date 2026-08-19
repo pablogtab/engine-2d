@@ -1,6 +1,7 @@
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/commands/EditorPropertyTransaction.hpp"
 #include "editor/commands/EntityCommands.hpp"
+#include "ecs/components/AnimationComponents.hpp"
 #include "editor/inspector/InspectorPropertyPolicies.hpp"
 #include "editor/inspector/MultiComponentInspectorTransaction.hpp"
 #include "ecs/EntityManager.hpp"

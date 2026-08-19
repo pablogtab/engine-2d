@@ -10,7 +10,8 @@
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "panels/ViewportPanel.hpp"
-#include "../ecs/Components.hpp"
+#include "../ecs/components/CoreComponents.hpp"
+#include "../ecs/components/RenderingComponents.hpp"
 #include "../ecs/CameraSystem.hpp"
 #include "../tilemap/Tilemap.hpp"
 #include <filesystem>

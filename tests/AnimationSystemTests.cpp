@@ -1,4 +1,5 @@
-#include "ecs/Components.hpp"
+#include "ecs/components/AnimationComponents.hpp"
+#include "ecs/components/RenderingComponents.hpp"
 #include "ecs/EntityManager.hpp"
 #include "renderer/SpriteAnimationSystem.hpp"
 #include <cassert>

@@ -3,7 +3,8 @@
 #include "../events/Event.hpp"
 #include "../events/EventDispatcher.hpp"
 #include "ColliderGeometry.hpp"
-#include "../ecs/Components.hpp"
+#include "../ecs/components/CoreComponents.hpp"
+#include "../ecs/components/PhysicsComponents.hpp"
 #include "../ecs/EntityManager.hpp"
 #include <box2d/box2d.h>
 #include <glm/glm.hpp>

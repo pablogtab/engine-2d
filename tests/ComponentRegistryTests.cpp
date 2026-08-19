@@ -1,4 +1,7 @@
-#include "ecs/Components.hpp"
+#include "ecs/components/AnimationComponents.hpp"
+#include "ecs/components/CoreComponents.hpp"
+#include "ecs/components/PhysicsComponents.hpp"
+#include "ecs/components/RenderingComponents.hpp"
 #include "ecs/EntityManager.hpp"
 #include "scene/ComponentRegistry.hpp"
 #include "editor/inspector/EditorComponentRegistry.hpp"

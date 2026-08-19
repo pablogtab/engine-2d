@@ -1,6 +1,6 @@
 #include "TilemapPaintingTool.hpp"
 #include "../../tilemap/TilemapColliderSystem.hpp"
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include <algorithm>

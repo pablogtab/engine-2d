@@ -2,7 +2,7 @@
 #include "InspectorWidgets.hpp"
 #include "InspectorPropertyPolicies.hpp"
 #include "MultiComponentInspectorTransaction.hpp"
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include <imgui.h>

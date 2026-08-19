@@ -1,4 +1,4 @@
-#include "ecs/Components.hpp"
+#include "ecs/components/CoreComponents.hpp"
 #include "scene/ComponentRegistry.hpp"
 #include "scene/SceneSchema.hpp"
 

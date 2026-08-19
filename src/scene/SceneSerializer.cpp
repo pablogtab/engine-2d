@@ -3,7 +3,7 @@
 #include "SceneSchema.hpp"
 #include "../core/FileSystem.hpp"
 #include "../core/Log.hpp"
-#include "../ecs/Components.hpp"
+#include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/TransformSystem.hpp"
 #include "../tilemap/Tilemap.hpp"
 #include "../core/AssetManager.hpp"

@@ -7,6 +7,8 @@
 #include <vector>
 #include <memory>
 
+struct SDL_Renderer;
+
 namespace Engine {
 
 class SceneManager;
@@ -26,7 +28,7 @@ struct TileVariant {
 class TilemapPalettePanel : public EditorPanel {
 public:
     explicit TilemapPalettePanel(
-        struct SDL_Renderer* renderer = nullptr,
+        SDL_Renderer* renderer = nullptr,
         SceneManager* scene_manager = nullptr,
         std::shared_ptr<EditorSelection> selection = nullptr
     );
@@ -47,13 +49,13 @@ public:
     void remove_from_random_pool(uint16_t tile_id);
     [[nodiscard]] bool is_in_random_pool(uint16_t tile_id) const;
 
-    void set_renderer(struct SDL_Renderer* renderer) { m_renderer = renderer; }
+    void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
     void set_scene_manager(SceneManager* sm) { m_scene_manager = sm; }
     void set_selection(std::shared_ptr<EditorSelection> sel) { m_selection = sel; }
 
 private:
     std::string m_name{"Tilemap Palette"};
-    struct SDL_Renderer* m_renderer{nullptr};
+    SDL_Renderer* m_renderer{nullptr};
     SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     

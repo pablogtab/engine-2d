@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../ecs/components/AnimationComponents.hpp"
+
 #include "../EditorPanel.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../EditorSelection.hpp"

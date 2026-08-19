@@ -2,7 +2,7 @@
 
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/EditorPropertyTransaction.hpp"
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/RenderingComponents.hpp"
 #include <vector>
 
 struct SDL_Renderer;

@@ -3,7 +3,8 @@
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
+#include "../../ecs/components/RenderingComponents.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include "../../core/AssetManager.hpp"
 #include <imgui.h>

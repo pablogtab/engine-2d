@@ -1,4 +1,5 @@
 #include "EntityManager.hpp"
+#include "components/CoreComponents.hpp"
 #include "../core/Log.hpp"
 #include <algorithm>
 

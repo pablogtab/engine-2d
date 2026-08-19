@@ -1,4 +1,5 @@
 #include "SpriteAnimationSystem.hpp"
+#include "../ecs/components/RenderingComponents.hpp"
 #include <algorithm>
 
 namespace Engine {

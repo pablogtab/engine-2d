@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/EntityManager.hpp"
 #include <algorithm>
 #include <cmath>

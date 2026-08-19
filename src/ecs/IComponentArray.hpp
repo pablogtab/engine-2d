@@ -1,10 +1,8 @@
 #pragma once
 
-#include <cstdint>
+#include "EcsTypes.hpp"
 
 namespace Engine {
-
-using EntityID = uint32_t;
 
 // Interface for type-erased Component Arrays
 class IComponentArray {

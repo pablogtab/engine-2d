@@ -1,7 +1,7 @@
 #include "ColliderInspectorDrawer.hpp"
 #include "InspectorWidgets.hpp"
 #include "../commands/EntityCommands.hpp"
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include <imgui.h>
 #include <string>

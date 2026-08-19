@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ComponentInspectorTransaction.hpp"
+#include "../../ecs/components/AnimationComponents.hpp"
 
 namespace Engine {
 

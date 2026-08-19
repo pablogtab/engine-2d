@@ -1,5 +1,6 @@
 #include "TilemapColliderSystem.hpp"
-#include "../ecs/Components.hpp"
+#include "../ecs/components/CoreComponents.hpp"
+#include "../ecs/components/PhysicsComponents.hpp"
 #include "../core/Log.hpp"
 #include <vector>
 

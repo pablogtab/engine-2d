@@ -1,6 +1,8 @@
 #pragma once
 
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
+#include "../../ecs/components/PhysicsComponents.hpp"
+#include "../../ecs/components/RenderingComponents.hpp"
 #include "../../ecs/EntityManager.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include <array>

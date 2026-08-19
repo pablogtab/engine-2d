@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../../ecs/EntityManager.hpp"
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
 #include "../../scene/Camera2D.hpp"
 #include <glm/glm.hpp>
 #include <imgui.h>

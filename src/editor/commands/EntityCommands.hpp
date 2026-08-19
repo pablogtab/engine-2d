@@ -2,7 +2,8 @@
 
 #include "IEditorCommand.hpp"
 #include "../../ecs/EntityManager.hpp"
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
+#include "../../ecs/components/RenderingComponents.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include "../../scene/ComponentRegistry.hpp"
 #include "../EditorSelection.hpp"

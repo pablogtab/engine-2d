@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ComponentArray.hpp"
-#include "Components.hpp"
+#include "EcsTypes.hpp"
 #include <unordered_map>
 #include <vector>
 #include <memory>

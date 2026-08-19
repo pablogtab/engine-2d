@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EntityManager.hpp"
-#include "Components.hpp"
+#include "components/CoreComponents.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 

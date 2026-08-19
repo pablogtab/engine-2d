@@ -1,5 +1,7 @@
 #include "SpriteAnimationStudioPanel.hpp"
-#include "../../ecs/Components.hpp"
+#include "../../ecs/components/AnimationComponents.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
+#include "../../ecs/components/RenderingComponents.hpp"
 #include "../../renderer/Texture.hpp"
 #include "../../core/Log.hpp"
 #include "../../renderer/SpriteAnimationSystem.hpp"

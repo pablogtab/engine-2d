@@ -5,10 +5,11 @@
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/EditorPropertyTransaction.hpp"
 #include "../inspector/AnimationInspectorDrawer.hpp"
-#include "../../ecs/Components.hpp"
 #include <imgui.h>
 #include <string>
 #include <memory>
+
+struct SDL_Renderer;
 
 namespace Engine {
 
@@ -20,7 +21,7 @@ public:
     InspectorPanel(
         SceneManager* scene_manager,
         std::shared_ptr<EditorSelection> selection = nullptr,
-        struct SDL_Renderer* renderer = nullptr,
+        SDL_Renderer* renderer = nullptr,
         AssetManager* asset_manager = nullptr
     );
     ~InspectorPanel() override = default;
@@ -29,7 +30,7 @@ public:
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
     void set_selection(std::shared_ptr<EditorSelection> selection) { m_selection = selection; }
-    void set_renderer(struct SDL_Renderer* renderer) { m_renderer = renderer; }
+    void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
     void set_command_history(std::shared_ptr<EditorCommandHistory> command_history) { m_command_history = command_history; }
     void set_animation_studio(class SpriteAnimationStudioPanel* studio) { m_anim_studio = studio; }
 
@@ -44,7 +45,7 @@ private:
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     EditorPropertyTransaction m_property_transactions;
     AnimationPreviewState m_animation_preview;
-    struct SDL_Renderer* m_renderer{nullptr};
+    SDL_Renderer* m_renderer{nullptr};
     AssetManager* m_asset_manager{nullptr};
     class SpriteAnimationStudioPanel* m_anim_studio{nullptr};
 };

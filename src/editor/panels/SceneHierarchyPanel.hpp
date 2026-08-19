@@ -6,6 +6,8 @@
 #include <string>
 #include <memory>
 
+struct SDL_Renderer;
+
 namespace Engine {
 
 class SceneManager;
@@ -15,7 +17,7 @@ class SceneHierarchyPanel : public EditorPanel {
 public:
     SceneHierarchyPanel(
         SceneManager* scene_manager, 
-        struct SDL_Renderer* renderer = nullptr, 
+        SDL_Renderer* renderer = nullptr,
         std::shared_ptr<EditorSelection> selection = nullptr,
         std::shared_ptr<EditorCommandHistory> command_history = nullptr
     );
@@ -30,7 +32,7 @@ public:
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
     [[nodiscard]] std::shared_ptr<EditorCommandHistory> get_command_history() const { return m_command_history; }
 
-    void set_renderer(struct SDL_Renderer* renderer) { m_renderer = renderer; }
+    void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
 
     // Legacy helper compatibility
     [[nodiscard]] EntityID get_selected_entity() const { 
@@ -46,7 +48,7 @@ private:
 
     std::string m_name{"Scene Hierarchy"};
     SceneManager* m_scene_manager{nullptr};
-    struct SDL_Renderer* m_renderer{nullptr};
+    SDL_Renderer* m_renderer{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     char m_search_filter[64]{""};

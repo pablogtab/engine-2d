@@ -1,7 +1,9 @@
 #pragma once
 
 #include "EntityManager.hpp"
-#include "Components.hpp"
+#include "components/CoreComponents.hpp"
+#include "components/PhysicsComponents.hpp"
+#include "components/RenderingComponents.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../scene/SpatialGrid.hpp"
 #include "../core/AssetManager.hpp"

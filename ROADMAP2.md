@@ -152,7 +152,7 @@ These systems form the current baseline and should be extended rather than rewri
 
 - [ ] Keep the current ECS storage model unless profiling demonstrates a real limitation.
 - [ ] Add assertions and diagnostics for invalid entities, component overflow, and hierarchy cycles.
-- [ ] Split `Components.hpp` by domain once the registry removes cross-file manual coupling.
+- [x] Split component definitions into explicit core, rendering, animation, physics, and particle domain headers; remove the aggregate `Components.hpp` dependency.
 
 **Completion criteria:** Adding a new component requires one registration and its domain implementation, not edits to multiple unrelated switch statements. Scene round trips and command snapshots preserve all authored data.
 
@@ -453,6 +453,7 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increment
 
-Finish the Phase 2 registry contract:
+Finish the remaining Phase 2 ECS safety contract:
 
-1. Extract domain component definitions from `Components.hpp` now that serialization, snapshots, and editor creation no longer require central component switches.
+1. Reject hierarchy cycles and invalid entity operations at the `EntityManager` boundary with actionable diagnostics.
+2. Add focused hierarchy safety coverage before expanding reversible hierarchy workflows in Phase 3.

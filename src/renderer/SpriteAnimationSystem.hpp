@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../ecs/EntityManager.hpp"
-#include "../ecs/Components.hpp"
+#include "../ecs/components/AnimationComponents.hpp"
 #include <string_view>
 
 namespace Engine {

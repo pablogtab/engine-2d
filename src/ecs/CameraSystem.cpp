@@ -1,6 +1,7 @@
 #include "CameraSystem.hpp"
 
-#include "Components.hpp"
+#include "components/CoreComponents.hpp"
+#include "components/RenderingComponents.hpp"
 #include "../scene/Camera2D.hpp"
 
 namespace Engine {

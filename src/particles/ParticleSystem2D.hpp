@@ -2,7 +2,7 @@
 
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/Texture.hpp"
-#include "../ecs/Components.hpp"
+#include "../ecs/components/ParticleComponents.hpp"
 #include <vector>
 #include <random>
 #include <memory>
