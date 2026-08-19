@@ -1180,6 +1180,48 @@ void test_multiselection_gizmo_scale_preserves_negative_sign() {
     assert(em.get_component<TransformComponent>(e1).world_position.x == -50.0f);
 }
 
+void test_create_entity_command_with_sprite_round_trips() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+    auto selection = std::make_shared<EditorSelection>();
+
+    EntitySnapshot snap;
+    snap.registered_components.set(TagComponent{"Dropped_Hero"});
+    snap.registered_components.set(TransformComponent{glm::vec3(125.0f, -45.0f, 0.0f)});
+    snap.registered_components.set(SpriteComponent{
+        nullptr,
+        glm::vec2(128.0f, 128.0f),
+        SDL_Color{200, 100, 50, 255}
+    });
+
+    auto cmd = std::make_unique<CreateEntityCommand>(&em, selection, std::move(snap));
+    assert(cmd->is_valid());
+    history.execute_command(std::move(cmd));
+
+    assert(selection->count() == 1);
+    const EntityID created_id = selection->get_primary();
+    assert(em.is_alive(created_id));
+    assert(em.has_component<TagComponent>(created_id));
+    assert(em.get_component<TagComponent>(created_id).tag == "Dropped_Hero");
+    assert(em.has_component<TransformComponent>(created_id));
+    assert(em.get_component<TransformComponent>(created_id).position == glm::vec3(125.0f, -45.0f, 0.0f));
+    assert(em.has_component<SpriteComponent>(created_id));
+    assert(em.get_component<SpriteComponent>(created_id).size == glm::vec2(128.0f, 128.0f));
+    assert(em.get_component<SpriteComponent>(created_id).color.r == 200);
+
+    // Undo destroys the entity
+    history.undo();
+    assert(!em.is_alive(created_id));
+    assert(selection->empty());
+
+    // Redo restores the exact entity, components, and selection
+    history.redo();
+    assert(em.is_alive(created_id));
+    assert(selection->is_selected(created_id));
+    assert(em.get_component<TagComponent>(created_id).tag == "Dropped_Hero");
+    assert(em.get_component<SpriteComponent>(created_id).size == glm::vec2(128.0f, 128.0f));
+}
+
 } // namespace
 
 int main() {
@@ -1207,6 +1249,7 @@ int main() {
     test_multiselection_locked_state_disables_modifications();
     test_multiselection_gizmo_world_to_local_translation_and_orbit_rotation();
     test_multiselection_gizmo_scale_preserves_negative_sign();
+    test_create_entity_command_with_sprite_round_trips();
     std::cout << "InspectorCommandTests passed\n";
     return 0;
 }

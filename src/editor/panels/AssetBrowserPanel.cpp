@@ -103,6 +103,20 @@ void AssetBrowserPanel::on_gui() {
                         m_selected_file = path.string();
                     }
 
+                    // Drag and drop source for asset files
+                    if (!is_dir && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                        std::string path_str = path.string();
+                        ImGui::SetDragDropPayload("CONTENT_BROWSER_ASSET", path_str.c_str(), path_str.length() + 1);
+                        if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp") {
+                            ImGui::Text("Spawn Sprite: %s", filename.c_str());
+                        } else if (extension == ".scene") {
+                            ImGui::Text("Load Scene: %s", filename.c_str());
+                        } else {
+                            ImGui::Text("Asset: %s", filename.c_str());
+                        }
+                        ImGui::EndDragDropSource();
+                    }
+
                     // Handle Double Click
                     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                         if (is_dir) {

@@ -13,11 +13,13 @@
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
+#include "../../core/AssetManager.hpp"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <limits>
 #include <unordered_map>
 #include <unordered_set>
@@ -735,6 +737,56 @@ void ViewportPanel::on_gui() {
             if (m_project_settings) {
                 const auto& game_view = m_project_settings->display();
                 m_selection_tool.set_camera_output_size(glm::vec2(game_view.reference_width, game_view.reference_height));
+            }
+
+            // --- 2.5 Drag and Drop Target for Content Browser Assets ---
+            if (is_editing && ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET")) {
+                    const char* path_str = static_cast<const char*>(payload->Data);
+                    if (path_str && active_scene) {
+                        std::filesystem::path asset_path(path_str);
+                        std::string ext = asset_path.extension().string();
+                        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+                        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") {
+                            glm::vec2 world_pos(0.0f, 0.0f);
+                            if (active_cam) {
+                                world_pos = active_cam->screen_to_world(m_viewport_mouse_pos);
+                            }
+
+                            std::string tag_name = asset_path.stem().string();
+                            if (tag_name.empty()) tag_name = "New_Sprite";
+
+                            constexpr glm::vec2 DEFAULT_SPRITE_SIZE{64.0f, 64.0f};
+                            Texture* tex = AssetManager::get().get_texture(m_renderer, path_str);
+                            glm::vec2 sprite_size = tex ? glm::vec2(static_cast<float>(tex->get_width()), static_cast<float>(tex->get_height())) : DEFAULT_SPRITE_SIZE;
+
+                            EntitySnapshot snapshot;
+                            snapshot.registered_components.set(TagComponent{tag_name});
+                            snapshot.registered_components.set(TransformComponent{glm::vec3(world_pos.x, world_pos.y, 0.0f)});
+                            snapshot.registered_components.set(SpriteComponent{
+                                tex ? tex : AssetManager::get().get_white_texture(m_renderer),
+                                sprite_size,
+                                SDL_Color{255, 255, 255, 255}
+                            });
+
+                            EntityManager& em = active_scene->get_entity_manager();
+                            if (m_command_history) {
+                                m_command_history->execute_command(
+                                    std::make_unique<CreateEntityCommand>(&em, m_selection, std::move(snapshot), m_entity_state_store.get())
+                                );
+                            } else {
+                                CreateEntityCommand cmd(&em, m_selection, std::move(snapshot), m_entity_state_store.get());
+                                cmd.execute();
+                            }
+                        } else if (ext == ".scene") {
+                            if (m_on_load_scene) {
+                                m_on_load_scene(path_str);
+                            }
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
             }
 
             // --- 3. Viewport Camera Navigation (Pan / Zoom / Focus 'F') ---

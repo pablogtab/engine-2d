@@ -16,6 +16,7 @@
 #include <imgui.h>
 #include <cstring>
 #include <algorithm>
+#include <filesystem>
 
 namespace Engine {
 
@@ -104,6 +105,13 @@ void SceneHierarchyPanel::on_gui() {
                     dropped_entities.assign(data, data + count);
                 } else if (single_payload) {
                     dropped_entities.push_back(*(const EntityID*)single_payload->Data);
+                }
+
+                if (const ImGuiPayload* asset_payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET")) {
+                    const char* path_str = static_cast<const char*>(asset_payload->Data);
+                    if (path_str) {
+                        create_sprite_from_asset_helper(em, 0, path_str);
+                    }
                 }
 
                 if (!dropped_entities.empty()) {
@@ -381,6 +389,21 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             dropped_entities.assign(data, data + count);
         } else if (single_payload) {
             dropped_entities.push_back(*(const EntityID*)single_payload->Data);
+        }
+
+        if (const ImGuiPayload* asset_payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET")) {
+            const char* path_str = static_cast<const char*>(asset_payload->Data);
+            if (path_str) {
+                if (zone == DropZone::Inside) {
+                    create_sprite_from_asset_helper(em, id, path_str);
+                } else {
+                    EntityID target_parent = 0;
+                    if (em.has_component<HierarchyComponent>(id)) {
+                        target_parent = em.get_component<HierarchyComponent>(id).parent;
+                    }
+                    create_sprite_from_asset_helper(em, target_parent, path_str);
+                }
+            }
         }
 
         if (!dropped_entities.empty()) {
@@ -692,6 +715,48 @@ void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID pare
     } else {
         CreateEntityCommand command(&em, m_selection, std::move(snap), m_entity_state_store.get());
         command.execute();
+    }
+}
+
+void SceneHierarchyPanel::create_sprite_from_asset_helper(EntityManager& em, EntityID parent_id, const std::string& path_str) {
+    if (parent_id != 0 && m_entity_state_store && m_entity_state_store->is_locked(parent_id)) {
+        ENGINE_LOG_WARN("[HIERARCHY] Cannot create child entity under locked parent #{}", parent_id);
+        return;
+    }
+
+    std::filesystem::path asset_path(path_str);
+    std::string ext = asset_path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    if (ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".bmp") {
+        return;
+    }
+
+    std::string tag_name = asset_path.stem().string();
+    if (tag_name.empty()) tag_name = "New_Sprite";
+
+    constexpr glm::vec2 DEFAULT_SPRITE_SIZE{64.0f, 64.0f};
+    Texture* tex = AssetManager::get().get_texture(m_renderer, path_str);
+    glm::vec2 sprite_size = tex ? glm::vec2(static_cast<float>(tex->get_width()), static_cast<float>(tex->get_height())) : DEFAULT_SPRITE_SIZE;
+
+    EntitySnapshot snap;
+    snap.registered_components.set(TagComponent{tag_name});
+    snap.registered_components.set(TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
+    snap.registered_components.set(SpriteComponent{
+        tex ? tex : AssetManager::get().get_white_texture(m_renderer),
+        sprite_size,
+        SDL_Color{255, 255, 255, 255}
+    });
+    if (parent_id != 0) {
+        snap.has_hierarchy = true;
+        snap.hierarchy.parent = parent_id;
+    }
+
+    if (m_command_history) {
+        m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, std::move(snap), m_entity_state_store.get()));
+    } else {
+        CreateEntityCommand cmd(&em, m_selection, std::move(snap), m_entity_state_store.get());
+        cmd.execute();
     }
 }
 

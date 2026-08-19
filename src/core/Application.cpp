@@ -136,6 +136,18 @@ Application::Application(const std::string& name, int width, int height, bool st
         }
     });
 
+    viewport_panel->set_on_load_scene_callback([this](const std::string& scene_path) {
+        if (m_editor_layer) {
+            m_editor_layer->request_destructive_action({
+                .type = PendingActionType::LoadScene,
+                .target = scene_path,
+                .action = [this, scene_path]() {
+                    m_editor_layer->load_scene(scene_path);
+                }
+            });
+        }
+    });
+
     auto anim_studio_panel = std::make_shared<SpriteAnimationStudioPanel>(&m_scene_manager, selection);
     anim_studio_panel->set_command_history(command_history);
     inspector_panel->set_animation_studio(anim_studio_panel.get());

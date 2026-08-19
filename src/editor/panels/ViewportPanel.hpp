@@ -83,7 +83,12 @@ public:
     void render_grid_settings_menu();
     void render_arrange_menu();
 
+    void set_on_load_scene_callback(std::function<void(const std::string&)> callback) {
+        m_on_load_scene = std::move(callback);
+    }
+
 private:
+    std::function<void(const std::string&)> m_on_load_scene;
     std::string m_name{"Scene Viewport"};
     SDL_Renderer* m_renderer{nullptr};
     SceneManager* m_scene_manager{nullptr};
