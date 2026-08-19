@@ -27,6 +27,8 @@ struct GizmoSnapSettings {
     float scale_step{0.10f};
 };
 
+class EditorEntityVisibilityFilter;
+
 class TransformGizmo2D {
 public:
     TransformGizmo2D() = default;
@@ -39,7 +41,8 @@ public:
         const ImVec2& viewport_pos,
         const ImVec2& viewport_size,
         bool is_viewport_hovered,
-        class EditorCommandHistory* command_history = nullptr
+        class EditorCommandHistory* command_history = nullptr,
+        const EditorEntityVisibilityFilter* visibility_filter = nullptr
     );
 
     [[nodiscard]] bool is_using() const { return m_active_axis != GizmoAxis::None; }

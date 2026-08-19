@@ -1,4 +1,5 @@
 #include "EntityCommands.hpp"
+#include "../state/EditorEntityStateStore.hpp"
 #include "../../core/Log.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
@@ -135,11 +136,22 @@ TransformEntitiesCommand::TransformEntitiesCommand(
     EntityManager* em,
     std::unordered_map<EntityID, TransformComponent> before,
     std::unordered_map<EntityID, TransformComponent> after,
-    std::string description
-) : m_em(em), m_before(std::move(before)), m_after(std::move(after)), m_description(std::move(description)) {}
+    std::string description,
+    const EditorEntityStateStore* state_store
+) : m_em(em), m_before(std::move(before)), m_after(std::move(after)), m_description(std::move(description)) {
+    if (state_store) {
+        for (const auto& [id, _] : m_before) {
+            if (state_store->is_locked(id)) {
+                ENGINE_LOG_WARN("[COMMAND] Cannot transform locked entity #{}", id);
+                m_valid = false;
+                return;
+            }
+        }
+    }
+}
 
 bool TransformEntitiesCommand::apply(const std::unordered_map<EntityID, TransformComponent>& states) {
-    if (!m_em) return false;
+    if (!m_valid || !m_em) return false;
     std::unordered_set<EntityID> rebuild_roots;
     for (const auto& [id, transform] : states) {
         if (!m_em->is_alive(id) || !m_em->has_component<TransformComponent>(id)) continue;
@@ -190,31 +202,68 @@ bool SetPrimaryCameraCommand::apply(const std::unordered_map<EntityID, CameraCom
 bool SetPrimaryCameraCommand::execute() { return apply(m_after); }
 bool SetPrimaryCameraCommand::undo() { return apply(m_before); }
 
+static void collect_subtree_ids(const EntityManager& em, EntityID root, std::unordered_set<EntityID>& out) {
+    if (!em.is_alive(root)) return;
+    out.insert(root);
+    if (em.has_component<HierarchyComponent>(root)) {
+        for (EntityID child : em.get_component<HierarchyComponent>(root).children) {
+            collect_subtree_ids(em, child, out);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 2. Delete Entities Command
 // ---------------------------------------------------------------------------
 DeleteEntitiesCommand::DeleteEntitiesCommand(
     EntityManager* em,
     std::shared_ptr<EditorSelection> selection,
-    std::vector<EntityID> entities_to_delete
-) : m_em(em), m_selection(selection) {
-    if (!m_em) return;
+    std::vector<EntityID> entities_to_delete,
+    EditorEntityStateStore* state_store
+) : m_em(em), m_selection(selection), m_state_store(state_store) {
+    if (!m_em || entities_to_delete.empty()) {
+        m_valid = false;
+        return;
+    }
 
+    std::unordered_set<EntityID> all_affected_ids;
     for (EntityID id : entities_to_delete) {
+        collect_subtree_ids(*m_em, id, all_affected_ids);
+    }
+
+    if (state_store) {
+        for (EntityID id : all_affected_ids) {
+            if (state_store->is_locked(id)) {
+                ENGINE_LOG_WARN("[COMMAND] Cannot delete entity #{} because entity #{} in subtree is locked", id, id);
+                m_valid = false;
+                return;
+            }
+        }
+    }
+
+    for (EntityID id : all_affected_ids) {
         if (!m_em->is_alive(id)) continue;
 
+        if (state_store) {
+            m_editor_states[id] = state_store->get(id);
+        }
         m_snapshots.push_back(capture_entity_snapshot(*m_em, id));
     }
 
-    if (m_snapshots.size() == 1) {
-        m_description = "Delete " + snapshot_tag(m_snapshots[0]);
+    if (m_snapshots.empty()) {
+        m_valid = false;
+        return;
+    }
+
+    if (entities_to_delete.size() == 1) {
+        m_description = "Delete " + snapshot_tag(capture_entity_snapshot(*m_em, entities_to_delete[0]));
     } else {
-        m_description = "Delete (" + std::to_string(m_snapshots.size()) + ") Entities";
+        m_description = "Delete (" + std::to_string(entities_to_delete.size()) + ") Entities";
     }
 }
 
 bool DeleteEntitiesCommand::execute() {
-    if (!m_em) return false;
+    if (!m_valid || !m_em) return false;
 
     for (const auto& snap : m_snapshots) {
         if (m_em->is_alive(snap.id)) {
@@ -225,6 +274,12 @@ bool DeleteEntitiesCommand::execute() {
         }
     }
 
+    if (m_state_store) {
+        for (const auto& [id, _] : m_editor_states) {
+            m_state_store->remove(id);
+        }
+    }
+
     if (m_selection) {
         m_selection->clear();
     }
@@ -232,7 +287,7 @@ bool DeleteEntitiesCommand::execute() {
 }
 
 bool DeleteEntitiesCommand::undo() {
-    if (!m_em) return false;
+    if (!m_valid || !m_em) return false;
 
     std::unordered_set<EntityID> restored_ids;
 
@@ -272,6 +327,12 @@ bool DeleteEntitiesCommand::undo() {
         if (m_em->is_alive(snap.id)) finalize_snapshot_components(*m_em, snap.id);
     }
 
+    if (m_state_store) {
+        for (const auto& [id, state] : m_editor_states) {
+            m_state_store->set(id, state);
+        }
+    }
+
     if (m_selection) {
         m_selection->set_selection(restored_ids);
     }
@@ -284,13 +345,21 @@ bool DeleteEntitiesCommand::undo() {
 CreateEntityCommand::CreateEntityCommand(
     EntityManager* em,
     std::shared_ptr<EditorSelection> selection,
-    EntitySnapshot snapshot
+    EntitySnapshot snapshot,
+    const EditorEntityStateStore* state_store
 ) : m_em(em), m_selection(selection), m_snapshot(std::move(snapshot)) {
+    if (m_snapshot.has_hierarchy && m_snapshot.hierarchy.parent != 0 && state_store) {
+        if (state_store->is_locked(m_snapshot.hierarchy.parent)) {
+            ENGINE_LOG_WARN("[COMMAND] Cannot create child entity under locked parent #{}", m_snapshot.hierarchy.parent);
+            m_valid = false;
+            return;
+        }
+    }
     m_description = "Create " + snapshot_tag(m_snapshot);
 }
 
 bool CreateEntityCommand::execute() {
-    if (!m_em) return false;
+    if (!m_valid || !m_em) return false;
 
     if (m_snapshot.id == 0) {
         m_snapshot.id = m_em->create_entity();
@@ -352,9 +421,31 @@ bool CreateEntityCommand::undo() {
 DuplicateEntitiesCommand::DuplicateEntitiesCommand(
     EntityManager* em,
     std::shared_ptr<EditorSelection> selection,
-    std::vector<EntityID> source_entities
+    std::vector<EntityID> source_entities,
+    const EditorEntityStateStore* state_store
 ) : m_em(em), m_selection(std::move(selection)), m_source_entities(std::move(source_entities)) {
-    if (!m_em) return;
+    if (!m_em || m_source_entities.empty()) {
+        m_valid = false;
+        return;
+    }
+
+    if (state_store) {
+        for (EntityID id : m_source_entities) {
+            if (state_store->is_locked(id)) {
+                ENGINE_LOG_WARN("[COMMAND] Cannot duplicate locked entity #{}", id);
+                m_valid = false;
+                return;
+            }
+            if (m_em->has_component<HierarchyComponent>(id)) {
+                EntityID parent = m_em->get_component<HierarchyComponent>(id).parent;
+                if (parent != 0 && state_store->is_locked(parent)) {
+                    ENGINE_LOG_WARN("[COMMAND] Cannot duplicate entity #{} under locked parent #{}", id, parent);
+                    m_valid = false;
+                    return;
+                }
+            }
+        }
+    }
 
     for (EntityID source_id : m_source_entities) {
         if (!m_em->is_alive(source_id)) continue;
@@ -368,14 +459,19 @@ DuplicateEntitiesCommand::DuplicateEntitiesCommand(
             transform->world_position += glm::vec3(30.0f, 30.0f, 0.0f);
         }
         if (snapshot.has_hierarchy) snapshot.hierarchy.children.clear();
-        m_create_commands.push_back(std::make_unique<CreateEntityCommand>(m_em, m_selection, std::move(snapshot)));
+        m_create_commands.push_back(std::make_unique<CreateEntityCommand>(m_em, m_selection, std::move(snapshot), state_store));
+    }
+
+    if (m_create_commands.empty()) {
+        m_valid = false;
+        return;
     }
 
     if (m_create_commands.size() == 1) m_description = "Duplicate Entity";
 }
 
 bool DuplicateEntitiesCommand::execute() {
-    if (!m_em) return false;
+    if (!m_valid || !m_em) return false;
 
     m_duplicate_entities.clear();
     for (auto& command : m_create_commands) {
@@ -398,7 +494,7 @@ bool DuplicateEntitiesCommand::execute() {
 }
 
 bool DuplicateEntitiesCommand::undo() {
-    if (!m_em) return false;
+    if (!m_valid || !m_em) return false;
     for (auto it = m_create_commands.rbegin(); it != m_create_commands.rend(); ++it) (*it)->undo();
 
     if (m_selection) {

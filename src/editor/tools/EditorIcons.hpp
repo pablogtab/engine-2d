@@ -26,6 +26,7 @@ enum class EditorIcon {
     Plus,
     Component,
     Lock,
+    Unlock,
     Play,
     Pause,
     Stop,

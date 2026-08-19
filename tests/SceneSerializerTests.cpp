@@ -397,6 +397,24 @@ void test_scene_with_group_component_round_trip() {
     assert(std::find(children.begin(), children.end(), child2) != children.end());
 }
 
+void test_entity_lock_and_editor_visibility_are_not_serialized() {
+    TestScene source;
+    EntityManager& src_em = source.get_entity_manager();
+
+    const EntityID e1 = src_em.create_entity();
+    src_em.add_component<TagComponent>(e1, TagComponent{"TestLocked"});
+    src_em.add_component<TransformComponent>(e1, TransformComponent{});
+
+    SceneSerializer serializer(&source);
+    const std::string serialized = serializer.serialize_to_string();
+    assert(!serialized.empty());
+
+    // Verify raw JSON does not contain locked or visible_in_editor
+    assert(serialized.find("\"locked\"") == std::string::npos);
+    assert(serialized.find("\"visible_in_editor\"") == std::string::npos);
+    assert(serialized.find("\"editor_visible\"") == std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -413,6 +431,7 @@ int main() {
     test_discard_changes_reloads_saved_scene_file();
     test_discard_changes_restores_initial_snapshot_for_new_scene();
     test_scene_with_group_component_round_trip();
+    test_entity_lock_and_editor_visibility_are_not_serialized();
     std::cout << "Scene serializer tests passed\n";
     return 0;
 }

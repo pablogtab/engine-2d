@@ -32,6 +32,9 @@ public:
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
     [[nodiscard]] std::shared_ptr<EditorCommandHistory> get_command_history() const { return m_command_history; }
 
+    void set_entity_state_store(std::shared_ptr<class EditorEntityStateStore> store) { m_entity_state_store = store; }
+    [[nodiscard]] std::shared_ptr<class EditorEntityStateStore> get_entity_state_store() const { return m_entity_state_store; }
+
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
 
     // Legacy helper compatibility
@@ -51,6 +54,7 @@ private:
     SDL_Renderer* m_renderer{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
+    std::shared_ptr<class EditorEntityStateStore> m_entity_state_store{nullptr};
     char m_search_filter[64]{""};
 };
 

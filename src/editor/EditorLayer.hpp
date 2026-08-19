@@ -14,9 +14,11 @@ class EditorCommandHistory;
 class EditorSelection;
 class Window;
 class Scene;
+class EditorEntityStateStore;
 
 struct EditorSceneSession {
     std::shared_ptr<EditorCommandHistory> command_history;
+    std::shared_ptr<EditorEntityStateStore> entity_state_store;
     std::string file_path;
     std::string initial_snapshot_json;
 };
@@ -75,6 +77,8 @@ public:
     void set_window_wrapper(Window* window) { m_window_wrapper = window; }
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
     [[nodiscard]] std::shared_ptr<EditorCommandHistory> get_command_history() const { return m_command_history; }
+    void set_entity_state_store(std::shared_ptr<EditorEntityStateStore> store) { m_entity_state_store = store; }
+    [[nodiscard]] std::shared_ptr<EditorEntityStateStore> get_entity_state_store() const { return m_entity_state_store; }
     void set_selection(std::shared_ptr<EditorSelection> sel) { m_selection = sel; }
     [[nodiscard]] std::shared_ptr<EditorSelection> get_selection() const { return m_selection; }
 
@@ -94,6 +98,7 @@ private:
     void render_main_menu_bar();
     void setup_default_dockspace_layout(uint32_t dockspace_id);
     void update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch);
+    void update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store);
 
     SDL_Window* m_window{nullptr};
     SDL_Renderer* m_renderer{nullptr};
@@ -101,6 +106,7 @@ private:
     class ViewportPanel* m_viewport_panel{nullptr};
     class SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
+    std::shared_ptr<EditorEntityStateStore> m_entity_state_store{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
 
     std::unordered_map<const Scene*, EditorSceneSession> m_scene_sessions;

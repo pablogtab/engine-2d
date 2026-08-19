@@ -3,6 +3,8 @@
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
+#include "../commands/EditorEntityStateCommands.hpp"
+#include "../state/EditorEntityStateStore.hpp"
 #include "../tools/EditorIcons.hpp"
 #include "../../scene/GenericScene.hpp"
 #include "../../core/Log.hpp"
@@ -427,13 +429,35 @@ void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entit
 
     ImGui::Separator();
     const bool can_mutate = static_cast<bool>(m_command_history);
+    const bool is_locked = m_entity_state_store && m_entity_state_store->is_locked(entity);
+    const bool is_visible_in_editor = !m_entity_state_store || m_entity_state_store->is_visible(entity);
+
+    if (ImGui::MenuItem(is_locked ? "Unlock Entity" : "Lock Entity", nullptr, false, can_mutate)) {
+        std::vector<EntityID> entities = (m_selection && m_selection->is_selected(entity))
+            ? std::vector<EntityID>(m_selection->get_selected().begin(), m_selection->get_selected().end())
+            : std::vector<EntityID>{entity};
+        m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
+            &em, m_entity_state_store, EditorEntityStateField::Locked, entities, !is_locked
+        ));
+    }
+
+    if (ImGui::MenuItem(is_visible_in_editor ? "Hide in Scene View" : "Show in Scene View", nullptr, false, can_mutate)) {
+        std::vector<EntityID> entities = (m_selection && m_selection->is_selected(entity))
+            ? std::vector<EntityID>(m_selection->get_selected().begin(), m_selection->get_selected().end())
+            : std::vector<EntityID>{entity};
+        m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
+            &em, m_entity_state_store, EditorEntityStateField::VisibleInEditor, entities, !is_visible_in_editor
+        ));
+    }
+
+    ImGui::Separator();
     if (ImGui::MenuItem("Duplicate", "Cmd/Ctrl+D", false, can_mutate) && m_selection) {
         std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
-        m_command_history->execute_command(std::make_unique<DuplicateEntitiesCommand>(&em, m_selection, std::move(entities)));
+        m_command_history->execute_command(std::make_unique<DuplicateEntitiesCommand>(&em, m_selection, std::move(entities), m_entity_state_store.get()));
     }
     if (ImGui::MenuItem("Delete", "Delete", false, can_mutate) && m_selection) {
         std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
-        m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, std::move(entities)));
+        m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, std::move(entities), m_entity_state_store.get()));
     }
 
     ImGui::Separator();
@@ -443,7 +467,7 @@ void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entit
         : "Group Selection";
     if (ImGui::MenuItem(group_label.c_str(), "Cmd/Ctrl+G", false, can_mutate && has_sel) && m_selection) {
         std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
-        m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, std::move(entities)));
+        m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, std::move(entities), "Group", m_entity_state_store.get()));
     }
 
     bool has_group = false;
@@ -457,7 +481,7 @@ void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entit
     }
     if (has_group && ImGui::MenuItem("Ungroup", "Cmd/Ctrl+Shift+G", false, can_mutate) && m_selection) {
         std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
-        m_command_history->execute_command(std::make_unique<UngroupEntitiesCommand>(&em, m_selection, std::move(entities)));
+        m_command_history->execute_command(std::make_unique<UngroupEntitiesCommand>(&em, m_selection, std::move(entities), m_entity_state_store.get()));
     }
 }
 
@@ -515,8 +539,10 @@ void ViewportPanel::begin_render() {
         SDL_SetRenderDrawColor(m_renderer, 15, 18, 25, 255);
         SDL_RenderClear(m_renderer);
         Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
-        if (m_grid_settings.visible && m_scene_manager && m_scene_manager->is_editing()) {
-            if (auto* generic_scene = dynamic_cast<GenericScene*>(active_scene)) {
+        if (auto* generic_scene = dynamic_cast<GenericScene*>(active_scene)) {
+            m_visibility_filter.set_entity_manager(&generic_scene->get_entity_manager());
+            generic_scene->set_render_filter(&m_visibility_filter);
+            if (m_grid_settings.visible && m_scene_manager && m_scene_manager->is_editing()) {
                 draw_viewport_grid_to_render_target(m_renderer, generic_scene->get_editor_camera(), m_gizmo.snap_settings().position_step, m_grid_settings);
             }
         }
@@ -702,6 +728,9 @@ void ViewportPanel::on_gui() {
             bool is_editing = m_scene_manager ? m_scene_manager->is_editing() : true;
             Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
             auto* generic_scene = dynamic_cast<GenericScene*>(active_scene);
+            if (generic_scene) {
+                m_visibility_filter.set_entity_manager(&generic_scene->get_entity_manager());
+            }
             Camera2D* active_cam = generic_scene ? &generic_scene->get_active_camera(is_editing) : nullptr;
             if (m_project_settings) {
                 const auto& game_view = m_project_settings->display();
@@ -724,7 +753,7 @@ void ViewportPanel::on_gui() {
                 right_drag.x * right_drag.x + right_drag.y * right_drag.y < 16.0f;
             if (is_editing && viewport_tools_hovered && is_context_click) {
                 m_context_entity = active_scene && active_cam
-                    ? m_selection_tool.pick_entity(active_scene->get_entity_manager(), active_cam->screen_to_world(m_viewport_mouse_pos), active_cam)
+                    ? m_selection_tool.pick_entity(active_scene->get_entity_manager(), active_cam->screen_to_world(m_viewport_mouse_pos), active_cam, &m_visibility_filter)
                     : 0;
                 if (m_context_entity != 0 && m_selection && !m_selection->is_selected(m_context_entity)) {
                     m_selection->select(m_context_entity);
@@ -773,7 +802,8 @@ void ViewportPanel::on_gui() {
                     img_min,
                     img_size,
                     uv_min,
-                    uv_max
+                    uv_max,
+                    &m_visibility_filter
                 );
             }
 
@@ -863,7 +893,8 @@ void ViewportPanel::on_gui() {
                     *m_selection,
                     *active_cam,
                     img_min,
-                    img_size
+                    img_size,
+                    &m_visibility_filter
                 );
 
                 // B. Transform Gizmo (Records to Command History on Drag Release)
@@ -874,7 +905,8 @@ void ViewportPanel::on_gui() {
                     img_min,
                     img_size,
                     viewport_tools_hovered,
-                    m_command_history.get()
+                    m_command_history.get(),
+                    &m_visibility_filter
                 );
             }
 
@@ -887,7 +919,8 @@ void ViewportPanel::on_gui() {
                     img_min,
                     img_size,
                     viewport_tools_hovered,
-                    is_gizmo_active || m_gizmo.is_hovered() || m_gizmo.is_using() || is_guide_interaction
+                    is_gizmo_active || m_gizmo.is_hovered() || m_gizmo.is_using() || is_guide_interaction,
+                    &m_visibility_filter
                 );
             }
 
@@ -940,7 +973,7 @@ void ViewportPanel::on_gui() {
                 EntityManager& em = active_scene->get_entity_manager();
                 if (m_command_history) {
                     std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
-                    m_command_history->execute_command(std::make_unique<DuplicateEntitiesCommand>(&em, m_selection, std::move(entities)));
+                    m_command_history->execute_command(std::make_unique<DuplicateEntitiesCommand>(&em, m_selection, std::move(entities), m_entity_state_store.get()));
                 }
             }
 
@@ -954,7 +987,7 @@ void ViewportPanel::on_gui() {
 
                 if (!to_delete.empty()) {
                     if (m_command_history) {
-                        m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete));
+                        m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete, m_entity_state_store.get()));
                     }
                 }
             }

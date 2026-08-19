@@ -9,6 +9,7 @@
 #include "../tools/ViewportSelectionTool.hpp"
 #include "../tools/ViewportReferenceOverlay.hpp"
 #include "../tools/ViewportColliderOverlay.hpp"
+#include "../tools/EditorEntityVisibilityFilter.hpp"
 #include "../tools/EditorToolbox.hpp"
 #include "../tools/TilemapPaintingTool.hpp"
 #include "../panels/TilemapPalettePanel.hpp"
@@ -66,6 +67,13 @@ public:
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
     [[nodiscard]] std::shared_ptr<EditorCommandHistory> get_command_history() const { return m_command_history; }
 
+    void set_entity_state_store(std::shared_ptr<EditorEntityStateStore> store) {
+        m_entity_state_store = store;
+        m_visibility_filter.set_store(m_entity_state_store.get());
+    }
+    [[nodiscard]] std::shared_ptr<EditorEntityStateStore> get_entity_state_store() const { return m_entity_state_store; }
+    [[nodiscard]] const SceneViewEntityFilter& get_visibility_filter() const { return m_visibility_filter; }
+
     void set_palette_panel(TilemapPalettePanel* palette) { m_palette_panel = palette; }
 
     int get_render_width() const { return m_render_width; }
@@ -115,6 +123,8 @@ private:
     ViewportCameraController m_camera_controller;
     ViewportSelectionTool m_selection_tool;
     TilemapPaintingTool m_tilemap_painting_tool;
+    std::shared_ptr<EditorEntityStateStore> m_entity_state_store{nullptr};
+    SceneViewEntityFilter m_visibility_filter;
 };
 
 } // namespace Engine

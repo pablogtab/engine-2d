@@ -37,6 +37,7 @@ constexpr std::array<IconGlyph, static_cast<std::size_t>(EditorIcon::Count)> ICO
     {0xE13D, "\xee\x84\xbd"}, // plus
     {0xE2AD, "\xee\x8a\xad"}, // component
     {0xE10B, "\xee\x84\x8b"}, // lock
+    {0xE10C, "\xee\x84\x8c"}, // unlock / lock-open
     {0xE13C, "\xee\x84\xbc"}, // play
     {0xE12E, "\xee\x84\xae"}, // pause
     {0xE167, "\xee\x85\xa7"}, // square
@@ -95,7 +96,7 @@ bool initialize_editor_icons() {
     static constexpr ImWchar icon_ranges[] = {
         0xE061, 0xE061, 0xE064, 0xE064, 0xE0B6, 0xE0BB,
         0xE0D0, 0xE0D0, 0xE0E9, 0xE0E9, 0xE0F6, 0xE0F6,
-        0xE10B, 0xE10B, 0xE121, 0xE121, 0xE12E, 0xE12E,
+        0xE10B, 0xE10C, 0xE121, 0xE121, 0xE12E, 0xE12E,
         0xE13C, 0xE13D, 0xE149, 0xE149, 0xE167, 0xE167,
         0xE18E, 0xE18E, 0xE1B4, 0xE1B4, 0xE1F3, 0xE1F3,
         0xE245, 0xE245, 0xE2AD, 0xE2AD, 0xE2B5, 0xE2B5,
@@ -145,21 +146,20 @@ bool editor_icon_button(const char* id, EditorIcon icon, const char* tooltip, bo
     const ImVec2 maximum = ImGui::GetItemRectMax();
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-    if (hovered || active) {
-        const ImU32 background = active ? IM_COL32(77, 82, 113, 210) : IM_COL32(73, 80, 101, 145);
-        draw_list->AddRectFilled(minimum, maximum, background);
-    }
-    if (active) {
-        draw_list->AddLine(
-            ImVec2(minimum.x + 2.0f, maximum.y - 1.0f),
-            ImVec2(maximum.x - 2.0f, maximum.y - 1.0f),
-            IM_COL32(139, 135, 246, 255)
-        );
+    if (hovered) {
+        draw_list->AddRectFilled(minimum, maximum, IM_COL32(255, 255, 255, 28), 3.0f);
+    } else if (active) {
+        draw_list->AddRectFilled(minimum, maximum, IM_COL32(255, 255, 255, 14), 3.0f);
     }
 
-    const ImU32 icon_color = active
-        ? IM_COL32(229, 231, 241, 255)
-        : (hovered ? IM_COL32(205, 210, 224, 255) : IM_COL32(151, 159, 178, 245));
+    ImU32 icon_color = active
+        ? IM_COL32(245, 175, 65, 255)
+        : (hovered ? IM_COL32(235, 240, 255, 255) : IM_COL32(130, 138, 158, 160));
+
+    if (icon == EditorIcon::Hidden && active) {
+        icon_color = IM_COL32(225, 130, 60, 240);
+    }
+
     draw_editor_icon(
         draw_list,
         icon,

@@ -2,6 +2,7 @@
 #include "../commands/EntityCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../tools/EditorTransformUtils.hpp"
+#include "../tools/EditorEntityVisibilityFilter.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
@@ -32,8 +33,9 @@ static void draw_arrow(ImDrawList* draw_list, const ImVec2& start, const ImVec2&
     draw_list->AddTriangleFilled(tip, left, right, color);
 }
 
-static bool is_entity_locked_from_gizmo(EntityManager& em, EntityID id) {
+static bool is_entity_locked_from_gizmo(EntityManager& em, EntityID id, const EditorEntityVisibilityFilter* visibility_filter) {
     if (!em.is_alive(id)) return true;
+    if (visibility_filter && !visibility_filter->should_interact(id)) return true;
     return em.has_component<TilemapGeneratedColliderComponent>(id);
 }
 
@@ -44,7 +46,8 @@ bool TransformGizmo2D::draw_gizmo(
     const ImVec2& viewport_pos,
     const ImVec2& viewport_size,
     bool is_viewport_hovered,
-    EditorCommandHistory* command_history
+    EditorCommandHistory* command_history,
+    const EditorEntityVisibilityFilter* visibility_filter
 ) {
     if (selected_entities.empty()) { m_active_axis = GizmoAxis::None; m_hovered_axis = GizmoAxis::None; m_start_transforms.clear(); return false; }
     if (selected_entities.size() > 1 && !is_using()) m_space = GizmoSpace::World;
@@ -54,7 +57,7 @@ bool TransformGizmo2D::draw_gizmo(
     size_t valid_count = 0;
 
     for (EntityID id : selected_entities) {
-        if (em.is_alive(id) && em.has_component<TransformComponent>(id) && !is_entity_locked_from_gizmo(em, id)) {
+        if (em.is_alive(id) && em.has_component<TransformComponent>(id) && !is_entity_locked_from_gizmo(em, id, visibility_filter)) {
             const auto& tx = em.get_component<TransformComponent>(id);
             glm::vec3 entity_pos = tx.world_position;
 
@@ -214,7 +217,7 @@ bool TransformGizmo2D::draw_gizmo(
         m_start_transforms.clear();
 
         for (EntityID id : selected_entities) {
-            if (em.is_alive(id) && em.has_component<TransformComponent>(id) && !is_entity_locked_from_gizmo(em, id) && !has_selected_ancestor(em, id, selected_entities)) {
+            if (em.is_alive(id) && em.has_component<TransformComponent>(id) && !is_entity_locked_from_gizmo(em, id, visibility_filter) && !has_selected_ancestor(em, id, selected_entities)) {
                 m_start_transforms[id] = em.get_component<TransformComponent>(id);
             }
         }

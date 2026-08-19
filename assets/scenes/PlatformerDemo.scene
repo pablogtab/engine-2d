@@ -1,4 +1,15 @@
 {
+    "component_versions": {
+        "animation": 1,
+        "camera": 1,
+        "collider": 1,
+        "group": 1,
+        "rigidbody": 1,
+        "sprite": 1,
+        "tag": 1,
+        "tilemap": 1,
+        "transform": 1
+    },
     "entities": [
         {
             "animation": {
@@ -33,15 +44,15 @@
                     }
                 ],
                 "columns": 8,
+                "default_clip_index": 0,
                 "frame_height": 96.0,
                 "frame_width": 96.0,
                 "margin_x": 0.0,
                 "margin_y": 0.0,
+                "play_on_start": true,
                 "rows": 3,
                 "spacing_x": 0.0,
-                "spacing_y": 0.0,
-                "default_clip_index": 0,
-                "play_on_start": true
+                "spacing_y": 0.0
             },
             "collider": [
                 {
@@ -79,7 +90,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     64.0,
                     64.0
@@ -93,16 +113,7 @@
                 ],
                 "texture": "assets/textures/knight_sheet.png",
                 "use_src_rect": true,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Player_Knight",
             "transform": {
@@ -160,7 +171,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     1600.0,
                     48.0
@@ -168,16 +188,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Terrain_Main_Ground",
             "transform": {
@@ -235,7 +246,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     160.0,
                     24.0
@@ -243,16 +263,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Platform_Left_Top",
             "transform": {
@@ -310,7 +321,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     200.0,
                     22.0
@@ -318,16 +338,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Platform_Mid_Left_OneWay",
             "transform": {
@@ -385,7 +396,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     220.0,
                     24.0
@@ -393,16 +413,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Platform_Center_Crown",
             "transform": {
@@ -460,7 +471,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     200.0,
                     28.0
@@ -468,16 +488,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Platform_Right_Deck",
             "transform": {
@@ -535,7 +546,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     64.0,
                     18.0
@@ -543,16 +563,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Trampoline_Spring_Pad",
             "transform": {
@@ -592,6 +603,9 @@
                     "type": "Circle"
                 }
             ],
+            "hierarchy": {
+                "parent": 13
+            },
             "id": 8,
             "rigidbody": {
                 "fixed_rotation": true,
@@ -610,7 +624,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     28.0,
                     28.0
@@ -618,16 +641,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Collectible_Coin_1",
             "transform": {
@@ -636,8 +650,8 @@
                     0.5
                 ],
                 "position": [
-                    -520.0,
-                    230.0,
+                    -393.3333435058594,
+                    123.33333587646484,
                     0.0
                 ],
                 "rotation": 0.0,
@@ -667,6 +681,9 @@
                     "type": "Circle"
                 }
             ],
+            "hierarchy": {
+                "parent": 13
+            },
             "id": 9,
             "rigidbody": {
                 "fixed_rotation": true,
@@ -685,7 +702,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     28.0,
                     28.0
@@ -693,16 +719,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Collectible_Coin_2",
             "transform": {
@@ -711,8 +728,8 @@
                     0.5
                 ],
                 "position": [
-                    -340.0,
-                    140.0,
+                    -213.33334350585938,
+                    33.333335876464844,
                     0.0
                 ],
                 "rotation": 0.0,
@@ -742,6 +759,9 @@
                     "type": "Circle"
                 }
             ],
+            "hierarchy": {
+                "parent": 13
+            },
             "id": 10,
             "rigidbody": {
                 "fixed_rotation": true,
@@ -760,7 +780,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     28.0,
                     28.0
@@ -768,16 +797,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Collectible_Coin_3",
             "transform": {
@@ -786,8 +806,8 @@
                     0.5
                 ],
                 "position": [
-                    480.0,
-                    -50.0,
+                    606.6666870117188,
+                    -156.66665649414063,
                     0.0
                 ],
                 "rotation": 0.0,
@@ -835,7 +855,16 @@
                 ],
                 "flip_x": false,
                 "flip_y": false,
+                "has_outline": false,
                 "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
                 "size": [
                     120.0,
                     20.0
@@ -843,16 +872,7 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true,
-                "has_outline": false,
-                "outline_color": [
-                    255,
-                    215,
-                    0,
-                    255
-                ],
-                "outline_thickness": 2.0,
-                "outline_pulse": false
+                "visible": true
             },
             "tag": "Moving_Elevator_Platform",
             "transform": {
@@ -911,8 +931,33 @@
                 ],
                 "visible": true
             }
+        },
+        {
+            "group": {},
+            "hierarchy": {
+                "parent": 0
+            },
+            "id": 13,
+            "tag": "Group",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    -126.66666412353516,
+                    106.66666412353516,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
         }
     ],
     "scene_name": "PlatformerDemo",
-    "version": 1
+    "version": 2
 }

@@ -2,6 +2,8 @@
 #include "SceneHierarchyPanel.hpp"
 #include "SpriteAnimationStudioPanel.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/EditorEntityStateCommands.hpp"
+#include "../state/EditorEntityStateStore.hpp"
 #include "../inspector/InspectorWidgets.hpp"
 #include "../inspector/SpriteInspectorDrawer.hpp"
 #include "../inspector/RigidBodyInspectorDrawer.hpp"
@@ -146,6 +148,14 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
     ImGui::Text("%zu Entities", entities.size());
     ImGui::TextDisabled("Multiple selection");
 
+    const bool any_editor_locked = m_entity_state_store && std::any_of(entities.begin(), entities.end(), [&](EntityID e) {
+        return m_entity_state_store->is_locked(e);
+    });
+    if (any_editor_locked) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "[Locked]");
+    }
+
     const ComponentTransactionContext transaction_context{
         m_command_history.get(),
         &m_property_transactions
@@ -160,7 +170,7 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
     ImGui::Separator();
 
     if (all_have_transform) {
-        const bool locked = std::any_of(entities.begin(), entities.end(), [&](EntityID entity) {
+        const bool locked = any_editor_locked || std::any_of(entities.begin(), entities.end(), [&](EntityID entity) {
             return em.has_component<TilemapGeneratedColliderComponent>(entity);
         });
         TransformInspectorDrawer::draw_multiple(em, entities, locked, transaction_context);
@@ -187,21 +197,32 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
 
     ImGui::Spacing();
     ImGui::Separator();
+    if (any_editor_locked) {
+        ImGui::BeginDisabled();
+    }
     const std::string delete_label = editor_icon_label(EditorIcon::Trash, "Delete Selected");
     if (ImGui::Button(delete_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26.0f))) {
-        if (m_command_history) {
-            m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(
-                &em, m_selection, entities
-            ));
-        } else {
-            for (const EntityID entity : entities) em.destroy_entity(entity);
-            m_selection->clear();
+        if (!any_editor_locked) {
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(
+                    &em, m_selection, entities, m_entity_state_store.get()
+                ));
+            } else {
+                for (const EntityID entity : entities) em.destroy_entity(entity);
+                m_selection->clear();
+            }
         }
+    }
+    if (any_editor_locked) {
+        ImGui::EndDisabled();
     }
 }
 
 void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
     const bool is_locked_tilemap_collider = em.has_component<TilemapGeneratedColliderComponent>(entity);
+    const bool is_editor_locked = m_entity_state_store && m_entity_state_store->is_locked(entity);
+    const bool is_editor_visible = !m_entity_state_store || m_entity_state_store->is_visible(entity);
+    const bool is_locked = is_locked_tilemap_collider || is_editor_locked;
 
     // --- 1. Object Header (Unity-style entity context) ---
     if (em.has_component<TagComponent>(entity)) {
@@ -217,12 +238,26 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         ImGui::SetNextItemWidth(-1.0f);
         const std::string tag_before = tag_comp.tag;
         begin_property_interaction("Entity.Name");
-        if (ImGui::InputText("##entity_name", buffer, sizeof(buffer))) {
-            tag_comp.tag = buffer;
+        ImGuiInputTextFlags name_flags = is_editor_locked ? ImGuiInputTextFlags_ReadOnly : 0;
+        if (ImGui::InputText("##entity_name", buffer, sizeof(buffer), name_flags)) {
+            if (!is_editor_locked) {
+                tag_comp.tag = buffer;
+            }
         }
         capture_property_interaction();
-        track_tag_edit(em, entity, tag_before, "Entity.Name", "Rename Entity");
+        if (!is_editor_locked) {
+            track_tag_edit(em, entity, tag_before, "Entity.Name", "Rename Entity");
+        }
         ImGui::TextDisabled("Entity #%u", entity);
+
+        if (is_editor_locked) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "[Locked]");
+        }
+        if (!is_editor_visible) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.60f, 0.80f), "[Hidden in Scene View]");
+        }
 
         if (em.has_component<TransformComponent>(entity)) {
             ImGui::SameLine();
@@ -232,6 +267,14 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         }
     } else {
         ImGui::TextDisabled("Entity #%u", entity);
+        if (is_editor_locked) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "[Locked]");
+        }
+        if (!is_editor_visible) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.60f, 0.80f), "[Hidden in Scene View]");
+        }
     }
 
     ImGui::Separator();
@@ -243,7 +286,7 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         &m_property_transactions,
         &m_animation_preview,
         m_anim_studio,
-        is_locked_tilemap_collider
+        is_locked
     };
     ComponentRegistry& runtime_registry = default_component_registry();
     EditorComponentRegistry& editor_registry = default_editor_component_registry();
@@ -257,9 +300,17 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
     // --- Bottom Add Component Popup ---
     ImGui::Spacing();
+    if (is_editor_locked) {
+        ImGui::BeginDisabled();
+    }
     const std::string add_component_label = editor_icon_label(EditorIcon::Plus, "Add Component...");
     if (ImGui::Button(add_component_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
-        ImGui::OpenPopup("AddComponentPopup");
+        if (!is_editor_locked) {
+            ImGui::OpenPopup("AddComponentPopup");
+        }
+    }
+    if (is_editor_locked) {
+        ImGui::EndDisabled();
     }
 
     if (ImGui::BeginPopup("AddComponentPopup")) {

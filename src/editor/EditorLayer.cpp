@@ -1,6 +1,7 @@
 #include "EditorLayer.hpp"
 #include "EditorTheme.hpp"
 #include "EditorSelection.hpp"
+#include "state/EditorEntityStateStore.hpp"
 #include "commands/EditorCommandHistory.hpp"
 #include "commands/EntityCommands.hpp"
 #include "commands/HierarchyCommands.hpp"
@@ -289,6 +290,9 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
         if (!fallback_session.command_history) {
             fallback_session.command_history = std::make_shared<EditorCommandHistory>();
         }
+        if (!fallback_session.entity_state_store) {
+            fallback_session.entity_state_store = std::make_shared<EditorEntityStateStore>();
+        }
         return fallback_session;
     }
 
@@ -297,6 +301,7 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
         EditorSceneSession session;
         session.command_history = std::make_shared<EditorCommandHistory>();
         session.command_history->reset_clean_baseline(0);
+        session.entity_state_store = std::make_shared<EditorEntityStateStore>();
 
         std::string scene_name = scene->get_name();
         if (scene_name.empty()) scene_name = default_name;
@@ -313,20 +318,29 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
     return it->second;
 }
 
-void EditorLayer::update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch) {
-    if (m_viewport_panel) m_viewport_panel->set_command_history(ch);
+void EditorLayer::update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store) {
+    if (m_viewport_panel) {
+        m_viewport_panel->set_command_history(ch);
+        m_viewport_panel->set_entity_state_store(store);
+    }
     for (auto& panel : m_panels) {
         if (!panel) continue;
         if (auto p = std::dynamic_pointer_cast<SceneHierarchyPanel>(panel)) {
             p->set_command_history(ch);
+            p->set_entity_state_store(store);
         } else if (auto p = std::dynamic_pointer_cast<InspectorPanel>(panel)) {
             p->set_command_history(ch);
+            p->set_entity_state_store(store);
         } else if (auto p = std::dynamic_pointer_cast<SpriteAnimationStudioPanel>(panel)) {
             p->set_command_history(ch);
         } else if (auto p = std::dynamic_pointer_cast<PostProcessTunerPanel>(panel)) {
             p->set_command_history(ch);
         }
     }
+}
+
+void EditorLayer::update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch) {
+    update_panel_sessions(ch, m_entity_state_store);
 }
 
 void EditorLayer::cleanup_stale_sessions() {
@@ -355,11 +369,15 @@ void EditorLayer::sync_active_scene_session() {
 
     cleanup_stale_sessions();
 
-    if (active_scene != m_last_active_scene || m_command_history == nullptr) {
+    if (active_scene != m_last_active_scene || m_command_history == nullptr || m_entity_state_store == nullptr) {
         m_last_active_scene = active_scene;
         auto& session = get_or_create_session(active_scene);
         m_command_history = session.command_history;
-        update_panel_command_histories(m_command_history);
+        m_entity_state_store = session.entity_state_store;
+        if (m_entity_state_store) {
+            m_entity_state_store->prune(active_scene->get_entity_manager());
+        }
+        update_panel_sessions(m_command_history, m_entity_state_store);
         update_window_title();
     }
 }
@@ -534,6 +552,9 @@ bool EditorLayer::discard_active_scene_changes() {
         ENGINE_LOG_INFO("[EDITOR] Discarded changes, restored scene '{}' to initial snapshot", active_scene->get_name());
     } else {
         session.command_history->reset_clean_baseline(0);
+    }
+    if (session.entity_state_store) {
+        session.entity_state_store->prune(active_scene->get_entity_manager());
     }
     update_window_title();
     return true;

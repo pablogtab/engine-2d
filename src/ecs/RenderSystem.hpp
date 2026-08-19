@@ -8,6 +8,7 @@
 #include "../scene/SpatialGrid.hpp"
 #include "../core/AssetManager.hpp"
 #include "../tilemap/Tilemap.hpp"
+#include "../renderer/IEntityRenderFilter.hpp"
 #include <algorithm>
 #include <vector>
 
@@ -16,13 +17,18 @@ namespace Engine {
 class RenderSystem {
 public:
     // Render all entities possessing TransformComponent and SpriteComponent with 0-overhead Spatial Grid & Top-Down visibility
-    static void render(EntityManager& entity_manager, Renderer2D& renderer) {
+    static void render(
+        EntityManager& entity_manager,
+        Renderer2D& renderer,
+        const IEntityRenderFilter* visibility_filter = nullptr
+    ) {
         // Step 1: Re-populate Spatial Hash Grid with living renderable entities
         static SpatialGrid s_spatial_grid(256.0f);
         s_spatial_grid.clear();
 
         entity_manager.for_each<TransformComponent, SpriteComponent>(
-            [](EntityID id, const TransformComponent& transform, const SpriteComponent& sprite) {
+            [visibility_filter](EntityID id, const TransformComponent& transform, const SpriteComponent& sprite) {
+                if (visibility_filter && !visibility_filter->should_render(id)) return;
                 if (transform.world_visible && sprite.visible && sprite.texture) {
                     s_spatial_grid.insert(id, transform.world_position, sprite.size * transform.world_scale);
                 }
@@ -42,6 +48,7 @@ public:
             visible_candidates.erase(std::unique(visible_candidates.begin(), visible_candidates.end()), visible_candidates.end());
 
             for (EntityID id : visible_candidates) {
+                if (visibility_filter && !visibility_filter->should_render(id)) continue;
                 if (!entity_manager.has_component<TransformComponent>(id) || !entity_manager.has_component<SpriteComponent>(id)) continue;
                 const auto& transform = entity_manager.get_component<TransformComponent>(id);
                 const auto& sprite = entity_manager.get_component<SpriteComponent>(id);
@@ -54,7 +61,8 @@ public:
         } else {
             // Fallback for un-camera-bound rendering
             entity_manager.for_each<TransformComponent, SpriteComponent>(
-                [&renderer](EntityID id, const TransformComponent& transform, const SpriteComponent& sprite) {
+                [&renderer, visibility_filter](EntityID id, const TransformComponent& transform, const SpriteComponent& sprite) {
+                    if (visibility_filter && !visibility_filter->should_render(id)) return;
                     if (!transform.world_visible || !sprite.visible || !sprite.texture) return;
 
                     const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
@@ -65,7 +73,8 @@ public:
 
         // Step 3: Render Tilemap Grid Components
         entity_manager.for_each<TransformComponent, TilemapComponent>(
-            [&renderer](EntityID id, const TransformComponent& transform, const TilemapComponent& tilemap) {
+            [&renderer, visibility_filter](EntityID id, const TransformComponent& transform, const TilemapComponent& tilemap) {
+                if (visibility_filter && !visibility_filter->should_render(id)) return;
                 if (!transform.world_visible || tilemap.empty()) return;
 
                 Texture* tex = tilemap.tileset_texture;

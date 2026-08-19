@@ -32,6 +32,8 @@ public:
     void set_selection(std::shared_ptr<EditorSelection> selection) { m_selection = selection; }
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
     void set_command_history(std::shared_ptr<EditorCommandHistory> command_history) { m_command_history = command_history; }
+    void set_entity_state_store(std::shared_ptr<class EditorEntityStateStore> store) { m_entity_state_store = store; }
+    [[nodiscard]] std::shared_ptr<class EditorEntityStateStore> get_entity_state_store() const { return m_entity_state_store; }
     void set_animation_studio(class SpriteAnimationStudioPanel* studio) { m_anim_studio = studio; }
 
 private:
@@ -43,6 +45,7 @@ private:
     SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
+    std::shared_ptr<class EditorEntityStateStore> m_entity_state_store{nullptr};
     EditorPropertyTransaction m_property_transactions;
     AnimationPreviewState m_animation_preview;
     SDL_Renderer* m_renderer{nullptr};

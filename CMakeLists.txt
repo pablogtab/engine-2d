@@ -86,8 +86,10 @@ set(SOURCES
     src/editor/tools/ViewportColliderOverlay.cpp
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
+    src/editor/state/EditorEntityStateStore.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
+    src/editor/commands/EditorEntityStateCommands.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp
     src/editor/commands/ProjectSettingsCommands.cpp
@@ -201,6 +203,7 @@ add_executable(InspectorCommandTests
     src/core/AssetManager.cpp
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
+    src/editor/state/EditorEntityStateStore.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EntityCommands.cpp
@@ -241,6 +244,20 @@ target_include_directories(EntityManagerTests PRIVATE
 target_link_libraries(EntityManagerTests PRIVATE glm::glm)
 add_test(NAME EntityManagerTests COMMAND EntityManagerTests)
 
+add_executable(EditorEntityStateStoreTests
+    tests/EditorEntityStateStoreTests.cpp
+    src/core/Log.cpp
+    src/ecs/EntityManager.cpp
+    src/editor/state/EditorEntityStateStore.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EditorEntityStateCommands.cpp
+)
+target_include_directories(EditorEntityStateStoreTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(EditorEntityStateStoreTests PRIVATE glm::glm)
+add_test(NAME EditorEntityStateStoreTests COMMAND EditorEntityStateStoreTests)
+
 add_executable(HierarchyCommandTests
     tests/HierarchyCommandTests.cpp
     src/core/AssetManager.cpp
@@ -250,6 +267,8 @@ add_executable(HierarchyCommandTests
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp
+    src/editor/commands/EditorEntityStateCommands.cpp
+    src/editor/state/EditorEntityStateStore.cpp
     src/renderer/Texture.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
@@ -266,6 +285,28 @@ target_include_directories(HierarchyCommandTests PRIVATE
 )
 target_link_libraries(HierarchyCommandTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME HierarchyCommandTests COMMAND HierarchyCommandTests)
+
+add_executable(ViewportVisibilityTests
+    tests/ViewportVisibilityTests.cpp
+    src/core/Log.cpp
+    src/ecs/EntityManager.cpp
+    src/editor/state/EditorEntityStateStore.cpp
+    src/editor/tools/ViewportSelectionTool.cpp
+    src/scene/Camera2D.cpp
+    src/renderer/Texture.cpp
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
+    vendor/stb/stb_impl.cpp
+)
+target_include_directories(ViewportVisibilityTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+)
+target_link_libraries(ViewportVisibilityTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME ViewportVisibilityTests COMMAND ViewportVisibilityTests)
 
 add_executable(SceneSerializerTests
     tests/SceneSerializerTests.cpp

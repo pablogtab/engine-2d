@@ -11,6 +11,8 @@
 
 namespace Engine {
 
+class EditorEntityStateStore;
+
 class ReparentEntityCommand final : public IEditorCommand {
 public:
     ReparentEntityCommand(
@@ -18,7 +20,8 @@ public:
         EntityID entity,
         EntityID new_parent,
         std::shared_ptr<EditorSelection> selection = nullptr,
-        std::string custom_description = ""
+        std::string custom_description = "",
+        const EditorEntityStateStore* state_store = nullptr
     );
 
     bool execute() override;
@@ -54,7 +57,8 @@ public:
         EntityManager* em,
         std::shared_ptr<EditorSelection> selection,
         const std::vector<EntityID>& selected_entities,
-        std::string group_name = "Group"
+        std::string group_name = "Group",
+        const EditorEntityStateStore* state_store = nullptr
     );
 
     bool execute() override;
@@ -96,7 +100,8 @@ public:
     UngroupEntitiesCommand(
         EntityManager* em,
         std::shared_ptr<EditorSelection> selection,
-        const std::vector<EntityID>& target_entities
+        const std::vector<EntityID>& target_entities,
+        const EditorEntityStateStore* state_store = nullptr
     );
 
     bool execute() override;

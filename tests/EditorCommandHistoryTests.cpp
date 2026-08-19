@@ -254,6 +254,67 @@ void test_clear_preserving_dirty_state_vs_reset_baseline() {
     assert(!history.is_dirty());
 }
 
+void test_editor_session_commands_do_not_modify_revisions() {
+    class SessionCommand final : public IEditorCommand {
+    public:
+        SessionCommand(bool& target) : m_target(target) {}
+        bool execute() override { m_target = true; return true; }
+        bool undo() override { m_target = false; return true; }
+        [[nodiscard]] std::string get_description() const override { return "Session Command"; }
+        [[nodiscard]] EditorCommandScope get_scope() const override { return EditorCommandScope::EditorSession; }
+    private:
+        bool& m_target;
+    };
+
+    bool flag = false;
+    EditorCommandHistory history;
+    history.reset_clean_baseline(0);
+    assert(!history.is_dirty());
+    assert(history.get_current_revision() == 0);
+
+    // Execute EditorSession command
+    history.execute_command(std::make_unique<SessionCommand>(flag));
+    assert(flag == true);
+    assert(history.get_undo_count() == 1);
+    assert(history.get_current_revision() == 0);
+    assert(!history.is_dirty()); // Does NOT dirty the scene
+
+    // Undo EditorSession command
+    assert(history.can_undo());
+    history.undo();
+    assert(flag == false);
+    assert(history.get_current_revision() == 0);
+    assert(!history.is_dirty());
+
+    // Redo EditorSession command
+    assert(history.can_redo());
+    history.redo();
+    assert(flag == true);
+    assert(history.get_current_revision() == 0);
+    assert(!history.is_dirty());
+
+    // Now mix with an Authoring command
+    int val = 0;
+    history.execute_command(std::make_unique<SetIntegerCommand>(val, 0, 10, "Authoring Cmd"));
+    assert(history.get_current_revision() == 1);
+    assert(history.is_dirty());
+
+    // Execute another Session command
+    history.execute_command(std::make_unique<SessionCommand>(flag));
+    assert(history.get_current_revision() == 1); // Stays at 1
+    assert(history.is_dirty());
+
+    // Undo session cmd
+    history.undo();
+    assert(history.get_current_revision() == 1); // Stays at 1
+    assert(history.is_dirty());
+
+    // Undo authoring cmd
+    history.undo();
+    assert(history.get_current_revision() == 0);
+    assert(!history.is_dirty()); // Back to clean baseline!
+}
+
 } // namespace
 
 int main() {
@@ -269,6 +330,7 @@ int main() {
     test_dirty_state_undo_and_redo_revisions();
     test_dirty_state_branching_history();
     test_clear_preserving_dirty_state_vs_reset_baseline();
+    test_editor_session_commands_do_not_modify_revisions();
     std::cout << "EditorCommandHistoryTests passed\n";
     return 0;
 }

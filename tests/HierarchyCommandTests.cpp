@@ -4,6 +4,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/commands/HierarchyCommands.hpp"
+#include "editor/state/EditorEntityStateStore.hpp"
 #include <cassert>
 #include <cmath>
 #include <iostream>
@@ -777,6 +778,171 @@ void test_group_execution_failure_no_partial_mutation() {
     std::cout << "test_group_execution_failure_no_partial_mutation passed." << std::endl;
 }
 
+void test_hierarchy_lock_validation() {
+    EntityManager em;
+    EditorEntityStateStore store;
+
+    EntityID parent = em.create_entity();
+    em.add_component<TransformComponent>(parent, TransformComponent{glm::vec3(10.0f, 0.0f, 0.0f)});
+
+    EntityID child = em.create_entity();
+    em.add_component<TransformComponent>(child, TransformComponent{glm::vec3(20.0f, 0.0f, 0.0f)});
+
+    // Child locked -> Reparent invalid
+    store.set_locked(child, true);
+    auto reparent_cmd1 = std::make_unique<ReparentEntityCommand>(&em, child, parent, nullptr, "", &store);
+    assert(!reparent_cmd1->is_valid());
+
+    // Unlock child, lock parent -> Reparent invalid
+    store.set_locked(child, false);
+    store.set_locked(parent, true);
+    auto reparent_cmd2 = std::make_unique<ReparentEntityCommand>(&em, child, parent, nullptr, "", &store);
+    assert(!reparent_cmd2->is_valid());
+
+    // Both unlocked -> Reparent valid
+    store.set_locked(parent, false);
+    auto reparent_cmd3 = std::make_unique<ReparentEntityCommand>(&em, child, parent, nullptr, "", &store);
+    assert(reparent_cmd3->is_valid());
+
+    // Grouping with locked entity
+    EntityID e1 = em.create_entity();
+    em.add_component<TransformComponent>(e1, TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
+    EntityID e2 = em.create_entity();
+    em.add_component<TransformComponent>(e2, TransformComponent{glm::vec3(5.0f, 0.0f, 0.0f)});
+
+    store.set_locked(e1, true);
+    auto group_cmd = std::make_unique<GroupSelectedEntitiesCommand>(&em, nullptr, std::vector<EntityID>{e1, e2}, "Group", &store);
+    assert(!group_cmd->is_valid());
+
+    store.set_locked(e1, false);
+    auto group_cmd_valid = std::make_unique<GroupSelectedEntitiesCommand>(&em, nullptr, std::vector<EntityID>{e1, e2}, "Group", &store);
+    assert(group_cmd_valid->is_valid());
+    assert(group_cmd_valid->execute());
+
+    EntityID group_id = group_cmd_valid->get_group_entity();
+    assert(group_id != 0);
+
+    // Ungrouping locked group
+    store.set_locked(group_id, true);
+    auto ungroup_cmd = std::make_unique<UngroupEntitiesCommand>(&em, nullptr, std::vector<EntityID>{group_id}, &store);
+    assert(!ungroup_cmd->is_valid());
+
+    store.set_locked(group_id, false);
+    auto ungroup_cmd_valid = std::make_unique<UngroupEntitiesCommand>(&em, nullptr, std::vector<EntityID>{group_id}, &store);
+    assert(ungroup_cmd_valid->is_valid());
+    assert(ungroup_cmd_valid->execute());
+
+    std::cout << "test_hierarchy_lock_validation passed." << std::endl;
+}
+
+void test_delete_blocks_locked_descendants_and_restores_metadata() {
+    EntityManager em;
+    EditorEntityStateStore store;
+    EditorCommandHistory history;
+
+    EntityID parent = em.create_entity();
+    em.add_component<TagComponent>(parent, TagComponent{"Parent"});
+    em.add_component<TransformComponent>(parent, TransformComponent{});
+
+    EntityID child = em.create_entity();
+    em.add_component<TagComponent>(child, TagComponent{"Child"});
+    em.add_component<TransformComponent>(child, TransformComponent{});
+    assert(em.set_parent(child, parent).succeeded());
+
+    // 1. Child is locked -> attempting to delete parent must fail atomically
+    store.set_locked(child, true);
+    auto delete_locked_child_cmd = std::make_unique<DeleteEntitiesCommand>(&em, nullptr, std::vector<EntityID>{parent}, &store);
+    assert(!delete_locked_child_cmd->is_valid());
+
+    // 2. Child is unlocked, parent and child are hidden in editor
+    store.set_locked(child, false);
+    store.set_visible(parent, false);
+    store.set_visible(child, false);
+    assert(!store.is_visible(parent));
+    assert(!store.is_visible(child));
+
+    // Execute Delete on both parent and child
+    auto delete_cmd = std::make_unique<DeleteEntitiesCommand>(&em, nullptr, std::vector<EntityID>{parent, child}, &store);
+    assert(delete_cmd->is_valid());
+    history.execute_command(std::move(delete_cmd));
+
+    assert(!em.is_alive(parent));
+    assert(!em.is_alive(child));
+    assert(store.is_visible(parent)); // Reset/removed from store upon delete
+    assert(store.is_visible(child));
+
+    // 3. Undo Delete -> entities and editor metadata are restored
+    assert(history.can_undo());
+    history.undo();
+    assert(em.is_alive(parent));
+    assert(em.is_alive(child));
+    assert(em.get_component<HierarchyComponent>(child).parent == parent);
+    assert(!store.is_visible(parent)); // Metadata accurately restored!
+    assert(!store.is_visible(child));
+
+    // 4. Redo Delete
+    assert(history.can_redo());
+    history.redo();
+    assert(!em.is_alive(parent));
+    assert(!em.is_alive(child));
+
+    std::cout << "test_delete_blocks_locked_descendants_and_restores_metadata passed." << std::endl;
+}
+
+void test_delete_parent_recursively_deletes_entire_subtree_and_restores_on_undo() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+    EditorEntityStateStore store;
+    auto selection = std::make_shared<EditorSelection>();
+
+    EntityID parent = em.create_entity();
+    em.add_component<TransformComponent>(parent, TransformComponent{glm::vec3(0.0f)});
+    em.add_component<TagComponent>(parent, TagComponent{"Parent"});
+
+    EntityID child = em.create_entity();
+    em.add_component<TransformComponent>(child, TransformComponent{glm::vec3(10.0f)});
+    em.add_component<TagComponent>(child, TagComponent{"Child"});
+    assert(em.set_parent(child, parent).succeeded());
+
+    EntityID grandchild = em.create_entity();
+    em.add_component<TransformComponent>(grandchild, TransformComponent{glm::vec3(20.0f)});
+    em.add_component<TagComponent>(grandchild, TagComponent{"Grandchild"});
+    assert(em.set_parent(grandchild, child).succeeded());
+
+    // Mark child as hidden in editor
+    store.set_visible(child, false);
+    assert(!store.is_visible(child));
+
+    // Delete the parent node
+    history.execute_command(std::make_unique<DeleteEntitiesCommand>(&em, selection, std::vector<EntityID>{parent}, &store));
+
+    // Parent, child and grandchild are ALL recursively destroyed
+    assert(!em.is_alive(parent));
+    assert(!em.is_alive(child));
+    assert(!em.is_alive(grandchild));
+
+    // Undo delete
+    assert(history.can_undo());
+    history.undo();
+
+    // All are restored with intact hierarchy connections and metadata
+    assert(em.is_alive(parent));
+    assert(em.is_alive(child));
+    assert(em.is_alive(grandchild));
+    assert(em.get_component<HierarchyComponent>(child).parent == parent);
+    assert(em.get_component<HierarchyComponent>(grandchild).parent == child);
+    assert(!store.is_visible(child)); // Metadata intact!
+
+    // Redo delete
+    assert(history.can_redo());
+    history.redo();
+    assert(!em.is_alive(parent));
+    assert(!em.is_alive(child));
+    assert(!em.is_alive(grandchild));
+
+    std::cout << "test_delete_parent_recursively_deletes_entire_subtree_and_restores_on_undo passed." << std::endl;
+}
+
 int main() {
     test_reparent_preserves_world_transform();
     test_unparent_preserves_world_transform();
@@ -799,6 +965,9 @@ int main() {
     test_ungroup_redo_cycle();
     test_ungroup_multiple_and_nested_groups_undo_redo();
     test_group_execution_failure_no_partial_mutation();
+    test_hierarchy_lock_validation();
+    test_delete_blocks_locked_descendants_and_restores_metadata();
+    test_delete_parent_recursively_deletes_entire_subtree_and_restores_on_undo();
 
     std::cout << "All HierarchyCommandTests passed successfully!" << std::endl;
     return 0;

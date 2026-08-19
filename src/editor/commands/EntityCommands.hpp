@@ -7,6 +7,7 @@
 #include "../../tilemap/Tilemap.hpp"
 #include "../../scene/ComponentRegistry.hpp"
 #include "../EditorSelection.hpp"
+#include "../state/EditorEntityStateStore.hpp"
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <vector>
@@ -94,6 +95,8 @@ private:
     SideEffect m_side_effect;
 };
 
+class EditorEntityStateStore;
+
 // Complete transform snapshot for reversible viewport gestures.
 class TransformEntitiesCommand : public IEditorCommand {
 public:
@@ -101,12 +104,14 @@ public:
         EntityManager* em,
         std::unordered_map<EntityID, TransformComponent> before,
         std::unordered_map<EntityID, TransformComponent> after,
-        std::string description
+        std::string description,
+        const EditorEntityStateStore* state_store = nullptr
     );
 
     bool execute() override;
     bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
 
 private:
     bool apply(const std::unordered_map<EntityID, TransformComponent>& states);
@@ -115,6 +120,7 @@ private:
     std::unordered_map<EntityID, TransformComponent> m_before;
     std::unordered_map<EntityID, TransformComponent> m_after;
     std::string m_description;
+    bool m_valid{true};
 };
 
 class SetPrimaryCameraCommand final : public IEditorCommand {
@@ -182,18 +188,23 @@ public:
     DeleteEntitiesCommand(
         EntityManager* em,
         std::shared_ptr<EditorSelection> selection,
-        std::vector<EntityID> entities_to_delete
+        std::vector<EntityID> entities_to_delete,
+        EditorEntityStateStore* state_store = nullptr
     );
 
     bool execute() override;
     bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
 
 private:
     EntityManager* m_em{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
+    EditorEntityStateStore* m_state_store{nullptr};
     std::vector<EntitySnapshot> m_snapshots;
+    std::unordered_map<EntityID, struct EditorEntityState> m_editor_states;
     std::string m_description{"Delete Entities"};
+    bool m_valid{true};
 };
 
 // 3. Create Entity Command
@@ -202,13 +213,15 @@ public:
     CreateEntityCommand(
         EntityManager* em,
         std::shared_ptr<EditorSelection> selection,
-        EntitySnapshot snapshot
+        EntitySnapshot snapshot,
+        const EditorEntityStateStore* state_store = nullptr
     );
 
     bool execute() override;
     bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
     [[nodiscard]] EntityID get_created_entity() const { return m_created_id; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
 
 private:
     EntityManager* m_em{nullptr};
@@ -216,6 +229,7 @@ private:
     EntitySnapshot m_snapshot;
     EntityID m_created_id{0};
     std::string m_description{"Create Entity"};
+    bool m_valid{true};
 };
 
 // Reversible viewport duplication. Full snapshots keep the operation forward
@@ -225,12 +239,14 @@ public:
     DuplicateEntitiesCommand(
         EntityManager* em,
         std::shared_ptr<EditorSelection> selection,
-        std::vector<EntityID> source_entities
+        std::vector<EntityID> source_entities,
+        const EditorEntityStateStore* state_store = nullptr
     );
 
     bool execute() override;
     bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
 
 private:
     EntityManager* m_em{nullptr};
@@ -239,6 +255,7 @@ private:
     std::vector<std::unique_ptr<CreateEntityCommand>> m_create_commands;
     std::vector<EntityID> m_duplicate_entities;
     std::string m_description{"Duplicate Entities"};
+    bool m_valid{true};
 };
 
 // 4. Paint Tiles Command (Tilemap Brush, Eraser, and Box Fill with Undo/Redo)

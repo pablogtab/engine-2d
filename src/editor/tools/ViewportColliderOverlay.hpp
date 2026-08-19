@@ -7,6 +7,8 @@
 
 namespace Engine {
 
+class EditorEntityVisibilityFilter;
+
 // Session-only collider visualization. Selected colliders remain visible like
 // Unity gizmos; debug mode additionally reveals every collider in the scene.
 class ViewportColliderOverlay {
@@ -22,7 +24,8 @@ public:
         const ImVec2& image_min,
         const ImVec2& image_size,
         const ImVec2& uv_min,
-        const ImVec2& uv_max
+        const ImVec2& uv_max,
+        const EditorEntityVisibilityFilter* visibility_filter = nullptr
     ) const;
 
 private:

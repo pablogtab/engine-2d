@@ -7,6 +7,7 @@
 #include "../ecs/CameraSystem.hpp"
 #include "../ecs/RenderSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
+#include "../renderer/IEntityRenderFilter.hpp"
 #include <algorithm>
 
 namespace Engine {
@@ -234,7 +235,8 @@ void GenericScene::on_render(Renderer2D& renderer) {
     renderer.begin_scene(active_cam);
 
     // Centralized rendering for Sprites, Tilemaps, and Outlines
-    RenderSystem::render(m_entity_manager, renderer);
+    const IEntityRenderFilter* filter = m_is_editing ? m_render_filter : nullptr;
+    RenderSystem::render(m_entity_manager, renderer, filter);
 
     renderer.end_scene();
 }

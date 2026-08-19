@@ -1,4 +1,5 @@
 #include "ViewportColliderOverlay.hpp"
+#include "EditorEntityVisibilityFilter.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../physics/ColliderGeometry.hpp"
@@ -29,7 +30,8 @@ void ViewportColliderOverlay::render(
     const ImVec2& image_min,
     const ImVec2& image_size,
     const ImVec2& uv_min,
-    const ImVec2& uv_max
+    const ImVec2& uv_max,
+    const EditorEntityVisibilityFilter* visibility_filter
 ) const {
     if (image_size.x <= 0.0f || image_size.y <= 0.0f) return;
     const float uv_width = uv_max.x - uv_min.x;
@@ -56,6 +58,7 @@ void ViewportColliderOverlay::render(
 
     entity_manager.for_each<TransformComponent, ColliderComponent>(
         [&](EntityID id, const TransformComponent& transform, const ColliderComponent& collider) {
+            if (visibility_filter && !visibility_filter->should_render(id)) return;
             if (!transform.world_visible) return;
             const bool selected = selection && selection->is_selected(id);
             if (!m_show_all && !selected) return;

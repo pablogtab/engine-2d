@@ -22,8 +22,9 @@ void EditorCommandHistory::push_executed_command(std::unique_ptr<IEditorCommand>
     // Clear redo stack on any new action
     m_redo_stack.clear();
 
+    const bool is_authoring = (command->get_scope() == EditorCommandScope::Authoring);
     const uint64_t before_rev = m_current_revision;
-    const uint64_t after_rev = ++m_revision_counter;
+    const uint64_t after_rev = is_authoring ? ++m_revision_counter : m_current_revision;
     m_current_revision = after_rev;
 
     m_undo_stack.push_back(HistoryEntry{

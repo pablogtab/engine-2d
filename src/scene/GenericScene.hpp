@@ -48,6 +48,9 @@ public:
     void set_is_editing(bool is_editing) override { m_is_editing = is_editing; }
     [[nodiscard]] bool is_editing() const override { return m_is_editing; }
 
+    void set_render_filter(const class IEntityRenderFilter* filter) { m_render_filter = filter; }
+    [[nodiscard]] const class IEntityRenderFilter* get_render_filter() const { return m_render_filter; }
+
 private:
     void synchronize_game_camera(float delta_time, bool reset_controller);
 
@@ -55,6 +58,7 @@ private:
     Camera2D m_editor_camera;
     CameraController2D m_camera_controller;
     EntityID m_active_camera_entity{0};
+    const class IEntityRenderFilter* m_render_filter{nullptr};
     bool m_physics_enabled{true};
     bool m_show_debug_colliders{false};
     bool m_is_editing{true};

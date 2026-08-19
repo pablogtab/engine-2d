@@ -8,6 +8,8 @@
 
 namespace Engine {
 
+class EditorEntityVisibilityFilter;
+
 class ViewportSelectionTool {
 public:
     ViewportSelectionTool() = default;
@@ -18,7 +20,8 @@ public:
         const EditorSelection& selection,
         const Camera2D& camera,
         const ImVec2& img_min,
-        const ImVec2& img_size
+        const ImVec2& img_size,
+        const EditorEntityVisibilityFilter* visibility_filter = nullptr
     );
 
     // Handles Marquee Box Selection (Crossing vs Shift Strict) and Raycast Picking
@@ -29,12 +32,18 @@ public:
         const ImVec2& img_min,
         const ImVec2& img_size,
         bool is_viewport_hovered,
-        bool is_gizmo_active
+        bool is_gizmo_active,
+        const EditorEntityVisibilityFilter* visibility_filter = nullptr
     );
 
     // Shared with the Viewport context menu so left-click selection and
     // right-click contextual actions resolve the same transformed geometry.
-    [[nodiscard]] EntityID pick_entity(EntityManager& em, const glm::vec2& world_position, const Camera2D* view_camera = nullptr) const;
+    [[nodiscard]] EntityID pick_entity(
+        EntityManager& em,
+        const glm::vec2& world_position,
+        const Camera2D* view_camera = nullptr,
+        const EditorEntityVisibilityFilter* visibility_filter = nullptr
+    ) const;
     void set_camera_output_size(const glm::vec2& size) { m_camera_output_size = glm::max(size, glm::vec2(1.0f)); }
 
     [[nodiscard]] bool is_box_selecting() const { return m_is_box_selecting; }

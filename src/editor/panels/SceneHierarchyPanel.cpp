@@ -1,7 +1,10 @@
 #include "SceneHierarchyPanel.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
+#include "../commands/EditorEntityStateCommands.hpp"
+#include "../state/EditorEntityStateStore.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
+#include "../tools/EditorIcons.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
@@ -107,10 +110,10 @@ void SceneHierarchyPanel::on_gui() {
                     if (em.is_alive(dropped_id)) {
                         if (m_command_history) {
                             m_command_history->execute_command(
-                                std::make_unique<ReparentEntityCommand>(&em, dropped_id, 0, m_selection)
+                                std::make_unique<ReparentEntityCommand>(&em, dropped_id, 0, m_selection, "", m_entity_state_store.get())
                             );
                         } else {
-                            ReparentEntityCommand cmd(&em, dropped_id, 0, m_selection);
+                            ReparentEntityCommand cmd(&em, dropped_id, 0, m_selection, "", m_entity_state_store.get());
                             cmd.execute();
                         }
                     }
@@ -121,7 +124,7 @@ void SceneHierarchyPanel::on_gui() {
 
         // Right-click on empty area in tree window
         if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-            if (ImGui::MenuItem("➕ Add Entity (Root)")) {
+            if (ImGui::MenuItem("Add Entity (Root)")) {
                 create_entity_helper(em, 0);
             }
             ImGui::EndPopup();
@@ -231,7 +234,7 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         }
     }
 
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth;
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
     if (has_children) {
         flags |= ImGuiTreeNodeFlags_OpenOnArrow;
         if (!filter_str.empty()) {
@@ -245,9 +248,31 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         flags |= ImGuiTreeNodeFlags_Selected;
     }
 
-    bool node_open = ImGui::TreeNodeEx((void*)(uintptr_t)id, flags, "%s", name.c_str());
+    const bool is_locked = m_entity_state_store && m_entity_state_store->is_locked(id);
+    const bool is_visible = !m_entity_state_store || m_entity_state_store->is_visible(id);
+    bool is_ancestor_hidden = false;
+    if (m_entity_state_store && em.has_component<HierarchyComponent>(id)) {
+        EntityID curr = em.get_component<HierarchyComponent>(id).parent;
+        while (curr != 0 && em.is_alive(curr)) {
+            if (!m_entity_state_store->is_visible(curr)) {
+                is_ancestor_hidden = true;
+                break;
+            }
+            if (!em.has_component<HierarchyComponent>(curr)) break;
+            curr = em.get_component<HierarchyComponent>(curr).parent;
+        }
+    }
+    const bool is_effectively_visible = is_visible && !is_ancestor_hidden;
 
-    // Single click / multi-click selection
+    if (!is_effectively_visible) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.60f, 0.55f));
+    }
+    bool node_open = ImGui::TreeNodeEx((void*)(uintptr_t)id, flags, "%s", name.c_str());
+    if (!is_effectively_visible) {
+        ImGui::PopStyleColor();
+    }
+
+    // Single click / multi-click selection on the tree node item
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
         if (m_selection) {
             m_selection->select(id, is_multi_key);
@@ -268,10 +293,10 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             if (em.is_alive(dropped_id) && dropped_id != id && !is_descendant(em, id, dropped_id)) {
                 if (m_command_history) {
                     m_command_history->execute_command(
-                        std::make_unique<ReparentEntityCommand>(&em, dropped_id, id, m_selection)
+                        std::make_unique<ReparentEntityCommand>(&em, dropped_id, id, m_selection, "", m_entity_state_store.get())
                     );
                 } else {
-                    ReparentEntityCommand cmd(&em, dropped_id, id, m_selection);
+                    ReparentEntityCommand cmd(&em, dropped_id, id, m_selection, "", m_entity_state_store.get());
                     cmd.execute();
                 }
             }
@@ -285,33 +310,33 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             m_selection->select(id, false);
         }
 
-        if (ImGui::MenuItem("➕ Add Child Entity (Sprite)")) {
+        if (ImGui::MenuItem("Add Child Entity (Sprite)", nullptr, false, !is_locked)) {
             create_entity_helper(em, id);
         }
-        if (ImGui::MenuItem("🗺️ Add Child Tilemap")) {
+        if (ImGui::MenuItem("Add Child Tilemap", nullptr, false, !is_locked)) {
             create_tilemap_helper(em, id);
         }
 
         bool has_parent = em.has_component<HierarchyComponent>(id) && (em.get_component<HierarchyComponent>(id).parent != 0);
-        if (has_parent && ImGui::MenuItem("⤴️ Unparent (Move to Root)")) {
+        if (has_parent && ImGui::MenuItem("Unparent (Move to Root)", nullptr, false, !is_locked)) {
             if (m_command_history) {
                 m_command_history->execute_command(
-                    std::make_unique<ReparentEntityCommand>(&em, id, 0, m_selection)
+                    std::make_unique<ReparentEntityCommand>(&em, id, 0, m_selection, "", m_entity_state_store.get())
                 );
             } else {
-                ReparentEntityCommand cmd(&em, id, 0, m_selection);
+                ReparentEntityCommand cmd(&em, id, 0, m_selection, "", m_entity_state_store.get());
                 cmd.execute();
             }
         }
 
         if (m_selection && !m_selection->empty()) {
             std::string group_label = m_selection->count() > 1
-                ? "📁 Group Selection (" + std::to_string(m_selection->count()) + ")"
-                : "📁 Group Selection";
-            if (ImGui::MenuItem(group_label.c_str(), "Cmd+G")) {
+                ? "Group Selection (" + std::to_string(m_selection->count()) + ")"
+                : "Group Selection";
+            if (ImGui::MenuItem(group_label.c_str(), "Cmd+G", false, !is_locked)) {
                 std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
                 if (m_command_history) {
-                    m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, selected_vec));
+                    m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, selected_vec, "Group", m_entity_state_store.get()));
                 }
             }
 
@@ -322,17 +347,44 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
                     break;
                 }
             }
-            if (has_group && ImGui::MenuItem("📂 Ungroup", "Cmd+Shift+G")) {
+            if (has_group && ImGui::MenuItem("Ungroup", "Cmd+Shift+G", false, !is_locked)) {
                 std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
                 if (m_command_history) {
-                    m_command_history->execute_command(std::make_unique<UngroupEntitiesCommand>(&em, m_selection, selected_vec));
+                    m_command_history->execute_command(std::make_unique<UngroupEntitiesCommand>(&em, m_selection, selected_vec, m_entity_state_store.get()));
                 }
             }
         }
 
         ImGui::Separator();
+        if (ImGui::MenuItem(is_locked ? "Unlock Selected" : "Lock Selected")) {
+            std::vector<EntityID> entities = (m_selection && m_selection->is_selected(id))
+                ? std::vector<EntityID>(m_selection->get_selected().begin(), m_selection->get_selected().end())
+                : std::vector<EntityID>{id};
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
+                    &em, m_entity_state_store, EditorEntityStateField::Locked, entities, !is_locked
+                ));
+            } else if (m_entity_state_store) {
+                for (EntityID e : entities) m_entity_state_store->set_locked(e, !is_locked);
+            }
+        }
 
-        if (ImGui::MenuItem("🗑️ Delete Entity")) {
+        if (ImGui::MenuItem(is_visible ? "Hide Selected in Scene View" : "Show Selected in Scene View")) {
+            std::vector<EntityID> entities = (m_selection && m_selection->is_selected(id))
+                ? std::vector<EntityID>(m_selection->get_selected().begin(), m_selection->get_selected().end())
+                : std::vector<EntityID>{id};
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
+                    &em, m_entity_state_store, EditorEntityStateField::VisibleInEditor, entities, !is_visible
+                ));
+            } else if (m_entity_state_store) {
+                for (EntityID e : entities) m_entity_state_store->set_visible(e, !is_visible);
+            }
+        }
+
+        ImGui::Separator();
+
+        if (ImGui::MenuItem("Delete Entity", nullptr, false, !is_locked)) {
             std::vector<EntityID> to_delete;
             if (m_selection) {
                 for (EntityID s_id : m_selection->get_selected()) to_delete.push_back(s_id);
@@ -341,13 +393,49 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             }
 
             if (m_command_history) {
-                m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete));
+                m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete, m_entity_state_store.get()));
             } else {
                 for (EntityID s_id : to_delete) em.destroy_entity(s_id);
                 if (m_selection) m_selection->clear();
             }
         }
         ImGui::EndPopup();
+    }
+
+    // Draw Lock and Visibility Icon Buttons right-aligned on the row
+    float right_margin = ImGui::GetWindowContentRegionMax().x - 42.0f;
+    ImGui::SameLine(std::max(right_margin, 20.0f));
+
+    // Visibility toggle: Visible (eye) vs Hidden (eye-off)
+    const EditorIcon eye_icon = is_effectively_visible ? EditorIcon::Visible : EditorIcon::Hidden;
+    const char* eye_tooltip = !is_visible
+        ? "Hidden in Scene View (Click to Show)"
+        : (is_ancestor_hidden ? "Hidden by Ancestor in Scene View (Click to Hide Self)" : "Visible in Scene View (Click to Hide)");
+    const std::string eye_id = "##eye_" + std::to_string(id);
+    if (editor_icon_button(eye_id.c_str(), eye_icon, eye_tooltip, !is_effectively_visible, ImVec2(16.0f, 16.0f))) {
+        if (m_command_history) {
+            m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
+                &em, m_entity_state_store, EditorEntityStateField::VisibleInEditor, id, !is_visible
+            ));
+        } else if (m_entity_state_store) {
+            m_entity_state_store->set_visible(id, !is_visible);
+        }
+    }
+
+    ImGui::SameLine(0.0f, 2.0f);
+
+    // Lock toggle: Lock (locked) vs Unlock (unlocked)
+    const EditorIcon lock_icon = is_locked ? EditorIcon::Lock : EditorIcon::Unlock;
+    const char* lock_tooltip = is_locked ? "Entity Locked (Click to Unlock)" : "Entity Unlocked (Click to Lock)";
+    const std::string lock_id = "##lock_" + std::to_string(id);
+    if (editor_icon_button(lock_id.c_str(), lock_icon, lock_tooltip, is_locked, ImVec2(16.0f, 16.0f))) {
+        if (m_command_history) {
+            m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
+                &em, m_entity_state_store, EditorEntityStateField::Locked, id, !is_locked
+            ));
+        } else if (m_entity_state_store) {
+            m_entity_state_store->set_locked(id, !is_locked);
+        }
     }
 
     // Render Children recursively if tree node is expanded
@@ -365,6 +453,11 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 }
 
 void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID parent_id) {
+    if (parent_id != 0 && m_entity_state_store && m_entity_state_store->is_locked(parent_id)) {
+        ENGINE_LOG_WARN("[HIERARCHY] Cannot create child entity under locked parent #{}", parent_id);
+        return;
+    }
+
     EntitySnapshot snap;
     snap.registered_components.set(TagComponent{parent_id == 0 ? "New_Entity" : "Child_Entity"});
     snap.registered_components.set(TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
@@ -379,7 +472,7 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
     }
 
     if (m_command_history) {
-        m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, snap));
+        m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, snap, m_entity_state_store.get()));
     } else {
         EntityID new_id = em.create_entity();
         default_component_registry().restore_entity(em, new_id, snap.registered_components);
@@ -414,6 +507,11 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
 }
 
 void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID parent_id) {
+    if (parent_id != 0 && m_entity_state_store && m_entity_state_store->is_locked(parent_id)) {
+        ENGINE_LOG_WARN("[HIERARCHY] Cannot create child tilemap under locked parent #{}", parent_id);
+        return;
+    }
+
     EntitySnapshot snap;
     snap.registered_components.set(TagComponent{parent_id == 0 ? "Tilemap" : "Child_Tilemap"});
     snap.registered_components.set(TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
@@ -424,9 +522,9 @@ void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID pare
     }
 
     if (m_command_history) {
-        m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, std::move(snap)));
+        m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, std::move(snap), m_entity_state_store.get()));
     } else {
-        CreateEntityCommand command(&em, m_selection, std::move(snap));
+        CreateEntityCommand command(&em, m_selection, std::move(snap), m_entity_state_store.get());
         command.execute();
     }
 }

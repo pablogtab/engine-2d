@@ -1,4 +1,5 @@
 #include "HierarchyCommands.hpp"
+#include "../state/EditorEntityStateStore.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../core/Log.hpp"
 #include <algorithm>
@@ -14,12 +15,25 @@ ReparentEntityCommand::ReparentEntityCommand(
     EntityID entity,
     EntityID new_parent,
     std::shared_ptr<EditorSelection> selection,
-    std::string custom_description
+    std::string custom_description,
+    const EditorEntityStateStore* state_store
 ) : m_em(em),
     m_selection(std::move(selection)),
     m_entity(entity),
     m_new_parent(new_parent) {
     if (!m_em || !m_em->is_alive(m_entity)) {
+        m_valid = false;
+        return;
+    }
+
+    if (state_store && state_store->is_locked(m_entity)) {
+        ENGINE_LOG_WARN("[HIERARCHY] Cannot reparent locked entity #{}", m_entity);
+        m_valid = false;
+        return;
+    }
+
+    if (m_new_parent != 0 && state_store && state_store->is_locked(m_new_parent)) {
+        ENGINE_LOG_WARN("[HIERARCHY] Cannot reparent entity #{} to locked parent #{}", m_entity, m_new_parent);
         m_valid = false;
         return;
     }
@@ -40,6 +54,12 @@ ReparentEntityCommand::ReparentEntityCommand(
         m_old_parent = m_em->get_component<HierarchyComponent>(m_entity).parent;
     } else {
         m_old_parent = 0;
+    }
+
+    if (m_old_parent != 0 && state_store && state_store->is_locked(m_old_parent)) {
+        ENGINE_LOG_WARN("[HIERARCHY] Cannot reparent entity #{} from locked parent #{}", m_entity, m_old_parent);
+        m_valid = false;
+        return;
     }
 
     auto local_transform_opt = TransformSystem::calculate_reparent_local_transform(*m_em, m_entity, m_new_parent);
@@ -136,7 +156,8 @@ GroupSelectedEntitiesCommand::GroupSelectedEntitiesCommand(
     EntityManager* em,
     std::shared_ptr<EditorSelection> selection,
     const std::vector<EntityID>& selected_entities,
-    std::string group_name
+    std::string group_name,
+    const EditorEntityStateStore* state_store
 ) : m_em(em),
     m_selection(std::move(selection)),
     m_original_selection(selected_entities),
@@ -175,6 +196,16 @@ GroupSelectedEntitiesCommand::GroupSelectedEntitiesCommand(
         return;
     }
 
+    if (state_store) {
+        for (EntityID id : selected_entities) {
+            if (state_store->is_locked(id)) {
+                ENGINE_LOG_WARN("[HIERARCHY] Cannot group locked entity #{}", id);
+                m_valid = false;
+                return;
+            }
+        }
+    }
+
     // 3. Determine Group Parent: if all candidates share the same parent, group is created under that parent
     EntityID common_parent = m_em->has_component<HierarchyComponent>(root_candidates[0])
         ? m_em->get_component<HierarchyComponent>(root_candidates[0]).parent : 0;
@@ -192,6 +223,10 @@ GroupSelectedEntitiesCommand::GroupSelectedEntitiesCommand(
     if (m_group_parent != 0) {
         if (!m_em->is_alive(m_group_parent) || !m_em->has_component<TransformComponent>(m_group_parent)) {
             m_group_parent = 0;
+        } else if (state_store && state_store->is_locked(m_group_parent)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot group entities under locked parent #{}", m_group_parent);
+            m_valid = false;
+            return;
         }
     }
 
@@ -378,7 +413,8 @@ bool GroupSelectedEntitiesCommand::undo() {
 UngroupEntitiesCommand::UngroupEntitiesCommand(
     EntityManager* em,
     std::shared_ptr<EditorSelection> selection,
-    const std::vector<EntityID>& target_entities
+    const std::vector<EntityID>& target_entities,
+    const EditorEntityStateStore* state_store
 ) : m_em(em),
     m_selection(std::move(selection)),
     m_original_selection(target_entities) {
@@ -419,6 +455,16 @@ UngroupEntitiesCommand::UngroupEntitiesCommand(
         return;
     }
 
+    if (state_store) {
+        for (EntityID id : root_groups) {
+            if (state_store->is_locked(id)) {
+                ENGINE_LOG_WARN("[HIERARCHY] Cannot ungroup locked group #{}", id);
+                m_valid = false;
+                return;
+            }
+        }
+    }
+
     // 2. Preflight each group and its children
     m_groups.clear();
     m_unpacked_children.clear();
@@ -426,6 +472,12 @@ UngroupEntitiesCommand::UngroupEntitiesCommand(
     for (EntityID group_id : root_groups) {
         EntityID group_parent = m_em->has_component<HierarchyComponent>(group_id)
             ? m_em->get_component<HierarchyComponent>(group_id).parent : 0;
+
+        if (group_parent != 0 && state_store && state_store->is_locked(group_parent)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot ungroup group #{} into locked parent #{}", group_id, group_parent);
+            m_valid = false;
+            return;
+        }
 
         const TransformComponent* parent_world = (group_parent != 0 && m_em->has_component<TransformComponent>(group_parent))
             ? &m_em->get_component<TransformComponent>(group_parent) : nullptr;
@@ -438,6 +490,12 @@ UngroupEntitiesCommand::UngroupEntitiesCommand(
         std::vector<UngroupChildEntry> child_entries;
         for (EntityID child : direct_children) {
             if (!m_em->is_alive(child) || !m_em->has_component<TransformComponent>(child)) continue;
+
+            if (state_store && state_store->is_locked(child)) {
+                ENGINE_LOG_WARN("[HIERARCHY] Cannot ungroup group #{} because child #{} is locked", group_id, child);
+                m_valid = false;
+                return;
+            }
 
             const auto& child_world = m_em->get_component<TransformComponent>(child);
             auto new_local_opt = TransformSystem::world_to_local_transform(child_world, parent_world);
