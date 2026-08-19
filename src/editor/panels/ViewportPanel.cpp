@@ -3,6 +3,7 @@
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../commands/EditorEntityStateCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../tools/EditorIcons.hpp"
@@ -777,6 +778,23 @@ void ViewportPanel::on_gui() {
                                 );
                             } else {
                                 CreateEntityCommand cmd(&em, m_selection, std::move(snapshot), m_entity_state_store.get());
+                                cmd.execute();
+                            }
+                        } else if (ext == ".prefab") {
+                            glm::vec2 world_pos(0.0f, 0.0f);
+                            if (active_cam) {
+                                world_pos = active_cam->screen_to_world(m_viewport_mouse_pos);
+                            }
+                            TransformComponent desired_tr{glm::vec3(world_pos.x, world_pos.y, 0.0f)};
+                            EntityManager& em = active_scene->get_entity_manager();
+                            if (m_command_history) {
+                                m_command_history->execute_command(
+                                    std::make_unique<InstantiatePrefabCommand>(
+                                        &em, m_selection, path_str, false, desired_tr, 0, m_renderer, m_entity_state_store.get()
+                                    )
+                                );
+                            } else {
+                                InstantiatePrefabCommand cmd(&em, m_selection, path_str, false, desired_tr, 0, m_renderer, m_entity_state_store.get());
                                 cmd.execute();
                             }
                         } else if (ext == ".scene") {

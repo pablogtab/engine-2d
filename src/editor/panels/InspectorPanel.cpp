@@ -21,6 +21,7 @@
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../scene/ComponentRegistry.hpp"
+#include "../../scene/PrefabSerializer.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <cstring>
@@ -342,10 +343,22 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "[Locked]");
         }
-        if (!is_editor_visible) {
+        if (is_editor_visible) {
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.60f, 0.80f), "[Hidden in Scene View]");
         }
+    }
+
+    // Save As Prefab button
+    const std::string prefab_btn_label = editor_icon_label(EditorIcon::Component, "Save As Prefab...");
+    if (ImGui::Button(prefab_btn_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 22.0f))) {
+        std::string tag_name = em.has_component<TagComponent>(entity) ? em.get_component<TagComponent>(entity).tag : "Entity";
+        std::string clean_name = tag_name;
+        for (char& c : clean_name) {
+            if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
+        }
+        if (clean_name.empty()) clean_name = "Prefab";
+        std::string filepath = "assets/prefabs/" + clean_name + ".prefab";
+        static_cast<void>(PrefabSerializer::save_to_file(em, entity, filepath, m_renderer));
     }
 
     ImGui::Separator();

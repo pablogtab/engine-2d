@@ -158,6 +158,16 @@ void register_camera(ComponentRegistry& registry) {
             }
             return true;
         },
+        .remap_references = [](CameraComponent& camera, const std::unordered_map<EntityID, EntityID>& old_to_new) {
+            if (camera.follow_target != 0) {
+                auto it = old_to_new.find(camera.follow_target);
+                if (it != old_to_new.end()) {
+                    camera.follow_target = it->second;
+                } else {
+                    camera.follow_target = 0;
+                }
+            }
+        },
         .validate = [](const CameraComponent& camera) -> std::optional<std::string> {
             if (camera.zoom <= 0.0f) return "Zoom must be positive";
             if (camera.follow_speed < 0.0f) return "Follow speed cannot be negative";

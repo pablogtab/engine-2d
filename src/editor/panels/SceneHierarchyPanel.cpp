@@ -1,7 +1,9 @@
 #include "SceneHierarchyPanel.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../commands/EditorEntityStateCommands.hpp"
+#include "../../scene/PrefabSerializer.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../tools/EditorIcons.hpp"
@@ -480,6 +482,16 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         if (ImGui::MenuItem("Add Child Tilemap", nullptr, false, !is_locked)) {
             create_tilemap_helper(em, id);
         }
+        if (ImGui::MenuItem("Save As Prefab...", nullptr, false, !is_locked)) {
+            std::string tag_name = em.has_component<TagComponent>(id) ? em.get_component<TagComponent>(id).tag : "Entity";
+            std::string clean_name = tag_name;
+            for (char& c : clean_name) {
+                if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
+            }
+            if (clean_name.empty()) clean_name = "Prefab";
+            std::string filepath = "assets/prefabs/" + clean_name + ".prefab";
+            PrefabSerializer::save_to_file(em, id, filepath, m_renderer);
+        }
 
         bool has_parent = em.has_component<HierarchyComponent>(id) && (em.get_component<HierarchyComponent>(id).parent != 0);
         if (has_parent && ImGui::MenuItem("Unparent (Move to Root)", nullptr, false, !is_locked)) {
@@ -739,6 +751,18 @@ void SceneHierarchyPanel::create_sprite_from_asset_helper(EntityManager& em, Ent
     std::filesystem::path asset_path(path_str);
     std::string ext = asset_path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    if (ext == ".prefab") {
+        if (m_command_history) {
+            m_command_history->execute_command(std::make_unique<InstantiatePrefabCommand>(
+                &em, m_selection, path_str, false, std::nullopt, parent_id, m_renderer, m_entity_state_store.get()
+            ));
+        } else {
+            InstantiatePrefabCommand cmd(&em, m_selection, path_str, false, std::nullopt, parent_id, m_renderer, m_entity_state_store.get());
+            cmd.execute();
+        }
+        return;
+    }
 
     if (ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".bmp") {
         return;

@@ -86,7 +86,7 @@ struct ComponentDescriptor {
     std::function<void(EntityManager&, EntityID)> add_default;
     std::function<void(EntityManager&, EntityID)> remove;
     std::function<void(EntityManager&, EntityID, EntityID)> clone;
-    std::function<void(EntityManager&, EntityID, ComponentSnapshotSet&)> capture;
+    std::function<void(const EntityManager&, EntityID, ComponentSnapshotSet&)> capture;
     std::function<void(EntityManager&, EntityID, const ComponentSnapshotSet&)> restore;
     std::function<nlohmann::json(const EntityManager&, EntityID, const ComponentSerializationContext&)> serialize;
     std::function<bool(
@@ -103,6 +103,7 @@ struct ComponentDescriptor {
         const ComponentFinalizeContext&,
         std::string&
     )> finalize;
+    std::function<void(EntityManager&, EntityID, const std::unordered_map<EntityID, EntityID>&)> remap_references;
     std::function<void(EntityManager&, EntityID)> after_remove;
     std::function<std::optional<std::string>(const EntityManager&, EntityID)> validate;
 };
@@ -126,6 +127,7 @@ struct TypedComponentRegistration {
         const ComponentFinalizeContext&,
         std::string&
     )> finalize;
+    std::function<void(Component&, const std::unordered_map<EntityID, EntityID>&)> remap_references;
     std::function<void(EntityManager&, EntityID)> after_remove;
     std::function<std::optional<std::string>(const Component&)> validate;
 };
@@ -165,7 +167,7 @@ public:
                 em.add_component<Component>(target, component);
             }
         };
-        descriptor.capture = [](EntityManager& em, EntityID entity, ComponentSnapshotSet& snapshot) {
+        descriptor.capture = [](const EntityManager& em, EntityID entity, ComponentSnapshotSet& snapshot) {
             if (em.has_component<Component>(entity)) snapshot.set(em.get_component<Component>(entity));
         };
         descriptor.restore = [after_remove = registration.after_remove](
@@ -225,6 +227,17 @@ public:
                 );
             };
         }
+        if (registration.remap_references) {
+            descriptor.remap_references = [remap = std::move(registration.remap_references)](
+                EntityManager& em,
+                EntityID entity,
+                const std::unordered_map<EntityID, EntityID>& old_to_new
+            ) {
+                if (em.has_component<Component>(entity)) {
+                    remap(em.get_component<Component>(entity), old_to_new);
+                }
+            };
+        }
         descriptor.after_remove = std::move(registration.after_remove);
         if (registration.validate) {
             descriptor.validate = [validate = std::move(registration.validate)](
@@ -239,11 +252,17 @@ public:
 
     bool register_descriptor(ComponentDescriptor descriptor, std::string* error = nullptr);
 
+    void remap_entity_references(
+        EntityManager& em,
+        EntityID entity,
+        const std::unordered_map<EntityID, EntityID>& old_to_new
+    ) const;
+
     [[nodiscard]] const ComponentDescriptor* find_by_key(std::string_view key) const;
     [[nodiscard]] const ComponentDescriptor* find_by_type(std::type_index type) const;
     [[nodiscard]] const std::vector<ComponentDescriptor>& descriptors() const { return m_descriptors; }
 
-    void capture_entity(EntityManager& em, EntityID entity, ComponentSnapshotSet& snapshot) const;
+    void capture_entity(const EntityManager& em, EntityID entity, ComponentSnapshotSet& snapshot) const;
     void restore_entity(EntityManager& em, EntityID entity, const ComponentSnapshotSet& snapshot) const;
     void clone_entity_components(EntityManager& em, EntityID source, EntityID target) const;
     [[nodiscard]] bool add_default_component(

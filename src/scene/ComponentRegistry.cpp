@@ -65,7 +65,7 @@ const ComponentDescriptor* ComponentRegistry::find_by_type(std::type_index type)
 }
 
 void ComponentRegistry::capture_entity(
-    EntityManager& em,
+    const EntityManager& em,
     EntityID entity,
     ComponentSnapshotSet& snapshot
 ) const {
@@ -91,6 +91,19 @@ void ComponentRegistry::clone_entity_components(
 ) const {
     for (const ComponentDescriptor& descriptor : m_descriptors) {
         if (descriptor.has(em, source)) descriptor.clone(em, source, target);
+    }
+}
+
+void ComponentRegistry::remap_entity_references(
+    EntityManager& em,
+    EntityID entity,
+    const std::unordered_map<EntityID, EntityID>& old_to_new
+) const {
+    if (!em.is_alive(entity)) return;
+    for (const ComponentDescriptor& descriptor : m_descriptors) {
+        if (descriptor.remap_references && descriptor.has(em, entity)) {
+            descriptor.remap_references(em, entity, old_to_new);
+        }
     }
 }
 

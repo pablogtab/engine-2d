@@ -49,6 +49,8 @@ set(SOURCES
     src/scene/GenericScene.cpp
     src/scene/SceneSchema.cpp
     src/scene/SceneSerializer.cpp
+    src/scene/EntitySubtreeArchive.cpp
+    src/scene/PrefabSerializer.cpp
     src/sandbox/AnimatedSpriteDemoScene.cpp
     src/sandbox/DepthDemoScene.cpp
     src/sandbox/PlatformerDemoScene.cpp
@@ -92,6 +94,7 @@ set(SOURCES
     src/editor/commands/EditorEntityStateCommands.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp
+    src/editor/commands/PrefabCommands.cpp
     src/editor/commands/ProjectSettingsCommands.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
     src/editor/shortcuts/ShortcutManager.cpp
@@ -376,6 +379,39 @@ target_include_directories(SceneMigrationTests PRIVATE
 )
 target_link_libraries(SceneMigrationTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME SceneMigrationTests COMMAND SceneMigrationTests)
+
+add_executable(PrefabTests
+    tests/PrefabTests.cpp
+    src/core/AssetManager.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+    src/ecs/EntityManager.cpp
+    src/ecs/CameraSystem.cpp
+    src/renderer/Texture.cpp
+    src/renderer/SpriteAnimationSystem.cpp
+    src/scene/BuiltinComponentRegistrations.cpp
+    src/scene/ComponentRegistry.cpp
+    src/scene/SceneSchema.cpp
+    src/scene/SceneSerializer.cpp
+    src/scene/EntitySubtreeArchive.cpp
+    src/scene/PrefabSerializer.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EntityCommands.cpp
+    src/editor/commands/HierarchyCommands.cpp
+    src/editor/commands/PrefabCommands.cpp
+    src/editor/commands/EditorEntityStateCommands.cpp
+    src/editor/state/EditorEntityStateStore.cpp
+    src/tilemap/Tilemap.cpp
+    src/tilemap/TilemapColliderSystem.cpp
+    vendor/stb/stb_impl.cpp
+)
+target_include_directories(PrefabTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(PrefabTests PRIVATE SDL3::SDL3 glm::glm box2d)
+add_test(NAME PrefabTests COMMAND PrefabTests)
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

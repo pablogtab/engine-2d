@@ -80,6 +80,9 @@ void AssetBrowserPanel::on_gui() {
                     } else if (extension == ".scene") {
                         tag = "[SCENE]";
                         tag_col = ImVec4(0.35f, 0.90f, 0.50f, 1.0f);
+                    } else if (extension == ".prefab") {
+                        tag = "[PREFAB]";
+                        tag_col = ImVec4(0.85f, 0.45f, 0.95f, 1.0f);
                     } else if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp") {
                         tag = "[IMAGE]";
                         tag_col = ImVec4(0.40f, 0.75f, 1.00f, 1.0f);
@@ -109,6 +112,8 @@ void AssetBrowserPanel::on_gui() {
                         ImGui::SetDragDropPayload("CONTENT_BROWSER_ASSET", path_str.c_str(), path_str.length() + 1);
                         if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp") {
                             ImGui::Text("Spawn Sprite: %s", filename.c_str());
+                        } else if (extension == ".prefab") {
+                            ImGui::Text("Spawn Prefab: %s", filename.c_str());
                         } else if (extension == ".scene") {
                             ImGui::Text("Load Scene: %s", filename.c_str());
                         } else {
