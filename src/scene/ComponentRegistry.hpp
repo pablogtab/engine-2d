@@ -56,7 +56,8 @@ struct ComponentSerializationContext {
 };
 
 enum class ComponentFinalizeReason {
-    Deserialization,
+    DeserializationStaging,
+    DeserializationCommit,
     SnapshotRestore,
     Clone,
     DefaultCreation
@@ -64,7 +65,7 @@ enum class ComponentFinalizeReason {
 
 struct ComponentFinalizeContext {
     ComponentSerializationContext serialization;
-    ComponentFinalizeReason reason{ComponentFinalizeReason::Deserialization};
+    ComponentFinalizeReason reason{ComponentFinalizeReason::DeserializationCommit};
 };
 
 struct ComponentValidationIssue {
@@ -94,6 +95,7 @@ struct ComponentDescriptor {
         const ComponentSerializationContext&,
         std::string&
     )> deserialize;
+    std::function<bool(std::uint32_t, nlohmann::json&, std::string&)> migrate;
     std::function<bool(
         EntityManager&,
         EntityID,
@@ -115,6 +117,7 @@ struct TypedComponentRegistration {
     bool removable{true};
     std::function<Json(const Component&, const ComponentSerializationContext&)> serialize;
     std::function<bool(Component&, const Json&, const ComponentSerializationContext&, std::string&)> deserialize;
+    std::function<bool(std::uint32_t, Json&, std::string&)> migrate;
     std::function<bool(
         EntityManager&,
         EntityID,
@@ -204,6 +207,7 @@ public:
             }
             return true;
         };
+        descriptor.migrate = std::move(registration.migrate);
         if (registration.finalize) {
             descriptor.finalize = [finalize = std::move(registration.finalize)](
                 EntityManager& em,
@@ -267,6 +271,11 @@ public:
         const ComponentSerializationContext& context,
         std::string& error
     ) const;
+    [[nodiscard]] bool migrate_entity_components(
+        nlohmann::json& entity_json,
+        const nlohmann::json& component_versions,
+        std::string& error
+    ) const;
     [[nodiscard]] bool finalize_entity(
         EntityManager& em,
         EntityID entity,
@@ -279,6 +288,7 @@ public:
         const ComponentFinalizeContext& context,
         std::string& error
     ) const;
+    void reconcile_replacement(const EntityManager& previous, EntityManager& current) const;
     [[nodiscard]] std::vector<ComponentValidationIssue> validate_entity(
         const EntityManager& em,
         EntityID entity

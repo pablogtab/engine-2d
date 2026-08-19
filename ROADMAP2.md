@@ -142,7 +142,8 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Migrate `SceneSerializer` component switches to registered serializers for Transform, Sprite, Tag, RigidBody, Collider, Tilemap, Camera, and Animation.
 - [x] Migrate serializable `EntitySnapshot` fields to registry-backed component snapshots.
 - [x] Preserve stable entity IDs and hierarchy references across save/load and undo/redo.
-- [ ] Add scene schema versioning and explicit migrations.
+- [x] Add scene schema versioning and explicit migrations.
+- [x] Load scenes transactionally: validate and finalize a candidate before atomically replacing live ECS state, with rollback on commit failure.
 - [x] Define authored fields for registered components and exclude animation playback and physics motion state from serialization.
 - [x] Add round-trip determinism tests for every currently registered serializable component.
 - [x] Add snapshot restore coverage for every currently registered component.
@@ -365,9 +366,9 @@ These suites protect systems that already exist but do not yet have dedicated au
 ### Phase 2 — Component and Serialization Suites
 
 - [x] `ComponentRegistryTests` — registration, duplicate keys, schema versions, lifecycle hooks, references, complete add/remove, clone, capture/restore, validation, and component-limit diagnostics.
-- [ ] `SceneSerializationTests` — deterministic output, complete component round trips, stable IDs, hierarchy references, missing fields, malformed data, and migrations.
+- [x] `SceneSerializerTests` — deterministic output, component round trips, stable IDs, hierarchy references, malformed data, transactional rejection, and legacy loading.
 - [ ] `EntitySnapshotTests` — delete/restore, duplicate, component completeness, hierarchy restoration, asset references, and runtime-only field exclusion.
-- [ ] `SceneMigrationTests` — every supported historical schema migrates forward or fails with an actionable error.
+- [x] `SceneMigrationTests` — every supported historical schema migrates forward or fails with an actionable error.
 
 ### Phase 3 — Hierarchy and Reliability Suites
 
@@ -455,5 +456,4 @@ These items are useful but should not interrupt the architecture work above unle
 Finish the Phase 2 registry contract:
 
 1. Add editor-only descriptor metadata for drawers, creation categories, icons, and dependencies without coupling runtime code to ImGui.
-2. Add explicit scene/component schema migrations and actionable diagnostics for malformed or unsupported data.
-3. Extract domain component definitions from `Components.hpp` now that serialization and snapshots no longer require a central component switch.
+2. Extract domain component definitions from `Components.hpp` now that serialization and snapshots no longer require a central component switch.

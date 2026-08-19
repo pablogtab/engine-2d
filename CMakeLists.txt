@@ -47,6 +47,7 @@ set(SOURCES
     src/scene/ComponentRegistry.cpp
     src/scene/SceneManager.cpp
     src/scene/GenericScene.cpp
+    src/scene/SceneSchema.cpp
     src/scene/SceneSerializer.cpp
     src/sandbox/AnimatedSpriteDemoScene.cpp
     src/sandbox/DepthDemoScene.cpp
@@ -237,6 +238,7 @@ add_executable(SceneSerializerTests
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
+    src/scene/SceneSchema.cpp
     src/scene/SceneSerializer.cpp
     src/tilemap/Tilemap.cpp
     src/tilemap/TilemapColliderSystem.cpp
@@ -271,6 +273,26 @@ target_include_directories(ComponentRegistryTests PRIVATE
 )
 target_link_libraries(ComponentRegistryTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME ComponentRegistryTests COMMAND ComponentRegistryTests)
+
+add_executable(SceneMigrationTests
+    tests/SceneMigrationTests.cpp
+    src/core/AssetManager.cpp
+    src/core/Log.cpp
+    src/ecs/EntityManager.cpp
+    src/renderer/Texture.cpp
+    src/renderer/SpriteAnimationSystem.cpp
+    src/scene/BuiltinComponentRegistrations.cpp
+    src/scene/ComponentRegistry.cpp
+    src/scene/SceneSchema.cpp
+    src/tilemap/TilemapColliderSystem.cpp
+    vendor/stb/stb_impl.cpp
+)
+target_include_directories(SceneMigrationTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(SceneMigrationTests PRIVATE SDL3::SDL3 glm::glm box2d)
+add_test(NAME SceneMigrationTests COMMAND SceneMigrationTests)
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

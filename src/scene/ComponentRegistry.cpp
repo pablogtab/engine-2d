@@ -5,9 +5,25 @@
 #include "../renderer/Texture.hpp"
 #include <algorithm>
 #include <exception>
+#include <limits>
 #include <stdexcept>
 
 namespace Engine {
+namespace {
+
+bool read_schema_version(const nlohmann::json& value, std::uint32_t& version) {
+    if (value.is_number_unsigned()) {
+        version = value.get<std::uint32_t>();
+        return true;
+    }
+    if (!value.is_number_integer()) return false;
+    const auto signed_version = value.get<std::int64_t>();
+    if (signed_version < 0 || signed_version > std::numeric_limits<std::uint32_t>::max()) return false;
+    version = static_cast<std::uint32_t>(signed_version);
+    return true;
+}
+
+} // namespace
 
 bool ComponentRegistry::register_descriptor(ComponentDescriptor descriptor, std::string* error) {
     const auto fail = [&](std::string message) {
@@ -184,6 +200,42 @@ bool ComponentRegistry::deserialize_entity(
     return true;
 }
 
+bool ComponentRegistry::migrate_entity_components(
+    nlohmann::json& entity_json,
+    const nlohmann::json& component_versions,
+    std::string& error
+) const {
+    for (const ComponentDescriptor& descriptor : m_descriptors) {
+        if (!entity_json.contains(descriptor.serialized_key)) continue;
+        std::uint32_t version = 0;
+        if (!component_versions.contains(descriptor.serialized_key) ||
+            !read_schema_version(component_versions.at(descriptor.serialized_key), version)) {
+            error = "Missing or invalid schema version for component '" + descriptor.serialized_key + "'";
+            return false;
+        }
+        if (version > descriptor.schema_version) {
+            error = "Component '" + descriptor.serialized_key + "' uses unsupported future schema version " +
+                std::to_string(version);
+            return false;
+        }
+        while (version < descriptor.schema_version) {
+            if (!descriptor.migrate) {
+                error = "No migration from schema version " + std::to_string(version) +
+                    " is registered for component '" + descriptor.serialized_key + "'";
+                return false;
+            }
+            if (!descriptor.migrate(version, entity_json.at(descriptor.serialized_key), error)) {
+                if (error.empty()) {
+                    error = "Migration failed for component '" + descriptor.serialized_key + "'";
+                }
+                return false;
+            }
+            ++version;
+        }
+    }
+    return true;
+}
+
 bool ComponentRegistry::finalize_entity(
     EntityManager& em,
     EntityID entity,
@@ -219,6 +271,20 @@ bool ComponentRegistry::finalize_entities(
         if (!finalize_entity(em, entity, context, error)) return false;
     }
     return true;
+}
+
+void ComponentRegistry::reconcile_replacement(
+    const EntityManager& previous,
+    EntityManager& current
+) const {
+    for (const EntityID entity : previous.get_living_entities()) {
+        for (const ComponentDescriptor& descriptor : m_descriptors) {
+            if (!descriptor.after_remove || !descriptor.has(previous, entity)) continue;
+            if (!current.is_alive(entity) || !descriptor.has(current, entity)) {
+                descriptor.after_remove(current, entity);
+            }
+        }
+    }
 }
 
 std::vector<ComponentValidationIssue> ComponentRegistry::validate_entity(

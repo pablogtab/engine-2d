@@ -20,6 +20,10 @@ public:
 
     EntityManager(const EntityManager&) = delete;
     EntityManager& operator=(const EntityManager&) = delete;
+    EntityManager(EntityManager&&) noexcept = default;
+    EntityManager& operator=(EntityManager&&) noexcept = default;
+
+    void swap(EntityManager& other) noexcept;
 
     // Create a new unique Entity ID (recycles old IDs for zero allocations)
     EntityID create_entity();

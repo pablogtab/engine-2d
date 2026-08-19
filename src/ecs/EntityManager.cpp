@@ -4,6 +4,15 @@
 
 namespace Engine {
 
+void EntityManager::swap(EntityManager& other) noexcept {
+    using std::swap;
+    swap(m_next_entity_id, other.m_next_entity_id);
+    swap(m_free_entities, other.m_free_entities);
+    swap(m_living_entities, other.m_living_entities);
+    swap(m_entity_masks, other.m_entity_masks);
+    swap(m_component_arrays, other.m_component_arrays);
+}
+
 EntityID EntityManager::create_entity() {
     EntityID id;
     if (!m_free_entities.empty()) {

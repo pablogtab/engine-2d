@@ -1,6 +1,7 @@
 #include "core/FileSystem.hpp"
 #include "ecs/Components.hpp"
 #include "scene/Scene.hpp"
+#include "scene/ComponentRegistry.hpp"
 #include "scene/SceneSerializer.hpp"
 #include <algorithm>
 #include <cassert>
@@ -15,6 +16,22 @@ class TestScene final : public Scene {
 public:
     TestScene() : Scene("HierarchySnapshotTest") {}
 };
+
+EntityID add_preserved_entity(TestScene& scene) {
+    EntityManager& em = scene.get_entity_manager();
+    const EntityID entity = em.create_entity();
+    em.add_component<TransformComponent>(entity, TransformComponent{});
+    em.add_component<TagComponent>(entity, TagComponent{"MustSurvive"});
+    return entity;
+}
+
+void assert_preserved(const TestScene& scene, EntityID entity) {
+    const EntityManager& em = scene.get_entity_manager();
+    assert(em.is_alive(entity));
+    assert(em.has_component<TagComponent>(entity));
+    assert(em.get_component<TagComponent>(entity).tag == "MustSurvive");
+    assert(em.get_living_entities().size() == 1);
+}
 
 void test_round_trip_restores_destroyed_child_hierarchy() {
     TestScene scene;
@@ -147,6 +164,114 @@ void test_serialization_is_deterministic_and_excludes_runtime_state() {
     assert(!em.has_component<AnimationPlaybackStateComponent>(entity));
 }
 
+void test_failed_load_is_transactional() {
+    TestScene scene;
+    const EntityID preserved = add_preserved_entity(scene);
+    SceneSerializer serializer(&scene);
+    nlohmann::json root = nlohmann::json::parse(serializer.serialize_to_string());
+
+    root["entities"].front()["unknown_component"] = nlohmann::json::object();
+    assert(!serializer.deserialize_from_string(root.dump()));
+    assert_preserved(scene, preserved);
+
+    root = nlohmann::json::parse(serializer.serialize_to_string());
+    root["entities"].front()["hierarchy"] = {{"parent", 9999}};
+    assert(!serializer.deserialize_from_string(root.dump()));
+    assert_preserved(scene, preserved);
+
+    root = nlohmann::json::parse(serializer.serialize_to_string());
+    root["entities"].push_back(root["entities"].front());
+    assert(!serializer.deserialize_from_string(root.dump()));
+    assert_preserved(scene, preserved);
+}
+
+void test_future_scene_version_is_rejected_transactionally() {
+    TestScene scene;
+    const EntityID preserved = add_preserved_entity(scene);
+    SceneSerializer serializer(&scene);
+    nlohmann::json root = nlohmann::json::parse(serializer.serialize_to_string());
+    root["version"] = 999;
+
+    assert(!serializer.deserialize_from_string(root.dump()));
+    assert_preserved(scene, preserved);
+}
+
+void test_v1_scene_migrates_to_current_schema() {
+    TestScene source;
+    add_preserved_entity(source);
+    SceneSerializer source_serializer(&source);
+    nlohmann::json legacy = nlohmann::json::parse(source_serializer.serialize_to_string());
+    legacy["version"] = 1;
+    legacy.erase("component_versions");
+
+    TestScene loaded;
+    SceneSerializer loaded_serializer(&loaded);
+    assert(loaded_serializer.deserialize_from_string(legacy.dump()));
+    const nlohmann::json current = nlohmann::json::parse(loaded_serializer.serialize_to_string());
+    assert(current.at("version").get<std::uint32_t>() == 2);
+    assert(current.at("component_versions").is_object());
+    assert(current.at("component_versions").size() == default_component_registry().descriptors().size());
+}
+
+void test_hierarchy_cycle_is_rejected_transactionally() {
+    TestScene scene;
+    const EntityID preserved = add_preserved_entity(scene);
+    SceneSerializer serializer(&scene);
+    nlohmann::json root = nlohmann::json::parse(serializer.serialize_to_string());
+    auto second = root["entities"].front();
+    second["id"] = preserved + 1;
+    root["entities"].front()["hierarchy"] = {{"parent", preserved + 1}};
+    second["hierarchy"] = {{"parent", preserved}};
+    root["entities"].push_back(std::move(second));
+
+    assert(!serializer.deserialize_from_string(root.dump()));
+    assert_preserved(scene, preserved);
+}
+
+void test_commit_failure_rolls_back_live_scene() {
+    ComponentRegistry registry;
+    TypedComponentRegistration<TransformComponent> registration{
+        .display_name = "Transform",
+        .serialized_key = "transform",
+        .schema_version = 1,
+        .required = true,
+        .serialize = [](const TransformComponent&, const ComponentSerializationContext&) {
+            return nlohmann::json::object();
+        },
+        .deserialize = [](
+            TransformComponent&,
+            const nlohmann::json&,
+            const ComponentSerializationContext&,
+            std::string&
+        ) { return true; },
+        .finalize = [](
+            EntityManager&,
+            EntityID,
+            TransformComponent&,
+            const ComponentFinalizeContext& context,
+            std::string& error
+        ) {
+            if (context.reason == ComponentFinalizeReason::DeserializationCommit) {
+                error = "forced commit failure";
+                return false;
+            }
+            return true;
+        }
+    };
+    std::string registration_error;
+    assert(registry.register_component(std::move(registration), &registration_error));
+
+    TestScene scene;
+    const EntityID preserved = add_preserved_entity(scene);
+    SceneSerializer serializer(&scene, nullptr, &registry);
+    const std::string candidate = serializer.serialize_to_string();
+    scene.get_entity_manager().get_component<TransformComponent>(preserved).position.x = 42.0f;
+
+    assert(!serializer.deserialize_from_string(candidate));
+    assert_preserved(scene, preserved);
+    assert(scene.get_entity_manager().get_component<TransformComponent>(preserved).position.x == 42.0f);
+}
+
 } // namespace
 
 int main() {
@@ -155,6 +280,11 @@ int main() {
     test_sprite_outline_authoring_round_trips();
     test_all_project_scenes_match_the_registered_schema();
     test_serialization_is_deterministic_and_excludes_runtime_state();
+    test_failed_load_is_transactional();
+    test_future_scene_version_is_rejected_transactionally();
+    test_v1_scene_migrates_to_current_schema();
+    test_hierarchy_cycle_is_rejected_transactionally();
+    test_commit_failure_rolls_back_live_scene();
     std::cout << "Scene serializer tests passed\n";
     return 0;
 }

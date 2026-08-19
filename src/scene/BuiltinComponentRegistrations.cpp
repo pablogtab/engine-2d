@@ -320,8 +320,10 @@ void register_collider(ComponentRegistry& registry) {
             }
             return true;
         },
-        .finalize = [](EntityManager& em, EntityID entity, ColliderComponent&, const ComponentFinalizeContext&, std::string&) {
-            PhysicsSystem::rebuild_body(em, entity);
+        .finalize = [](EntityManager& em, EntityID entity, ColliderComponent&, const ComponentFinalizeContext& context, std::string&) {
+            if (context.reason != ComponentFinalizeReason::DeserializationStaging) {
+                PhysicsSystem::rebuild_body(em, entity);
+            }
             return true;
         },
         .after_remove = [](EntityManager& em, EntityID entity) { PhysicsSystem::rebuild_body(em, entity); },
@@ -386,7 +388,9 @@ void register_tilemap(ComponentRegistry& registry) {
                     tilemap.tileset_path
                 );
             }
-            TilemapColliderSystem::build_composite_colliders(em, entity);
+            if (context.reason != ComponentFinalizeReason::DeserializationCommit) {
+                TilemapColliderSystem::build_composite_colliders(em, entity);
+            }
             return true;
         },
         .after_remove = [](EntityManager& em, EntityID entity) {

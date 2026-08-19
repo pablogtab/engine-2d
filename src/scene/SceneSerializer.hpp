@@ -6,9 +6,15 @@
 
 namespace Engine {
 
+class ComponentRegistry;
+
 class SceneSerializer {
 public:
-    explicit SceneSerializer(Scene* scene, SDL_Renderer* renderer = nullptr);
+    explicit SceneSerializer(
+        Scene* scene,
+        SDL_Renderer* renderer = nullptr,
+        ComponentRegistry* component_registry = nullptr
+    );
 
     // JSON file serialization
     bool serialize(const std::string& filepath);
@@ -23,6 +29,7 @@ public:
 private:
     Scene* m_scene{nullptr};
     SDL_Renderer* m_renderer{nullptr};
+    ComponentRegistry* m_component_registry{nullptr};
 };
 
 } // namespace Engine

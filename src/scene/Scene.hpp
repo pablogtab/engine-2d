@@ -29,6 +29,8 @@ public:
     const std::string& get_name() const { return m_name; }
 
     EntityManager& get_entity_manager() { return m_entity_manager; }
+    const EntityManager& get_entity_manager() const { return m_entity_manager; }
+    void swap_entity_manager(EntityManager& replacement) noexcept { m_entity_manager.swap(replacement); }
     EventDispatcher& get_event_dispatcher() { return m_event_dispatcher; }
 
 protected:

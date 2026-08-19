@@ -69,6 +69,49 @@ void test_registration_rejects_duplicate_keys_and_types() {
     assert(registry.descriptors().size() == 1);
 }
 
+void test_component_migration_runs_for_every_entity() {
+    ComponentRegistry registry;
+    auto registration = transform_registration();
+    registration.schema_version = 3;
+    int migration_calls = 0;
+    registration.migrate = [&migration_calls](
+        std::uint32_t from_version,
+        nlohmann::json& payload,
+        std::string&
+    ) {
+        payload["last_migrated_from"] = from_version;
+        ++migration_calls;
+        return true;
+    };
+    std::string error;
+    assert(registry.register_component(std::move(registration), &error));
+
+    const nlohmann::json versions{{"transform", 1}};
+    nlohmann::json first{{"transform", nlohmann::json::object()}};
+    nlohmann::json second{{"transform", nlohmann::json::object()}};
+    assert(registry.migrate_entity_components(first, versions, error));
+    assert(registry.migrate_entity_components(second, versions, error));
+    assert(migration_calls == 4);
+    assert(first.at("transform").at("last_migrated_from") == 2);
+    assert(second.at("transform").at("last_migrated_from") == 2);
+    assert(versions.at("transform") == 1);
+}
+
+void test_component_migration_rejects_missing_and_future_versions() {
+    ComponentRegistry registry;
+    auto registration = transform_registration();
+    registration.schema_version = 2;
+    std::string error;
+    assert(registry.register_component(std::move(registration), &error));
+    nlohmann::json entity{{"transform", nlohmann::json::object()}};
+
+    assert(!registry.migrate_entity_components(entity, nlohmann::json::object(), error));
+    assert(error.find("Missing or invalid schema version") != std::string::npos);
+    error.clear();
+    assert(!registry.migrate_entity_components(entity, nlohmann::json{{"transform", 3}}, error));
+    assert(error.find("future schema version") != std::string::npos);
+}
+
 void test_default_registry_metadata_is_stable() {
     const ComponentRegistry& registry = default_component_registry();
     const ComponentDescriptor* transform = registry.find_by_key("transform");
@@ -225,7 +268,7 @@ void test_builtin_components_round_trip_through_registry() {
     assert(default_component_registry().finalize_entity(
         em,
         target,
-        ComponentFinalizeContext{.reason = ComponentFinalizeReason::Deserialization},
+        ComponentFinalizeContext{.reason = ComponentFinalizeReason::DeserializationCommit},
         error
     ));
     assert(em.get_component<TagComponent>(target).tag == "RegistryEntity");
@@ -320,6 +363,8 @@ void test_component_type_limit_has_explicit_diagnostic() {
 
 int main() {
     test_registration_rejects_duplicate_keys_and_types();
+    test_component_migration_runs_for_every_entity();
+    test_component_migration_rejects_missing_and_future_versions();
     test_default_registry_metadata_is_stable();
     test_registered_snapshot_capture_and_restore();
     test_registered_add_and_remove_operations_respect_metadata();

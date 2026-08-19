@@ -1,8 +1,10 @@
 #include "SceneSerializer.hpp"
 #include "ComponentRegistry.hpp"
+#include "SceneSchema.hpp"
 #include "../core/FileSystem.hpp"
 #include "../core/Log.hpp"
 #include "../ecs/Components.hpp"
+#include "../ecs/TransformSystem.hpp"
 #include "../tilemap/Tilemap.hpp"
 #include "../core/AssetManager.hpp"
 #include <nlohmann/json.hpp>
@@ -11,8 +13,12 @@ using json = nlohmann::json;
 
 namespace Engine {
 
-SceneSerializer::SceneSerializer(Scene* scene, SDL_Renderer* renderer)
-    : m_scene(scene), m_renderer(renderer) {}
+SceneSerializer::SceneSerializer(
+    Scene* scene,
+    SDL_Renderer* renderer,
+    ComponentRegistry* component_registry
+)
+    : m_scene(scene), m_renderer(renderer), m_component_registry(component_registry) {}
 
 std::string SceneSerializer::serialize_to_string() {
     if (!m_scene) {
@@ -21,8 +27,12 @@ std::string SceneSerializer::serialize_to_string() {
     }
 
     json root;
+    ComponentRegistry& registry = m_component_registry
+        ? *m_component_registry
+        : default_component_registry();
     root["scene_name"] = m_scene->get_name();
-    root["version"] = 1;
+    root["version"] = SceneSchema::CURRENT_VERSION;
+    root["component_versions"] = SceneSchema::component_versions(registry);
 
     json entities_array = json::array();
     EntityManager& em = m_scene->get_entity_manager();
@@ -41,7 +51,7 @@ std::string SceneSerializer::serialize_to_string() {
         json entity_json;
         entity_json["id"] = id;
 
-        if (!default_component_registry().serialize_entity(
+        if (!registry.serialize_entity(
                 em, id, entity_json, component_context, component_error
             )) {
             component_serialization_failed = true;
@@ -94,8 +104,17 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
 
     try {
         json root = json::parse(json_text);
-        EntityManager& em = m_scene->get_entity_manager();
-        em.clear();
+        ComponentRegistry& registry = m_component_registry
+            ? *m_component_registry
+            : default_component_registry();
+        std::string schema_error;
+        if (!SceneSchema::migrate_to_current(root, registry, schema_error) ||
+            !SceneSchema::validate_structure(root, registry, schema_error)) {
+            ENGINE_LOG_ERROR("[SERIALIZER] Scene schema rejected: {}", schema_error);
+            return false;
+        }
+
+        EntityManager candidate;
         const ComponentSerializationContext component_context{m_renderer, &AssetManager::get()};
         std::vector<EntityID> loaded_entities;
         std::vector<std::pair<EntityID, EntityID>> hierarchy_links;
@@ -104,16 +123,16 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
             for (const auto& entity_json : root["entities"]) {
                 const EntityID serialized_id = entity_json.value("id", EntityID{0});
                 const EntityID id = serialized_id != 0
-                    ? em.create_entity_with_id(serialized_id)
-                    : em.create_entity();
+                    ? candidate.create_entity_with_id(serialized_id)
+                    : candidate.create_entity();
                 if (id == 0) {
                     ENGINE_LOG_ERROR("[SERIALIZER] Duplicate or invalid entity ID {}", serialized_id);
                     return false;
                 }
 
                 std::string component_error;
-                if (!default_component_registry().deserialize_entity(
-                        em, id, entity_json, component_context, component_error
+                if (!registry.deserialize_entity(
+                        candidate, id, entity_json, component_context, component_error
                     )) {
                     ENGINE_LOG_ERROR("[SERIALIZER] Entity {}: {}", id, component_error);
                     return false;
@@ -124,7 +143,7 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                 // create every entity before resolving any parent relation.
                 if (entity_json.contains("hierarchy") && entity_json["hierarchy"].is_object()) {
                     const auto& hierarchy_json = entity_json["hierarchy"];
-                    em.add_component<HierarchyComponent>(id, HierarchyComponent{});
+                    candidate.add_component<HierarchyComponent>(id, HierarchyComponent{});
                     hierarchy_links.emplace_back(id, hierarchy_json.value("parent", EntityID{0}));
                 }
 
@@ -136,30 +155,64 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
             // without losing their authoring hierarchy.
             for (const auto& [child, parent] : hierarchy_links) {
                 if (parent == 0) continue;
-                if (!em.is_alive(parent)) {
-                    ENGINE_LOG_WARN(
-                        "[SERIALIZER] Entity #{} references missing parent #{}; restored as root",
-                        child,
-                        parent
-                    );
-                    continue;
-                }
-                em.set_parent(child, parent);
+                candidate.set_parent(child, parent);
             }
 
-            const ComponentFinalizeContext finalize_context{
+            TransformSystem::update(candidate);
+            for (const EntityID entity : loaded_entities) {
+                const auto issues = registry.validate_entity(candidate, entity);
+                if (!issues.empty()) {
+                    ENGINE_LOG_ERROR(
+                        "[SERIALIZER] Entity {} component '{}': {}",
+                        entity,
+                        issues.front().component_key,
+                        issues.front().message
+                    );
+                    return false;
+                }
+            }
+
+            const ComponentFinalizeContext staging_context{
                 .serialization = component_context,
-                .reason = ComponentFinalizeReason::Deserialization
+                .reason = ComponentFinalizeReason::DeserializationStaging
             };
             std::string finalize_error;
-            if (!default_component_registry().finalize_entities(
-                    em, loaded_entities, finalize_context, finalize_error
+            if (!registry.finalize_entities(
+                    candidate, loaded_entities, staging_context, finalize_error
                 )) {
-                ENGINE_LOG_ERROR("[SERIALIZER] Component finalization failed: {}", finalize_error);
+                ENGINE_LOG_ERROR("[SERIALIZER] Component staging failed: {}", finalize_error);
                 return false;
             }
+            TransformSystem::update(candidate);
         }
 
+        EntityManager& live = m_scene->get_entity_manager();
+        m_scene->swap_entity_manager(candidate);
+        registry.reconcile_replacement(candidate, live);
+
+        const std::vector<EntityID> committed_entities = live.get_living_entities();
+        const ComponentFinalizeContext commit_context{
+            .serialization = component_context,
+            .reason = ComponentFinalizeReason::DeserializationCommit
+        };
+        std::string commit_error;
+        if (!registry.finalize_entities(live, committed_entities, commit_context, commit_error)) {
+            m_scene->swap_entity_manager(candidate);
+            registry.reconcile_replacement(candidate, live);
+            const std::vector<EntityID> restored_entities = live.get_living_entities();
+            std::string rollback_error;
+            const bool rollback_finalized =
+                registry.finalize_entities(live, restored_entities, commit_context, rollback_error);
+            if (!rollback_finalized && rollback_error.empty()) {
+                rollback_error = "unknown rollback finalization error";
+            }
+            ENGINE_LOG_ERROR(
+                "[SERIALIZER] Component commit failed: {}{}",
+                commit_error,
+                rollback_error.empty() ? "" : "; rollback finalization failed: " + rollback_error
+            );
+            return false;
+        }
         return true;
     } catch (const std::exception& e) {
         ENGINE_LOG_ERROR("[SERIALIZER] Exception parsing scene JSON: {}", e.what());
