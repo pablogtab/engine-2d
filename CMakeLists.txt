@@ -202,6 +202,7 @@ add_executable(InspectorCommandTests
 target_include_directories(InspectorCommandTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
 target_link_libraries(InspectorCommandTests PRIVATE SDL3::SDL3 glm::glm box2d)

@@ -94,6 +94,15 @@ std::string SceneSerializer::serialize_to_string() {
             sp_json["visible"] = sprite.visible;
             sp_json["sorting_layer"] = sprite.sorting_layer;
             sp_json["order_in_layer"] = sprite.order_in_layer;
+            sp_json["has_outline"] = sprite.has_outline;
+            sp_json["outline_color"] = {
+                sprite.outline_color.r,
+                sprite.outline_color.g,
+                sprite.outline_color.b,
+                sprite.outline_color.a
+            };
+            sp_json["outline_thickness"] = sprite.outline_thickness;
+            sp_json["outline_pulse"] = sprite.outline_pulse;
             sp_json["use_src_rect"] = sprite.use_src_rect;
             if (sprite.use_src_rect) {
                 sp_json["src_rect"] = { sprite.src_rect.x, sprite.src_rect.y, sprite.src_rect.w, sprite.src_rect.h };
@@ -337,6 +346,17 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     if (sp_j.contains("visible")) sc.visible = sp_j["visible"].get<bool>();
                     if (sp_j.contains("sorting_layer")) sc.sorting_layer = sp_j["sorting_layer"].get<int16_t>();
                     if (sp_j.contains("order_in_layer")) sc.order_in_layer = sp_j["order_in_layer"].get<int16_t>();
+                    if (sp_j.contains("has_outline")) sc.has_outline = sp_j["has_outline"].get<bool>();
+                    if (sp_j.contains("outline_color") && sp_j["outline_color"].is_array() && sp_j["outline_color"].size() >= 4) {
+                        sc.outline_color = SDL_Color{
+                            sp_j["outline_color"][0].get<uint8_t>(),
+                            sp_j["outline_color"][1].get<uint8_t>(),
+                            sp_j["outline_color"][2].get<uint8_t>(),
+                            sp_j["outline_color"][3].get<uint8_t>()
+                        };
+                    }
+                    if (sp_j.contains("outline_thickness")) sc.outline_thickness = sp_j["outline_thickness"].get<float>();
+                    if (sp_j.contains("outline_pulse")) sc.outline_pulse = sp_j["outline_pulse"].get<bool>();
                     if (sp_j.contains("use_src_rect")) sc.use_src_rect = sp_j["use_src_rect"].get<bool>();
                     if (sc.use_src_rect && sp_j.contains("src_rect") && sp_j["src_rect"].size() >= 4) {
                         sc.src_rect = SDL_FRect{

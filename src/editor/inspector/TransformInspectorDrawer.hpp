@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ComponentInspectorTransaction.hpp"
+#include <vector>
 
 namespace Engine {
 
@@ -14,6 +15,19 @@ public:
     static void draw(
         EntityManager& em,
         EntityID entity,
+        bool locked,
+        const ComponentTransactionContext& context
+    );
+
+    static void draw_entities_active(
+        EntityManager& em,
+        const std::vector<EntityID>& entities,
+        const ComponentTransactionContext& context
+    );
+
+    static void draw_multiple(
+        EntityManager& em,
+        const std::vector<EntityID>& entities,
         bool locked,
         const ComponentTransactionContext& context
     );

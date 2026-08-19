@@ -35,6 +35,7 @@ public:
 
 private:
     void draw_components(EntityManager& em, EntityID entity);
+    void draw_multi_components(EntityManager& em, const std::vector<EntityID>& entities);
     void track_tag_edit(EntityManager& em, EntityID entity, const std::string& before, const char* property, const char* description);
 
     std::string m_name{"Entity Inspector"};

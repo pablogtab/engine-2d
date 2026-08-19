@@ -84,7 +84,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Make cancellation restore the exact previous state.
 - [x] Add component-specific transaction side-effect hooks, including selective physics and tilemap rebuilds.
 - [x] Centralize reusable property validation policies instead of keeping limits inside individual drawers.
-- [ ] Make the same transaction system work with multi-selection and mixed values.
+- [x] Make the same transaction system work with multi-selection and mixed values.
 
 ### Inspector Migration
 
@@ -113,7 +113,8 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Expose RGB tint and independent opacity.
 - [x] Expose pivot, Z-depth, flip, visibility, sorting layer, and order in layer.
 - [x] Render texture previews in the Sprite Inspector.
-- [ ] Expose outline and material assignment through the common property grid.
+- [x] Expose Sprite outline controls through the common property grid and persist their authored state.
+- [ ] Expose material assignment after materials have stable asset identities and a project asset registry.
 - [ ] Make every visual property fully reversible.
 
 **Completion criteria:** Every Inspector and Hierarchy content mutation is reversible, continuous gestures create one command, preview state is not serialized as authoring data, and no Inspector-owned runtime resources leak.
@@ -162,7 +163,7 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Hierarchy Workflow
 
-- [ ] Implement true multi-selection editing with mixed-value presentation.
+- [ ] Complete true multi-selection editing with mixed-value presentation across all shared components; Transform and Sprite are implemented.
 - [ ] Add group/container entities and group-aware duplication.
 - [ ] Add reversible hierarchy duplicate, reparent, reorder, lock, and visibility commands.
 - [ ] Preserve local and world transforms correctly during reparenting.
@@ -449,8 +450,8 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increment
 
-Implement the fourth Phase 1 slice:
+Begin the Phase 2 architecture gate:
 
-1. Extend property transactions to multi-selection with mixed values and atomic undo/redo.
-2. Expose Sprite outline and material assignment through the common property grid.
-3. Add `MultiEditTransactionTests` and complete reversible visual-property coverage.
+1. Introduce the typed component descriptor registry and validate stable serialized keys.
+2. Migrate Transform and Sprite serialization/snapshot metadata as the first registry-backed components.
+3. Add focused component-registry and schema round-trip tests before migrating the remaining component domains.

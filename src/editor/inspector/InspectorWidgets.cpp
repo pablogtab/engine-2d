@@ -111,17 +111,17 @@ void begin_property_row(const char* label, bool reserve_reset) {
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset_space);
 }
 
-bool property_float(const char* label, float* value, float speed, float min, float max, const char* format) {
+bool property_float(const char* label, float* value, float speed, float min, float max, const char* format, bool mixed) {
     begin_property_row(label);
     begin_property_interaction(label);
     ImGui::PushID(label);
-    const bool changed = ImGui::DragFloat("##value", value, speed, min, max, format);
+    const bool changed = ImGui::DragFloat("##value", value, speed, min, max, mixed ? "—" : format);
     capture_property_interaction();
     ImGui::PopID();
     return changed;
 }
 
-bool property_axis_float(const char* label, const char* axis, float* value, float speed, float min, float max, const char* format, bool reserve_reset) {
+bool property_axis_float(const char* label, const char* axis, float* value, float speed, float min, float max, const char* format, bool reserve_reset, bool mixed) {
     begin_property_row(label, reserve_reset);
     begin_property_interaction(label);
     ImGui::PushID(label);
@@ -129,33 +129,47 @@ bool property_axis_float(const char* label, const char* axis, float* value, floa
     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
     const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset_space - 11.0f);
-    const bool changed = ImGui::DragFloat("##value", value, speed, min, max, format);
+    const bool changed = ImGui::DragFloat("##value", value, speed, min, max, mixed ? "—" : format);
     capture_property_interaction();
     ImGui::PopID();
     return changed;
 }
 
-bool property_int(const char* label, int* value, float speed, int min, int max, const char* format) {
+bool property_int(const char* label, int* value, float speed, int min, int max, const char* format, bool mixed) {
     begin_property_row(label);
     begin_property_interaction(label);
     ImGui::PushID(label);
-    const bool changed = ImGui::DragInt("##value", value, speed, min, max, format);
+    const bool changed = ImGui::DragInt("##value", value, speed, min, max, mixed ? "—" : format);
     capture_property_interaction();
     ImGui::PopID();
     return changed;
 }
 
-bool property_bool(const char* label, bool* value) {
+bool property_bool(const char* label, bool* value, bool mixed) {
     begin_property_row(label);
     begin_property_interaction(label);
     ImGui::PushID(label);
+    if (mixed) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
     const bool changed = ImGui::Checkbox("##value", value);
+    if (mixed) ImGui::PopItemFlag();
     capture_property_interaction();
     ImGui::PopID();
     return changed;
 }
 
-bool property_vec2(const char* label, float values[2], float speed, float min, float max, const char* format, bool reserve_reset) {
+bool property_vec2(
+    const char* label,
+    float values[2],
+    float speed,
+    float min,
+    float max,
+    const char* format,
+    bool reserve_reset,
+    bool mixed_x,
+    bool mixed_y,
+    bool* changed_x,
+    bool* changed_y
+) {
     begin_property_row(label, reserve_reset);
     begin_property_interaction(label);
     ImGui::PushID(label);
@@ -164,16 +178,18 @@ bool property_vec2(const char* label, float values[2], float speed, float min, f
     ImGui::TextDisabled("X");
     ImGui::SameLine(0.0f, spacing);
     ImGui::SetNextItemWidth(width);
-    bool changed = ImGui::DragFloat("##x", &values[0], speed, min, max, format);
+    const bool x_changed = ImGui::DragFloat("##x", &values[0], speed, min, max, mixed_x ? "—" : format);
     capture_property_interaction();
     ImGui::SameLine(0.0f, spacing);
     ImGui::TextDisabled("Y");
     ImGui::SameLine(0.0f, spacing);
     ImGui::SetNextItemWidth(width);
-    changed |= ImGui::DragFloat("##y", &values[1], speed, min, max, format);
+    const bool y_changed = ImGui::DragFloat("##y", &values[1], speed, min, max, mixed_y ? "—" : format);
     capture_property_interaction();
     ImGui::PopID();
-    return changed;
+    if (changed_x) *changed_x = x_changed;
+    if (changed_y) *changed_y = y_changed;
+    return x_changed || y_changed;
 }
 
 bool property_vec3(const char* label, float values[3], float speed, float min, float max, const char* format, bool reserve_reset) {

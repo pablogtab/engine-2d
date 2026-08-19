@@ -2,6 +2,7 @@
 #include "editor/commands/EditorPropertyTransaction.hpp"
 #include "editor/commands/EntityCommands.hpp"
 #include "editor/inspector/InspectorPropertyPolicies.hpp"
+#include "editor/inspector/MultiComponentInspectorTransaction.hpp"
 #include "ecs/EntityManager.hpp"
 #include "ecs/TransformSystem.hpp"
 #include "events/EventDispatcher.hpp"
@@ -583,6 +584,94 @@ void test_central_property_policies_sanitize_values() {
     assert(Policies::bounded_int(1.0f, 0, 0).sanitize(9) == 0);
 }
 
+void test_multi_component_edit_is_atomic_and_preserves_unedited_axes() {
+    EntityManager em;
+    EditorCommandHistory history;
+    EditorPropertyTransaction transactions;
+
+    const EntityID first = em.create_entity();
+    const EntityID second = em.create_entity();
+    TransformComponent first_transform;
+    first_transform.position = {10.0f, 20.0f, 1.0f};
+    TransformComponent second_transform;
+    second_transform.position = {-5.0f, 80.0f, 2.0f};
+    em.add_component<TransformComponent>(first, first_transform);
+    em.add_component<TransformComponent>(second, second_transform);
+
+    const std::vector<EntityID> selection = sorted_selection({second, first});
+    const auto before = capture_selected_components<TransformComponent>(em, selection);
+    assert(before.size() == 2);
+    assert((selected_values_mixed<TransformComponent, float>(
+        before, [](const TransformComponent& transform) { return transform.position.x; }
+    )));
+    assert((selected_values_mixed<TransformComponent, float>(
+        before, [](const TransformComponent& transform) { return transform.position.y; }
+    )));
+
+    const auto key = EditorPropertyTransaction::make_key(
+        selection_transaction_owner(selection), "MultiSelection.Transform.Position"
+    );
+    const auto same_transform_states = [](const auto& lhs, const auto& rhs) {
+        return selected_component_states_equal(
+            lhs, rhs, [](const TransformComponent& a, const TransformComponent& b) {
+                return a.position == b.position && a.scale == b.scale &&
+                    a.rotation == b.rotation && a.pivot == b.pivot &&
+                    a.skew == b.skew && a.visible == b.visible;
+            }
+        );
+    };
+    assert(transactions.begin<SelectedComponentStates<TransformComponent>>(
+        key,
+        before,
+        [&]() -> std::optional<SelectedComponentStates<TransformComponent>> {
+            return capture_selected_components<TransformComponent>(em, selection);
+        },
+        [&](const SelectedComponentStates<TransformComponent>& states) {
+            for (const auto& [entity, transform] : states) {
+                em.get_component<TransformComponent>(entity) = transform;
+            }
+        },
+        "Edit Selected Transform Position",
+        same_transform_states
+    ));
+
+    em.get_component<TransformComponent>(first).position.x = 42.0f;
+    em.get_component<TransformComponent>(second).position.x = 42.0f;
+    assert(transactions.commit(key, history));
+    assert(history.get_undo_count() == 1);
+    assert(em.get_component<TransformComponent>(first).position.y == 20.0f);
+    assert(em.get_component<TransformComponent>(second).position.y == 80.0f);
+
+    history.undo();
+    assert(em.get_component<TransformComponent>(first).position == first_transform.position);
+    assert(em.get_component<TransformComponent>(second).position == second_transform.position);
+    history.redo();
+    assert(em.get_component<TransformComponent>(first).position == glm::vec3(42.0f, 20.0f, 1.0f));
+    assert(em.get_component<TransformComponent>(second).position == glm::vec3(42.0f, 80.0f, 2.0f));
+
+    const auto edited = capture_selected_components<TransformComponent>(em, selection);
+    assert(transactions.begin<SelectedComponentStates<TransformComponent>>(
+        key,
+        edited,
+        [&]() -> std::optional<SelectedComponentStates<TransformComponent>> {
+            return capture_selected_components<TransformComponent>(em, selection);
+        },
+        [&](const SelectedComponentStates<TransformComponent>& states) {
+            for (const auto& [entity, transform] : states) {
+                em.get_component<TransformComponent>(entity) = transform;
+            }
+        },
+        "Edit Selected Transform Position",
+        same_transform_states
+    ));
+    em.get_component<TransformComponent>(first).position.x = 100.0f;
+    em.get_component<TransformComponent>(second).position.x = 100.0f;
+    assert(transactions.cancel(key));
+    assert(em.get_component<TransformComponent>(first).position == glm::vec3(42.0f, 20.0f, 1.0f));
+    assert(em.get_component<TransformComponent>(second).position == glm::vec3(42.0f, 80.0f, 2.0f));
+    assert(history.get_undo_count() == 1);
+}
+
 } // namespace
 
 int main() {
@@ -601,6 +690,7 @@ int main() {
     test_scaled_collider_offset_matches_fixture_geometry();
     test_scaled_player_fixture_reaches_trigger();
     test_central_property_policies_sanitize_values();
+    test_multi_component_edit_is_atomic_and_preserves_unedited_axes();
     std::cout << "InspectorCommandTests passed\n";
     return 0;
 }

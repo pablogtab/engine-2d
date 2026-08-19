@@ -63,6 +63,7 @@ namespace Sprite {
 inline constexpr auto Size = bounded_float(1.0f, 1.0f, 2048.0f);
 inline constexpr auto Opacity = bounded_float(0.5f, 0.0f, 100.0f, "%.0f%%");
 inline constexpr auto SortingOrder = bounded_int(1.0f, -32768, 32767);
+inline constexpr auto OutlineThickness = bounded_float(0.1f, 0.0f, 64.0f, "%.1f px");
 } // namespace Sprite
 
 namespace RigidBody {

@@ -22,8 +22,11 @@
 #include "../../tilemap/Tilemap.hpp"
 #include "../../tilemap/TilemapColliderSystem.hpp"
 #include <imgui.h>
+#include <algorithm>
 #include <cstring>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace Engine {
 
@@ -107,37 +110,98 @@ void InspectorPanel::on_gui() {
             return;
         }
 
-        if (selected_set.size() > 1) {
-            ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Multi-Selection: %zu Entities", selected_set.size());
-            ImGui::Separator();
-            ImGui::TextWrapped("You have %zu entities selected. Use the Viewport Gizmo to translate them together as a group.", selected_set.size());
-            ImGui::Spacing();
-            if (ImGui::Button(" Delete All Selected ", ImVec2(180, 26))) {
-                std::vector<EntityID> ids(selected_set.begin(), selected_set.end());
-                if (m_command_history) {
-                    m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, std::move(ids)));
-                } else {
-                    for (EntityID id : ids) em.destroy_entity(id);
-                    m_selection->clear();
-                }
-            }
+        std::vector<EntityID> selected_ids;
+        selected_ids.reserve(selected_set.size());
+        for (const EntityID entity : selected_set) {
+            if (em.is_alive(entity)) selected_ids.push_back(entity);
+        }
+        std::sort(selected_ids.begin(), selected_ids.end());
+
+        if (selected_ids.size() != selected_set.size()) {
+            m_selection->set_selection(std::unordered_set<EntityID>(selected_ids.begin(), selected_ids.end()));
+        }
+        if (selected_ids.empty()) {
             ImGui::PopStyleVar(3);
             ImGui::End();
             return;
         }
 
-        EntityID selected_id = *selected_set.begin();
-        if (!em.is_alive(selected_id)) {
-            m_selection->clear();
+        if (selected_ids.size() > 1) {
+            draw_multi_components(em, selected_ids);
             ImGui::PopStyleVar(3);
             ImGui::End();
             return;
         }
+
+        const EntityID selected_id = selected_ids.front();
 
         draw_components(em, selected_id);
         ImGui::PopStyleVar(3);
     }
     ImGui::End();
+}
+
+void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<EntityID>& entities) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.31f, 0.27f, 0.82f, 0.90f));
+    ImGui::Button("E", ImVec2(28.0f, 28.0f));
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%zu Entities", entities.size());
+    ImGui::TextDisabled("Multiple selection");
+
+    const ComponentTransactionContext transaction_context{
+        m_command_history.get(),
+        &m_property_transactions
+    };
+    const bool all_have_transform = std::all_of(entities.begin(), entities.end(), [&](EntityID entity) {
+        return em.has_component<TransformComponent>(entity);
+    });
+    if (all_have_transform) {
+        ImGui::SameLine();
+        TransformInspectorDrawer::draw_entities_active(em, entities, transaction_context);
+    }
+    ImGui::Separator();
+
+    if (all_have_transform) {
+        const bool locked = std::any_of(entities.begin(), entities.end(), [&](EntityID entity) {
+            return em.has_component<TilemapGeneratedColliderComponent>(entity);
+        });
+        TransformInspectorDrawer::draw_multiple(em, entities, locked, transaction_context);
+    } else {
+        ImGui::TextDisabled("Transform is not shared by every selected entity.");
+    }
+
+    const auto sprite_count = static_cast<std::size_t>(std::count_if(
+        entities.begin(), entities.end(), [&](EntityID entity) {
+            return em.has_component<SpriteComponent>(entity);
+        }
+    ));
+    if (sprite_count == entities.size()) {
+        SpriteInspectorDrawer::draw_multiple(em, entities, {
+            m_renderer,
+            m_asset_manager,
+            m_command_history.get(),
+            &m_property_transactions
+        });
+    } else if (sprite_count > 0) {
+        ImGui::TextDisabled("Sprite Renderer is shared by %zu of %zu entities.", sprite_count, entities.size());
+        ImGui::TextDisabled("Select entities with a common component to edit it in bulk.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    const std::string delete_label = editor_icon_label(EditorIcon::Trash, "Delete Selected");
+    if (ImGui::Button(delete_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26.0f))) {
+        if (m_command_history) {
+            m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(
+                &em, m_selection, entities
+            ));
+        } else {
+            for (const EntityID entity : entities) em.destroy_entity(entity);
+            m_selection->clear();
+        }
+    }
 }
 
 void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {

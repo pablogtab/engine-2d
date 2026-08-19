@@ -3,6 +3,7 @@
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/EditorPropertyTransaction.hpp"
 #include "../../ecs/Components.hpp"
+#include <vector>
 
 struct SDL_Renderer;
 
@@ -21,6 +22,11 @@ public:
     };
 
     static void draw(EntityManager& em, EntityID entity, const Context& context);
+    static void draw_multiple(
+        EntityManager& em,
+        const std::vector<EntityID>& entities,
+        const Context& context
+    );
 
 private:
     static void track_edit(

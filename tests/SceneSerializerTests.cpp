@@ -66,11 +66,39 @@ void test_forward_parent_reference_is_order_independent() {
     assert(em.get_component<HierarchyComponent>(parent).children == std::vector<EntityID>{child});
 }
 
+void test_sprite_outline_authoring_round_trips() {
+    TestScene scene;
+    EntityManager& em = scene.get_entity_manager();
+    const EntityID entity = em.create_entity();
+    em.add_component<TransformComponent>(entity, TransformComponent{});
+    SpriteComponent sprite;
+    sprite.has_outline = true;
+    sprite.outline_color = {12, 34, 56, 78};
+    sprite.outline_thickness = 4.5f;
+    sprite.outline_pulse = true;
+    em.add_component<SpriteComponent>(entity, sprite);
+
+    SceneSerializer serializer(&scene);
+    const std::string snapshot = serializer.serialize_to_string();
+    em.get_component<SpriteComponent>(entity).has_outline = false;
+
+    assert(serializer.deserialize_from_string(snapshot));
+    const auto& restored = em.get_component<SpriteComponent>(entity);
+    assert(restored.has_outline);
+    assert(restored.outline_color.r == 12);
+    assert(restored.outline_color.g == 34);
+    assert(restored.outline_color.b == 56);
+    assert(restored.outline_color.a == 78);
+    assert(restored.outline_thickness == 4.5f);
+    assert(restored.outline_pulse);
+}
+
 } // namespace
 
 int main() {
     test_round_trip_restores_destroyed_child_hierarchy();
     test_forward_parent_reference_is_order_independent();
+    test_sprite_outline_authoring_round_trips();
     std::cout << "Scene serializer tests passed\n";
     return 0;
 }
