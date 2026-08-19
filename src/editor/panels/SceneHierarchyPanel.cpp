@@ -304,6 +304,32 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             }
         }
 
+        if (m_selection && !m_selection->empty()) {
+            std::string group_label = m_selection->count() > 1
+                ? "📁 Group Selection (" + std::to_string(m_selection->count()) + ")"
+                : "📁 Group Selection";
+            if (ImGui::MenuItem(group_label.c_str(), "Cmd+G")) {
+                std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
+                if (m_command_history) {
+                    m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, selected_vec));
+                }
+            }
+
+            bool has_group = false;
+            for (EntityID sel_id : m_selection->get_selected()) {
+                if (em.is_alive(sel_id) && em.has_component<GroupComponent>(sel_id)) {
+                    has_group = true;
+                    break;
+                }
+            }
+            if (has_group && ImGui::MenuItem("📂 Ungroup", "Cmd+Shift+G")) {
+                std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
+                if (m_command_history) {
+                    m_command_history->execute_command(std::make_unique<UngroupEntitiesCommand>(&em, m_selection, selected_vec));
+                }
+            }
+        }
+
         ImGui::Separator();
 
         if (ImGui::MenuItem("🗑️ Delete Entity")) {
@@ -326,10 +352,12 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 
     // Render Children recursively if tree node is expanded
     if (has_children && node_open) {
-        auto children_copy = em.get_component<HierarchyComponent>(id).children;
-        for (EntityID child_id : children_copy) {
-            if (em.is_alive(child_id)) {
-                draw_entity_node(em, child_id, filter_str, is_multi_key);
+        if (em.is_alive(id) && em.has_component<HierarchyComponent>(id)) {
+            auto children_copy = em.get_component<HierarchyComponent>(id).children;
+            for (EntityID child_id : children_copy) {
+                if (em.is_alive(child_id)) {
+                    draw_entity_node(em, child_id, filter_str, is_multi_key);
+                }
             }
         }
         ImGui::TreePop();

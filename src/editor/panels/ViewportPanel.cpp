@@ -2,6 +2,7 @@
 #include "TilemapPalettePanel.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/HierarchyCommands.hpp"
 #include "../tools/EditorIcons.hpp"
 #include "../../scene/GenericScene.hpp"
 #include "../../core/Log.hpp"
@@ -433,6 +434,30 @@ void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entit
     if (ImGui::MenuItem("Delete", "Delete", false, can_mutate) && m_selection) {
         std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
         m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, std::move(entities)));
+    }
+
+    ImGui::Separator();
+    const bool has_sel = m_selection && !m_selection->empty();
+    std::string group_label = (m_selection && m_selection->count() > 1)
+        ? "Group Selection (" + std::to_string(m_selection->count()) + ")"
+        : "Group Selection";
+    if (ImGui::MenuItem(group_label.c_str(), "Cmd/Ctrl+G", false, can_mutate && has_sel) && m_selection) {
+        std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
+        m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, std::move(entities)));
+    }
+
+    bool has_group = false;
+    if (has_sel) {
+        for (EntityID sel_id : m_selection->get_selected()) {
+            if (em.is_alive(sel_id) && em.has_component<GroupComponent>(sel_id)) {
+                has_group = true;
+                break;
+            }
+        }
+    }
+    if (has_group && ImGui::MenuItem("Ungroup", "Cmd/Ctrl+Shift+G", false, can_mutate) && m_selection) {
+        std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
+        m_command_history->execute_command(std::make_unique<UngroupEntitiesCommand>(&em, m_selection, std::move(entities)));
     }
 }
 

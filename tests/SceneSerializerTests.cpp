@@ -354,6 +354,49 @@ void test_discard_changes_restores_initial_snapshot_for_new_scene() {
     assert(!em.is_alive(new_entity));
 }
 
+void test_scene_with_group_component_round_trip() {
+    TestScene source;
+    EntityManager& src_em = source.get_entity_manager();
+
+    const EntityID group_id = src_em.create_entity();
+    src_em.add_component<TagComponent>(group_id, TagComponent{"ObstaclesGroup"});
+    src_em.add_component<TransformComponent>(group_id, TransformComponent{glm::vec3(100.0f, 200.0f, 0.0f)});
+    src_em.add_component<GroupComponent>(group_id, GroupComponent{});
+
+    const EntityID child1 = src_em.create_entity();
+    src_em.add_component<TagComponent>(child1, TagComponent{"Box1"});
+    src_em.add_component<TransformComponent>(child1, TransformComponent{glm::vec3(10.0f, 0.0f, 0.0f)});
+    assert(src_em.set_parent(child1, group_id).succeeded());
+
+    const EntityID child2 = src_em.create_entity();
+    src_em.add_component<TagComponent>(child2, TagComponent{"Box2"});
+    src_em.add_component<TransformComponent>(child2, TransformComponent{glm::vec3(-10.0f, 0.0f, 0.0f)});
+    assert(src_em.set_parent(child2, group_id).succeeded());
+
+    SceneSerializer serializer(&source);
+    const std::string serialized = serializer.serialize_to_string();
+    assert(!serialized.empty());
+
+    const nlohmann::json json = nlohmann::json::parse(serialized);
+    assert(json.contains("entities"));
+
+    TestScene target;
+    SceneSerializer target_serializer(&target);
+    assert(target_serializer.deserialize_from_string(serialized));
+
+    EntityManager& tgt_em = target.get_entity_manager();
+    assert(tgt_em.get_living_entities().size() == 3);
+
+    assert(tgt_em.is_alive(group_id));
+    assert(tgt_em.has_component<GroupComponent>(group_id));
+    assert(tgt_em.get_component<TagComponent>(group_id).tag == "ObstaclesGroup");
+    assert(tgt_em.has_component<HierarchyComponent>(group_id));
+    const auto& children = tgt_em.get_component<HierarchyComponent>(group_id).children;
+    assert(children.size() == 2);
+    assert(std::find(children.begin(), children.end(), child1) != children.end());
+    assert(std::find(children.begin(), children.end(), child2) != children.end());
+}
+
 } // namespace
 
 int main() {
@@ -369,6 +412,7 @@ int main() {
     test_commit_failure_rolls_back_live_scene();
     test_discard_changes_reloads_saved_scene_file();
     test_discard_changes_restores_initial_snapshot_for_new_scene();
+    test_scene_with_group_component_round_trip();
     std::cout << "Scene serializer tests passed\n";
     return 0;
 }

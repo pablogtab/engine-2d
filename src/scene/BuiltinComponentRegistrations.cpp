@@ -101,6 +101,19 @@ void register_tag(ComponentRegistry& registry) {
     });
 }
 
+void register_group(ComponentRegistry& registry) {
+    register_or_throw<GroupComponent>(registry, {
+        .display_name = "Group",
+        .serialized_key = "group",
+        .serialize = [](const GroupComponent&, const ComponentSerializationContext&) {
+            return Json::object();
+        },
+        .deserialize = [](GroupComponent&, const Json&, const ComponentSerializationContext&, std::string&) {
+            return true;
+        }
+    });
+}
+
 void register_camera(ComponentRegistry& registry) {
     register_or_throw<CameraComponent>(registry, {
         .display_name = "Camera 2D",
@@ -419,6 +432,7 @@ void register_tilemap(ComponentRegistry& registry) {
 
 void register_additional_builtin_components(ComponentRegistry& registry) {
     register_tag(registry);
+    register_group(registry);
     register_camera(registry);
     register_animation(registry);
     register_rigidbody(registry);

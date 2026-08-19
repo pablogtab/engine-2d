@@ -1,7 +1,9 @@
 #include "EditorLayer.hpp"
 #include "EditorTheme.hpp"
+#include "EditorSelection.hpp"
 #include "commands/EditorCommandHistory.hpp"
 #include "commands/EntityCommands.hpp"
+#include "commands/HierarchyCommands.hpp"
 #include "shortcuts/ShortcutManager.hpp"
 #include "inspector/InspectorWidgets.hpp"
 #include "tools/EditorIcons.hpp"
@@ -150,6 +152,48 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
         .mod_alt = false,
         .enable_repeat = false,
         .callback = nullptr
+    });
+
+    sm.register_shortcut({
+        .id = "editor.group_selection",
+        .display_name = "Group Selection",
+        .category = "Hierarchy",
+        .primary_key = ImGuiKey_G,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = false,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = [this]() {
+            Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
+            if (active_scene && m_selection && !m_selection->empty() && m_command_history) {
+                EntityManager& em = active_scene->get_entity_manager();
+                std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
+                m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, selected_vec));
+                update_window_title();
+            }
+        }
+    });
+
+    sm.register_shortcut({
+        .id = "editor.ungroup_selection",
+        .display_name = "Ungroup Selection",
+        .category = "Hierarchy",
+        .primary_key = ImGuiKey_G,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = true,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = [this]() {
+            Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
+            if (active_scene && m_selection && !m_selection->empty() && m_command_history) {
+                EntityManager& em = active_scene->get_entity_manager();
+                std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
+                m_command_history->execute_command(std::make_unique<UngroupEntitiesCommand>(&em, m_selection, selected_vec));
+                update_window_title();
+            }
+        }
     });
 
     sm.register_shortcut({
@@ -760,6 +804,42 @@ void EditorLayer::render_main_menu_bar() {
                     snapshot.registered_components.set(TransformComponent{glm::vec3(0.0f)});
                     if (m_command_history) {
                         m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, nullptr, std::move(snapshot)));
+                        update_window_title();
+                    }
+                }
+            }
+
+            ImGui::Separator();
+
+            bool has_selection = has_scene && (m_selection && !m_selection->empty());
+            if (ImGui::MenuItem("📁 Group Selection", "Cmd+G", false, has_selection)) {
+                if (active_scene && m_selection && !m_selection->empty()) {
+                    EntityManager& em = active_scene->get_entity_manager();
+                    std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
+                    if (m_command_history) {
+                        m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, selected_vec));
+                        update_window_title();
+                    }
+                }
+            }
+
+            bool has_group_selected = false;
+            if (has_selection && active_scene) {
+                EntityManager& em = active_scene->get_entity_manager();
+                for (EntityID sel_id : m_selection->get_selected()) {
+                    if (em.is_alive(sel_id) && em.has_component<GroupComponent>(sel_id)) {
+                        has_group_selected = true;
+                        break;
+                    }
+                }
+            }
+
+            if (ImGui::MenuItem("📂 Ungroup", "Cmd+Shift+G", false, has_group_selected)) {
+                if (active_scene && m_selection && !m_selection->empty()) {
+                    EntityManager& em = active_scene->get_entity_manager();
+                    std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
+                    if (m_command_history) {
+                        m_command_history->execute_command(std::make_unique<UngroupEntitiesCommand>(&em, m_selection, selected_vec));
                         update_window_title();
                     }
                 }

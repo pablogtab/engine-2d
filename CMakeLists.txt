@@ -243,15 +243,28 @@ add_test(NAME EntityManagerTests COMMAND EntityManagerTests)
 
 add_executable(HierarchyCommandTests
     tests/HierarchyCommandTests.cpp
+    src/core/AssetManager.cpp
+    src/core/FileSystem.cpp
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp
+    src/renderer/Texture.cpp
+    src/renderer/SpriteAnimationSystem.cpp
+    src/scene/BuiltinComponentRegistrations.cpp
+    src/scene/ComponentRegistry.cpp
+    src/scene/SceneSchema.cpp
+    src/tilemap/Tilemap.cpp
+    src/tilemap/TilemapColliderSystem.cpp
+    vendor/stb/stb_impl.cpp
 )
 target_include_directories(HierarchyCommandTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
-target_link_libraries(HierarchyCommandTests PRIVATE glm::glm)
+target_link_libraries(HierarchyCommandTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME HierarchyCommandTests COMMAND HierarchyCommandTests)
 
 add_executable(SceneSerializerTests

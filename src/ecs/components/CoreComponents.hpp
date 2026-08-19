@@ -90,4 +90,6 @@ struct BehaviorComponent {
     explicit BehaviorComponent(std::function<void(EntityID, float)> fn) : update_fn(std::move(fn)) {}
 };
 
+struct GroupComponent {};
+
 } // namespace Engine

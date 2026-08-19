@@ -37,6 +37,14 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         .addable = false
     });
     register_or_throw(registry, {
+        .component_key = "group",
+        .display_name = "Group",
+        .category = EditorComponentCategory::Core,
+        .icon = EditorIcon::Component,
+        .show_in_inspector = false,
+        .addable = false
+    });
+    register_or_throw(registry, {
         .component_key = "transform",
         .drawer_key = "TransformHeader",
         .display_name = "Transform",

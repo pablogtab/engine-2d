@@ -241,8 +241,9 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 8);
+    assert(registry.descriptors().size() == 9);
     assert(registry.find_by_type(typeid(TagComponent)));
+    assert(registry.find_by_type(typeid(GroupComponent)));
     assert(registry.find_by_type(typeid(CameraComponent)));
     assert(registry.find_by_type(typeid(AnimationComponent)));
     assert(registry.find_by_type(typeid(RigidBodyComponent)));
@@ -348,6 +349,7 @@ void test_builtin_components_round_trip_through_registry() {
     const EntityID source = em.create_entity();
     em.add_component<TransformComponent>(source, TransformComponent{});
     em.add_component<TagComponent>(source, TagComponent{"RegistryEntity"});
+    em.add_component<GroupComponent>(source, GroupComponent{});
     em.add_component<SpriteComponent>(source, SpriteComponent{});
 
     CameraComponent camera;
@@ -377,7 +379,7 @@ void test_builtin_components_round_trip_through_registry() {
     nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
-    for (const char* key : {"tag", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
+    for (const char* key : {"tag", "group", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
         assert(value.contains(key));
     }
 
@@ -390,6 +392,7 @@ void test_builtin_components_round_trip_through_registry() {
         error
     ));
     assert(em.get_component<TagComponent>(target).tag == "RegistryEntity");
+    assert(em.has_component<GroupComponent>(target));
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<AnimationComponent>(target).clips.front().name == "Run");
     assert(em.get_component<RigidBodyComponent>(target).mass == 3.0f);
@@ -408,6 +411,7 @@ void test_builtin_components_round_trip_through_registry() {
     ));
     assert(snapshot.size() == default_component_registry().descriptors().size());
     assert(em.get_component<TagComponent>(restored).tag == "RegistryEntity");
+    assert(em.has_component<GroupComponent>(restored));
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
     assert(em.get_component<AnimationComponent>(restored).clips.size() == 1);
     assert(em.get_component<RigidBodyComponent>(restored).body_type == BodyType::Dynamic);

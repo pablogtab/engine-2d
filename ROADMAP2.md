@@ -167,19 +167,21 @@ These systems form the current baseline and should be extended rather than rewri
 ### Hierarchy Workflow
 
 - [ ] Complete true multi-selection editing with mixed-value presentation across all shared components; Transform and Sprite are implemented.
-- [ ] Add group/container entities and group-aware duplication.
-- [ ] Add reversible hierarchy duplicate, reparent, reorder, lock, and visibility commands.
-- [ ] Preserve local and world transforms correctly during reparenting.
+- [x] Add group/container entities (`GroupComponent`) with reversible `GroupSelectedEntitiesCommand` and `UngroupEntitiesCommand`.
+- [x] Preserve local and world transforms correctly during reparenting, grouping, and ungrouping with preflight validation.
+- [x] Route Hierarchy drag-and-drop, grouping, and context actions through command history.
+- [ ] Add reversible hierarchy duplicate, reorder, lock, and visibility commands.
 - [ ] Add entity lock and editor-only visibility states.
 - [x] Detect and reject hierarchy cycles at the `EntityManager` boundary without partially mutating the previous relationship.
 
 ### Dirty State and Saving
 
-- [ ] Derive scene dirty state from committed authoring commands.
-- [ ] Add Save, Save As, Save All, and recent scenes.
-- [ ] Warn before loading, switching, closing, or entering destructive workflows with unsaved changes.
+- [x] Derive scene dirty state from committed authoring commands and revision tracking.
+- [x] Add Save, Save As, and per-scene editorial sessions.
+- [ ] Add Save All and recent scenes.
+- [x] Warn before loading, switching, closing, or entering destructive workflows with unsaved changes, featuring transactional discard rollback.
 - [ ] Add configurable autosave and crash/interruption recovery.
-- [ ] Keep editor layout, snapping, guides, and view preferences separate from scene content.
+- [x] Keep editor layout, snapping, guides, and view preferences separate from scene content.
 
 ### Validation and Diagnostics
 
@@ -453,8 +455,8 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increment
 
-Begin the Phase 3 hierarchy workflow:
+Advance Phase 3 with Entity State Flags and Recursive Duplication:
 
-1. Add a reversible reparent/unparent command that preserves the intended local or world transform explicitly.
-2. Route Hierarchy drag-and-drop and context actions through command history.
-3. Start `HierarchyCommandTests` with reparent, unparent, cycle rejection, undo, redo, and exact transform restoration.
+1. Add entity `locked` and `editor_only_visibility` state flags with reversible commands.
+2. Add recursive hierarchy duplication (`DuplicateEntitiesCommand` supporting nested hierarchies and groups).
+3. Provide unit test coverage in `HierarchyCommandTests` and `EntityCommandsTests`.

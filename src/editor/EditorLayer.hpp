@@ -11,6 +11,7 @@
 namespace Engine {
 
 class EditorCommandHistory;
+class EditorSelection;
 class Window;
 class Scene;
 
@@ -74,6 +75,8 @@ public:
     void set_window_wrapper(Window* window) { m_window_wrapper = window; }
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
     [[nodiscard]] std::shared_ptr<EditorCommandHistory> get_command_history() const { return m_command_history; }
+    void set_selection(std::shared_ptr<EditorSelection> sel) { m_selection = sel; }
+    [[nodiscard]] std::shared_ptr<EditorSelection> get_selection() const { return m_selection; }
 
     // Session & Action Pipeline
     EditorSceneSession& get_or_create_session(const Scene* scene, const std::string& default_name = "");
@@ -98,6 +101,7 @@ private:
     class ViewportPanel* m_viewport_panel{nullptr};
     class SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
+    std::shared_ptr<EditorSelection> m_selection{nullptr};
 
     std::unordered_map<const Scene*, EditorSceneSession> m_scene_sessions;
     const Scene* m_last_active_scene{nullptr};
