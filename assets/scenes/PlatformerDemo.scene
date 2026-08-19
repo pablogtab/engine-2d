@@ -2,7 +2,6 @@
     "entities": [
         {
             "animation": {
-                "active_clip_index": 0,
                 "clips": [
                     {
                         "fps": 8.0,
@@ -36,12 +35,13 @@
                 "columns": 8,
                 "frame_height": 96.0,
                 "frame_width": 96.0,
-                "is_playing": true,
                 "margin_x": 0.0,
                 "margin_y": 0.0,
                 "rows": 3,
                 "spacing_x": 0.0,
-                "spacing_y": 0.0
+                "spacing_y": 0.0,
+                "default_clip_index": 0,
+                "play_on_start": true
             },
             "collider": [
                 {

@@ -1,6 +1,7 @@
 #include "ecs/Components.hpp"
 #include "ecs/EntityManager.hpp"
 #include "scene/ComponentRegistry.hpp"
+#include "tilemap/Tilemap.hpp"
 #include <cassert>
 #include <iostream>
 #include <string>
@@ -79,6 +80,13 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
+    assert(registry.descriptors().size() == 8);
+    assert(registry.find_by_type(typeid(TagComponent)));
+    assert(registry.find_by_type(typeid(CameraComponent)));
+    assert(registry.find_by_type(typeid(AnimationComponent)));
+    assert(registry.find_by_type(typeid(RigidBodyComponent)));
+    assert(registry.find_by_type(typeid(ColliderComponent)));
+    assert(registry.find_by_type(typeid(TilemapComponent)));
 }
 
 void test_registered_snapshot_capture_and_restore() {
@@ -174,6 +182,125 @@ void test_missing_required_component_is_rejected() {
     assert(error.find("missing required component 'transform'") != std::string::npos);
 }
 
+void test_builtin_components_round_trip_through_registry() {
+    EntityManager em;
+    const EntityID source = em.create_entity();
+    em.add_component<TransformComponent>(source, TransformComponent{});
+    em.add_component<TagComponent>(source, TagComponent{"RegistryEntity"});
+    em.add_component<SpriteComponent>(source, SpriteComponent{});
+
+    CameraComponent camera;
+    camera.zoom = 2.5f;
+    camera.projection = CameraProjectionMode::Expand;
+    camera.follow_offset = {3.0f, 4.0f};
+    em.add_component<CameraComponent>(source, camera);
+
+    AnimationComponent animation;
+    animation.columns = 4;
+    animation.rows = 2;
+    animation.default_clip_index = 0;
+    animation.add_clip("Run", 2, 6, 12.0f, true);
+    em.add_component<AnimationComponent>(source, animation);
+
+    RigidBodyComponent body = RigidBodyComponent::Dynamic(0.75f, 0.1f, 0.6f, false);
+    body.mass = 3.0f;
+    em.add_component<RigidBodyComponent>(source, body);
+    em.add_component<ColliderComponent>(source, ColliderComponent::Circle(14.0f, {2.0f, -1.0f}, true));
+
+    TilemapComponent tilemap;
+    tilemap.generate_colliders = false;
+    tilemap.tile_size = 24.0f;
+    tilemap.set_tile(-2, 5, 7);
+    em.add_component<TilemapComponent>(source, tilemap);
+
+    nlohmann::json value;
+    std::string error;
+    assert(default_component_registry().serialize_entity(em, source, value, {}, error));
+    for (const char* key : {"tag", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
+        assert(value.contains(key));
+    }
+
+    const EntityID target = em.create_entity();
+    assert(default_component_registry().deserialize_entity(em, target, value, {}, error));
+    assert(default_component_registry().finalize_entity(
+        em,
+        target,
+        ComponentFinalizeContext{.reason = ComponentFinalizeReason::Deserialization},
+        error
+    ));
+    assert(em.get_component<TagComponent>(target).tag == "RegistryEntity");
+    assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
+    assert(em.get_component<AnimationComponent>(target).clips.front().name == "Run");
+    assert(em.get_component<RigidBodyComponent>(target).mass == 3.0f);
+    assert(em.get_component<ColliderComponent>(target).shapes.front().radius == 14.0f);
+    assert(em.get_component<TilemapComponent>(target).get_tile(-2, 5) == 7);
+
+    ComponentSnapshotSet snapshot;
+    default_component_registry().capture_entity(em, source, snapshot);
+    const EntityID restored = em.create_entity();
+    default_component_registry().restore_entity(em, restored, snapshot);
+    assert(default_component_registry().finalize_entity(
+        em,
+        restored,
+        ComponentFinalizeContext{.reason = ComponentFinalizeReason::SnapshotRestore},
+        error
+    ));
+    assert(snapshot.size() == default_component_registry().descriptors().size());
+    assert(em.get_component<TagComponent>(restored).tag == "RegistryEntity");
+    assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
+    assert(em.get_component<AnimationComponent>(restored).clips.size() == 1);
+    assert(em.get_component<RigidBodyComponent>(restored).body_type == BodyType::Dynamic);
+    assert(em.get_component<ColliderComponent>(restored).shapes.size() == 1);
+    assert(em.get_component<TilemapComponent>(restored).get_tile(-2, 5) == 7);
+}
+
+void test_finalization_runs_after_entity_references_exist() {
+    EntityManager em;
+    const EntityID camera_entity = em.create_entity_with_id(1);
+    em.add_component<TransformComponent>(camera_entity, TransformComponent{});
+
+    nlohmann::json camera_json{
+        {"is_primary", true}, {"zoom", 1.0f}, {"projection", "fixed_height"},
+        {"follow_target", 2}, {"follow_offset", {0.0f, 0.0f}},
+        {"follow_speed", 6.0f}, {"enable_bounds", false},
+        {"bounds", {-10.0f, -10.0f, 10.0f, 10.0f}}
+    };
+    std::string error;
+    const auto* descriptor = default_component_registry().find_by_key("camera");
+    assert(descriptor);
+    assert(descriptor->deserialize(em, camera_entity, camera_json, {}, error));
+    assert(!default_component_registry().finalize_entity(
+        em, camera_entity, ComponentFinalizeContext{}, error
+    ));
+    assert(error.find("follow target") != std::string::npos);
+
+    const EntityID target = em.create_entity_with_id(2);
+    em.add_component<TransformComponent>(target, TransformComponent{});
+    error.clear();
+    assert(default_component_registry().finalize_entity(
+        em, camera_entity, ComponentFinalizeContext{}, error
+    ));
+}
+
+void test_animation_lifecycle_clears_runtime_playback() {
+    EntityManager em;
+    const EntityID entity = em.create_entity();
+    em.add_component<TransformComponent>(entity, TransformComponent{});
+    em.add_component<AnimationComponent>(entity, AnimationComponent{});
+    em.add_component<AnimationPlaybackStateComponent>(entity, AnimationPlaybackStateComponent{});
+
+    std::string error;
+    assert(default_component_registry().finalize_entity(
+        em, entity, ComponentFinalizeContext{.reason = ComponentFinalizeReason::SnapshotRestore}, error
+    ));
+    assert(!em.has_component<AnimationPlaybackStateComponent>(entity));
+
+    em.add_component<AnimationPlaybackStateComponent>(entity, AnimationPlaybackStateComponent{});
+    assert(default_component_registry().remove_component("animation", em, entity, error));
+    assert(!em.has_component<AnimationComponent>(entity));
+    assert(!em.has_component<AnimationPlaybackStateComponent>(entity));
+}
+
 template<std::size_t... Indices>
 void request_overflow_component_ids(std::index_sequence<Indices...>) {
     (static_cast<void>(get_component_type_id<OverflowComponent<Indices>>()), ...);
@@ -198,6 +325,9 @@ int main() {
     test_registered_add_and_remove_operations_respect_metadata();
     test_registered_json_round_trip_and_validation();
     test_missing_required_component_is_rejected();
+    test_builtin_components_round_trip_through_registry();
+    test_finalization_runs_after_entity_references_exist();
+    test_animation_lifecycle_clears_runtime_playback();
     test_component_type_limit_has_explicit_diagnostic();
     std::cout << "ComponentRegistryTests passed\n";
     return 0;

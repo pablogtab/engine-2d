@@ -43,6 +43,7 @@ set(SOURCES
     src/renderer/Texture.cpp
     src/scene/Camera2D.cpp
     src/scene/CameraController2D.cpp
+    src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
     src/scene/SceneManager.cpp
     src/scene/GenericScene.cpp
@@ -200,6 +201,8 @@ add_executable(InspectorCommandTests
     src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EntityCommands.cpp
     src/renderer/Texture.cpp
+    src/renderer/SpriteAnimationSystem.cpp
+    src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
     src/tilemap/TilemapColliderSystem.cpp
     vendor/stb/stb_impl.cpp
@@ -231,6 +234,8 @@ add_executable(SceneSerializerTests
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/renderer/Texture.cpp
+    src/renderer/SpriteAnimationSystem.cpp
+    src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
     src/scene/SceneSerializer.cpp
     src/tilemap/Tilemap.cpp
@@ -254,14 +259,17 @@ add_executable(ComponentRegistryTests
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/renderer/Texture.cpp
+    src/renderer/SpriteAnimationSystem.cpp
+    src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
+    src/tilemap/TilemapColliderSystem.cpp
     vendor/stb/stb_impl.cpp
 )
 target_include_directories(ComponentRegistryTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
 )
-target_link_libraries(ComponentRegistryTests PRIVATE SDL3::SDL3 glm::glm)
+target_link_libraries(ComponentRegistryTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME ComponentRegistryTests COMMAND ComponentRegistryTests)
 
 target_include_directories(Engine2D PRIVATE 

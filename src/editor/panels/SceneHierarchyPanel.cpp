@@ -308,8 +308,7 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 
 void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID parent_id) {
     EntitySnapshot snap;
-    snap.has_tag = true;
-    snap.tag = TagComponent{parent_id == 0 ? "New_Entity" : "Child_Entity"};
+    snap.registered_components.set(TagComponent{parent_id == 0 ? "New_Entity" : "Child_Entity"});
     snap.registered_components.set(TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
     snap.registered_components.set(SpriteComponent{
         AssetManager::get().get_white_texture(m_renderer),
@@ -325,10 +324,22 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
         m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, snap));
     } else {
         EntityID new_id = em.create_entity();
-        em.add_component<TagComponent>(new_id, snap.tag);
         default_component_registry().restore_entity(em, new_id, snap.registered_components);
         if (parent_id != 0) {
             em.set_parent(new_id, parent_id);
+        }
+        std::string finalize_error;
+        if (!default_component_registry().finalize_entity(
+            em,
+            new_id,
+            ComponentFinalizeContext{
+                .serialization = {m_renderer, &AssetManager::get()},
+                .reason = ComponentFinalizeReason::DefaultCreation
+            },
+            finalize_error
+        )) {
+            em.destroy_entity(new_id);
+            return;
         }
         if (m_selection) m_selection->select(new_id, false);
     }
@@ -336,11 +347,9 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
 
 void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID parent_id) {
     EntitySnapshot snap;
-    snap.has_tag = true;
-    snap.tag = TagComponent{parent_id == 0 ? "Tilemap" : "Child_Tilemap"};
+    snap.registered_components.set(TagComponent{parent_id == 0 ? "Tilemap" : "Child_Tilemap"});
     snap.registered_components.set(TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
-    snap.has_tilemap = true;
-    snap.tilemap = TilemapComponent{};
+    snap.registered_components.set(TilemapComponent{});
     if (parent_id != 0) {
         snap.has_hierarchy = true;
         snap.hierarchy.parent = parent_id;

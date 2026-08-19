@@ -11,26 +11,29 @@ EntitySnapshot capture_entity_snapshot(EntityManager& em, EntityID entity) {
     snapshot.id = entity;
     if (!em.is_alive(entity)) return snapshot;
 
-    if (em.has_component<TagComponent>(entity)) { snapshot.has_tag = true; snapshot.tag = em.get_component<TagComponent>(entity); }
     if (em.has_component<HierarchyComponent>(entity)) { snapshot.has_hierarchy = true; snapshot.hierarchy = em.get_component<HierarchyComponent>(entity); }
     default_component_registry().capture_entity(em, entity, snapshot.registered_components);
-    if (em.has_component<RigidBodyComponent>(entity)) { snapshot.has_rigidbody = true; snapshot.rigidbody = em.get_component<RigidBodyComponent>(entity); }
-    if (em.has_component<ColliderComponent>(entity)) { snapshot.has_collider = true; snapshot.collider = em.get_component<ColliderComponent>(entity); }
-    if (em.has_component<TilemapComponent>(entity)) { snapshot.has_tilemap = true; snapshot.tilemap = em.get_component<TilemapComponent>(entity); }
-    if (em.has_component<CameraComponent>(entity)) { snapshot.has_camera = true; snapshot.camera = em.get_component<CameraComponent>(entity); }
-    if (em.has_component<AnimationComponent>(entity)) { snapshot.has_animation = true; snapshot.animation = em.get_component<AnimationComponent>(entity); }
     return snapshot;
 }
 
 static void attach_snapshot_components(EntityManager& em, const EntitySnapshot& snapshot) {
-    if (snapshot.has_tag) em.add_component<TagComponent>(snapshot.id, snapshot.tag);
     default_component_registry().restore_entity(em, snapshot.id, snapshot.registered_components);
-    if (snapshot.has_rigidbody) em.add_component<RigidBodyComponent>(snapshot.id, snapshot.rigidbody);
-    if (snapshot.has_collider) em.add_component<ColliderComponent>(snapshot.id, snapshot.collider);
-    if (snapshot.has_tilemap) em.add_component<TilemapComponent>(snapshot.id, snapshot.tilemap);
-    if (snapshot.has_camera) em.add_component<CameraComponent>(snapshot.id, snapshot.camera);
-    if (snapshot.has_animation) em.add_component<AnimationComponent>(snapshot.id, snapshot.animation);
     if (snapshot.has_hierarchy) em.add_component<HierarchyComponent>(snapshot.id, HierarchyComponent{});
+}
+
+static std::string snapshot_tag(const EntitySnapshot& snapshot) {
+    const auto* tag = snapshot.registered_components.get<TagComponent>();
+    return tag ? tag->tag : "Entity";
+}
+
+static bool finalize_snapshot_components(EntityManager& em, EntityID entity) {
+    std::string error;
+    return default_component_registry().finalize_entity(
+        em,
+        entity,
+        ComponentFinalizeContext{.reason = ComponentFinalizeReason::SnapshotRestore},
+        error
+    );
 }
 
 bool restore_entity_snapshot(EntityManager& em, const EntitySnapshot& snapshot) {
@@ -140,7 +143,7 @@ DeleteEntitiesCommand::DeleteEntitiesCommand(
     }
 
     if (m_snapshots.size() == 1) {
-        m_description = "Delete " + m_snapshots[0].tag.tag;
+        m_description = "Delete " + snapshot_tag(m_snapshots[0]);
     } else {
         m_description = "Delete (" + std::to_string(m_snapshots.size()) + ") Entities";
     }
@@ -184,9 +187,7 @@ void DeleteEntitiesCommand::undo() {
     }
 
     for (const auto& snap : m_snapshots) {
-        if (snap.has_tilemap && m_em->is_alive(snap.id)) {
-            TilemapColliderSystem::build_composite_colliders(*m_em, snap.id);
-        }
+        if (m_em->is_alive(snap.id)) finalize_snapshot_components(*m_em, snap.id);
     }
 
     if (m_selection) {
@@ -202,7 +203,7 @@ CreateEntityCommand::CreateEntityCommand(
     std::shared_ptr<EditorSelection> selection,
     EntitySnapshot snapshot
 ) : m_em(em), m_selection(selection), m_snapshot(std::move(snapshot)) {
-    m_description = "Create " + m_snapshot.tag.tag;
+    m_description = "Create " + snapshot_tag(m_snapshot);
 }
 
 void CreateEntityCommand::execute() {
@@ -220,8 +221,10 @@ void CreateEntityCommand::execute() {
         m_em->set_parent(m_created_id, m_snapshot.hierarchy.parent);
     }
 
-    if (m_snapshot.has_tilemap) {
-        TilemapColliderSystem::build_composite_colliders(*m_em, m_created_id);
+    if (!finalize_snapshot_components(*m_em, m_created_id)) {
+        m_em->destroy_entity(m_created_id);
+        m_created_id = 0;
+        return;
     }
 
     if (m_selection) {
@@ -259,7 +262,7 @@ DuplicateEntitiesCommand::DuplicateEntitiesCommand(
 
         EntitySnapshot snapshot = capture_entity_snapshot(*m_em, source_id);
         snapshot.id = 0;
-        if (snapshot.has_tag) snapshot.tag.tag += "_Copy";
+        if (auto* tag = snapshot.registered_components.get<TagComponent>()) tag->tag += "_Copy";
         if (auto* transform = snapshot.registered_components.get<TransformComponent>()) {
             // Preserve the source's local coordinate space under a parent.
             transform->position += glm::vec3(30.0f, 30.0f, 0.0f);

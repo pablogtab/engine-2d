@@ -55,6 +55,18 @@ struct ComponentSerializationContext {
     AssetManager* asset_manager{nullptr};
 };
 
+enum class ComponentFinalizeReason {
+    Deserialization,
+    SnapshotRestore,
+    Clone,
+    DefaultCreation
+};
+
+struct ComponentFinalizeContext {
+    ComponentSerializationContext serialization;
+    ComponentFinalizeReason reason{ComponentFinalizeReason::Deserialization};
+};
+
 struct ComponentValidationIssue {
     std::string component_key;
     std::string message;
@@ -82,6 +94,13 @@ struct ComponentDescriptor {
         const ComponentSerializationContext&,
         std::string&
     )> deserialize;
+    std::function<bool(
+        EntityManager&,
+        EntityID,
+        const ComponentFinalizeContext&,
+        std::string&
+    )> finalize;
+    std::function<void(EntityManager&, EntityID)> after_remove;
     std::function<std::optional<std::string>(const EntityManager&, EntityID)> validate;
 };
 
@@ -96,6 +115,14 @@ struct TypedComponentRegistration {
     bool removable{true};
     std::function<Json(const Component&, const ComponentSerializationContext&)> serialize;
     std::function<bool(Component&, const Json&, const ComponentSerializationContext&, std::string&)> deserialize;
+    std::function<bool(
+        EntityManager&,
+        EntityID,
+        Component&,
+        const ComponentFinalizeContext&,
+        std::string&
+    )> finalize;
+    std::function<void(EntityManager&, EntityID)> after_remove;
     std::function<std::optional<std::string>(const Component&)> validate;
 };
 
@@ -120,8 +147,10 @@ public:
         descriptor.add_default = [](EntityManager& em, EntityID entity) {
             if (!em.has_component<Component>(entity)) em.add_component<Component>(entity, Component{});
         };
-        descriptor.remove = [](EntityManager& em, EntityID entity) {
-            if (em.has_component<Component>(entity)) em.remove_component<Component>(entity);
+        descriptor.remove = [after_remove = registration.after_remove](EntityManager& em, EntityID entity) {
+            if (!em.has_component<Component>(entity)) return;
+            em.remove_component<Component>(entity);
+            if (after_remove) after_remove(em, entity);
         };
         descriptor.clone = [](EntityManager& em, EntityID source, EntityID target) {
             if (!em.has_component<Component>(source)) return;
@@ -135,7 +164,11 @@ public:
         descriptor.capture = [](EntityManager& em, EntityID entity, ComponentSnapshotSet& snapshot) {
             if (em.has_component<Component>(entity)) snapshot.set(em.get_component<Component>(entity));
         };
-        descriptor.restore = [](EntityManager& em, EntityID entity, const ComponentSnapshotSet& snapshot) {
+        descriptor.restore = [after_remove = registration.after_remove](
+            EntityManager& em,
+            EntityID entity,
+            const ComponentSnapshotSet& snapshot
+        ) {
             const Component* component = snapshot.get<Component>();
             if (component) {
                 if (em.has_component<Component>(entity)) {
@@ -145,6 +178,7 @@ public:
                 }
             } else if (em.has_component<Component>(entity)) {
                 em.remove_component<Component>(entity);
+                if (after_remove) after_remove(em, entity);
             }
         };
         descriptor.serialize = [serialize = std::move(registration.serialize)](
@@ -170,6 +204,23 @@ public:
             }
             return true;
         };
+        if (registration.finalize) {
+            descriptor.finalize = [finalize = std::move(registration.finalize)](
+                EntityManager& em,
+                EntityID entity,
+                const ComponentFinalizeContext& context,
+                std::string& finalize_error
+            ) {
+                return finalize(
+                    em,
+                    entity,
+                    em.get_component<Component>(entity),
+                    context,
+                    finalize_error
+                );
+            };
+        }
+        descriptor.after_remove = std::move(registration.after_remove);
         if (registration.validate) {
             descriptor.validate = [validate = std::move(registration.validate)](
                 const EntityManager& em,
@@ -214,6 +265,18 @@ public:
         EntityID entity,
         const nlohmann::json& entity_json,
         const ComponentSerializationContext& context,
+        std::string& error
+    ) const;
+    [[nodiscard]] bool finalize_entity(
+        EntityManager& em,
+        EntityID entity,
+        const ComponentFinalizeContext& context,
+        std::string& error
+    ) const;
+    [[nodiscard]] bool finalize_entities(
+        EntityManager& em,
+        const std::vector<EntityID>& entities,
+        const ComponentFinalizeContext& context,
         std::string& error
     ) const;
     [[nodiscard]] std::vector<ComponentValidationIssue> validate_entity(

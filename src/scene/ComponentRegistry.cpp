@@ -1,4 +1,5 @@
 #include "ComponentRegistry.hpp"
+#include "BuiltinComponentRegistrations.hpp"
 #include "../core/AssetManager.hpp"
 #include "../ecs/Components.hpp"
 #include "../renderer/Texture.hpp"
@@ -91,7 +92,17 @@ bool ComponentRegistry::add_default_component(
         error = "Cannot add a component to an invalid entity";
         return false;
     }
+    const bool already_present = descriptor->has(em, entity);
     descriptor->add_default(em, entity);
+    if (!already_present && descriptor->finalize) {
+        const ComponentFinalizeContext context{
+            .reason = ComponentFinalizeReason::DefaultCreation
+        };
+        if (!descriptor->finalize(em, entity, context, error)) {
+            descriptor->remove(em, entity);
+            return false;
+        }
+    }
     return true;
 }
 
@@ -169,6 +180,43 @@ bool ComponentRegistry::deserialize_entity(
             error = "Failed to deserialize component '" + descriptor.serialized_key + "': " + exception.what();
             return false;
         }
+    }
+    return true;
+}
+
+bool ComponentRegistry::finalize_entity(
+    EntityManager& em,
+    EntityID entity,
+    const ComponentFinalizeContext& context,
+    std::string& error
+) const {
+    if (!em.is_alive(entity)) {
+        error = "Cannot finalize components for an invalid entity";
+        return false;
+    }
+    for (const ComponentDescriptor& descriptor : m_descriptors) {
+        if (!descriptor.finalize || !descriptor.has(em, entity)) continue;
+        try {
+            if (!descriptor.finalize(em, entity, context, error)) {
+                if (error.empty()) error = "Component finalizer rejected '" + descriptor.serialized_key + "'";
+                return false;
+            }
+        } catch (const std::exception& exception) {
+            error = "Failed to finalize component '" + descriptor.serialized_key + "': " + exception.what();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ComponentRegistry::finalize_entities(
+    EntityManager& em,
+    const std::vector<EntityID>& entities,
+    const ComponentFinalizeContext& context,
+    std::string& error
+) const {
+    for (const EntityID entity : entities) {
+        if (!finalize_entity(em, entity, context, error)) return false;
     }
     return true;
 }
@@ -357,6 +405,7 @@ ComponentRegistry& default_component_registry() {
             }
         }, &error);
         if (!sprite_registered) throw std::runtime_error(error);
+        register_additional_builtin_components(result);
         return result;
     }();
     return registry;

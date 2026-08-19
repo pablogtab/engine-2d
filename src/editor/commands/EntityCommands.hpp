@@ -134,21 +134,9 @@ private:
 // 2. Delete Entities Command (with full snapshot restore on undo)
 struct EntitySnapshot {
     EntityID id{0};
-    bool has_tag{false};
-    TagComponent tag;
     bool has_hierarchy{false};
     HierarchyComponent hierarchy;
     ComponentSnapshotSet registered_components;
-    bool has_rigidbody{false};
-    RigidBodyComponent rigidbody;
-    bool has_collider{false};
-    ColliderComponent collider;
-    bool has_tilemap{false};
-    TilemapComponent tilemap;
-    bool has_camera{false};
-    CameraComponent camera;
-    bool has_animation{false};
-    AnimationComponent animation;
 };
 
 [[nodiscard]] EntitySnapshot capture_entity_snapshot(EntityManager& em, EntityID entity);

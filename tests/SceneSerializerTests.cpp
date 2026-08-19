@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <nlohmann/json.hpp>
 
 namespace {
 
@@ -107,6 +108,45 @@ void test_all_project_scenes_match_the_registered_schema() {
     }
 }
 
+void test_serialization_is_deterministic_and_excludes_runtime_state() {
+    TestScene scene;
+    EntityManager& em = scene.get_entity_manager();
+    const EntityID entity = em.create_entity();
+    em.add_component<TransformComponent>(entity, TransformComponent{});
+    em.add_component<TagComponent>(entity, TagComponent{"Deterministic"});
+
+    RigidBodyComponent body = RigidBodyComponent::Dynamic();
+    body.velocity = {80.0f, -15.0f};
+    body.angular_velocity = 25.0f;
+    em.add_component<RigidBodyComponent>(entity, body);
+    em.add_component<ColliderComponent>(entity, ColliderComponent::Box({32.0f, 16.0f}));
+
+    AnimationComponent animation;
+    animation.add_clip("Idle", 0, 4, 8.0f, true);
+    em.add_component<AnimationComponent>(entity, animation);
+    AnimationPlaybackStateComponent playback;
+    playback.current_frame = 3;
+    playback.timer = 0.75f;
+    playback.initialized = true;
+    em.add_component<AnimationPlaybackStateComponent>(entity, playback);
+
+    SceneSerializer serializer(&scene);
+    const std::string first = serializer.serialize_to_string();
+    const std::string second = serializer.serialize_to_string();
+    assert(first == second);
+
+    const auto root = nlohmann::json::parse(first);
+    const auto& serialized_entity = root.at("entities").front();
+    assert(!serialized_entity.at("rigidbody").contains("velocity"));
+    assert(!serialized_entity.at("rigidbody").contains("angular_velocity"));
+    assert(!serialized_entity.contains("animation_playback"));
+
+    assert(serializer.deserialize_from_string(first));
+    assert(em.get_component<RigidBodyComponent>(entity).velocity == glm::vec2(0.0f));
+    assert(em.get_component<RigidBodyComponent>(entity).angular_velocity == 0.0f);
+    assert(!em.has_component<AnimationPlaybackStateComponent>(entity));
+}
+
 } // namespace
 
 int main() {
@@ -114,6 +154,7 @@ int main() {
     test_forward_parent_reference_is_order_independent();
     test_sprite_outline_authoring_round_trips();
     test_all_project_scenes_match_the_registered_schema();
+    test_serialization_is_deterministic_and_excludes_runtime_state();
     std::cout << "Scene serializer tests passed\n";
     return 0;
 }

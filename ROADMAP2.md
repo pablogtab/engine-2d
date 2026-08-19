@@ -132,18 +132,20 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Introduce an explicit typed component registry without requiring a complex reflection system.
 - [x] Register component name, stable serialized key, schema version, and runtime type.
 - [x] Register serialize, deserialize, clone, capture, restore, add, remove, and validate operations.
+- [x] Add second-phase lifecycle finalization for derived state and entity references.
+- [x] Keep built-in component registrations separate from the registry core.
 - [ ] Allow editor builds to attach a component drawer and creation metadata without coupling runtime code to ImGui.
 - [x] Reject duplicate serialized keys and component-count overflow with explicit diagnostics.
 
 ### Serialization and Snapshots
 
-- [ ] Migrate `SceneSerializer` component switches to registered serializers; Transform and Sprite are migrated.
-- [ ] Migrate `EntitySnapshot` manual fields to registry-backed component snapshots; Transform and Sprite are migrated.
-- [ ] Preserve stable entity IDs and hierarchy references across save/load and undo/redo.
+- [x] Migrate `SceneSerializer` component switches to registered serializers for Transform, Sprite, Tag, RigidBody, Collider, Tilemap, Camera, and Animation.
+- [x] Migrate serializable `EntitySnapshot` fields to registry-backed component snapshots.
+- [x] Preserve stable entity IDs and hierarchy references across save/load and undo/redo.
 - [ ] Add scene schema versioning and explicit migrations.
-- [ ] Define which fields are authored, derived, transient, or runtime-only.
-- [ ] Add round-trip determinism tests for every serializable component.
-- [ ] Add snapshot restore tests for every registered component.
+- [x] Define authored fields for registered components and exclude animation playback and physics motion state from serialization.
+- [x] Add round-trip determinism tests for every currently registered serializable component.
+- [x] Add snapshot restore coverage for every currently registered component.
 
 ### ECS Scope
 
@@ -362,7 +364,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 2 — Component and Serialization Suites
 
-- [x] `ComponentRegistryTests` — registration, duplicate keys, schema versions, add/remove, clone, capture/restore, validation, and component-limit diagnostics.
+- [x] `ComponentRegistryTests` — registration, duplicate keys, schema versions, lifecycle hooks, references, complete add/remove, clone, capture/restore, validation, and component-limit diagnostics.
 - [ ] `SceneSerializationTests` — deterministic output, complete component round trips, stable IDs, hierarchy references, missing fields, malformed data, and migrations.
 - [ ] `EntitySnapshotTests` — delete/restore, duplicate, component completeness, hierarchy restoration, asset references, and runtime-only field exclusion.
 - [ ] `SceneMigrationTests` — every supported historical schema migrates forward or fails with an actionable error.
@@ -450,8 +452,8 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increment
 
-Continue the Phase 2 registry migration:
+Finish the Phase 2 registry contract:
 
-1. Add descriptor lifecycle/finalization hooks for components with derived state or entity references.
-2. Migrate Tag, RigidBody, Collider, Tilemap, Camera, and Animation serialization and snapshots.
-3. Remove their manual `EntitySnapshot` fields and extend round-trip coverage for every migrated component.
+1. Add editor-only descriptor metadata for drawers, creation categories, icons, and dependencies without coupling runtime code to ImGui.
+2. Add explicit scene/component schema migrations and actionable diagnostics for malformed or unsupported data.
+3. Extract domain component definitions from `Components.hpp` now that serialization and snapshots no longer require a central component switch.
