@@ -943,6 +943,208 @@ void test_delete_parent_recursively_deletes_entire_subtree_and_restores_on_undo(
     std::cout << "test_delete_parent_recursively_deletes_entire_subtree_and_restores_on_undo passed." << std::endl;
 }
 
+void test_reorder_children_under_parent() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+
+    EntityID parent = em.create_entity();
+    em.add_component<TransformComponent>(parent, TransformComponent{glm::vec3(0.0f)});
+
+    EntityID c0 = em.create_entity();
+    em.add_component<TransformComponent>(c0, TransformComponent{glm::vec3(1.0f)});
+    assert(em.set_parent(c0, parent).succeeded());
+
+    EntityID c1 = em.create_entity();
+    em.add_component<TransformComponent>(c1, TransformComponent{glm::vec3(2.0f)});
+    assert(em.set_parent(c1, parent).succeeded());
+
+    EntityID c2 = em.create_entity();
+    em.add_component<TransformComponent>(c2, TransformComponent{glm::vec3(3.0f)});
+    assert(em.set_parent(c2, parent).succeeded());
+
+    // Initial order: [c0, c1, c2]
+    assert(em.get_sibling_index(c0) == 0);
+    assert(em.get_sibling_index(c1) == 1);
+    assert(em.get_sibling_index(c2) == 2);
+    assert(em.get_sibling_count(c0) == 3);
+
+    // Reorder c0 to index 2: new order [c1, c2, c0]
+    history.execute_command(std::make_unique<ReorderEntityCommand>(&em, c0, 2));
+    const auto& children1 = em.get_component<HierarchyComponent>(parent).children;
+    assert(children1.size() == 3);
+    assert(children1[0] == c1);
+    assert(children1[1] == c2);
+    assert(children1[2] == c0);
+
+    // Undo: restores [c0, c1, c2]
+    assert(history.can_undo());
+    history.undo();
+    const auto& children_undo = em.get_component<HierarchyComponent>(parent).children;
+    assert(children_undo[0] == c0);
+    assert(children_undo[1] == c1);
+    assert(children_undo[2] == c2);
+
+    // Redo: [c1, c2, c0]
+    assert(history.can_redo());
+    history.redo();
+    const auto& children_redo = em.get_component<HierarchyComponent>(parent).children;
+    assert(children_redo[0] == c1);
+    assert(children_redo[1] == c2);
+    assert(children_redo[2] == c0);
+
+    std::cout << "test_reorder_children_under_parent passed." << std::endl;
+}
+
+void test_reorder_root_entities() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+
+    EntityID r0 = em.create_entity();
+    em.add_component<TransformComponent>(r0, TransformComponent{glm::vec3(0.0f)});
+
+    EntityID r1 = em.create_entity();
+    em.add_component<TransformComponent>(r1, TransformComponent{glm::vec3(10.0f)});
+
+    EntityID r2 = em.create_entity();
+    em.add_component<TransformComponent>(r2, TransformComponent{glm::vec3(20.0f)});
+
+    // Verify that living_entities vector is UNTOUCHED (ECS lifecycle stability)
+    const auto& living_before = em.get_living_entities();
+    const std::vector<EntityID> expected_living = {r0, r1, r2};
+    assert(living_before == expected_living);
+
+    // Move r2 to index 0 (top): order [r2, r0, r1]
+    history.execute_command(std::make_unique<ReorderEntityCommand>(&em, r2, 0));
+    assert(em.get_sibling_index(r2) == 0);
+    assert(em.get_sibling_index(r0) == 1);
+    assert(em.get_sibling_index(r1) == 2);
+    assert(em.get_root_entities() == (std::vector<EntityID>{r2, r0, r1}));
+
+    // Crucial architectural assertion: m_living_entities did NOT change!
+    assert(em.get_living_entities() == expected_living);
+
+    // Undo: [r0, r1, r2]
+    assert(history.can_undo());
+    history.undo();
+    assert(em.get_sibling_index(r0) == 0);
+    assert(em.get_sibling_index(r1) == 1);
+    assert(em.get_sibling_index(r2) == 2);
+    assert(em.get_root_entities() == expected_living);
+    assert(em.get_living_entities() == expected_living);
+
+    // Redo: [r2, r0, r1]
+    assert(history.can_redo());
+    history.redo();
+    assert(em.get_sibling_index(r2) == 0);
+    assert(em.get_sibling_index(r0) == 1);
+    assert(em.get_sibling_index(r1) == 2);
+    assert(em.get_root_entities() == (std::vector<EntityID>{r2, r0, r1}));
+    assert(em.get_living_entities() == expected_living);
+
+    std::cout << "test_reorder_root_entities passed." << std::endl;
+}
+
+void test_reorder_rejects_when_parent_changed_externally() {
+    EntityManager em;
+
+    EntityID parentA = em.create_entity();
+    em.add_component<TransformComponent>(parentA, TransformComponent{glm::vec3(0.0f)});
+
+    EntityID parentB = em.create_entity();
+    em.add_component<TransformComponent>(parentB, TransformComponent{glm::vec3(10.0f)});
+
+    EntityID child = em.create_entity();
+    em.add_component<TransformComponent>(child, TransformComponent{glm::vec3(1.0f)});
+    assert(em.set_parent(child, parentA).succeeded());
+
+    // Create command expecting parentA
+    ReorderEntityCommand cmd(&em, child, 0);
+
+    // Externally change parent to parentB
+    assert(em.set_parent(child, parentB).succeeded());
+
+    // Command should reject execution because parent is now parentB
+    assert(!cmd.execute());
+
+    std::cout << "test_reorder_rejects_when_parent_changed_externally passed." << std::endl;
+}
+
+void test_reorder_locked_entity_rejection() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+    EditorEntityStateStore store;
+
+    EntityID parent = em.create_entity();
+    em.add_component<TransformComponent>(parent, TransformComponent{glm::vec3(0.0f)});
+
+    EntityID c0 = em.create_entity();
+    em.add_component<TransformComponent>(c0, TransformComponent{glm::vec3(1.0f)});
+    assert(em.set_parent(c0, parent).succeeded());
+
+    EntityID c1 = em.create_entity();
+    em.add_component<TransformComponent>(c1, TransformComponent{glm::vec3(2.0f)});
+    assert(em.set_parent(c1, parent).succeeded());
+
+    // Lock c0
+    store.set_locked(c0, true);
+
+    // Attempt to reorder locked c0 -> rejected
+    const size_t undo_count_before = history.get_undo_count();
+    history.execute_command(std::make_unique<ReorderEntityCommand>(&em, c0, 1, nullptr, &store));
+    assert(history.get_undo_count() == undo_count_before);
+    assert(em.get_sibling_index(c0) == 0);
+
+    // Unlock c0, lock parent -> rejected
+    store.set_locked(c0, false);
+    store.set_locked(parent, true);
+    history.execute_command(std::make_unique<ReorderEntityCommand>(&em, c0, 1, nullptr, &store));
+    assert(history.get_undo_count() == undo_count_before);
+    assert(em.get_sibling_index(c0) == 0);
+
+    std::cout << "test_reorder_locked_entity_rejection passed." << std::endl;
+}
+
+void test_reparent_with_target_index() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+
+    EntityID parent = em.create_entity();
+    em.add_component<TransformComponent>(parent, TransformComponent{glm::vec3(0.0f)});
+
+    EntityID c0 = em.create_entity();
+    em.add_component<TransformComponent>(c0, TransformComponent{glm::vec3(1.0f)});
+    assert(em.set_parent(c0, parent).succeeded());
+
+    EntityID c1 = em.create_entity();
+    em.add_component<TransformComponent>(c1, TransformComponent{glm::vec3(2.0f)});
+    assert(em.set_parent(c1, parent).succeeded());
+
+    EntityID outside = em.create_entity();
+    em.add_component<TransformComponent>(outside, TransformComponent{glm::vec3(50.0f)});
+
+    // Reparent `outside` into `parent` at index 1 (between c0 and c1)
+    history.execute_command(std::make_unique<ReparentEntityCommand>(
+        &em, outside, parent, nullptr, "", nullptr, std::make_optional<size_t>(1)
+    ));
+
+    const auto& children = em.get_component<HierarchyComponent>(parent).children;
+    assert(children.size() == 3);
+    assert(children[0] == c0);
+    assert(children[1] == outside);
+    assert(children[2] == c1);
+
+    // Undo reparent
+    assert(history.can_undo());
+    history.undo();
+    assert(em.get_component<HierarchyComponent>(outside).parent == 0);
+    const auto& children_undone = em.get_component<HierarchyComponent>(parent).children;
+    assert(children_undone.size() == 2);
+    assert(children_undone[0] == c0);
+    assert(children_undone[1] == c1);
+
+    std::cout << "test_reparent_with_target_index passed." << std::endl;
+}
+
 int main() {
     test_reparent_preserves_world_transform();
     test_unparent_preserves_world_transform();
@@ -968,6 +1170,11 @@ int main() {
     test_hierarchy_lock_validation();
     test_delete_blocks_locked_descendants_and_restores_metadata();
     test_delete_parent_recursively_deletes_entire_subtree_and_restores_on_undo();
+    test_reorder_children_under_parent();
+    test_reorder_root_entities();
+    test_reorder_rejects_when_parent_changed_externally();
+    test_reorder_locked_entity_rejection();
+    test_reparent_with_target_index();
 
     std::cout << "All HierarchyCommandTests passed successfully!" << std::endl;
     return 0;

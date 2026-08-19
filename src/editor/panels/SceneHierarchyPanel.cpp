@@ -83,21 +83,10 @@ void SceneHierarchyPanel::on_gui() {
         ImGuiIO& io = ImGui::GetIO();
         bool is_multi_key = io.KeyCtrl || io.KeyShift;
 
-        // Iterate through root-level entities (entities with no parent or parent not alive)
-        for (EntityID id : living_entities) {
+        // Iterate through root-level entities in authored visual order
+        for (EntityID id : em.get_root_entities()) {
             if (!em.is_alive(id)) continue;
-
-            bool is_root = true;
-            if (em.has_component<HierarchyComponent>(id)) {
-                EntityID parent_id = em.get_component<HierarchyComponent>(id).parent;
-                if (parent_id != 0 && em.is_alive(parent_id)) {
-                    is_root = false;
-                }
-            }
-
-            if (is_root) {
-                draw_entity_node(em, id, filter_str, is_multi_key);
-            }
+            draw_entity_node(em, id, filter_str, is_multi_key);
         }
 
         // Empty space at bottom of tree to allow dropping to unparent (make root entity)
@@ -128,6 +117,35 @@ void SceneHierarchyPanel::on_gui() {
                 create_entity_helper(em, 0);
             }
             ImGui::EndPopup();
+        }
+
+        // --- Keyboard Shortcuts (Alt+Up / Alt+Down to move entity) ---
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && m_selection && m_selection->count() == 1) {
+            EntityID selected_entity = m_selection->get_primary();
+            if (em.is_alive(selected_entity)) {
+                bool is_locked = m_entity_state_store && m_entity_state_store->is_locked(selected_entity);
+                if (!is_locked) {
+                    size_t sib_idx = em.get_sibling_index(selected_entity);
+                    size_t sib_count = em.get_sibling_count(selected_entity);
+                    if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_UpArrow) && sib_idx > 0) {
+                        if (m_command_history) {
+                            m_command_history->execute_command(
+                                std::make_unique<ReorderEntityCommand>(&em, selected_entity, sib_idx - 1, m_selection, m_entity_state_store.get())
+                            );
+                        } else {
+                            static_cast<void>(em.reorder_sibling(selected_entity, sib_idx - 1));
+                        }
+                    } else if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_DownArrow) && sib_idx + 1 < sib_count) {
+                        if (m_command_history) {
+                            m_command_history->execute_command(
+                                std::make_unique<ReorderEntityCommand>(&em, selected_entity, sib_idx + 1, m_selection, m_entity_state_store.get())
+                            );
+                        } else {
+                            static_cast<void>(em.reorder_sibling(selected_entity, sib_idx + 1));
+                        }
+                    }
+                }
+            }
         }
 
         ImGui::EndChild();
@@ -286,18 +304,86 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         ImGui::EndDragDropSource();
     }
 
-    // --- Drag and Drop: Target (Reparent) ---
+    // --- Drag and Drop: Target (Reparent & Reorder) ---
     if (ImGui::BeginDragDropTarget()) {
+        const ImVec2 item_min = ImGui::GetItemRectMin();
+        const ImVec2 item_max = ImGui::GetItemRectMax();
+        const float item_h = std::max(item_max.y - item_min.y, 1.0f);
+        const float mouse_y = ImGui::GetMousePos().y;
+        const float rel_y = mouse_y - item_min.y;
+
+        enum class DropZone { Before, Inside, After };
+        DropZone zone = DropZone::Inside;
+        if (rel_y < item_h * 0.28f) {
+            zone = DropZone::Before;
+        } else if (rel_y > item_h * 0.72f) {
+            zone = DropZone::After;
+        }
+
+        // Draw professional visual insertion line / box indicators
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        if (zone == DropZone::Before) {
+            draw_list->AddLine(ImVec2(item_min.x, item_min.y), ImVec2(item_max.x, item_min.y), IM_COL32(95, 145, 255, 255), 2.0f);
+            draw_list->AddCircleFilled(ImVec2(item_min.x + 3.0f, item_min.y), 3.0f, IM_COL32(95, 145, 255, 255));
+        } else if (zone == DropZone::After) {
+            draw_list->AddLine(ImVec2(item_min.x, item_max.y), ImVec2(item_max.x, item_max.y), IM_COL32(95, 145, 255, 255), 2.0f);
+            draw_list->AddCircleFilled(ImVec2(item_min.x + 3.0f, item_max.y), 3.0f, IM_COL32(95, 145, 255, 255));
+        } else {
+            draw_list->AddRect(item_min, item_max, IM_COL32(95, 145, 255, 180), 2.0f);
+        }
+
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG")) {
             EntityID dropped_id = *(const EntityID*)payload->Data;
-            if (em.is_alive(dropped_id) && dropped_id != id && !is_descendant(em, id, dropped_id)) {
-                if (m_command_history) {
-                    m_command_history->execute_command(
-                        std::make_unique<ReparentEntityCommand>(&em, dropped_id, id, m_selection, "", m_entity_state_store.get())
-                    );
+            if (em.is_alive(dropped_id) && dropped_id != id) {
+                if (zone == DropZone::Inside) {
+                    if (!is_descendant(em, id, dropped_id)) {
+                        if (m_command_history) {
+                            m_command_history->execute_command(
+                                std::make_unique<ReparentEntityCommand>(&em, dropped_id, id, m_selection, "", m_entity_state_store.get())
+                            );
+                        } else {
+                            ReparentEntityCommand cmd(&em, dropped_id, id, m_selection, "", m_entity_state_store.get());
+                            cmd.execute();
+                        }
+                    }
                 } else {
-                    ReparentEntityCommand cmd(&em, dropped_id, id, m_selection, "", m_entity_state_store.get());
-                    cmd.execute();
+                    EntityID target_parent = 0;
+                    if (em.has_component<HierarchyComponent>(id)) {
+                        target_parent = em.get_component<HierarchyComponent>(id).parent;
+                    }
+
+                    if (!is_descendant(em, target_parent, dropped_id)) {
+                        size_t target_idx = em.get_sibling_index(id);
+                        if (zone == DropZone::After) {
+                            target_idx++;
+                        }
+
+                        EntityID dropped_parent = 0;
+                        if (em.has_component<HierarchyComponent>(dropped_id)) {
+                            dropped_parent = em.get_component<HierarchyComponent>(dropped_id).parent;
+                        }
+
+                        if (dropped_parent == target_parent) {
+                            size_t cur_idx = em.get_sibling_index(dropped_id);
+                            if (cur_idx < target_idx && target_idx > 0) target_idx--;
+                            if (m_command_history) {
+                                m_command_history->execute_command(
+                                    std::make_unique<ReorderEntityCommand>(&em, dropped_id, target_idx, m_selection, m_entity_state_store.get())
+                                );
+                            } else {
+                                static_cast<void>(em.reorder_sibling(dropped_id, target_idx));
+                            }
+                        } else {
+                            if (m_command_history) {
+                                m_command_history->execute_command(
+                                    std::make_unique<ReparentEntityCommand>(&em, dropped_id, target_parent, m_selection, "", m_entity_state_store.get(), target_idx)
+                                );
+                            } else {
+                                ReparentEntityCommand cmd(&em, dropped_id, target_parent, m_selection, "", m_entity_state_store.get(), target_idx);
+                                cmd.execute();
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -326,6 +412,43 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             } else {
                 ReparentEntityCommand cmd(&em, id, 0, m_selection, "", m_entity_state_store.get());
                 cmd.execute();
+            }
+        }
+
+        ImGui::Separator();
+
+        // --- Sibling Reordering ---
+        size_t sib_idx = em.get_sibling_index(id);
+        size_t sib_count = em.get_sibling_count(id);
+        bool can_move_up = !is_locked && (sib_idx > 0);
+        bool can_move_down = !is_locked && (sib_idx + 1 < sib_count);
+
+        if (ImGui::MenuItem("Move Up", "Alt+Up", false, can_move_up)) {
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<ReorderEntityCommand>(&em, id, sib_idx - 1, m_selection, m_entity_state_store.get()));
+            } else {
+                static_cast<void>(em.reorder_sibling(id, sib_idx - 1));
+            }
+        }
+        if (ImGui::MenuItem("Move Down", "Alt+Down", false, can_move_down)) {
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<ReorderEntityCommand>(&em, id, sib_idx + 1, m_selection, m_entity_state_store.get()));
+            } else {
+                static_cast<void>(em.reorder_sibling(id, sib_idx + 1));
+            }
+        }
+        if (ImGui::MenuItem("Move to Top", nullptr, false, can_move_up)) {
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<ReorderEntityCommand>(&em, id, 0, m_selection, m_entity_state_store.get()));
+            } else {
+                static_cast<void>(em.reorder_sibling(id, 0));
+            }
+        }
+        if (ImGui::MenuItem("Move to Bottom", nullptr, false, can_move_down)) {
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<ReorderEntityCommand>(&em, id, sib_count > 0 ? sib_count - 1 : 0, m_selection, m_entity_state_store.get()));
+            } else {
+                static_cast<void>(em.reorder_sibling(id, sib_count > 0 ? sib_count - 1 : 0));
             }
         }
 

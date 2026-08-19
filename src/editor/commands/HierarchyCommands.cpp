@@ -16,11 +16,13 @@ ReparentEntityCommand::ReparentEntityCommand(
     EntityID new_parent,
     std::shared_ptr<EditorSelection> selection,
     std::string custom_description,
-    const EditorEntityStateStore* state_store
+    const EditorEntityStateStore* state_store,
+    std::optional<size_t> target_index
 ) : m_em(em),
     m_selection(std::move(selection)),
     m_entity(entity),
-    m_new_parent(new_parent) {
+    m_new_parent(new_parent),
+    m_target_index(target_index) {
     if (!m_em || !m_em->is_alive(m_entity)) {
         m_valid = false;
         return;
@@ -50,6 +52,7 @@ ReparentEntityCommand::ReparentEntityCommand(
         }
     }
 
+    m_old_index = m_em->get_sibling_index(m_entity);
     if (m_em->has_component<HierarchyComponent>(m_entity)) {
         m_old_parent = m_em->get_component<HierarchyComponent>(m_entity).parent;
     } else {
@@ -103,13 +106,13 @@ bool ReparentEntityCommand::execute() {
     if (!m_valid || !m_em || !m_em->is_alive(m_entity)) return false;
 
     if (m_new_parent == 0) {
-        const auto result = m_em->remove_parent(m_entity);
+        const auto result = m_em->remove_parent(m_entity, m_target_index);
         if (!result.succeeded()) {
             ENGINE_LOG_WARN("[HIERARCHY] ReparentEntityCommand remove_parent failed: {}", result.message());
             return false;
         }
     } else {
-        const auto result = m_em->set_parent(m_entity, m_new_parent);
+        const auto result = m_em->set_parent(m_entity, m_new_parent, m_target_index);
         if (!result.succeeded()) {
             ENGINE_LOG_WARN("[HIERARCHY] ReparentEntityCommand set_parent failed: {}", result.message());
             return false;
@@ -128,13 +131,13 @@ bool ReparentEntityCommand::undo() {
     if (!m_valid || !m_em || !m_em->is_alive(m_entity)) return false;
 
     if (m_old_parent == 0) {
-        const auto result = m_em->remove_parent(m_entity);
+        const auto result = m_em->remove_parent(m_entity, m_old_index);
         if (!result.succeeded()) {
             ENGINE_LOG_WARN("[HIERARCHY] ReparentEntityCommand undo remove_parent failed: {}", result.message());
             return false;
         }
     } else {
-        const auto result = m_em->set_parent(m_entity, m_old_parent);
+        const auto result = m_em->set_parent(m_entity, m_old_parent, m_old_index);
         if (!result.succeeded()) {
             ENGINE_LOG_WARN("[HIERARCHY] ReparentEntityCommand undo set_parent failed: {}", result.message());
             return false;
@@ -147,6 +150,91 @@ bool ReparentEntityCommand::undo() {
 
     TransformSystem::update(*m_em);
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// 1b. ReorderEntityCommand
+// ---------------------------------------------------------------------------
+ReorderEntityCommand::ReorderEntityCommand(
+    EntityManager* em,
+    EntityID entity,
+    size_t new_index,
+    std::shared_ptr<EditorSelection> selection,
+    const EditorEntityStateStore* state_store
+) : m_em(em),
+    m_selection(std::move(selection)),
+    m_entity(entity),
+    m_new_index(new_index) {
+    if (!m_em || !m_em->is_alive(m_entity)) {
+        m_valid = false;
+        return;
+    }
+
+    if (state_store && state_store->is_locked(m_entity)) {
+        ENGINE_LOG_WARN("[HIERARCHY] Cannot reorder locked entity #{}", m_entity);
+        m_valid = false;
+        return;
+    }
+
+    if (m_em->has_component<HierarchyComponent>(m_entity)) {
+        m_parent = m_em->get_component<HierarchyComponent>(m_entity).parent;
+    } else {
+        m_parent = 0;
+    }
+
+    if (m_parent != 0 && state_store && state_store->is_locked(m_parent)) {
+        ENGINE_LOG_WARN("[HIERARCHY] Cannot reorder child #{} under locked parent #{}", m_entity, m_parent);
+        m_valid = false;
+        return;
+    }
+
+    m_old_index = m_em->get_sibling_index(m_entity);
+    size_t count = m_em->get_sibling_count(m_entity);
+    if (m_new_index >= count && count > 0) {
+        m_new_index = count - 1;
+    }
+
+    if (m_old_index == m_new_index) {
+        m_valid = false;
+        return;
+    }
+
+    std::string tag = "Entity #" + std::to_string(m_entity);
+    if (m_em->has_component<TagComponent>(m_entity)) {
+        tag = "'" + m_em->get_component<TagComponent>(m_entity).tag + "'";
+    }
+    m_description = "Reorder " + tag;
+    m_valid = true;
+}
+
+bool ReorderEntityCommand::execute() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_entity)) return false;
+
+    EntityID current_parent = 0;
+    if (m_em->has_component<HierarchyComponent>(m_entity)) {
+        current_parent = m_em->get_component<HierarchyComponent>(m_entity).parent;
+    }
+    if (current_parent != m_parent) {
+        ENGINE_LOG_WARN("[HIERARCHY] ReorderEntityCommand execute rejected: entity parent changed from #{} to #{}", m_parent, current_parent);
+        return false;
+    }
+
+    return m_em->reorder_sibling(m_entity, m_new_index);
+}
+
+bool ReorderEntityCommand::undo() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_entity)) return false;
+
+    EntityID current_parent = 0;
+    if (m_em->has_component<HierarchyComponent>(m_entity)) {
+        current_parent = m_em->get_component<HierarchyComponent>(m_entity).parent;
+    }
+    if (current_parent != m_parent) {
+        ENGINE_LOG_WARN("[HIERARCHY] ReorderEntityCommand undo rejected: entity parent changed from #{} to #{}", m_parent, current_parent);
+        return false;
+    }
+
+    return m_em->reorder_sibling(m_entity, m_old_index);
 }
 
 // ---------------------------------------------------------------------------

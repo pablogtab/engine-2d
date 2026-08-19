@@ -11,6 +11,8 @@
 #include <string>
 #include <stdexcept>
 
+#include <optional>
+
 namespace Engine {
 
 enum class HierarchyOperationStatus {
@@ -64,8 +66,13 @@ public:
     bool is_alive(EntityID entity) const;
 
     // Parent-Child Hierarchy Management
-    [[nodiscard]] HierarchyOperationResult set_parent(EntityID child, EntityID parent);
-    [[nodiscard]] HierarchyOperationResult remove_parent(EntityID child);
+    [[nodiscard]] HierarchyOperationResult set_parent(EntityID child, EntityID parent, std::optional<size_t> target_index = std::nullopt);
+    [[nodiscard]] HierarchyOperationResult remove_parent(EntityID child, std::optional<size_t> target_index = std::nullopt);
+
+    // Sibling Reordering
+    [[nodiscard]] size_t get_sibling_index(EntityID entity) const;
+    [[nodiscard]] size_t get_sibling_count(EntityID entity) const;
+    [[nodiscard]] bool reorder_sibling(EntityID entity, size_t target_index);
 
     // Clone an existing entity and all its attached components
     EntityID clone_entity(EntityID src);
@@ -201,6 +208,7 @@ public:
 
     size_t get_living_entity_count() const { return m_living_entities.size(); }
     [[nodiscard]] const std::vector<EntityID>& get_living_entities() const { return m_living_entities; }
+    [[nodiscard]] const std::vector<EntityID>& get_root_entities() const { return m_root_entities; }
 
 private:
     [[nodiscard]] bool would_create_hierarchy_cycle(EntityID child, EntityID parent) const;
@@ -227,6 +235,7 @@ private:
     EntityID m_next_entity_id{1};
     std::vector<EntityID> m_free_entities;
     std::vector<EntityID> m_living_entities;
+    std::vector<EntityID> m_root_entities;
     std::unordered_map<EntityID, ComponentMask> m_entity_masks;
     std::unordered_map<std::type_index, std::unique_ptr<IComponentArray>> m_component_arrays;
 };

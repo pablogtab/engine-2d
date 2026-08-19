@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include <optional>
+
 namespace Engine {
 
 class EditorEntityStateStore;
@@ -21,7 +23,8 @@ public:
         EntityID new_parent,
         std::shared_ptr<EditorSelection> selection = nullptr,
         std::string custom_description = "",
-        const EditorEntityStateStore* state_store = nullptr
+        const EditorEntityStateStore* state_store = nullptr,
+        std::optional<size_t> target_index = std::nullopt
     );
 
     bool execute() override;
@@ -35,6 +38,8 @@ private:
     EntityID m_entity{0};
     EntityID m_old_parent{0};
     EntityID m_new_parent{0};
+    size_t m_old_index{0};
+    std::optional<size_t> m_target_index{std::nullopt};
 
     bool m_had_transform{false};
     TransformComponent m_old_transform;
@@ -42,6 +47,32 @@ private:
 
     bool m_valid{false};
     std::string m_description;
+};
+
+class ReorderEntityCommand final : public IEditorCommand {
+public:
+    ReorderEntityCommand(
+        EntityManager* em,
+        EntityID entity,
+        size_t new_index,
+        std::shared_ptr<EditorSelection> selection = nullptr,
+        const EditorEntityStateStore* state_store = nullptr
+    );
+
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
+
+private:
+    EntityManager* m_em{nullptr};
+    std::shared_ptr<EditorSelection> m_selection{nullptr};
+    EntityID m_entity{0};
+    EntityID m_parent{0};
+    size_t m_old_index{0};
+    size_t m_new_index{0};
+    bool m_valid{false};
+    std::string m_description{"Reorder Entity"};
 };
 
 struct GroupChildEntry {

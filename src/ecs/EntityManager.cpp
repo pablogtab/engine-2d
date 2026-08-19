@@ -23,6 +23,7 @@ void EntityManager::swap(EntityManager& other) noexcept {
     swap(m_next_entity_id, other.m_next_entity_id);
     swap(m_free_entities, other.m_free_entities);
     swap(m_living_entities, other.m_living_entities);
+    swap(m_root_entities, other.m_root_entities);
     swap(m_entity_masks, other.m_entity_masks);
     swap(m_component_arrays, other.m_component_arrays);
 }
@@ -37,6 +38,7 @@ EntityID EntityManager::create_entity() {
     }
 
     m_living_entities.push_back(id);
+    m_root_entities.push_back(id);
     return id;
 }
 
@@ -49,6 +51,7 @@ EntityID EntityManager::create_entity_with_id(EntityID entity) {
     }
 
     m_living_entities.push_back(entity);
+    m_root_entities.push_back(entity);
     m_next_entity_id = std::max(m_next_entity_id, entity + 1);
     return entity;
 }
@@ -75,6 +78,12 @@ void EntityManager::destroy_entity(EntityID entity) {
 
     m_entity_masks.erase(entity);
     m_living_entities.erase(it);
+
+    auto root_it = std::find(m_root_entities.begin(), m_root_entities.end(), entity);
+    if (root_it != m_root_entities.end()) {
+        m_root_entities.erase(root_it);
+    }
+
     m_free_entities.push_back(entity);
 }
 
@@ -147,10 +156,10 @@ bool EntityManager::would_create_hierarchy_cycle(EntityID child, EntityID parent
     return false;
 }
 
-HierarchyOperationResult EntityManager::set_parent(EntityID child, EntityID parent) {
+HierarchyOperationResult EntityManager::set_parent(EntityID child, EntityID parent, std::optional<size_t> target_index) {
     if (child == 0 || !is_alive(child)) return {HierarchyOperationStatus::InvalidChild};
     if (!has_component<TransformComponent>(child)) return {HierarchyOperationStatus::MissingTransform};
-    if (parent == 0) return remove_parent(child);
+    if (parent == 0) return remove_parent(child, target_index);
     if (!is_alive(parent)) return {HierarchyOperationStatus::InvalidParent};
     if (!has_component<TransformComponent>(parent)) return {HierarchyOperationStatus::MissingTransform};
     if (child == parent) return {HierarchyOperationStatus::SelfParent};
@@ -174,13 +183,35 @@ HierarchyOperationResult EntityManager::set_parent(EntityID child, EntityID pare
         const std::size_t occurrences = static_cast<std::size_t>(
             std::count(children.begin(), children.end(), child)
         );
-        if (occurrences == 1) return {HierarchyOperationStatus::Unchanged};
+        if (occurrences == 1) {
+            if (!target_index.has_value()) {
+                return {HierarchyOperationStatus::Unchanged};
+            }
+            auto it = std::find(children.begin(), children.end(), child);
+            if (it != children.end()) {
+                size_t cur_idx = static_cast<size_t>(std::distance(children.begin(), it));
+                size_t clamped_target = *target_index >= children.size() ? children.size() - 1 : *target_index;
+                if (cur_idx == clamped_target) {
+                    return {HierarchyOperationStatus::Unchanged};
+                }
+            }
+        }
         children.erase(std::remove(children.begin(), children.end(), child), children.end());
-        children.push_back(child);
+        if (target_index.has_value() && *target_index < children.size()) {
+            children.insert(children.begin() + *target_index, child);
+        } else {
+            children.push_back(child);
+        }
         return {HierarchyOperationStatus::Changed};
     }
 
     static_cast<void>(remove_parent(child));
+
+    // Remove from m_root_entities now that it has a non-zero parent
+    auto root_it = std::find(m_root_entities.begin(), m_root_entities.end(), child);
+    if (root_it != m_root_entities.end()) {
+        m_root_entities.erase(root_it);
+    }
 
     if (!has_component<HierarchyComponent>(child)) {
         add_component<HierarchyComponent>(child, HierarchyComponent{parent});
@@ -195,26 +226,121 @@ HierarchyOperationResult EntityManager::set_parent(EntityID child, EntityID pare
     } else {
         auto& children = get_component<HierarchyComponent>(parent).children;
         children.erase(std::remove(children.begin(), children.end(), child), children.end());
-        children.push_back(child);
+        if (target_index.has_value() && *target_index < children.size()) {
+            children.insert(children.begin() + *target_index, child);
+        } else {
+            children.push_back(child);
+        }
     }
     return {HierarchyOperationStatus::Changed};
 }
 
-HierarchyOperationResult EntityManager::remove_parent(EntityID child) {
+HierarchyOperationResult EntityManager::remove_parent(EntityID child, std::optional<size_t> target_index) {
     if (child == 0 || !is_alive(child)) return {HierarchyOperationStatus::InvalidChild};
     if (!has_component<HierarchyComponent>(child)) {
+        // Already root entity
+        if (target_index.has_value()) {
+            static_cast<void>(reorder_sibling(child, *target_index));
+        }
         return {HierarchyOperationStatus::Unchanged};
     }
 
     EntityID old_parent = get_component<HierarchyComponent>(child).parent;
-    if (old_parent == 0) return {HierarchyOperationStatus::Unchanged};
+    if (old_parent == 0) {
+        // Already root entity
+        if (target_index.has_value()) {
+            static_cast<void>(reorder_sibling(child, *target_index));
+        }
+        return {HierarchyOperationStatus::Unchanged};
+    }
     get_component<HierarchyComponent>(child).parent = 0;
 
     if (is_alive(old_parent) && has_component<HierarchyComponent>(old_parent)) {
         auto& children = get_component<HierarchyComponent>(old_parent).children;
         children.erase(std::remove(children.begin(), children.end(), child), children.end());
     }
+
+    // Add to m_root_entities
+    auto root_it = std::find(m_root_entities.begin(), m_root_entities.end(), child);
+    if (root_it == m_root_entities.end()) {
+        if (target_index.has_value() && *target_index < m_root_entities.size()) {
+            m_root_entities.insert(m_root_entities.begin() + *target_index, child);
+        } else {
+            m_root_entities.push_back(child);
+        }
+    } else if (target_index.has_value()) {
+        static_cast<void>(reorder_sibling(child, *target_index));
+    }
+
     return {HierarchyOperationStatus::Changed};
+}
+
+size_t EntityManager::get_sibling_index(EntityID entity) const {
+    if (!is_alive(entity)) return 0;
+
+    if (has_component<HierarchyComponent>(entity)) {
+        EntityID parent_id = get_component<HierarchyComponent>(entity).parent;
+        if (parent_id != 0 && is_alive(parent_id) && has_component<HierarchyComponent>(parent_id)) {
+            const auto& children = get_component<HierarchyComponent>(parent_id).children;
+            auto it = std::find(children.begin(), children.end(), entity);
+            if (it != children.end()) {
+                return static_cast<size_t>(std::distance(children.begin(), it));
+            }
+        }
+    }
+
+    // Root entity: lookup in m_root_entities
+    auto it = std::find(m_root_entities.begin(), m_root_entities.end(), entity);
+    if (it != m_root_entities.end()) {
+        return static_cast<size_t>(std::distance(m_root_entities.begin(), it));
+    }
+    return 0;
+}
+
+size_t EntityManager::get_sibling_count(EntityID entity) const {
+    if (!is_alive(entity)) return 0;
+
+    if (has_component<HierarchyComponent>(entity)) {
+        EntityID parent_id = get_component<HierarchyComponent>(entity).parent;
+        if (parent_id != 0 && is_alive(parent_id) && has_component<HierarchyComponent>(parent_id)) {
+            return get_component<HierarchyComponent>(parent_id).children.size();
+        }
+    }
+
+    // Root entities count
+    return m_root_entities.size();
+}
+
+bool EntityManager::reorder_sibling(EntityID entity, size_t target_index) {
+    if (!is_alive(entity)) return false;
+
+    if (has_component<HierarchyComponent>(entity)) {
+        EntityID parent_id = get_component<HierarchyComponent>(entity).parent;
+        if (parent_id != 0 && is_alive(parent_id) && has_component<HierarchyComponent>(parent_id)) {
+            auto& children = get_component<HierarchyComponent>(parent_id).children;
+            auto it = std::find(children.begin(), children.end(), entity);
+            if (it == children.end()) return false;
+            size_t current_idx = static_cast<size_t>(std::distance(children.begin(), it));
+            if (target_index >= children.size()) target_index = children.size() - 1;
+            if (current_idx == target_index) return true;
+
+            children.erase(it);
+            children.insert(children.begin() + target_index, entity);
+            return true;
+        }
+    }
+
+    // Root entity reordering in m_root_entities ONLY (m_living_entities is untouched!)
+    auto it = std::find(m_root_entities.begin(), m_root_entities.end(), entity);
+    if (it == m_root_entities.end()) return false;
+
+    size_t current_root_idx = static_cast<size_t>(std::distance(m_root_entities.begin(), it));
+    if (target_index >= m_root_entities.size()) target_index = m_root_entities.size() - 1;
+    if (current_root_idx == target_index) return true;
+
+    m_root_entities.erase(it);
+    m_root_entities.insert(m_root_entities.begin() + target_index, entity);
+    return true;
 }
 
 void EntityManager::clear() {
@@ -225,6 +351,7 @@ void EntityManager::clear() {
     }
     m_component_arrays.clear();
     m_living_entities.clear();
+    m_root_entities.clear();
     m_free_entities.clear();
     m_entity_masks.clear();
     m_next_entity_id = 1;
