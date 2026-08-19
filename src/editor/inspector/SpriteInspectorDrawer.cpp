@@ -116,6 +116,7 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
         return;
     }
     if (!header.open) return;
+    ImGui::PushID("SpriteComponentDrawer");
 
     using namespace InspectorWidgets;
     auto& sprite = em.get_component<SpriteComponent>(entity);
@@ -266,6 +267,7 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
     ImGui::Checkbox("Visible##sprite", &sprite.visible);
     capture_property_interaction();
     track_edit(em, entity, visible_before, "Sprite.Visible", "Toggle Sprite Visibility", context);
+    ImGui::PopID();
 }
 
 void SpriteInspectorDrawer::draw_multiple(
@@ -276,6 +278,7 @@ void SpriteInspectorDrawer::draw_multiple(
     auto states = capture_selected_components<SpriteComponent>(em, entities);
     if (states.size() != entities.size()) return;
     if (!InspectorWidgets::registered_component_header("sprite", false).open) return;
+    ImGui::PushID("SpriteComponentDrawer");
 
     using namespace InspectorWidgets;
     const ComponentTransactionContext transaction_context{context.command_history, context.transactions};
@@ -491,6 +494,7 @@ void SpriteInspectorDrawer::draw_multiple(
     draw_bool("Visible", "Sprite.Visible", "Toggle Selected Sprite Visibility",
         [](const SpriteComponent& sprite) { return sprite.visible; },
         [](SpriteComponent& sprite, bool value) { sprite.visible = value; });
+    ImGui::PopID();
 }
 
 } // namespace Engine

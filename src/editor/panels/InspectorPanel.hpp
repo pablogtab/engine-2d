@@ -51,6 +51,8 @@ private:
     SDL_Renderer* m_renderer{nullptr};
     AssetManager* m_asset_manager{nullptr};
     class SpriteAnimationStudioPanel* m_anim_studio{nullptr};
+    char m_multi_tag_buffer[128]{""};
+    std::uint32_t m_multi_tag_selection_owner{0};
 };
 
 } // namespace Engine

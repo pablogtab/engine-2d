@@ -2,8 +2,14 @@
 
 #include "../tools/EditorIcons.hpp"
 #include "InspectorPropertyPolicies.hpp"
+#include "../../ecs/EcsTypes.hpp"
 #include <imgui.h>
 #include <string_view>
+#include <functional>
+
+namespace Engine {
+class EntityManager;
+}
 
 namespace Engine::InspectorWidgets {
 
@@ -62,6 +68,33 @@ bool property_vec2(
     bool* changed_y = nullptr
 );
 bool property_vec3(const char* label, float values[3], float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f", bool reserve_reset = false);
+bool property_vec4(
+    const char* label,
+    float values[4],
+    float speed,
+    float min = 0.0f,
+    float max = 0.0f,
+    const char* format = "%.3f",
+    bool reserve_reset = false,
+    bool mixed_x = false,
+    bool mixed_y = false,
+    bool mixed_z = false,
+    bool mixed_w = false,
+    bool* changed_x = nullptr,
+    bool* changed_y = nullptr,
+    bool* changed_z = nullptr,
+    bool* changed_w = nullptr,
+    const char* const labels[4] = nullptr
+);
+bool property_enum(const char* label, int* current_index, const char* const items[], int count, bool mixed = false);
+bool property_entity_picker(
+    const char* label,
+    EntityID* target_id,
+    EntityManager& em,
+    bool mixed = false,
+    std::function<bool(EntityID)> filter = {}
+);
+bool property_text(const char* label, char* buffer, size_t buffer_size, bool mixed = false);
 bool property_reset_button(const char* id);
 
 inline bool property_float(
@@ -119,8 +152,39 @@ inline bool property_vec2(
         label, values, policy.speed, policy.minimum, policy.maximum, policy.format,
         reserve_reset, mixed_x, mixed_y, changed_x, changed_y
     );
-    if (changed && (changed_x == nullptr || *changed_x)) values[0] = policy.sanitize(values[0]);
-    if (changed && (changed_y == nullptr || *changed_y)) values[1] = policy.sanitize(values[1]);
+    if (changed) {
+        if (!changed_x || *changed_x) values[0] = policy.sanitize(values[0]);
+        if (!changed_y || *changed_y) values[1] = policy.sanitize(values[1]);
+    }
+    return changed;
+}
+
+inline bool property_vec4(
+    const char* label,
+    float values[4],
+    const InspectorPropertyPolicies::FloatPolicy& policy,
+    bool reserve_reset = false,
+    bool mixed_x = false,
+    bool mixed_y = false,
+    bool mixed_z = false,
+    bool mixed_w = false,
+    bool* changed_x = nullptr,
+    bool* changed_y = nullptr,
+    bool* changed_z = nullptr,
+    bool* changed_w = nullptr,
+    const char* const labels[4] = nullptr
+) {
+    const bool changed = property_vec4(
+        label, values, policy.speed, policy.minimum, policy.maximum, policy.format,
+        reserve_reset, mixed_x, mixed_y, mixed_z, mixed_w,
+        changed_x, changed_y, changed_z, changed_w, labels
+    );
+    if (changed) {
+        if (changed_x && *changed_x) values[0] = policy.sanitize(values[0]);
+        if (changed_y && *changed_y) values[1] = policy.sanitize(values[1]);
+        if (changed_z && *changed_z) values[2] = policy.sanitize(values[2]);
+        if (changed_w && *changed_w) values[3] = policy.sanitize(values[3]);
+    }
     return changed;
 }
 

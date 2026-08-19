@@ -5,6 +5,7 @@
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
+#include "../../tilemap/Tilemap.hpp"
 #include <imgui.h>
 #include <string>
 
@@ -267,7 +268,8 @@ void TransformInspectorDrawer::draw(
     if (!em.has_component<TransformComponent>(entity)) return;
     if (!InspectorWidgets::registered_component_header("transform", false).open) return;
 
-    if (locked) {
+    const bool is_tilemap_managed = em.has_component<TilemapGeneratedColliderComponent>(entity);
+    if (is_tilemap_managed) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.75f, 1.0f, 1.0f));
         const std::string label = editor_icon_label(
             EditorIcon::Lock, "Auto-generated Tilemap Collider (Managed by Tilemap)"

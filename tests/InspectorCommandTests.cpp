@@ -707,6 +707,323 @@ void test_multi_component_edit_is_atomic_and_preserves_unedited_axes() {
     assert(history.get_undo_count() == 1);
 }
 
+void test_multiselection_rigidbody_mixed_values_and_undo_redo() {
+    EntityManager em;
+    EditorCommandHistory history;
+    EditorPropertyTransaction transactions;
+
+    EntityID e1 = em.create_entity();
+    em.add_component<TransformComponent>(e1, TransformComponent{glm::vec3(0.0f)});
+    RigidBodyComponent rb1;
+    rb1.mass = 1.0f;
+    rb1.body_type = BodyType::Dynamic;
+    em.add_component<RigidBodyComponent>(e1, rb1);
+
+    EntityID e2 = em.create_entity();
+    em.add_component<TransformComponent>(e2, TransformComponent{glm::vec3(10.0f)});
+    RigidBodyComponent rb2;
+    rb2.mass = 5.0f;
+    rb2.body_type = BodyType::Static;
+    em.add_component<RigidBodyComponent>(e2, rb2);
+
+    const std::vector<EntityID> selection = {e1, e2};
+    const auto before = capture_selected_components<RigidBodyComponent>(em, selection);
+    assert(before.size() == 2);
+
+    // Verify mixed detection
+    assert((selected_values_mixed<RigidBodyComponent, float>(before, [](const auto& rb) { return rb.mass; })));
+    assert((selected_values_mixed<RigidBodyComponent, BodyType>(before, [](const auto& rb) { return rb.body_type; })));
+
+    std::size_t rebuild_count = 0;
+    auto side_effect = [&](EntityManager&, const std::vector<EntityID>&) {
+        ++rebuild_count;
+    };
+
+    const ComponentTransactionContext context{&history, &transactions};
+
+    // Simulate drag start via track_selected_component_edit
+    const auto key = EditorPropertyTransaction::make_key(selection_transaction_owner(selection), "MultiSelection.RigidBody.Mass");
+    assert(transactions.begin<SelectedComponentStates<RigidBodyComponent>>(
+        key,
+        before,
+        [&]() -> std::optional<SelectedComponentStates<RigidBodyComponent>> {
+            return capture_selected_components<RigidBodyComponent>(em, selection);
+        },
+        [&](const SelectedComponentStates<RigidBodyComponent>& states) {
+            for (const auto& [entity, comp] : states) {
+                em.get_component<RigidBodyComponent>(entity) = comp;
+            }
+            side_effect(em, selection);
+        },
+        "Edit Selected RigidBody Mass",
+        [](const auto& lhs, const auto& rhs) {
+            return selected_component_states_equal(lhs, rhs, [](const auto& a, const auto& b) { return a.mass == b.mass; });
+        },
+        [&]() { side_effect(em, selection); }
+    ));
+
+    // Interactive Drag Preview: value changes on each frame, NO physics rebuild yet
+    em.get_component<RigidBodyComponent>(e1).mass = 2.5f;
+    em.get_component<RigidBodyComponent>(e2).mass = 2.5f;
+    assert(rebuild_count == 0);
+
+    // Commit drag (e.g. mouse release)
+    assert(transactions.commit(key, history));
+    assert(history.get_undo_count() == 1);
+    assert(rebuild_count == 1);
+
+    // Both have mass 2.5f, but body types are preserved
+    assert(em.get_component<RigidBodyComponent>(e1).mass == 2.5f);
+    assert(em.get_component<RigidBodyComponent>(e2).mass == 2.5f);
+    assert(em.get_component<RigidBodyComponent>(e1).body_type == BodyType::Dynamic);
+    assert(em.get_component<RigidBodyComponent>(e2).body_type == BodyType::Static);
+
+    // Undo: restores 1.0f on e1 and 5.0f on e2, and triggers side effect rebuild
+    history.undo();
+    assert(em.get_component<RigidBodyComponent>(e1).mass == 1.0f);
+    assert(em.get_component<RigidBodyComponent>(e2).mass == 5.0f);
+    assert(rebuild_count == 2);
+
+    // Redo: restores 2.5f on both and triggers side effect rebuild
+    history.redo();
+    assert(em.get_component<RigidBodyComponent>(e1).mass == 2.5f);
+    assert(em.get_component<RigidBodyComponent>(e2).mass == 2.5f);
+    assert(rebuild_count == 3);
+}
+
+void test_multiselection_collider_compatibility_and_mixed_edit() {
+    EntityManager em;
+    EditorCommandHistory history;
+    EditorPropertyTransaction transactions;
+
+    EntityID e1 = em.create_entity();
+    em.add_component<TransformComponent>(e1, TransformComponent{});
+    em.add_component<ColliderComponent>(e1, ColliderComponent::Box(glm::vec2(32.0f, 32.0f)));
+    em.get_component<ColliderComponent>(e1).shapes.front().mask_bits = 0x000F;
+
+    EntityID e2 = em.create_entity();
+    em.add_component<TransformComponent>(e2, TransformComponent{});
+    em.add_component<ColliderComponent>(e2, ColliderComponent::Box(glm::vec2(64.0f, 64.0f)));
+    em.get_component<ColliderComponent>(e2).shapes.front().mask_bits = 0x00F0;
+
+    const std::vector<EntityID> selection = {e1, e2};
+    const auto before = capture_selected_components<ColliderComponent>(em, selection);
+
+    // Check compatibility logic
+    bool compatible = (before.size() == 2 &&
+                       before[0].second.shapes.size() == 1 &&
+                       before[1].second.shapes.size() == 1 &&
+                       before[0].second.shapes.front().type == before[1].second.shapes.front().type);
+    assert(compatible);
+
+    std::size_t rebuild_count = 0;
+    auto side_effect = [&](EntityManager&, const std::vector<EntityID>&) {
+        ++rebuild_count;
+    };
+
+    // Bulk edit mask_bits to 0xFFFF
+    const auto key = EditorPropertyTransaction::make_key(selection_transaction_owner(selection), "MultiSelection.Collider.Shape.0.Mask");
+    assert(transactions.begin<SelectedComponentStates<ColliderComponent>>(
+        key,
+        before,
+        [&]() -> std::optional<SelectedComponentStates<ColliderComponent>> {
+            return capture_selected_components<ColliderComponent>(em, selection);
+        },
+        [&](const SelectedComponentStates<ColliderComponent>& states) {
+            for (const auto& [entity, comp] : states) {
+                em.get_component<ColliderComponent>(entity) = comp;
+            }
+            side_effect(em, selection);
+        },
+        "Edit Selected Collider Mask",
+        [](const auto& lhs, const auto& rhs) {
+            return selected_component_states_equal(lhs, rhs, same_collider);
+        },
+        [&]() { side_effect(em, selection); }
+    ));
+
+    em.get_component<ColliderComponent>(e1).shapes.front().mask_bits = 0xFFFF;
+    em.get_component<ColliderComponent>(e2).shapes.front().mask_bits = 0xFFFF;
+    assert(rebuild_count == 0); // No rebuild during live editing
+
+    assert(transactions.commit(key, history));
+    assert(rebuild_count == 1); // Rebuilds on commit
+
+    assert(em.get_component<ColliderComponent>(e1).shapes.front().mask_bits == 0xFFFF);
+    assert(em.get_component<ColliderComponent>(e2).shapes.front().mask_bits == 0xFFFF);
+    // Box sizes are untouched
+    assert(em.get_component<ColliderComponent>(e1).shapes.front().size == glm::vec2(32.0f, 32.0f));
+    assert(em.get_component<ColliderComponent>(e2).shapes.front().size == glm::vec2(64.0f, 64.0f));
+
+    // Undo
+    history.undo();
+    assert(em.get_component<ColliderComponent>(e1).shapes.front().mask_bits == 0x000F);
+    assert(em.get_component<ColliderComponent>(e2).shapes.front().mask_bits == 0x00F0);
+    assert(rebuild_count == 2);
+
+    // Redo
+    history.redo();
+    assert(em.get_component<ColliderComponent>(e1).shapes.front().mask_bits == 0xFFFF);
+    assert(em.get_component<ColliderComponent>(e2).shapes.front().mask_bits == 0xFFFF);
+    assert(rebuild_count == 3);
+}
+
+void test_multiselection_camera_bounds_and_follow_target() {
+    EntityManager em;
+    EditorCommandHistory history;
+    EditorPropertyTransaction transactions;
+
+    EntityID target = em.create_entity();
+    em.add_component<TransformComponent>(target, TransformComponent{glm::vec3(100.0f)});
+    em.add_component<TagComponent>(target, TagComponent{"TargetEntity"});
+
+    EntityID no_transform = em.create_entity(); // has no transform
+
+    EntityID c1 = em.create_entity();
+    em.add_component<TransformComponent>(c1, TransformComponent{});
+    CameraComponent cam1;
+    cam1.zoom = 1.0f;
+    cam1.enable_bounds = false;
+    em.add_component<CameraComponent>(c1, cam1);
+
+    EntityID c2 = em.create_entity();
+    em.add_component<TransformComponent>(c2, TransformComponent{});
+    CameraComponent cam2;
+    cam2.zoom = 2.0f;
+    cam2.enable_bounds = true;
+    cam2.bounds = glm::vec4(-500.0f, -500.0f, 500.0f, 500.0f);
+    em.add_component<CameraComponent>(c2, cam2);
+
+    const std::vector<EntityID> selection = {c1, c2};
+    const auto before = capture_selected_components<CameraComponent>(em, selection);
+
+    // Verify filter excludes camera entities themselves and entities without TransformComponent
+    const auto target_filter = [&](EntityID candidate) {
+        return std::find(selection.begin(), selection.end(), candidate) == selection.end() &&
+               em.has_component<TransformComponent>(candidate);
+    };
+    assert(target_filter(target) == true);
+    assert(target_filter(c1) == false); // self camera 1 excluded
+    assert(target_filter(c2) == false); // self camera 2 excluded
+    assert(target_filter(no_transform) == false); // entity without transform excluded
+
+    // Bulk set follow_target to target
+    const auto key = EditorPropertyTransaction::make_key(selection_transaction_owner(selection), "MultiSelection.Camera.FollowTarget");
+    assert(transactions.begin<SelectedComponentStates<CameraComponent>>(
+        key,
+        before,
+        [&]() -> std::optional<SelectedComponentStates<CameraComponent>> {
+            return capture_selected_components<CameraComponent>(em, selection);
+        },
+        [&](const SelectedComponentStates<CameraComponent>& states) {
+            for (const auto& [entity, comp] : states) {
+                em.get_component<CameraComponent>(entity) = comp;
+            }
+        },
+        "Change Camera Follow Target",
+        [](const auto& lhs, const auto& rhs) {
+            return selected_component_states_equal(lhs, rhs, [](const auto& a, const auto& b) { return a.follow_target == b.follow_target; });
+        }
+    ));
+
+    em.get_component<CameraComponent>(c1).follow_target = target;
+    em.get_component<CameraComponent>(c2).follow_target = target;
+    assert(transactions.commit(key, history));
+
+    assert(em.get_component<CameraComponent>(c1).follow_target == target);
+    assert(em.get_component<CameraComponent>(c2).follow_target == target);
+    // Zooms are untouched
+    assert(em.get_component<CameraComponent>(c1).zoom == 1.0f);
+    assert(em.get_component<CameraComponent>(c2).zoom == 2.0f);
+
+    history.undo();
+    assert(em.get_component<CameraComponent>(c1).follow_target == 0);
+    assert(em.get_component<CameraComponent>(c2).follow_target == 0);
+
+    history.redo();
+    assert(em.get_component<CameraComponent>(c1).follow_target == target);
+    assert(em.get_component<CameraComponent>(c2).follow_target == target);
+}
+
+void test_multiselection_escape_cancellation_restores_individual_values() {
+    EntityManager em;
+    EditorCommandHistory history;
+    EditorPropertyTransaction transactions;
+
+    EntityID e1 = em.create_entity();
+    em.add_component<TransformComponent>(e1, TransformComponent{glm::vec3(0.0f)});
+    RigidBodyComponent rb1;
+    rb1.gravity_scale = 1.0f;
+    em.add_component<RigidBodyComponent>(e1, rb1);
+
+    EntityID e2 = em.create_entity();
+    em.add_component<TransformComponent>(e2, TransformComponent{glm::vec3(10.0f)});
+    RigidBodyComponent rb2;
+    rb2.gravity_scale = 9.8f;
+    em.add_component<RigidBodyComponent>(e2, rb2);
+
+    const std::vector<EntityID> selection = {e1, e2};
+    const auto before = capture_selected_components<RigidBodyComponent>(em, selection);
+
+    std::size_t cancel_side_effect_count = 0;
+    auto side_effect = [&](EntityManager&, const std::vector<EntityID>&) {
+        ++cancel_side_effect_count;
+    };
+
+    const auto key = EditorPropertyTransaction::make_key(selection_transaction_owner(selection), "MultiSelection.RigidBody.GravityScale");
+    assert(transactions.begin<SelectedComponentStates<RigidBodyComponent>>(
+        key,
+        before,
+        [&]() -> std::optional<SelectedComponentStates<RigidBodyComponent>> {
+            return capture_selected_components<RigidBodyComponent>(em, selection);
+        },
+        [&](const SelectedComponentStates<RigidBodyComponent>& states) {
+            for (const auto& [entity, comp] : states) {
+                em.get_component<RigidBodyComponent>(entity) = comp;
+            }
+            side_effect(em, selection);
+        },
+        "Edit Selected RigidBody Gravity Scale",
+        [](const auto& lhs, const auto& rhs) {
+            return selected_component_states_equal(lhs, rhs, [](const auto& a, const auto& b) { return a.gravity_scale == b.gravity_scale; });
+        }
+    ));
+
+    // Mid-drag interactive value change
+    em.get_component<RigidBodyComponent>(e1).gravity_scale = 0.0f;
+    em.get_component<RigidBodyComponent>(e2).gravity_scale = 0.0f;
+
+    // User presses Escape -> cancel transaction
+    assert(transactions.cancel(key));
+
+    // Must restore individual respective original values and run side effect!
+    assert(em.get_component<RigidBodyComponent>(e1).gravity_scale == 1.0f);
+    assert(em.get_component<RigidBodyComponent>(e2).gravity_scale == 9.8f);
+    assert(cancel_side_effect_count == 1);
+    assert(history.get_undo_count() == 0);
+}
+
+void test_multiselection_locked_state_disables_modifications() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+
+    EntityID e1 = em.create_entity();
+    em.add_component<TagComponent>(e1, TagComponent{"Entity_A"});
+    em.add_component<TransformComponent>(e1, TransformComponent{});
+
+    EntityID e2 = em.create_entity();
+    em.add_component<TagComponent>(e2, TagComponent{"Entity_B"});
+    em.add_component<TransformComponent>(e2, TransformComponent{});
+
+    state_store.set_locked(e2, true);
+
+    const std::vector<EntityID> selection = {e1, e2};
+    const bool any_editor_locked = std::any_of(selection.begin(), selection.end(), [&](EntityID e) {
+        return state_store.is_locked(e);
+    });
+    assert(any_editor_locked == true);
+}
+
 } // namespace
 
 int main() {
@@ -727,6 +1044,11 @@ int main() {
     test_scaled_player_fixture_reaches_trigger();
     test_central_property_policies_sanitize_values();
     test_multi_component_edit_is_atomic_and_preserves_unedited_axes();
+    test_multiselection_rigidbody_mixed_values_and_undo_redo();
+    test_multiselection_collider_compatibility_and_mixed_edit();
+    test_multiselection_camera_bounds_and_follow_target();
+    test_multiselection_escape_cancellation_restores_individual_values();
+    test_multiselection_locked_state_disables_modifications();
     std::cout << "InspectorCommandTests passed\n";
     return 0;
 }

@@ -938,7 +938,7 @@
                 "parent": 0
             },
             "id": 13,
-            "tag": "Group",
+            "tag": "Coins",
             "transform": {
                 "pivot": [
                     0.5,

@@ -5,6 +5,7 @@
 #include "../commands/EditorEntityStateCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../inspector/InspectorWidgets.hpp"
+#include "../inspector/MultiComponentInspectorTransaction.hpp"
 #include "../inspector/SpriteInspectorDrawer.hpp"
 #include "../inspector/RigidBodyInspectorDrawer.hpp"
 #include "../inspector/ColliderInspectorDrawer.hpp"
@@ -17,6 +18,7 @@
 #include "../../scene/Scene.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
+#include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../scene/ComponentRegistry.hpp"
 #include <imgui.h>
@@ -156,6 +158,10 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
         ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "[Locked]");
     }
 
+    if (any_editor_locked) {
+        ImGui::BeginDisabled();
+    }
+
     const ComponentTransactionContext transaction_context{
         m_command_history.get(),
         &m_property_transactions
@@ -168,6 +174,42 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
         TransformInspectorDrawer::draw_entities_active(em, entities, transaction_context);
     }
     ImGui::Separator();
+
+    const std::uint32_t current_selection_owner = selection_transaction_owner(entities);
+    if (m_multi_tag_selection_owner != current_selection_owner) {
+        m_multi_tag_selection_owner = current_selection_owner;
+        m_multi_tag_buffer[0] = '\0';
+    }
+
+    const bool all_have_tag = std::all_of(entities.begin(), entities.end(), [&](EntityID entity) {
+        return em.has_component<TagComponent>(entity);
+    });
+    if (all_have_tag) {
+        const auto before_tags = capture_selected_components<TagComponent>(em, entities);
+        const bool tag_mixed = selected_values_mixed<TagComponent, std::string>(
+            before_tags, [](const TagComponent& t) { return t.tag; }
+        );
+        const auto tag_key = EditorPropertyTransaction::make_key(current_selection_owner, "MultiSelection.Tag.Name");
+        if (!m_property_transactions.contains(tag_key)) {
+            if (!tag_mixed && !before_tags.empty()) {
+                std::strncpy(m_multi_tag_buffer, before_tags.front().second.tag.c_str(), sizeof(m_multi_tag_buffer) - 1);
+            } else {
+                m_multi_tag_buffer[0] = '\0';
+            }
+        }
+        if (InspectorWidgets::property_text("Name", m_multi_tag_buffer, sizeof(m_multi_tag_buffer), tag_mixed)) {
+            for (const EntityID entity : entities) {
+                if (em.is_alive(entity) && em.has_component<TagComponent>(entity)) {
+                    em.get_component<TagComponent>(entity).tag = m_multi_tag_buffer;
+                }
+            }
+        }
+        track_selected_component_edit<TagComponent>(
+            em, entities, before_tags, "Tag.Name", "Bulk Rename Entities",
+            transaction_context, [](const TagComponent& a, const TagComponent& b) { return a.tag == b.tag; }
+        );
+        ImGui::Separator();
+    }
 
     if (all_have_transform) {
         const bool locked = any_editor_locked || std::any_of(entities.begin(), entities.end(), [&](EntityID entity) {
@@ -192,14 +234,43 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
         });
     } else if (sprite_count > 0) {
         ImGui::TextDisabled("Sprite Renderer is shared by %zu of %zu entities.", sprite_count, entities.size());
-        ImGui::TextDisabled("Select entities with a common component to edit it in bulk.");
+    }
+
+    const auto rb_count = static_cast<std::size_t>(std::count_if(
+        entities.begin(), entities.end(), [&](EntityID entity) {
+            return em.has_component<RigidBodyComponent>(entity);
+        }
+    ));
+    if (rb_count == entities.size()) {
+        RigidBodyInspectorDrawer::draw_multiple(em, entities, transaction_context);
+    } else if (rb_count > 0) {
+        ImGui::TextDisabled("RigidBody 2D is shared by %zu of %zu entities.", rb_count, entities.size());
+    }
+
+    const auto col_count = static_cast<std::size_t>(std::count_if(
+        entities.begin(), entities.end(), [&](EntityID entity) {
+            return em.has_component<ColliderComponent>(entity);
+        }
+    ));
+    if (col_count == entities.size()) {
+        ColliderInspectorDrawer::draw_multiple(em, entities, transaction_context);
+    } else if (col_count > 0) {
+        ImGui::TextDisabled("Collider 2D is shared by %zu of %zu entities.", col_count, entities.size());
+    }
+
+    const auto cam_count = static_cast<std::size_t>(std::count_if(
+        entities.begin(), entities.end(), [&](EntityID entity) {
+            return em.has_component<CameraComponent>(entity);
+        }
+    ));
+    if (cam_count == entities.size()) {
+        CameraInspectorDrawer::draw_multiple(em, entities, transaction_context);
+    } else if (cam_count > 0) {
+        ImGui::TextDisabled("Camera 2D is shared by %zu of %zu entities.", cam_count, entities.size());
     }
 
     ImGui::Spacing();
     ImGui::Separator();
-    if (any_editor_locked) {
-        ImGui::BeginDisabled();
-    }
     const std::string delete_label = editor_icon_label(EditorIcon::Trash, "Delete Selected");
     if (ImGui::Button(delete_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26.0f))) {
         if (!any_editor_locked) {
