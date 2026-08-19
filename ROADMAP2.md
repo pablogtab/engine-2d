@@ -83,7 +83,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Guarantee one undo entry per drag, scrub, text commit, toggle, or compound edit.
 - [x] Make cancellation restore the exact previous state.
 - [x] Add component-specific transaction side-effect hooks, including selective physics and tilemap rebuilds.
-- [ ] Centralize reusable property validation policies instead of keeping limits inside individual drawers.
+- [x] Centralize reusable property validation policies instead of keeping limits inside individual drawers.
 - [ ] Make the same transaction system work with multi-selection and mixed values.
 
 ### Inspector Migration
@@ -95,12 +95,13 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Migrate every currently exposed Tilemap setting and destructive action to reversible commands.
 - [x] Separate Animator authoring data from editor preview/playback state.
 - [x] Migrate Animator clips and spritesheet settings to reversible commands.
+- [x] Migrate Transform and Camera properties to the common transaction lifecycle.
 - [x] Route texture loading and fallbacks through `AssetManager`; never allocate unmanaged textures from Inspector code.
 - [x] Add generic undoable component add/remove commands, while keeping structural Transform non-removable.
 
 ### Inspector Structure
 
-- [ ] Split the monolithic Inspector into component drawers with a shared compact property layout.
+- [x] Split the monolithic Inspector into component drawers with a shared compact property layout.
 - [x] Keep component UI extensions separate from runtime component definitions.
 - [x] Vendor an editor-only Lucide icon catalog and centralize DPI-independent icon rendering through ImGui's font atlas.
 - [ ] Migrate remaining editor emojis and ad-hoc symbols to the shared Lucide registry.
@@ -311,9 +312,13 @@ These systems form the current baseline and should be extended rather than rewri
 - [ ] Ensure standalone startup never initializes ImGui, editor panels, editor history, or demo-only helpers.
 - [ ] Replace manual source duplication in test targets with reusable engine libraries.
 - [ ] Package required scenes, assets, shader variants, project settings, and native dependencies.
+- [ ] Create platform-native distributable layouts: `.app` bundle on macOS, portable folder/ZIP or installer on Windows, and AppImage/tarball on Linux.
+- [ ] On macOS, copy non-system `.dylib` dependencies into `Engine2D.app/Contents/Frameworks`, rewrite their load paths with `install_name_tool`, and codesign the finished bundle. The exported app must not depend on Homebrew paths such as `/opt/homebrew/opt/...`.
+- [ ] On Windows, bundle required DLLs next to the executable; on Linux, bundle or document compatible shared-library requirements without relying on development-machine paths.
+- [ ] Build universal macOS releases (arm64 and x86_64) when third-party dependencies support both architectures.
 - [ ] Add export configuration validation and actionable build logs.
 - [ ] Implement standalone builds for macOS, Windows, and Linux.
-- [ ] Add clean-machine smoke tests for exported builds.
+- [ ] Add clean-machine smoke tests for exported builds, including macOS machines without Homebrew/SDL installed.
 
 **Completion criteria:** A standalone build contains only runtime and game dependencies, launches with project defaults, resolves every packaged asset, and does not depend on editor state.
 
@@ -349,10 +354,9 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 1 — Editor Mutation Suites
 
-- [ ] `EditorCommandHistoryTests` — execute, undo, redo, redo invalidation, bounded history, scene invalidation, and command descriptions.
+- [x] `EditorCommandHistoryTests` — execute, undo, redo, redo invalidation, bounded history, scene invalidation, and command descriptions.
 - [x] `EditorPropertyTransactionTests` — begin/preview/commit/cancel, unchanged edits, compound values, text commits, and one history entry per gesture.
-- [x] `InspectorCommandTests` — entity rename, Sprite and Animator compound edits, authored/runtime separation, RigidBody/Collider component presence, exact restoration, physics fixture rebuild, and Tilemap edit/clear/remove/delete lifecycle.
-- [ ] Extend `InspectorCommandTests` with Camera side effects when that drawer migrates.
+- [x] `InspectorCommandTests` — entity rename, Sprite, Animator, Transform and Camera edits, primary-camera state, authored/runtime separation, component presence, exact restoration, physics fixture rebuild, and Tilemap lifecycle.
 - [ ] `MultiEditTransactionTests` — mixed values, partial component availability, atomic multi-entity commit, cancel, undo, and redo.
 
 ### Phase 2 — Component and Serialization Suites
@@ -445,8 +449,8 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increment
 
-Implement the third Phase 1 slice:
+Implement the fourth Phase 1 slice:
 
-1. Extract Camera and remaining Transform Inspector code onto the common transaction infrastructure.
-2. Add `EditorCommandHistoryTests` and extend `InspectorCommandTests` for Camera.
-3. Define centralized component/property validation policies before adding multi-selection transactions.
+1. Extend property transactions to multi-selection with mixed values and atomic undo/redo.
+2. Expose Sprite outline and material assignment through the common property grid.
+3. Add `MultiEditTransactionTests` and complete reversible visual-property coverage.

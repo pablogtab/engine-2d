@@ -195,3 +195,7 @@ graph TD
 - [ ] **12.1 Pipeline de Exportación**:
   - Menú **`Build -> Build Game Standalone`**.
   - Empaquetado automático de assets y generación del binario final del juego para macOS / Windows / Linux.
+  - Paquetes nativos por plataforma: `.app` en macOS, carpeta portable/ZIP o instalador en Windows y AppImage/tarball en Linux.
+  - En macOS, copiar las `.dylib` no provistas por el sistema a `Engine2D.app/Contents/Frameworks`, corregir sus rutas con `install_name_tool` y firmar el bundle. El export no debe depender de rutas locales de Homebrew.
+  - En Windows, distribuir las DLL requeridas junto al `.exe`; en Linux, empaquetar o validar las dependencias compartidas requeridas.
+  - Smoke tests de exportación en equipos limpios, incluido macOS sin Homebrew ni SDL instalados.
