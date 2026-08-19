@@ -8,6 +8,7 @@
 #include "../tools/ViewportArrangementTool.hpp"
 #include "../tools/ViewportSelectionTool.hpp"
 #include "../tools/ViewportReferenceOverlay.hpp"
+#include "../tools/ViewportColliderOverlay.hpp"
 #include "../tools/EditorToolbox.hpp"
 #include "../tools/TilemapPaintingTool.hpp"
 #include "../panels/TilemapPalettePanel.hpp"
@@ -99,6 +100,7 @@ private:
     EditorToolbox m_transform_toolbox;
     ViewportGridSettings m_grid_settings;
     ViewportReferenceOverlay m_reference_overlay;
+    ViewportColliderOverlay m_collider_overlay;
     EntityID m_context_entity{0};
     std::array<char, 128> m_context_rename_buffer{};
 

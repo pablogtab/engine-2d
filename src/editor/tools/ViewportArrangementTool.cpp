@@ -133,7 +133,7 @@ bool ViewportArrangementTool::apply(
         before[item.id] = item.before;
         after[item.id] = current;
         changed |= glm::distance(item.before.position, current.position) > 0.001f;
-        PhysicsSystem::set_position(entity_manager, item.id, glm::vec2(current.world_position));
+        PhysicsSystem::sync_body_hierarchy(entity_manager, item.id);
     }
     if (!changed) return false;
 

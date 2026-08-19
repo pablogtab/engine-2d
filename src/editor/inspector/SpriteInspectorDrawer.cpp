@@ -146,7 +146,7 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
 
     const SpriteComponent size_before = sprite;
     float size[2] = {sprite.size.x, sprite.size.y};
-    if (property_vec2("Size", size, 1.0f, 1.0f, 2048.0f)) {
+    if (property_vec2("Size", size, InspectorPropertyPolicies::Sprite::Size)) {
         sprite.size = glm::vec2(size[0], size[1]);
     }
     track_edit(em, entity, size_before, "Sprite.Size", "Edit Sprite Size", context);
@@ -168,21 +168,21 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
 
     const SpriteComponent opacity_before = sprite;
     float opacity = sprite.color.a / 255.0f * 100.0f;
-    if (property_float("Opacity", &opacity, 0.5f, 0.0f, 100.0f, "%.0f%%")) {
+    if (property_float("Opacity", &opacity, InspectorPropertyPolicies::Sprite::Opacity)) {
         sprite.color.a = static_cast<std::uint8_t>(opacity / 100.0f * 255.0f);
     }
     track_edit(em, entity, opacity_before, "Sprite.Opacity", "Edit Sprite Opacity", context);
 
     const SpriteComponent sorting_before = sprite;
     int sorting_layer = sprite.sorting_layer;
-    if (property_int("Sorting Layer", &sorting_layer, 1.0f, -32768, 32767)) {
+    if (property_int("Sorting Layer", &sorting_layer, InspectorPropertyPolicies::Sprite::SortingOrder)) {
         sprite.sorting_layer = static_cast<std::int16_t>(sorting_layer);
     }
     track_edit(em, entity, sorting_before, "Sprite.SortingLayer", "Edit Sprite Sorting Layer", context);
 
     const SpriteComponent order_before = sprite;
     int order_in_layer = sprite.order_in_layer;
-    if (property_int("Order in Layer", &order_in_layer, 1.0f, -32768, 32767)) {
+    if (property_int("Order in Layer", &order_in_layer, InspectorPropertyPolicies::Sprite::SortingOrder)) {
         sprite.order_in_layer = static_cast<std::int16_t>(order_in_layer);
     }
     track_edit(em, entity, order_before, "Sprite.OrderInLayer", "Edit Sprite Order in Layer", context);

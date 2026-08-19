@@ -85,19 +85,23 @@ void RigidBodyInspectorDrawer::draw(
     track(em, entity, body_type_before, "RigidBody.BodyType", "Change RigidBody Type", context, body_type_changed);
 
     const RigidBodyComponent mass_before = rigidbody;
-    property_float("Mass", &rigidbody.mass, 0.1f, 0.01f, 1000.0f);
+    property_float("Mass", &rigidbody.mass, InspectorPropertyPolicies::RigidBody::Mass);
     track(em, entity, mass_before, "RigidBody.Mass", "Edit RigidBody Mass", context);
 
     const RigidBodyComponent gravity_before = rigidbody;
-    property_float("Gravity Scale", &rigidbody.gravity_scale, 0.1f, -10.0f, 10.0f);
+    property_float(
+        "Gravity Scale", &rigidbody.gravity_scale, InspectorPropertyPolicies::RigidBody::GravityScale
+    );
     track(em, entity, gravity_before, "RigidBody.GravityScale", "Edit RigidBody Gravity Scale", context);
 
     const RigidBodyComponent friction_before = rigidbody;
-    property_float("Friction", &rigidbody.friction, 0.01f, 0.0f, 1.0f);
+    property_float("Friction", &rigidbody.friction, InspectorPropertyPolicies::RigidBody::Friction);
     track(em, entity, friction_before, "RigidBody.Friction", "Edit RigidBody Friction", context);
 
     const RigidBodyComponent restitution_before = rigidbody;
-    property_float("Restitution", &rigidbody.restitution, 0.01f, 0.0f, 1.0f);
+    property_float(
+        "Restitution", &rigidbody.restitution, InspectorPropertyPolicies::RigidBody::Restitution
+    );
     track(em, entity, restitution_before, "RigidBody.Restitution", "Edit RigidBody Restitution", context);
 
     const RigidBodyComponent rotation_before = rigidbody;

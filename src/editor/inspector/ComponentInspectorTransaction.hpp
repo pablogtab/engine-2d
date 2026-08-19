@@ -51,9 +51,17 @@ void track_component_edit(
         );
     }
 
+    // Discrete controls (buttons, menu items and combo selections) do not own
+    // an ImGui activation lifecycle. Commit them independently from the last
+    // captured widget so stale Escape/deactivation state cannot cancel them.
+    if (force_commit) {
+        context.transactions->commit(key, *context.command_history);
+        return;
+    }
+
     if (interaction.cancelled) {
         context.transactions->cancel(key);
-    } else if (force_commit || interaction.deactivated_after_edit) {
+    } else if (interaction.deactivated_after_edit) {
         context.transactions->commit(key, *context.command_history);
     }
 }

@@ -71,11 +71,14 @@ set(SOURCES
     src/editor/inspector/ColliderInspectorDrawer.cpp
     src/editor/inspector/TilemapInspectorDrawer.cpp
     src/editor/inspector/AnimationInspectorDrawer.cpp
+    src/editor/inspector/TransformInspectorDrawer.cpp
+    src/editor/inspector/CameraInspectorDrawer.cpp
     src/editor/tools/ViewportCameraController.cpp
     src/editor/tools/ViewportArrangementTool.cpp
     src/editor/tools/EditorIcons.cpp
     src/editor/tools/EditorToolbox.cpp
     src/editor/tools/ViewportReferenceOverlay.cpp
+    src/editor/tools/ViewportColliderOverlay.cpp
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
     src/editor/commands/EditorCommandHistory.cpp
@@ -177,6 +180,16 @@ target_include_directories(EditorPropertyTransactionTests PRIVATE
 )
 add_test(NAME EditorPropertyTransactionTests COMMAND EditorPropertyTransactionTests)
 
+add_executable(EditorCommandHistoryTests
+    tests/EditorCommandHistoryTests.cpp
+    src/core/Log.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+)
+target_include_directories(EditorCommandHistoryTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME EditorCommandHistoryTests COMMAND EditorCommandHistoryTests)
+
 add_executable(InspectorCommandTests
     tests/InspectorCommandTests.cpp
     src/core/Log.cpp
@@ -204,6 +217,26 @@ target_include_directories(AnimationSystemTests PRIVATE
 )
 target_link_libraries(AnimationSystemTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME AnimationSystemTests COMMAND AnimationSystemTests)
+
+add_executable(SceneSerializerTests
+    tests/SceneSerializerTests.cpp
+    src/core/AssetManager.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+    src/ecs/EntityManager.cpp
+    src/renderer/Texture.cpp
+    src/scene/SceneSerializer.cpp
+    src/tilemap/Tilemap.cpp
+    src/tilemap/TilemapColliderSystem.cpp
+    vendor/stb/stb_impl.cpp
+)
+target_include_directories(SceneSerializerTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(SceneSerializerTests PRIVATE SDL3::SDL3 glm::glm box2d)
+add_test(NAME SceneSerializerTests COMMAND SceneSerializerTests)
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

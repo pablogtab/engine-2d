@@ -20,6 +20,31 @@ GenericScene::GenericScene(std::string name, float width, float height)
 
     m_editor_camera.set_position(glm::vec2(0.0f, 0.0f));
     m_editor_camera.set_zoom(1.0f);
+
+    // GenericScene remains a temporary gameplay helper, but collision geometry
+    // must still come from the engine. Queue collectible destruction until
+    // after Box2D finishes stepping; mutating bodies inside BeginContact is not
+    // safe while the physics world is locked.
+    m_event_dispatcher.subscribe<CollisionEvent>([this](const CollisionEvent& event) {
+        if (!event.is_trigger) return;
+        const auto is_player = [this](EntityID id) {
+            if (!m_entity_manager.is_alive(id) || !m_entity_manager.has_component<TagComponent>(id)) return false;
+            const std::string& tag = m_entity_manager.get_component<TagComponent>(id).tag;
+            return tag == "Player_Knight" || tag == "Player";
+        };
+        const auto is_coin = [this](EntityID id) {
+            if (!m_entity_manager.is_alive(id) || !m_entity_manager.has_component<TagComponent>(id)) return false;
+            const std::string& tag = m_entity_manager.get_component<TagComponent>(id).tag;
+            return tag.rfind("Collectible_Coin", 0) == 0 || tag == "Coin";
+        };
+
+        EntityID coin = 0;
+        if (is_player(event.entity_a) && is_coin(event.entity_b)) coin = event.entity_b;
+        if (is_player(event.entity_b) && is_coin(event.entity_a)) coin = event.entity_a;
+        if (coin != 0 && std::find(m_pending_coin_collections.begin(), m_pending_coin_collections.end(), coin) == m_pending_coin_collections.end()) {
+            m_pending_coin_collections.push_back(coin);
+        }
+    });
 }
 
 void GenericScene::on_attach() {
@@ -131,22 +156,12 @@ void GenericScene::on_update(float delta_time) {
             }
         }
 
-        // --- 2. Coin Collection & Trampoline Trigger Overlap Checks ---
-        glm::vec2 p_pos = glm::vec2(tx.position.x, tx.position.y);
-        std::vector<EntityID> coins_to_destroy;
+        // --- 2. Temporary trampoline helper ---
+        glm::vec2 p_pos = glm::vec2(tx.world_position.x, tx.world_position.y);
 
         m_entity_manager.for_each<TagComponent, TransformComponent>([&](EntityID id, const TagComponent& tag, const TransformComponent& other_tx) {
             if (id == player_id) return;
-            glm::vec2 o_pos = glm::vec2(other_tx.position.x, other_tx.position.y);
-            float dist = glm::distance(p_pos, o_pos);
-
-            // Coins
-            if (tag.tag.rfind("Collectible_Coin", 0) == 0 || tag.tag == "Coin") {
-                if (dist < 36.0f) {
-                    coins_to_destroy.push_back(id);
-                    AudioPresets::play_coin(0.9f);
-                }
-            }
+            glm::vec2 o_pos = glm::vec2(other_tx.world_position.x, other_tx.world_position.y);
 
             // Trampoline
             if (tag.tag == "Trampoline_Spring_Pad" || tag.tag == "Trampoline") {
@@ -158,15 +173,18 @@ void GenericScene::on_update(float delta_time) {
             }
         });
 
-        for (EntityID c_id : coins_to_destroy) {
-            m_entity_manager.destroy_entity(c_id);
-        }
     }
 
     // --- 3. Physics & Transform Updates ---
     if (m_physics_enabled) {
         Engine::PhysicsSystem::update(m_entity_manager, m_event_dispatcher, delta_time);
     }
+    for (EntityID coin : m_pending_coin_collections) {
+        if (!m_entity_manager.is_alive(coin)) continue;
+        m_entity_manager.destroy_entity(coin);
+        AudioPresets::play_coin(0.9f);
+    }
+    m_pending_coin_collections.clear();
     Engine::SpriteAnimationSystem::update(m_entity_manager, delta_time);
     Engine::TransformSystem::update(m_entity_manager);
     synchronize_game_camera(delta_time, false);

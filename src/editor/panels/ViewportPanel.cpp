@@ -311,6 +311,17 @@ void ViewportPanel::render_transform_toolbar() {
         snap.enabled = !snap.enabled;
     }
     ImGui::SameLine(0.0f, 1.0f);
+    if (editor_icon_button(
+            "colliders",
+            EditorIcon::Collider,
+            m_collider_overlay.show_all()
+                ? "Collider outlines: all (click to show selected only)"
+                : "Collider outlines: selected only (click to show all)",
+            m_collider_overlay.show_all()
+        )) {
+        m_collider_overlay.toggle_show_all();
+    }
+    ImGui::SameLine(0.0f, 1.0f);
     if (editor_icon_button("settings", EditorIcon::Settings, "Configure snap increments")) {
         ImGui::OpenPopup("Transform Snap Settings");
     }
@@ -664,7 +675,7 @@ void ViewportPanel::on_gui() {
             bool is_editing = m_scene_manager ? m_scene_manager->is_editing() : true;
             Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
             auto* generic_scene = dynamic_cast<GenericScene*>(active_scene);
-            Camera2D* active_cam = generic_scene ? &generic_scene->get_editor_camera() : nullptr;
+            Camera2D* active_cam = generic_scene ? &generic_scene->get_active_camera(is_editing) : nullptr;
             if (m_project_settings) {
                 const auto& game_view = m_project_settings->display();
                 m_selection_tool.set_camera_output_size(glm::vec2(game_view.reference_width, game_view.reference_height));
@@ -723,6 +734,21 @@ void ViewportPanel::on_gui() {
             ImGui::PopStyleVar();
 
             if (active_scene) render_rename_entity_popup(active_scene->get_entity_manager());
+
+            // Collider outlines are editor-owned and work for every generic
+            // scene in both Edit and Play. Selected entities are always shown;
+            // the toolbar toggle reveals the complete physics layout.
+            if (active_scene && active_cam) {
+                m_collider_overlay.render(
+                    active_scene->get_entity_manager(),
+                    m_selection.get(),
+                    *active_cam,
+                    img_min,
+                    img_size,
+                    uv_min,
+                    uv_max
+                );
+            }
 
             // --- 4. Camera Frustum Gizmo (Wireframe Game Frame) ---
             if (is_editing && active_cam && active_scene) {

@@ -117,18 +117,22 @@ void ColliderInspectorDrawer::draw(
         if (shape.type == ColliderShapeType::Box) {
             const ColliderComponent size_before = collider;
             float size[2] = {shape.size.x, shape.size.y};
-            if (property_vec2("Size", size, 1.0f, 1.0f, 100000.0f)) shape.size = {size[0], size[1]};
+            if (property_vec2("Size", size, InspectorPropertyPolicies::Collider::Size)) {
+                shape.size = {size[0], size[1]};
+            }
             track(em, entity, size_before, shape_property(index, "Size"), "Edit Collider Size", context);
         } else if (shape.type == ColliderShapeType::Circle) {
             const ColliderComponent radius_before = collider;
-            property_float("Radius", &shape.radius, 1.0f, 1.0f, 50000.0f);
+            property_float("Radius", &shape.radius, InspectorPropertyPolicies::Collider::Radius);
             track(em, entity, radius_before, shape_property(index, "Radius"), "Edit Collider Radius", context);
         } else {
             for (std::size_t vertex = 0; vertex < shape.vertices.size(); ++vertex) {
                 const ColliderComponent vertex_before = collider;
                 float position[2] = {shape.vertices[vertex].x, shape.vertices[vertex].y};
                 const std::string label = "Vertex " + std::to_string(vertex + 1);
-                if (property_vec2(label.c_str(), position, 1.0f)) shape.vertices[vertex] = {position[0], position[1]};
+                if (property_vec2(label.c_str(), position, InspectorPropertyPolicies::Collider::Coordinate)) {
+                    shape.vertices[vertex] = {position[0], position[1]};
+                }
                 track(
                     em,
                     entity,
@@ -142,7 +146,9 @@ void ColliderInspectorDrawer::draw(
 
         const ColliderComponent offset_before = collider;
         float offset[2] = {shape.offset.x, shape.offset.y};
-        if (property_vec2("Offset", offset, 1.0f)) shape.offset = {offset[0], offset[1]};
+        if (property_vec2("Offset", offset, InspectorPropertyPolicies::Collider::Coordinate)) {
+            shape.offset = {offset[0], offset[1]};
+        }
         track(em, entity, offset_before, shape_property(index, "Offset"), "Edit Collider Offset", context);
 
         const ColliderComponent trigger_before = collider;
@@ -155,14 +161,14 @@ void ColliderInspectorDrawer::draw(
 
         int category = shape.category_bits;
         const ColliderComponent category_before = collider;
-        if (property_int("Category Bits", &category, 1.0f, 0, 65535, "0x%04X")) {
+        if (property_int("Category Bits", &category, InspectorPropertyPolicies::Collider::CollisionBits)) {
             shape.category_bits = static_cast<std::uint16_t>(category);
         }
         track(em, entity, category_before, shape_property(index, "Category"), "Edit Collider Category", context);
 
         int mask = shape.mask_bits;
         const ColliderComponent mask_before = collider;
-        if (property_int("Mask Bits", &mask, 1.0f, 0, 65535, "0x%04X")) {
+        if (property_int("Mask Bits", &mask, InspectorPropertyPolicies::Collider::CollisionBits)) {
             shape.mask_bits = static_cast<std::uint16_t>(mask);
         }
         track(em, entity, mask_before, shape_property(index, "Mask"), "Edit Collider Mask", context);

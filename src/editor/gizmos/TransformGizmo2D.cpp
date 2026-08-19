@@ -167,8 +167,7 @@ bool TransformGizmo2D::draw_gizmo(
         for (const auto& [id, start] : m_start_transforms) {
             (void)start;
             if (!em.is_alive(id) || !em.has_component<TransformComponent>(id)) continue;
-            const auto& transform = em.get_component<TransformComponent>(id);
-            PhysicsSystem::set_position(em, id, glm::vec2(transform.world_position));
+            PhysicsSystem::sync_body_hierarchy(em, id);
         }
         m_active_axis = GizmoAxis::None;
         m_hovered_axis = GizmoAxis::None;
@@ -238,6 +237,12 @@ bool TransformGizmo2D::draw_gizmo(
 
             if (any_changed) {
                 const char* operation = m_tool == TransformTool::Move ? "Move" : (m_tool == TransformTool::Rotate ? "Rotate" : "Scale");
+                if (m_tool == TransformTool::Scale) {
+                    for (const auto& [id, start] : m_start_transforms) {
+                        (void)start;
+                        PhysicsSystem::rebuild_body_hierarchy(em, id);
+                    }
+                }
                 command_history->push_executed_command(std::make_unique<TransformEntitiesCommand>(&em, m_start_transforms, after, std::string(operation) + " Entities"));
             }
         }
@@ -279,8 +284,7 @@ bool TransformGizmo2D::draw_gizmo(
         TransformSystem::update(em);
         for (const auto& [id, start] : m_start_transforms) {
             if (!em.is_alive(id) || !em.has_component<TransformComponent>(id)) continue;
-            const auto& transform = em.get_component<TransformComponent>(id);
-            PhysicsSystem::set_position(em, id, glm::vec2(transform.world_position.x, transform.world_position.y));
+            PhysicsSystem::sync_body_hierarchy(em, id);
         }
     }
 

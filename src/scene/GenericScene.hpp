@@ -4,6 +4,7 @@
 #include "Camera2D.hpp"
 #include "CameraController2D.hpp"
 #include "../renderer/Renderer2D.hpp"
+#include <vector>
 
 namespace Engine {
 
@@ -57,6 +58,7 @@ private:
     bool m_physics_enabled{true};
     bool m_show_debug_colliders{false};
     bool m_is_editing{true};
+    std::vector<EntityID> m_pending_coin_collections;
 };
 
 } // namespace Engine

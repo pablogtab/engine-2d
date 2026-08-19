@@ -2,6 +2,7 @@
 
 #include "../events/Event.hpp"
 #include "../events/EventDispatcher.hpp"
+#include "ColliderGeometry.hpp"
 #include "../ecs/Components.hpp"
 #include "../ecs/EntityManager.hpp"
 #include <box2d/box2d.h>
@@ -383,6 +384,14 @@ public:
     create_body(em, id);
   }
 
+  static void rebuild_body_hierarchy(EntityManager &em, EntityID root) {
+    if (!em.is_alive(root)) return;
+    rebuild_body(em, root);
+    if (!em.has_component<HierarchyComponent>(root)) return;
+    const auto children = em.get_component<HierarchyComponent>(root).children;
+    for (const EntityID child : children) rebuild_body_hierarchy(em, child);
+  }
+
   static void set_position(EntityManager &em, EntityID id, const glm::vec2 &position) {
     if (em.has_component<TransformComponent>(id)) {
       auto &tx = em.get_component<TransformComponent>(id);
@@ -394,6 +403,28 @@ public:
       float current_angle = it->second->GetAngle();
       it->second->SetTransform(b2Vec2(position.x * k_p2m, position.y * k_p2m), current_angle);
     }
+  }
+
+  // Synchronizes only the Box2D body from the computed world transform.
+  // Editor tools must use this path so child local coordinates remain intact.
+  static void sync_body_transform(EntityManager &em, EntityID id) {
+    if (!em.is_alive(id) || !em.has_component<TransformComponent>(id)) return;
+    auto it = s_b2_bodies.find(id);
+    if (it == s_b2_bodies.end() || !it->second) return;
+
+    const auto &transform = em.get_component<TransformComponent>(id);
+    it->second->SetTransform(
+        b2Vec2(transform.world_position.x * k_p2m,
+               transform.world_position.y * k_p2m),
+        glm::radians(-transform.world_rotation));
+  }
+
+  static void sync_body_hierarchy(EntityManager &em, EntityID root) {
+    if (!em.is_alive(root)) return;
+    sync_body_transform(em, root);
+    if (!em.has_component<HierarchyComponent>(root)) return;
+    const auto children = em.get_component<HierarchyComponent>(root).children;
+    for (const EntityID child : children) sync_body_hierarchy(em, child);
   }
 
   static void set_velocity(EntityManager &em, EntityID id, const glm::vec2 &velocity) {
@@ -722,26 +753,27 @@ private:
 
       if (shape.type == ColliderShapeType::Circle) {
         b2CircleShape circle;
-        circle.m_p.Set(shape.offset.x * k_p2m, shape.offset.y * k_p2m);
-        circle.m_radius = shape.radius * transform.world_scale.x * k_p2m;
+        const glm::vec2 offset = collider_scaled_offset(shape, transform);
+        circle.m_p.Set(offset.x * k_p2m, offset.y * k_p2m);
+        circle.m_radius = collider_scaled_circle_radius(shape, transform) * k_p2m;
         fixture_def.shape = &circle;
         body->CreateFixture(&fixture_def);
       } else if (shape.type == ColliderShapeType::Box) {
         b2PolygonShape box;
-        const glm::vec2 half = shape.size * transform.world_scale * 0.5f * k_p2m;
+        const glm::vec2 half = collider_scaled_box_half_extent(shape, transform) * k_p2m;
+        const glm::vec2 offset = collider_scaled_offset(shape, transform) * k_p2m;
         box.SetAsBox(half.x, half.y,
-                     b2Vec2(shape.offset.x * k_p2m, shape.offset.y * k_p2m),
+                     b2Vec2(offset.x, offset.y),
                      0.0f);
         fixture_def.shape = &box;
         body->CreateFixture(&fixture_def);
       } else if (shape.type == ColliderShapeType::Polygon && shape.vertices.size() >= 3) {
         b2PolygonShape polygon;
         std::vector<b2Vec2> vertices;
-        vertices.reserve(shape.vertices.size());
-        for (const auto &vertex : shape.vertices) {
-          vertices.emplace_back(
-              (vertex.x * transform.world_scale.x + shape.offset.x) * k_p2m,
-              (vertex.y * transform.world_scale.y + shape.offset.y) * k_p2m);
+        const auto scaled_vertices = collider_scaled_polygon_vertices(shape, transform);
+        vertices.reserve(scaled_vertices.size());
+        for (const auto &vertex : scaled_vertices) {
+          vertices.emplace_back(vertex.x * k_p2m, vertex.y * k_p2m);
         }
         polygon.Set(vertices.data(), static_cast<int32>(vertices.size()));
         fixture_def.shape = &polygon;

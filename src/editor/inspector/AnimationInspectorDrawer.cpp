@@ -155,24 +155,28 @@ void AnimationInspectorDrawer::draw(EntityManager& em, EntityID entity, const Co
 
     ImGui::TextDisabled("SPRITESHEET GRID");
     const AnimationComponent columns_before = animation;
-    property_int("Columns", &animation.columns, 1.0f, 1, 256);
+    property_int("Columns", &animation.columns, InspectorPropertyPolicies::Animation::GridDimension);
     track(em, entity, columns_before, "Animation.Columns", "Edit Animation Columns", context);
 
     const AnimationComponent rows_before = animation;
-    property_int("Rows", &animation.rows, 1.0f, 1, 256);
+    property_int("Rows", &animation.rows, InspectorPropertyPolicies::Animation::GridDimension);
     track(em, entity, rows_before, "Animation.Rows", "Edit Animation Rows", context);
 
     const AnimationComponent width_before = animation;
-    property_float("Frame Width", &animation.frame_width, 1.0f, 1.0f, 8192.0f, "%.0f px");
+    property_float(
+        "Frame Width", &animation.frame_width, InspectorPropertyPolicies::Animation::FrameSize
+    );
     track(em, entity, width_before, "Animation.FrameWidth", "Edit Animation Frame Width", context);
 
     const AnimationComponent height_before = animation;
-    property_float("Frame Height", &animation.frame_height, 1.0f, 1.0f, 8192.0f, "%.0f px");
+    property_float(
+        "Frame Height", &animation.frame_height, InspectorPropertyPolicies::Animation::FrameSize
+    );
     track(em, entity, height_before, "Animation.FrameHeight", "Edit Animation Frame Height", context);
 
     float spacing[2] = {animation.spacing_x, animation.spacing_y};
     const AnimationComponent spacing_before = animation;
-    if (property_vec2("Spacing", spacing, 1.0f, 0.0f, 8192.0f, "%.0f")) {
+    if (property_vec2("Spacing", spacing, InspectorPropertyPolicies::Animation::GridPadding)) {
         animation.spacing_x = spacing[0];
         animation.spacing_y = spacing[1];
     }
@@ -180,7 +184,7 @@ void AnimationInspectorDrawer::draw(EntityManager& em, EntityID entity, const Co
 
     float margin[2] = {animation.margin_x, animation.margin_y};
     const AnimationComponent margin_before = animation;
-    if (property_vec2("Margin", margin, 1.0f, 0.0f, 8192.0f, "%.0f")) {
+    if (property_vec2("Margin", margin, InspectorPropertyPolicies::Animation::GridPadding)) {
         animation.margin_x = margin[0];
         animation.margin_y = margin[1];
     }
@@ -240,15 +244,29 @@ void AnimationInspectorDrawer::draw(EntityManager& em, EntityID entity, const Co
         track(em, entity, name_before, clip_property(index, "Name"), "Rename Animation Clip", context);
 
         const AnimationComponent start_before = animation;
-        property_int("Start Frame", &clip.start_frame, 1.0f, 0, std::max(0, animation.columns * animation.rows - 1));
+        property_int(
+            "Start Frame",
+            &clip.start_frame,
+            InspectorPropertyPolicies::bounded_int(
+                1.0f, 0, std::max(0, animation.columns * animation.rows - 1)
+            )
+        );
         track(em, entity, start_before, clip_property(index, "Start"), "Edit Clip Start Frame", context);
 
         const AnimationComponent count_before = animation;
-        property_int("Frame Count", &clip.frame_count, 1.0f, 1, std::max(1, animation.columns * animation.rows));
+        property_int(
+            "Frame Count",
+            &clip.frame_count,
+            InspectorPropertyPolicies::bounded_int(
+                1.0f, 1, std::max(1, animation.columns * animation.rows)
+            )
+        );
         track(em, entity, count_before, clip_property(index, "Count"), "Edit Clip Frame Count", context);
 
         const AnimationComponent fps_before = animation;
-        property_float("Speed", &clip.fps, 0.25f, 0.1f, 240.0f, "%.1f FPS");
+        property_float(
+            "Speed", &clip.fps, InspectorPropertyPolicies::Animation::FramesPerSecond
+        );
         track(em, entity, fps_before, clip_property(index, "FPS"), "Edit Clip Speed", context);
 
         const AnimationComponent loop_before = animation;

@@ -412,7 +412,11 @@ void SpriteAnimationStudioPanel::render_clip_tabs(EntityManager& em, EntityID en
 
         const AnimationComponent speed_before = anim;
         InspectorWidgets::begin_property_interaction("AnimationStudio.ClipSpeed");
-        ImGui::SliderFloat("Speed", &active_clip->fps, 1.0f, 60.0f, "%.0f FPS");
+        const auto& speed_policy = InspectorPropertyPolicies::Animation::FramesPerSecond;
+        ImGui::SliderFloat(
+            "Speed", &active_clip->fps,
+            speed_policy.minimum, speed_policy.maximum, speed_policy.format
+        );
         InspectorWidgets::capture_property_interaction();
         track_edit(em, entity, speed_before, "AnimationStudio.ClipSpeed", "Edit Animation Clip Speed");
 
@@ -444,35 +448,51 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(EntityManager& em, En
         const AnimationComponent columns_before = anim;
         ImGui::SetNextItemWidth(70.0f);
         InspectorWidgets::begin_property_interaction("AnimationStudio.Columns");
-        ImGui::DragInt("Cols", &anim.columns, 1.0f, 1, 64);
+        const auto& grid_policy = InspectorPropertyPolicies::Animation::GridDimension;
+        ImGui::DragInt(
+            "Cols", &anim.columns, grid_policy.speed, grid_policy.minimum, grid_policy.maximum
+        );
         InspectorWidgets::capture_property_interaction();
         track_edit(em, entity, columns_before, "AnimationStudio.Columns", "Edit Animation Columns");
         ImGui::SameLine();
         const AnimationComponent rows_before = anim;
         ImGui::SetNextItemWidth(70.0f);
         InspectorWidgets::begin_property_interaction("AnimationStudio.Rows");
-        ImGui::DragInt("Rows", &anim.rows, 1.0f, 1, 64);
+        ImGui::DragInt(
+            "Rows", &anim.rows, grid_policy.speed, grid_policy.minimum, grid_policy.maximum
+        );
         InspectorWidgets::capture_property_interaction();
         track_edit(em, entity, rows_before, "AnimationStudio.Rows", "Edit Animation Rows");
         ImGui::SameLine();
         const AnimationComponent width_before = anim;
         ImGui::SetNextItemWidth(80.0f);
         InspectorWidgets::begin_property_interaction("AnimationStudio.FrameWidth");
-        ImGui::DragFloat("Width", &anim.frame_width, 1.0f, 4.0f, 1024.0f, "%.0fpx");
+        const auto& frame_policy = InspectorPropertyPolicies::Animation::FrameSize;
+        ImGui::DragFloat(
+            "Width", &anim.frame_width, frame_policy.speed,
+            frame_policy.minimum, frame_policy.maximum, frame_policy.format
+        );
         InspectorWidgets::capture_property_interaction();
         track_edit(em, entity, width_before, "AnimationStudio.FrameWidth", "Edit Animation Frame Width");
         ImGui::SameLine();
         const AnimationComponent height_before = anim;
         ImGui::SetNextItemWidth(80.0f);
         InspectorWidgets::begin_property_interaction("AnimationStudio.FrameHeight");
-        ImGui::DragFloat("Height", &anim.frame_height, 1.0f, 4.0f, 1024.0f, "%.0fpx");
+        ImGui::DragFloat(
+            "Height", &anim.frame_height, frame_policy.speed,
+            frame_policy.minimum, frame_policy.maximum, frame_policy.format
+        );
         InspectorWidgets::capture_property_interaction();
         track_edit(em, entity, height_before, "AnimationStudio.FrameHeight", "Edit Animation Frame Height");
         ImGui::SameLine();
         const AnimationComponent spacing_before = anim;
         ImGui::SetNextItemWidth(60.0f);
         InspectorWidgets::begin_property_interaction("AnimationStudio.Spacing");
-        if (ImGui::DragFloat("Spacing", &anim.spacing_x, 1.0f, 0.0f, 64.0f, "%.0fpx")) {
+        const auto& padding_policy = InspectorPropertyPolicies::Animation::GridPadding;
+        if (ImGui::DragFloat(
+                "Spacing", &anim.spacing_x, padding_policy.speed,
+                padding_policy.minimum, padding_policy.maximum, padding_policy.format
+            )) {
             anim.spacing_y = anim.spacing_x;
         }
         InspectorWidgets::capture_property_interaction();

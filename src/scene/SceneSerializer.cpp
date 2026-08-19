@@ -74,6 +74,14 @@ std::string SceneSerializer::serialize_to_string() {
         tf_json["visible"] = transform.visible;
         entity_json["transform"] = tf_json;
 
+        // Store only the authoritative parent relation. The children list is
+        // derived by EntityManager::set_parent() while loading, which avoids
+        // duplicated or stale hierarchy data in scene files and snapshots.
+        if (em.has_component<HierarchyComponent>(id)) {
+            const auto& hierarchy = em.get_component<HierarchyComponent>(id);
+            entity_json["hierarchy"] = {{"parent", hierarchy.parent}};
+        }
+
         // SpriteComponent
         if (em.has_component<SpriteComponent>(id)) {
             auto& sprite = em.get_component<SpriteComponent>(id);
@@ -246,6 +254,7 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
         EntityManager& em = m_scene->get_entity_manager();
         em.clear();
         std::vector<EntityID> tilemaps_to_rebuild;
+        std::vector<std::pair<EntityID, EntityID>> hierarchy_links;
 
         if (root.contains("entities") && root["entities"].is_array()) {
             for (const auto& entity_json : root["entities"]) {
@@ -290,6 +299,14 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     tf.world_visible = tf.visible;
                 }
                 em.add_component<TransformComponent>(id, tf);
+
+                // Entity references may point forward in the JSON array, so
+                // create every entity before resolving any parent relation.
+                if (entity_json.contains("hierarchy") && entity_json["hierarchy"].is_object()) {
+                    const auto& hierarchy_json = entity_json["hierarchy"];
+                    em.add_component<HierarchyComponent>(id, HierarchyComponent{});
+                    hierarchy_links.emplace_back(id, hierarchy_json.value("parent", EntityID{0}));
+                }
 
                 // SpriteComponent
                 if (entity_json.contains("sprite")) {
@@ -478,8 +495,26 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                 }
             }
 
+            // Rebuild children from the authoritative parent links only after
+            // every serialized entity exists. This is also what makes the
+            // Play/Stop snapshot restore entities destroyed during simulation
+            // without losing their authoring hierarchy.
+            for (const auto& [child, parent] : hierarchy_links) {
+                if (parent == 0) continue;
+                if (!em.is_alive(parent)) {
+                    ENGINE_LOG_WARN(
+                        "[SERIALIZER] Entity #{} references missing parent #{}; restored as root",
+                        child,
+                        parent
+                    );
+                    continue;
+                }
+                em.set_parent(child, parent);
+            }
+
             // Generated entities are created only after every serialized ID
-            // has been restored, preventing collisions with stable references.
+            // and hierarchy link has been restored, preventing collisions with
+            // stable references.
             for (EntityID tilemap : tilemaps_to_rebuild) {
                 TilemapColliderSystem::build_composite_colliders(em, tilemap);
             }

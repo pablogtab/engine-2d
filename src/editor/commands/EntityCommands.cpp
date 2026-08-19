@@ -77,16 +77,25 @@ TransformEntitiesCommand::TransformEntitiesCommand(
 
 void TransformEntitiesCommand::apply(const std::unordered_map<EntityID, TransformComponent>& states) {
     if (!m_em) return;
+    std::unordered_set<EntityID> rebuild_roots;
     for (const auto& [id, transform] : states) {
         if (!m_em->is_alive(id) || !m_em->has_component<TransformComponent>(id)) continue;
+        const auto& current = m_em->get_component<TransformComponent>(id);
+        if (current.scale != transform.scale || current.visible != transform.visible) {
+            rebuild_roots.insert(id);
+        }
         m_em->get_component<TransformComponent>(id) = transform;
     }
 
     TransformSystem::update(*m_em);
     for (const auto& [id, transform] : states) {
+        (void)transform;
         if (!m_em->is_alive(id) || !m_em->has_component<TransformComponent>(id)) continue;
-        const auto& current = m_em->get_component<TransformComponent>(id);
-        PhysicsSystem::set_position(*m_em, id, glm::vec2(current.world_position.x, current.world_position.y));
+        if (rebuild_roots.contains(id)) {
+            PhysicsSystem::rebuild_body_hierarchy(*m_em, id);
+        } else {
+            PhysicsSystem::sync_body_hierarchy(*m_em, id);
+        }
     }
 }
 
@@ -278,8 +287,7 @@ void DuplicateEntitiesCommand::execute() {
     TransformSystem::update(*m_em);
     for (EntityID id : m_duplicate_entities) {
         if (!m_em->has_component<TransformComponent>(id)) continue;
-        const auto& transform = m_em->get_component<TransformComponent>(id);
-        PhysicsSystem::set_position(*m_em, id, glm::vec2(transform.world_position));
+        PhysicsSystem::sync_body_hierarchy(*m_em, id);
     }
 
     if (m_selection) {

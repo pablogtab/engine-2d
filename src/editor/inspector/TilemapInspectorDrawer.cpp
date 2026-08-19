@@ -125,7 +125,7 @@ void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Cont
     }
 
     const TilemapComponent tile_size_before = tilemap;
-    property_float("Tile Size", &tilemap.tile_size, 1.0f, 8.0f, 256.0f, "%.1f px");
+    property_float("Tile Size", &tilemap.tile_size, InspectorPropertyPolicies::Tilemap::TileSize);
     track(
         em,
         entity,
@@ -137,7 +137,7 @@ void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Cont
     );
 
     const TilemapComponent pixel_size_before = tilemap;
-    property_int("Pixel Size", &tilemap.tile_pixel_size, 1.0f, 1, 4096, "%d px");
+    property_int("Pixel Size", &tilemap.tile_pixel_size, InspectorPropertyPolicies::Tilemap::PixelSize);
     track(em, entity, pixel_size_before, "Tilemap.PixelSize", "Edit Tilemap Pixel Size", context);
 
     char path_buffer[512];
@@ -193,11 +193,13 @@ void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Cont
         track(em, entity, one_way_before, "Tilemap.IsOneWay", "Toggle One-Way Tilemap", context, rebuild_colliders);
 
         const TilemapComponent friction_before = tilemap;
-        property_float("Friction", &tilemap.friction, 0.01f, 0.0f, 1.0f, "%.2f");
+        property_float("Friction", &tilemap.friction, InspectorPropertyPolicies::Tilemap::Friction);
         track(em, entity, friction_before, "Tilemap.Friction", "Edit Tilemap Friction", context, rebuild_colliders);
 
         const TilemapComponent restitution_before = tilemap;
-        property_float("Restitution", &tilemap.restitution, 0.01f, 0.0f, 1.0f, "%.2f");
+        property_float(
+            "Restitution", &tilemap.restitution, InspectorPropertyPolicies::Tilemap::Restitution
+        );
         track(
             em,
             entity,
@@ -210,7 +212,9 @@ void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Cont
 
         int category_bits = tilemap.category_bits;
         const TilemapComponent category_before = tilemap;
-        if (property_int("Category Bits", &category_bits, 1.0f, 0, 65535, "0x%04X")) {
+        if (property_int(
+                "Category Bits", &category_bits, InspectorPropertyPolicies::Tilemap::CollisionBits
+            )) {
             tilemap.category_bits = static_cast<std::uint16_t>(category_bits);
         }
         track(
@@ -225,7 +229,7 @@ void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Cont
 
         int mask_bits = tilemap.mask_bits;
         const TilemapComponent mask_before = tilemap;
-        if (property_int("Mask Bits", &mask_bits, 1.0f, 0, 65535, "0x%04X")) {
+        if (property_int("Mask Bits", &mask_bits, InspectorPropertyPolicies::Tilemap::CollisionBits)) {
             tilemap.mask_bits = static_cast<std::uint16_t>(mask_bits);
         }
         track(
