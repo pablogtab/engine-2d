@@ -52,6 +52,8 @@ public:
     void set_space(GizmoSpace space) { if (!is_using()) m_space = space; }
     [[nodiscard]] GizmoSpace get_space() const { return m_space; }
     GizmoSnapSettings& snap_settings() { return m_snap; }
+    [[nodiscard]] const GizmoSnapSettings& snap_settings() const { return m_snap; }
+
 
 private:
     struct RootTransformSnapshot {

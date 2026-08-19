@@ -1,0 +1,344 @@
+{
+    "entities": [
+        {
+            "group": {},
+            "hierarchy": {
+                "parent": 0
+            },
+            "id": 1,
+            "tag": "Coins",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
+        },
+        {
+            "collider": [
+                {
+                    "category_bits": 8,
+                    "is_one_way": false,
+                    "is_trigger": true,
+                    "mask_bits": 2,
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "radius": 14.0,
+                    "size": [
+                        28.0,
+                        28.0
+                    ],
+                    "type": "Circle"
+                }
+            ],
+            "hierarchy": {
+                "parent": 1
+            },
+            "id": 2,
+            "rigidbody": {
+                "fixed_rotation": true,
+                "friction": 0.0,
+                "gravity_scale": 0.0,
+                "mass": 0.0,
+                "restitution": 0.0,
+                "type": "Static"
+            },
+            "sprite": {
+                "color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "flip_x": false,
+                "flip_y": false,
+                "has_outline": false,
+                "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
+                "size": [
+                    28.0,
+                    28.0
+                ],
+                "sorting_layer": 0,
+                "texture": "",
+                "use_src_rect": false,
+                "visible": true
+            },
+            "tag": "Collectible_Coin_1",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    -393.3333435058594,
+                    123.33333587646484,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
+        },
+        {
+            "collider": [
+                {
+                    "category_bits": 8,
+                    "is_one_way": false,
+                    "is_trigger": true,
+                    "mask_bits": 2,
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "radius": 14.0,
+                    "size": [
+                        28.0,
+                        28.0
+                    ],
+                    "type": "Circle"
+                }
+            ],
+            "hierarchy": {
+                "parent": 1
+            },
+            "id": 3,
+            "rigidbody": {
+                "fixed_rotation": true,
+                "friction": 0.0,
+                "gravity_scale": 0.0,
+                "mass": 0.0,
+                "restitution": 0.0,
+                "type": "Static"
+            },
+            "sprite": {
+                "color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "flip_x": false,
+                "flip_y": false,
+                "has_outline": false,
+                "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
+                "size": [
+                    28.0,
+                    28.0
+                ],
+                "sorting_layer": 0,
+                "texture": "",
+                "use_src_rect": false,
+                "visible": true
+            },
+            "tag": "Collectible_Coin_2",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    -213.33334350585938,
+                    33.333335876464844,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
+        },
+        {
+            "collider": [
+                {
+                    "category_bits": 8,
+                    "is_one_way": false,
+                    "is_trigger": true,
+                    "mask_bits": 2,
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "radius": 14.0,
+                    "size": [
+                        28.0,
+                        28.0
+                    ],
+                    "type": "Circle"
+                }
+            ],
+            "hierarchy": {
+                "parent": 1
+            },
+            "id": 4,
+            "rigidbody": {
+                "fixed_rotation": true,
+                "friction": 0.0,
+                "gravity_scale": 0.0,
+                "mass": 0.0,
+                "restitution": 0.0,
+                "type": "Static"
+            },
+            "sprite": {
+                "color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "flip_x": false,
+                "flip_y": false,
+                "has_outline": false,
+                "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
+                "size": [
+                    28.0,
+                    28.0
+                ],
+                "sorting_layer": 0,
+                "texture": "",
+                "use_src_rect": false,
+                "visible": true
+            },
+            "tag": "Collectible_Coin_3",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    606.6666870117188,
+                    -156.66665649414063,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
+        },
+        {
+            "collider": [
+                {
+                    "category_bits": 8,
+                    "is_one_way": false,
+                    "is_trigger": true,
+                    "mask_bits": 2,
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "radius": 14.0,
+                    "size": [
+                        28.0,
+                        28.0
+                    ],
+                    "type": "Circle"
+                }
+            ],
+            "hierarchy": {
+                "parent": 1
+            },
+            "id": 5,
+            "rigidbody": {
+                "fixed_rotation": true,
+                "friction": 0.0,
+                "gravity_scale": 0.0,
+                "mass": 0.0,
+                "restitution": 0.0,
+                "type": "Static"
+            },
+            "sprite": {
+                "color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "flip_x": false,
+                "flip_y": false,
+                "has_outline": false,
+                "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
+                "size": [
+                    28.0,
+                    28.0
+                ],
+                "sorting_layer": 0,
+                "texture": "",
+                "use_src_rect": false,
+                "visible": true
+            },
+            "tag": "Collectible_Coin_1",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    76.0,
+                    -115.00006103515625,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
+        }
+    ],
+    "name": "Coins",
+    "prefab_version": 1,
+    "root_local_id": 1
+}

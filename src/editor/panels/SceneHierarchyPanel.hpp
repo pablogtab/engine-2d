@@ -51,7 +51,7 @@ private:
     bool is_descendant(EntityManager& em, EntityID potential_descendant, EntityID ancestor) const;
     void create_entity_helper(EntityManager& em, EntityID parent_id = 0);
     void create_tilemap_helper(EntityManager& em, EntityID parent_id = 0);
-    void create_sprite_from_asset_helper(EntityManager& em, EntityID parent_id, const std::string& path_str);
+    void create_asset_helper(EntityManager& em, EntityID parent_id, const std::string& path_str);
 
     std::string m_name{"Scene Hierarchy"};
     SceneManager* m_scene_manager{nullptr};

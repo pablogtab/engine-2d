@@ -135,6 +135,7 @@ private:
     void render_transform_toolbar();
     bool ensure_render_target();
     void configure_scene_view();
+    [[nodiscard]] bool is_position_snap_active() const;
 
     // Sub-tools
     TransformGizmo2D m_gizmo;

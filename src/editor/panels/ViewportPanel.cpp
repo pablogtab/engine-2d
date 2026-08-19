@@ -279,6 +279,13 @@ void ViewportPanel::render_arrange_menu() {
     }
 }
 
+bool ViewportPanel::is_position_snap_active() const {
+    const ImGuiIO& io = ImGui::GetIO();
+    const auto& snap = m_gizmo.snap_settings();
+    const bool is_active = snap.enabled != io.KeyShift;
+    return is_active && snap.position_step > 0.0f;
+}
+
 void ViewportPanel::render_transform_toolbar() {
     if (!m_transform_toolbox.begin("Transform Toolbar")) {
         m_transform_toolbox.end();
@@ -876,19 +883,44 @@ void ViewportPanel::on_gui() {
                             if (active_cam) {
                                 world_pos = active_cam->screen_to_world(m_viewport_mouse_pos);
                             }
-                            TransformComponent desired_tr{glm::vec3(world_pos.x, world_pos.y, 0.0f)};
+
+                            // Snap to grid using unified position snap logic
+                            if (is_position_snap_active()) {
+                                const float step = m_gizmo.snap_settings().position_step;
+                                world_pos.x = std::round(world_pos.x / step) * step;
+                                world_pos.y = std::round(world_pos.y / step) * step;
+                            }
+
                             EntityManager& em = active_scene->get_entity_manager();
-                            if (m_command_history) {
-                                m_command_history->execute_command(
-                                    std::make_unique<InstantiatePrefabCommand>(
-                                        &em, m_selection, path_str, false, desired_tr, 0, m_renderer, m_entity_state_store.get()
-                                    )
-                                );
-                            } else {
-                                InstantiatePrefabCommand cmd(&em, m_selection, path_str, false, desired_tr, 0, m_renderer, m_entity_state_store.get());
-                                cmd.execute();
+                            EntityID target_parent = 0;
+                            bool can_instantiate = true;
+                            if (m_prefab_stage && m_prefab_stage->is_active()) {
+                                target_parent = m_prefab_stage->get_root_entity();
+                                if (target_parent == 0 || !em.is_alive(target_parent)) {
+                                    ENGINE_LOG_WARN("[VIEWPORT] Cannot instantiate prefab: Prefab Stage root entity is zero or invalid.");
+                                    can_instantiate = false;
+                                } else if (m_entity_state_store && m_entity_state_store->is_locked(target_parent)) {
+                                    ENGINE_LOG_WARN("[VIEWPORT] Cannot instantiate prefab: Prefab Stage root entity is locked.");
+                                    can_instantiate = false;
+                                }
+                            }
+
+
+                            if (can_instantiate) {
+                                TransformComponent desired_tr{glm::vec3(world_pos.x, world_pos.y, 0.0f)};
+                                if (m_command_history) {
+                                    m_command_history->execute_command(
+                                        std::make_unique<InstantiatePrefabCommand>(
+                                            &em, m_selection, path_str, false, desired_tr, target_parent, m_renderer, m_entity_state_store.get()
+                                        )
+                                    );
+                                } else {
+                                    InstantiatePrefabCommand cmd(&em, m_selection, path_str, false, desired_tr, target_parent, m_renderer, m_entity_state_store.get());
+                                    cmd.execute();
+                                }
                             }
                         } else if (ext == ".scene") {
+
                             if (m_on_load_scene) {
                                 m_on_load_scene(path_str);
                             }

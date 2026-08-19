@@ -424,6 +424,134 @@ void test_prefab_structural_rejections() {
     std::cout << "test_prefab_structural_rejections passed." << std::endl;
 }
 
+void test_instantiate_prefab_drag_drop_scenarios() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+
+    // Create a minimal test prefab
+    EntityID orig_root = em.create_entity();
+    em.add_component<TagComponent>(orig_root, TagComponent{"Coin"});
+    em.add_component<TransformComponent>(orig_root, TransformComponent{glm::vec3(0.0f)});
+    TransformSystem::update(em);
+
+    ComponentSerializationContext ctx;
+    std::string json = EntitySubtreeArchive::capture_to_json(em, orig_root, ctx);
+    assert(!json.empty());
+    em.destroy_entity(orig_root);
+
+    std::filesystem::create_directories("assets/prefabs");
+    const std::string prefab_file = "assets/prefabs/coin_dd_test.prefab";
+    assert(FileSystem::write_text_atomically(prefab_file, json));
+
+    // --- Scenario 1: Drop at snapped world position ---
+    float mouse_x = 123.4f;
+    float mouse_y = 456.7f;
+    float snap_step = 32.0f;
+    float snapped_x = std::round(mouse_x / snap_step) * snap_step; // 128.0f
+    float snapped_y = std::round(mouse_y / snap_step) * snap_step; // 448.0f
+    TransformComponent desired_tr{glm::vec3(snapped_x, snapped_y, 0.0f)};
+
+    auto cmd1 = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, prefab_file, false, desired_tr, 0, nullptr, &state_store
+    );
+    assert(cmd1->is_valid());
+    history.execute_command(std::move(cmd1));
+
+    assert(selection->count() == 1);
+    EntityID spawned_root = selection->get_primary();
+    assert(spawned_root != 0);
+    assert(em.is_alive(spawned_root));
+    const auto& tr1 = em.get_component<TransformComponent>(spawned_root);
+    assert(approx_equal(tr1.position.x, 128.0f));
+    assert(approx_equal(tr1.position.y, 448.0f));
+
+    // --- Scenario 2: Drop as child under existing parent ---
+    EntityID parent_entity = em.create_entity();
+    em.add_component<TagComponent>(parent_entity, TagComponent{"Container"});
+    em.add_component<TransformComponent>(parent_entity, TransformComponent{glm::vec3(500.0f, 0.0f, 0.0f)});
+    TransformSystem::update(em);
+
+    auto cmd2 = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, prefab_file, false, std::nullopt, parent_entity, nullptr, &state_store
+    );
+    assert(cmd2->is_valid());
+    history.execute_command(std::move(cmd2));
+
+    EntityID child_prefab = selection->get_primary();
+    assert(child_prefab != 0 && child_prefab != spawned_root);
+    assert(em.has_component<HierarchyComponent>(child_prefab));
+    assert(em.get_component<HierarchyComponent>(child_prefab).parent == parent_entity);
+
+    // --- Scenario 3: Undo / Redo of drag-instantiated prefabs ---
+    assert(history.can_undo());
+    history.undo(); // undo child prefab
+    assert(!em.is_alive(child_prefab));
+    assert(em.is_alive(parent_entity));
+
+    history.undo(); // undo snapped prefab
+    assert(!em.is_alive(spawned_root));
+
+    assert(history.can_redo());
+    history.redo(); // redo snapped prefab
+    assert(em.is_alive(spawned_root));
+
+    history.redo(); // redo child prefab
+    assert(em.is_alive(child_prefab));
+    assert(em.get_component<HierarchyComponent>(child_prefab).parent == parent_entity);
+
+    // --- Scenario 4: Rejection on locked parent ---
+    size_t undo_before = history.get_undo_count();
+    state_store.set_locked(parent_entity, true);
+    auto cmd_locked = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, prefab_file, false, std::nullopt, parent_entity, nullptr, &state_store
+    );
+    assert(!cmd_locked->is_valid());
+    history.execute_command(std::move(cmd_locked)); // fails cleanly, does not push to history
+    assert(history.get_undo_count() == undo_before);
+
+    // --- Scenario 5: Rejection on corrupt/nonexistent file ---
+    auto cmd_corrupt = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, "assets/prefabs/nonexistent_xyz.prefab", false, std::nullopt, 0, nullptr, &state_store
+    );
+    assert(!cmd_corrupt->is_valid());
+    history.execute_command(std::move(cmd_corrupt));
+    assert(history.get_undo_count() == undo_before);
+
+    // --- Scenario 6: Drop inside Prefab Stage (parents under stage root) ---
+    EntityID stage_root = em.create_entity();
+    em.add_component<TagComponent>(stage_root, TagComponent{"StageRoot"});
+    em.add_component<TransformComponent>(stage_root, TransformComponent{glm::vec3(0.0f)});
+    TransformSystem::update(em);
+
+    auto cmd_stage = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, prefab_file, false, std::nullopt, stage_root, nullptr, &state_store
+    );
+    assert(cmd_stage->is_valid());
+    history.execute_command(std::move(cmd_stage));
+
+    EntityID stage_child = selection->get_primary();
+    assert(stage_child != 0 && stage_child != stage_root);
+    assert(em.has_component<HierarchyComponent>(stage_child));
+    assert(em.get_component<HierarchyComponent>(stage_child).parent == stage_root);
+
+    // Undo inside stage removes nested prefab and leaves stage_root untouched
+    history.undo();
+    assert(!em.is_alive(stage_child));
+    assert(em.is_alive(stage_root));
+
+    // Redo inside stage restores nested prefab under stage_root
+    history.redo();
+    assert(em.is_alive(stage_child));
+    assert(em.get_component<HierarchyComponent>(stage_child).parent == stage_root);
+
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_instantiate_prefab_drag_drop_scenarios passed." << std::endl;
+}
+
+
+
 int main() {
     std::cout << "=== Running Prefab System Tests ===" << std::endl;
     test_prefab_serialization_and_deserialization_round_trip();
@@ -435,6 +563,7 @@ int main() {
     test_instantiate_prefab_command_undo_redo_without_disk_dependency();
     test_prefab_physics_and_tilemap_undo_redo();
     test_prefab_structural_rejections();
+    test_instantiate_prefab_drag_drop_scenarios();
     std::cout << "=== All Prefab System Tests Passed! ===" << std::endl;
     return 0;
 }

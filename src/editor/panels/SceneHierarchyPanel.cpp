@@ -132,7 +132,7 @@ void SceneHierarchyPanel::on_gui() {
                 if (const ImGuiPayload* asset_payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET")) {
                     const char* path_str = static_cast<const char*>(asset_payload->Data);
                     if (path_str) {
-                        create_sprite_from_asset_helper(em, 0, path_str);
+                        create_asset_helper(em, 0, path_str);
                     }
                 }
 
@@ -423,13 +423,13 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             const char* path_str = static_cast<const char*>(asset_payload->Data);
             if (path_str) {
                 if (zone == DropZone::Inside) {
-                    create_sprite_from_asset_helper(em, id, path_str);
+                    create_asset_helper(em, id, path_str);
                 } else {
                     EntityID target_parent = 0;
                     if (em.has_component<HierarchyComponent>(id)) {
                         target_parent = em.get_component<HierarchyComponent>(id).parent;
                     }
-                    create_sprite_from_asset_helper(em, target_parent, path_str);
+                    create_asset_helper(em, target_parent, path_str);
                 }
             }
         }
@@ -713,6 +713,16 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 }
 
 void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID parent_id) {
+    if (m_prefab_stage && m_prefab_stage->is_active()) {
+        if (parent_id == 0) {
+            parent_id = m_prefab_stage->get_root_entity();
+        }
+        if (parent_id == 0 || !em.is_alive(parent_id)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot create entity: Prefab Stage root entity is zero or invalid.");
+            return;
+        }
+    }
+
     if (parent_id != 0 && m_entity_state_store && m_entity_state_store->is_locked(parent_id)) {
         ENGINE_LOG_WARN("[HIERARCHY] Cannot create child entity under locked parent #{}", parent_id);
         return;
@@ -767,6 +777,16 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
 }
 
 void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID parent_id) {
+    if (m_prefab_stage && m_prefab_stage->is_active()) {
+        if (parent_id == 0) {
+            parent_id = m_prefab_stage->get_root_entity();
+        }
+        if (parent_id == 0 || !em.is_alive(parent_id)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot create tilemap: Prefab Stage root entity is zero or invalid.");
+            return;
+        }
+    }
+
     if (parent_id != 0 && m_entity_state_store && m_entity_state_store->is_locked(parent_id)) {
         ENGINE_LOG_WARN("[HIERARCHY] Cannot create child tilemap under locked parent #{}", parent_id);
         return;
@@ -789,15 +809,36 @@ void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID pare
     }
 }
 
-void SceneHierarchyPanel::create_sprite_from_asset_helper(EntityManager& em, EntityID parent_id, const std::string& path_str) {
-    if (parent_id != 0 && m_entity_state_store && m_entity_state_store->is_locked(parent_id)) {
-        ENGINE_LOG_WARN("[HIERARCHY] Cannot create child entity under locked parent #{}", parent_id);
-        return;
-    }
-
+void SceneHierarchyPanel::create_asset_helper(EntityManager& em, EntityID parent_id, const std::string& path_str) {
     std::filesystem::path asset_path(path_str);
     std::string ext = asset_path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    if (ext != ".prefab" && ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".bmp") {
+        return;
+    }
+
+    // In Prefab Stage: dropping to empty hierarchy redirects under stage root
+    if (m_prefab_stage && m_prefab_stage->is_active()) {
+        if (parent_id == 0) {
+            parent_id = m_prefab_stage->get_root_entity();
+        }
+        if (parent_id == 0 || !em.is_alive(parent_id)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot instantiate asset: Prefab Stage root entity is zero or invalid.");
+            return;
+        }
+    }
+
+    if (parent_id != 0) {
+        if (!em.is_alive(parent_id)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot instantiate asset: parent entity #{} is dead or invalid.", parent_id);
+            return;
+        }
+        if (m_entity_state_store && m_entity_state_store->is_locked(parent_id)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot instantiate asset: parent entity #{} is locked.", parent_id);
+            return;
+        }
+    }
 
     if (ext == ".prefab") {
         if (m_command_history) {
@@ -808,10 +849,6 @@ void SceneHierarchyPanel::create_sprite_from_asset_helper(EntityManager& em, Ent
             InstantiatePrefabCommand cmd(&em, m_selection, path_str, false, std::nullopt, parent_id, m_renderer, m_entity_state_store.get());
             cmd.execute();
         }
-        return;
-    }
-
-    if (ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".bmp") {
         return;
     }
 
