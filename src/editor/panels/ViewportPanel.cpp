@@ -1,4 +1,5 @@
 #include "ViewportPanel.hpp"
+#include "../stage/PrefabStageController.hpp"
 #include "TilemapPalettePanel.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../commands/EntityCommands.hpp"
@@ -458,9 +459,31 @@ void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entit
         std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
         m_command_history->execute_command(std::make_unique<DuplicateEntitiesCommand>(&em, m_selection, std::move(entities), m_entity_state_store.get()));
     }
-    if (ImGui::MenuItem("Delete", "Delete", false, can_mutate) && m_selection) {
-        std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
-        m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, std::move(entities), m_entity_state_store.get()));
+    bool can_delete = can_mutate;
+    if (m_prefab_stage && m_prefab_stage->is_active()) {
+        if (m_selection) {
+            bool has_non_root = false;
+            for (EntityID s_id : m_selection->get_selected()) {
+                if (!m_prefab_stage->is_root_entity(s_id)) {
+                    has_non_root = true;
+                    break;
+                }
+            }
+            if (!has_non_root) can_delete = false;
+        } else if (m_prefab_stage->is_root_entity(entity)) {
+            can_delete = false;
+        }
+    }
+
+    if (ImGui::MenuItem("Delete", "Delete", false, can_delete) && m_selection) {
+        std::vector<EntityID> entities;
+        for (EntityID s_id : m_selection->get_selected()) {
+            if (m_prefab_stage && m_prefab_stage->is_root_entity(s_id)) continue;
+            entities.push_back(s_id);
+        }
+        if (!entities.empty()) {
+            m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, std::move(entities), m_entity_state_store.get()));
+        }
     }
 
     ImGui::Separator();
@@ -468,7 +491,16 @@ void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entit
     std::string group_label = (m_selection && m_selection->count() > 1)
         ? "Group Selection (" + std::to_string(m_selection->count()) + ")"
         : "Group Selection";
-    if (ImGui::MenuItem(group_label.c_str(), "Cmd/Ctrl+G", false, can_mutate && has_sel) && m_selection) {
+    bool selection_has_prefab_root = false;
+    if (m_prefab_stage && m_prefab_stage->is_active() && m_selection) {
+        for (EntityID sel_id : m_selection->get_selected()) {
+            if (m_prefab_stage->is_root_entity(sel_id)) {
+                selection_has_prefab_root = true;
+                break;
+            }
+        }
+    }
+    if (ImGui::MenuItem(group_label.c_str(), "Cmd/Ctrl+G", false, can_mutate && has_sel && !selection_has_prefab_root) && m_selection) {
         std::vector<EntityID> entities(m_selection->get_selected().begin(), m_selection->get_selected().end());
         m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, std::move(entities), "Group", m_entity_state_store.get()));
     }
@@ -565,63 +597,122 @@ void ViewportPanel::on_gui() {
     ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
 
     if (ImGui::Begin(m_name.c_str(), &is_open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-        // --- 1. Top Transport Controls (Play / Pause / Stop) ---
-        ImGui::SetCursorPos(ImVec2(10.0f, 32.0f));
+
+        const bool in_prefab_stage = m_prefab_stage && m_prefab_stage->is_active();
         ScenePlayState play_state = get_play_state();
 
-        if (play_state == ScenePlayState::Edit) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.65f, 0.38f, 0.85f));
-            if (ImGui::Button(" > Play ", ImVec2(75, 24))) {
-                if (m_scene_manager) m_scene_manager->start_play();
+        ImGui::SetCursorPos(ImVec2(10.0f, 32.0f));
+
+        if (in_prefab_stage) {
+            // === PREFAB STAGE TOOLBAR ===
+            // Back button
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.22f, 0.28f, 0.9f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f, 0.32f, 0.42f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.18f, 0.18f, 0.24f, 1.0f));
+            if (ImGui::Button("< Scene", ImVec2(75, 24))) {
+                if (m_on_close_prefab_stage) m_on_close_prefab_stage();
             }
-            ImGui::PopStyleColor();
-        } else {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.25f, 0.25f, 0.85f));
-            if (ImGui::Button(" [] Stop ", ImVec2(75, 24))) {
-                if (m_scene_manager) m_scene_manager->stop_play();
+            ImGui::PopStyleColor(3);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Return to authoring scene");
+
+            ImGui::SameLine(0.0f, 8.0f);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 1.0f), "/");
+            ImGui::SameLine(0.0f, 8.0f);
+
+            // Purple stage badge
+            const bool dirty = m_prefab_stage->is_dirty();
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.42f, 0.18f, 0.72f, 0.95f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.52f, 0.25f, 0.82f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.38f, 0.14f, 0.65f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.90f, 1.0f, 1.0f));
+            ImGui::Button(" PREFAB ", ImVec2(0, 24));
+            ImGui::PopStyleColor(4);
+
+            ImGui::SameLine(0.0f, 8.0f);
+            std::string name_label = m_prefab_stage->get_prefab_name() + ".prefab";
+            if (dirty) name_label += " *";
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(
+                dirty ? ImVec4(1.0f, 0.85f, 0.3f, 1.0f) : ImVec4(0.90f, 0.90f, 0.98f, 1.0f),
+                "%s", name_label.c_str()
+            );
+
+            // Save button
+            ImGui::SameLine(0.0f, 12.0f);
+            float save_btn_w = 110.0f;
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                dirty ? ImVec4(0.20f, 0.55f, 0.30f, 0.95f) : ImVec4(0.18f, 0.35f, 0.22f, 0.6f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.70f, 0.38f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.16f, 0.48f, 0.26f, 1.0f));
+            if (ImGui::Button("Save Prefab", ImVec2(save_btn_w, 24))) {
+                if (m_on_save_prefab) m_on_save_prefab();
             }
-            ImGui::PopStyleColor();
+            ImGui::PopStyleColor(3);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save prefab asset to disk (Cmd+S)");
 
             ImGui::SameLine();
-            if (play_state == ScenePlayState::Play) {
-                if (ImGui::Button(" || Pause ", ImVec2(75, 24))) {
-                    if (m_scene_manager) m_scene_manager->pause_play();
+            ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 250.0f);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(ImVec4(0.65f, 0.55f, 0.85f, 1.0f), "Mode: PREFAB | FPS: %.0f", ImGui::GetIO().Framerate);
+        } else {
+            // === NORMAL SCENE TRANSPORT CONTROLS ===
+            if (play_state == ScenePlayState::Edit) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.65f, 0.38f, 0.85f));
+                if (ImGui::Button(" > Play ", ImVec2(75, 24))) {
+                    if (m_scene_manager) m_scene_manager->start_play();
                 }
+                ImGui::PopStyleColor();
             } else {
-                if (ImGui::Button(" > Resume ", ImVec2(75, 24))) {
-                    if (m_scene_manager) m_scene_manager->resume_play();
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.25f, 0.25f, 0.85f));
+                if (ImGui::Button(" [] Stop ", ImVec2(75, 24))) {
+                    if (m_scene_manager) m_scene_manager->stop_play();
                 }
-            }
-        }
+                ImGui::PopStyleColor();
 
-        ImGui::SameLine();
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f);
-        if (m_scene_manager && m_scene_manager->get_scene_count() > 0) {
-            ImGui::SetNextItemWidth(260.0f);
-            Scene* current_sc = m_scene_manager->get_active_scene();
-            std::string preview_name = current_sc ? ("🎬 " + current_sc->get_name()) : "Select Scene";
-            if (ImGui::BeginCombo("##viewport_scene_select", preview_name.c_str())) {
-                const auto& scenes = m_scene_manager->get_scenes();
-                for (size_t i = 0; i < scenes.size(); ++i) {
-                    if (!scenes[i]) continue;
-                    bool is_sel = (m_scene_manager->get_active_index() == static_cast<int>(i));
-                    std::string item_name = std::to_string(i + 1) + ". " + scenes[i]->get_name();
-                    if (ImGui::Selectable(item_name.c_str(), is_sel)) {
-                        m_scene_manager->set_active_scene(i);
+                ImGui::SameLine();
+                if (play_state == ScenePlayState::Play) {
+                    if (ImGui::Button(" || Pause ", ImVec2(75, 24))) {
+                        if (m_scene_manager) m_scene_manager->pause_play();
                     }
-                    if (is_sel) {
-                        ImGui::SetItemDefaultFocus();
+                } else {
+                    if (ImGui::Button(" > Resume ", ImVec2(75, 24))) {
+                        if (m_scene_manager) m_scene_manager->resume_play();
                     }
                 }
-                ImGui::EndCombo();
             }
+
+            ImGui::SameLine();
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f);
+            if (m_scene_manager && m_scene_manager->get_scene_count() > 0) {
+                ImGui::SetNextItemWidth(260.0f);
+                Scene* current_sc = m_scene_manager->get_active_scene();
+                std::string preview_name = current_sc ? ("🎬 " + current_sc->get_name()) : "Select Scene";
+                if (ImGui::BeginCombo("##viewport_scene_select", preview_name.c_str())) {
+                    const auto& scenes = m_scene_manager->get_scenes();
+                    for (size_t i = 0; i < scenes.size(); ++i) {
+                        if (!scenes[i]) continue;
+                        bool is_sel = (m_scene_manager->get_active_index() == static_cast<int>(i));
+                        std::string item_name = std::to_string(i + 1) + ". " + scenes[i]->get_name();
+                        if (ImGui::Selectable(item_name.c_str(), is_sel)) {
+                            m_scene_manager->set_active_scene(i);
+                        }
+                        if (is_sel) {
+                            ImGui::SetItemDefaultFocus();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+
+            ImGui::SameLine();
+            ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 250.0f);
+            ImGui::TextColored(ImVec4(0.55f, 0.60f, 0.70f, 1.0f), "Mode: %s | FPS: %.0f",
+                (play_state == ScenePlayState::Edit ? "EDIT" : (play_state == ScenePlayState::Play ? "PLAY" : "PAUSED")),
+                ImGui::GetIO().Framerate);
         }
 
-        ImGui::SameLine();
-        ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 250.0f);
-        ImGui::TextColored(ImVec4(0.55f, 0.60f, 0.70f, 1.0f), "Mode: %s | FPS: %.0f", 
-            (play_state == ScenePlayState::Edit ? "EDIT" : (play_state == ScenePlayState::Play ? "PLAY" : "PAUSED")),
-            ImGui::GetIO().Framerate);
+
 
         ImGui::Spacing();
         render_transform_toolbar();
@@ -1052,6 +1143,7 @@ void ViewportPanel::on_gui() {
                 EntityManager& em = active_scene->get_entity_manager();
                 std::vector<EntityID> to_delete;
                 for (EntityID s_id : m_selection->get_selected()) {
+                    if (m_prefab_stage && m_prefab_stage->is_root_entity(s_id)) continue;
                     if (em.is_alive(s_id)) to_delete.push_back(s_id);
                 }
 

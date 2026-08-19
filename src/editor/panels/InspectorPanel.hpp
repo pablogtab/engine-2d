@@ -35,6 +35,8 @@ public:
     void set_entity_state_store(std::shared_ptr<class EditorEntityStateStore> store) { m_entity_state_store = store; }
     [[nodiscard]] std::shared_ptr<class EditorEntityStateStore> get_entity_state_store() const { return m_entity_state_store; }
     void set_animation_studio(class SpriteAnimationStudioPanel* studio) { m_anim_studio = studio; }
+    void set_prefab_stage(class PrefabStageController* stage) { m_prefab_stage = stage; }
+    [[nodiscard]] class PrefabStageController* get_prefab_stage() const { return m_prefab_stage; }
 
 private:
     void draw_components(EntityManager& em, EntityID entity);
@@ -51,8 +53,10 @@ private:
     SDL_Renderer* m_renderer{nullptr};
     AssetManager* m_asset_manager{nullptr};
     class SpriteAnimationStudioPanel* m_anim_studio{nullptr};
+    class PrefabStageController* m_prefab_stage{nullptr};
     char m_multi_tag_buffer[128]{""};
     std::uint32_t m_multi_tag_selection_owner{0};
 };
+
 
 } // namespace Engine

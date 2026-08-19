@@ -95,18 +95,24 @@ void SceneManager::set_active_scene(const std::string& name) {
 }
 
 void SceneManager::next_scene() {
+    if (m_transient_scene) return; // blocked while in prefab stage
     if (m_scenes.empty()) return;
     size_t next_idx = (m_active_index + 1) % m_scenes.size();
     set_active_scene(next_idx);
 }
 
 void SceneManager::previous_scene() {
+    if (m_transient_scene) return; // blocked while in prefab stage
     if (m_scenes.empty()) return;
     size_t prev_idx = (m_active_index - 1 + m_scenes.size()) % m_scenes.size();
     set_active_scene(prev_idx);
 }
 
 void SceneManager::start_play() {
+    if (m_transient_scene) {
+        ENGINE_LOG_WARN("[SCENE PLAY] Cannot enter Play mode while Prefab Stage is active.");
+        return;
+    }
     if (m_play_state == ScenePlayState::Pause) {
         resume_play();
         return;
@@ -173,14 +179,16 @@ void SceneManager::stop_play() {
 }
 
 void SceneManager::update(float delta_time) {
-    if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
-        m_scenes[m_active_index]->on_update(delta_time);
+    Scene* active = get_active_scene();
+    if (active) {
+        active->on_update(delta_time);
     }
 }
 
 void SceneManager::render(Renderer2D& renderer) {
-    if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
-        m_scenes[m_active_index]->on_render(renderer);
+    Scene* active = get_active_scene();
+    if (active) {
+        active->on_render(renderer);
     }
 }
 
@@ -195,23 +203,59 @@ void SceneManager::configure_view(RenderViewKind view, const RenderViewConfigura
     metrics = normalized;
 
     const RenderViewKind active_view = is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
-    if (view == active_view && m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
-        m_scenes[m_active_index]->on_viewport_resize(view, metrics);
+    if (view == active_view) {
+        Scene* active = get_active_scene();
+        if (active) {
+            active->on_viewport_resize(view, metrics);
+        }
     }
 }
 
 void SceneManager::apply_active_view() {
-    if (m_active_index < 0 || static_cast<size_t>(m_active_index) >= m_scenes.size()) return;
+    Scene* active = get_active_scene();
+    if (!active) return;
     const RenderViewKind view = is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
     const RenderViewConfiguration& metrics = view == RenderViewKind::Editor ? m_editor_view : m_game_view;
-    m_scenes[m_active_index]->on_viewport_resize(view, metrics);
+    active->on_viewport_resize(view, metrics);
 }
 
+
 Scene* SceneManager::get_active_scene() const {
+    if (m_transient_scene) return m_transient_scene.get();
     if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
         return m_scenes[m_active_index].get();
     }
     return nullptr;
+}
+
+std::shared_ptr<Scene> SceneManager::get_active_scene_shared_ptr() const {
+    if (m_transient_scene) return m_transient_scene;
+    if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
+        return m_scenes[m_active_index];
+    }
+    return nullptr;
+}
+
+void SceneManager::enter_transient_scene(std::shared_ptr<Scene> stage) {
+    if (!stage) return;
+    if (m_transient_scene) {
+        ENGINE_LOG_WARN("[SCENE] enter_transient_scene called while one is already active — ignoring.");
+        return;
+    }
+    m_transient_scene = std::move(stage);
+    m_transient_scene->set_is_editing(true);
+    m_transient_scene->on_attach();
+    m_transient_scene->on_viewport_resize(RenderViewKind::Editor, m_editor_view);
+    ENGINE_LOG_INFO("[SCENE] Entered transient scene: '{}'", m_transient_scene->get_name());
+}
+
+void SceneManager::exit_transient_scene() {
+    if (!m_transient_scene) return;
+    m_transient_scene->on_detach();
+    ENGINE_LOG_INFO("[SCENE] Exited transient scene: '{}'", m_transient_scene->get_name());
+    m_transient_scene.reset();
+    // Re-apply the underlying authoring scene view so it renders correctly.
+    apply_active_view();
 }
 
 } // namespace Engine

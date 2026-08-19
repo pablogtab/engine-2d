@@ -5,6 +5,16 @@
 #include <fstream>
 #include <sstream>
 
+#if defined(_WIN32)
+    #ifndef WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+    #define NOMINMAX
+    #endif
+    #include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace Engine {
@@ -132,6 +142,76 @@ bool FileSystem::write_text(const std::string& path, const std::string& content)
     file << content;
     return file.good();
 }
+
+bool FileSystem::write_text_atomically(const std::string& path, const std::string& content) {
+    std::string resolved = resolve_path(path);
+
+    // Ensure parent directory exists
+    try {
+        fs::path p(resolved);
+        if (p.has_parent_path()) {
+            fs::create_directories(p.parent_path());
+        }
+    } catch (const std::exception& e) {
+        ENGINE_LOG_ERROR("[FILESYSTEM] Exception creating directories for '{}': {}", resolved, e.what());
+        return false;
+    }
+
+    const std::string tmp_path = resolved + ".tmp";
+    {
+        std::ofstream file(tmp_path, std::ios::out | std::ios::trunc | std::ios::binary);
+        if (!file.is_open()) {
+            ENGINE_LOG_ERROR("[FILESYSTEM] Failed to open tmp file for atomic write: '{}'", tmp_path);
+            return false;
+        }
+        file << content;
+        if (!file.good()) {
+            ENGINE_LOG_ERROR("[FILESYSTEM] Error writing content to tmp file: '{}'", tmp_path);
+            file.close();
+            std::error_code rm_ec;
+            fs::remove(tmp_path, rm_ec);
+            return false;
+        }
+    }
+
+#if defined(_WIN32)
+    const std::wstring wtmp = fs::path(tmp_path).wstring();
+    const std::wstring wdest = fs::path(resolved).wstring();
+
+    // ReplaceFileW is the Windows API for atomic replacement of an existing file.
+    // If the destination file does not exist yet (ERROR_FILE_NOT_FOUND), use MoveFileExW with REPLACE_EXISTING.
+    if (!ReplaceFileW(wdest.c_str(), wtmp.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr)) {
+        DWORD err = GetLastError();
+        if (err == ERROR_FILE_NOT_FOUND) {
+            if (!MoveFileExW(wtmp.c_str(), wdest.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+                DWORD move_err = GetLastError();
+                ENGINE_LOG_ERROR("[FILESYSTEM] Atomic MoveFileExW failed for '{}' -> '{}' (Win32 error: {})", tmp_path, resolved, move_err);
+                std::error_code rm_ec;
+                fs::remove(tmp_path, rm_ec);
+                return false;
+            }
+        } else {
+            ENGINE_LOG_ERROR("[FILESYSTEM] Atomic ReplaceFileW failed for '{}' -> '{}' (Win32 error: {})", tmp_path, resolved, err);
+            std::error_code rm_ec;
+            fs::remove(tmp_path, rm_ec);
+            return false;
+        }
+    }
+#else
+    // POSIX rename() is atomic and replaces existing destination
+    std::error_code ec;
+    fs::rename(tmp_path, resolved, ec);
+    if (ec) {
+        ENGINE_LOG_ERROR("[FILESYSTEM] Atomic rename failed '{}' -> '{}': {}", tmp_path, resolved, ec.message());
+        std::error_code rm_ec;
+        fs::remove(tmp_path, rm_ec);
+        return false;
+    }
+#endif
+
+    return true;
+}
+
 
 std::vector<uint8_t> FileSystem::read_bytes(const std::string& path) {
     std::string resolved = resolve_path(path);

@@ -39,13 +39,14 @@ bool PrefabSerializer::save_to_file(
         return false;
     }
 
-    if (!FileSystem::write_text(filepath, json_text)) {
-        ENGINE_LOG_ERROR("[PREFAB] Failed writing prefab JSON to '{}'", filepath);
+    if (!FileSystem::write_text_atomically(filepath, json_text)) {
+        ENGINE_LOG_ERROR("[PREFAB] Failed writing prefab JSON atomically to '{}'", filepath);
         return false;
     }
 
     ENGINE_LOG_INFO("[PREFAB] Successfully saved prefab to '{}'", filepath);
     return true;
+
 }
 
 std::string PrefabSerializer::read_json_from_file(const std::string& filepath) {

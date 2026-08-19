@@ -15,10 +15,12 @@ class EditorSelection;
 class Window;
 class Scene;
 class EditorEntityStateStore;
+class PrefabStageController;
 
 struct EditorSceneSession {
     std::shared_ptr<EditorCommandHistory> command_history;
     std::shared_ptr<EditorEntityStateStore> entity_state_store;
+    std::shared_ptr<EditorSelection> selection;
     std::string file_path;
     std::string initial_snapshot_json;
 };
@@ -93,12 +95,15 @@ public:
     bool discard_active_scene_changes();
     void load_scene(const std::string& path);
     void create_new_scene(const std::string& name = "Untitled Scene");
+    void open_prefab_stage(const std::string& prefab_path);
+    [[nodiscard]] PrefabStageController* get_prefab_stage() const;
 
 private:
     void render_main_menu_bar();
     void setup_default_dockspace_layout(uint32_t dockspace_id);
     void update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch);
-    void update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store);
+    void update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store, std::shared_ptr<EditorSelection> sel = nullptr);
+    void render_prefab_stage_modals();
 
     SDL_Window* m_window{nullptr};
     SDL_Renderer* m_renderer{nullptr};
@@ -117,8 +122,11 @@ private:
     bool m_dockspace_initialized{false};
     bool m_show_save_as_popup{false};
     bool m_show_unsaved_changes_modal{false};
+    bool m_show_prefab_stage_exit_modal{false};
     PendingDestructiveAction m_pending_action;
     char m_save_as_buf[128]{"NewLevel.scene"};
+
+    std::unique_ptr<class PrefabStageController> m_prefab_stage;
 
     // Keyboard Repeat Acceleration Curve for Undo / Redo
     float m_undo_timer{0.0f};

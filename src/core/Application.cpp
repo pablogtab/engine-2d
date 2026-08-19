@@ -136,6 +136,18 @@ Application::Application(const std::string& name, int width, int height, bool st
         }
     });
 
+    asset_browser->set_on_open_prefab_callback([this](const std::string& prefab_path) {
+        if (m_editor_layer) {
+            m_editor_layer->request_destructive_action({
+                .type = PendingActionType::LoadScene,
+                .target = prefab_path,
+                .action = [this, prefab_path]() {
+                    m_editor_layer->open_prefab_stage(prefab_path);
+                }
+            });
+        }
+    });
+
     viewport_panel->set_on_load_scene_callback([this](const std::string& scene_path) {
         if (m_editor_layer) {
             m_editor_layer->request_destructive_action({
@@ -148,9 +160,28 @@ Application::Application(const std::string& name, int width, int height, bool st
         }
     });
 
+    viewport_panel->set_prefab_stage(m_editor_layer->get_prefab_stage());
+    viewport_panel->set_on_close_prefab_stage_callback([this]() {
+        if (m_editor_layer) {
+            m_editor_layer->request_destructive_action({
+                .type = PendingActionType::LoadScene,
+                .action = []() {}
+            });
+        }
+    });
+    viewport_panel->set_on_save_prefab_callback([this]() {
+        if (m_editor_layer) {
+            m_editor_layer->save_active_scene();
+        }
+    });
+
+    hierarchy_panel->set_prefab_stage(m_editor_layer->get_prefab_stage());
+    inspector_panel->set_prefab_stage(m_editor_layer->get_prefab_stage());
+
     auto anim_studio_panel = std::make_shared<SpriteAnimationStudioPanel>(&m_scene_manager, selection);
     anim_studio_panel->set_command_history(command_history);
     inspector_panel->set_animation_studio(anim_studio_panel.get());
+
 
     viewport_panel->set_palette_panel(palette_panel.get());
     m_editor_layer->set_viewport_panel(viewport_panel.get());

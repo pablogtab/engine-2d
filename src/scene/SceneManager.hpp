@@ -25,6 +25,13 @@ public:
     void next_scene();
     void previous_scene();
 
+    // Transient scene: active overlay that is NOT part of m_scenes.
+    // Used by PrefabStageController. Does not affect .scene_state, demo navigation, or Play.
+    void enter_transient_scene(std::shared_ptr<Scene> stage);
+    void exit_transient_scene();
+    [[nodiscard]] bool is_transient_scene_active() const { return m_transient_scene != nullptr; }
+    [[nodiscard]] std::shared_ptr<Scene> get_transient_scene() const { return m_transient_scene; }
+
     void restore_state();
 
     // Two-Phase Play Mode lifecycle
@@ -46,6 +53,7 @@ public:
     void configure_view(RenderViewKind view, const RenderViewConfiguration& configuration);
 
     Scene* get_active_scene() const;
+    [[nodiscard]] std::shared_ptr<Scene> get_active_scene_shared_ptr() const;
     size_t get_scene_count() const { return m_scenes.size(); }
     int get_active_index() const { return m_active_index; }
     [[nodiscard]] const std::vector<std::shared_ptr<Scene>>& get_scenes() const { return m_scenes; }
@@ -56,6 +64,7 @@ private:
 
     std::vector<std::shared_ptr<Scene>> m_scenes;
     int m_active_index{-1};
+    std::shared_ptr<Scene> m_transient_scene{nullptr};
     RenderViewConfiguration m_editor_view;
     RenderViewConfiguration m_game_view;
 

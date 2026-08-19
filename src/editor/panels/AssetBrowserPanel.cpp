@@ -130,6 +130,10 @@ void AssetBrowserPanel::on_gui() {
                             if (m_on_load_scene) {
                                 m_on_load_scene(path.string());
                             }
+                        } else if (extension == ".prefab") {
+                            if (m_on_open_prefab) {
+                                m_on_open_prefab(path.string());
+                            }
                         }
                     }
 
@@ -141,6 +145,11 @@ void AssetBrowserPanel::on_gui() {
                         if (extension == ".scene") {
                             if (ImGui::MenuItem("Load Scene")) {
                                 if (m_on_load_scene) m_on_load_scene(path.string());
+                            }
+                        }
+                        if (extension == ".prefab") {
+                            if (ImGui::MenuItem("Open Prefab")) {
+                                if (m_on_open_prefab) m_on_open_prefab(path.string());
                             }
                         }
                         if (ImGui::MenuItem("Delete")) {

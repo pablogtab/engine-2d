@@ -18,6 +18,9 @@ public:
     void set_on_load_scene_callback(std::function<void(const std::string&)> cb) {
         m_on_load_scene = std::move(cb);
     }
+    void set_on_open_prefab_callback(std::function<void(const std::string&)> cb) {
+        m_on_open_prefab = std::move(cb);
+    }
 
     void refresh();
 
@@ -26,6 +29,7 @@ private:
     std::filesystem::path m_root_path;
     std::filesystem::path m_current_path;
     std::function<void(const std::string&)> m_on_load_scene;
+    std::function<void(const std::string&)> m_on_open_prefab;
     std::string m_selected_file{""};
     char m_new_scene_name_buf[128]{"NewScene"};
     bool m_show_new_scene_popup{false};

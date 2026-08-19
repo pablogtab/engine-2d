@@ -13,6 +13,7 @@
 #include "../tools/EditorToolbox.hpp"
 #include "../tools/TilemapPaintingTool.hpp"
 #include "../panels/TilemapPalettePanel.hpp"
+#include "../stage/PrefabStageController.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Camera2D.hpp"
 #include "../../core/ProjectSettings.hpp"
@@ -87,8 +88,20 @@ public:
         m_on_load_scene = std::move(callback);
     }
 
+    void set_prefab_stage(PrefabStageController* stage) { m_prefab_stage = stage; }
+    // Called by breadcrumb UI to request back-to-scene navigation (may show a dirty modal)
+    void set_on_close_prefab_stage_callback(std::function<void()> callback) {
+        m_on_close_prefab_stage = std::move(callback);
+    }
+    void set_on_save_prefab_callback(std::function<void()> callback) {
+        m_on_save_prefab = std::move(callback);
+    }
+
 private:
     std::function<void(const std::string&)> m_on_load_scene;
+    std::function<void()> m_on_close_prefab_stage;
+    std::function<void()> m_on_save_prefab;
+    PrefabStageController* m_prefab_stage{nullptr};
     std::string m_name{"Scene Viewport"};
     SDL_Renderer* m_renderer{nullptr};
     SceneManager* m_scene_manager{nullptr};

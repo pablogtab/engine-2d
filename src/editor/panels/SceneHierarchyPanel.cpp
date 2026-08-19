@@ -1,4 +1,5 @@
 #include "SceneHierarchyPanel.hpp"
+#include "../stage/PrefabStageController.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
 #include "../commands/PrefabCommands.hpp"
@@ -195,16 +196,28 @@ void SceneHierarchyPanel::on_gui() {
         }
         ImGui::SameLine();
         if (m_selection && !m_selection->empty()) {
+            std::vector<EntityID> to_delete;
+            for (EntityID s_id : m_selection->get_selected()) {
+                if (m_prefab_stage && m_prefab_stage->is_root_entity(s_id)) continue;
+                to_delete.push_back(s_id);
+            }
+            const bool can_delete_any = !to_delete.empty();
             std::string del_label = m_selection->count() > 1 ? " Delete (" + std::to_string(m_selection->count()) + ") " : " Delete ";
+            if (!can_delete_any) {
+                ImGui::BeginDisabled(true);
+            }
             if (ImGui::Button(del_label.c_str(), ImVec2(90, 24))) {
-                std::vector<EntityID> to_delete;
-                for (EntityID s_id : m_selection->get_selected()) to_delete.push_back(s_id);
-
                 if (m_command_history) {
                     m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete));
                 } else {
                     for (EntityID s_id : to_delete) em.destroy_entity(s_id);
                     m_selection->clear();
+                }
+            }
+            if (!can_delete_any) {
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Prefab root entity cannot be deleted");
                 }
             }
         }
@@ -215,6 +228,7 @@ void SceneHierarchyPanel::on_gui() {
             if (m_selection && !m_selection->empty()) {
                 std::vector<EntityID> to_delete;
                 for (EntityID s_id : m_selection->get_selected()) {
+                    if (m_prefab_stage && m_prefab_stage->is_root_entity(s_id)) continue;
                     if (em.is_alive(s_id)) to_delete.push_back(s_id);
                 }
 
@@ -421,7 +435,17 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         }
 
         if (!dropped_entities.empty()) {
-            if (zone == DropZone::Inside) {
+            bool allows_reparent = true;
+            if (m_prefab_stage && m_prefab_stage->is_active()) {
+                for (EntityID d_id : dropped_entities) {
+                    if (m_prefab_stage->is_root_entity(d_id)) {
+                        allows_reparent = false;
+                        break;
+                    }
+                }
+            }
+
+            if (allows_reparent && zone == DropZone::Inside) {
                 if (m_command_history) {
                     m_command_history->execute_command(
                         std::make_unique<ReparentEntitiesCommand>(&em, dropped_entities, id, m_selection, "", m_entity_state_store.get())
@@ -430,39 +454,46 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
                     ReparentEntitiesCommand cmd(&em, dropped_entities, id, m_selection, "", m_entity_state_store.get());
                     cmd.execute();
                 }
-            } else {
+            } else if (allows_reparent) {
                 EntityID target_parent = 0;
                 if (em.has_component<HierarchyComponent>(id)) {
                     target_parent = em.get_component<HierarchyComponent>(id).parent;
                 }
 
-                size_t target_idx = em.get_sibling_index(id);
-                if (zone == DropZone::After) {
-                    target_idx++;
+                // In Prefab Stage, non-root entities cannot become root-level (target_parent == 0)
+                if (m_prefab_stage && m_prefab_stage->is_active() && target_parent == 0) {
+                    allows_reparent = false;
                 }
 
-                if (dropped_entities.size() == 1 && em.has_component<HierarchyComponent>(dropped_entities[0]) &&
-                    em.get_component<HierarchyComponent>(dropped_entities[0]).parent == target_parent) {
-                    // Single sibling reorder
-                    EntityID single_id = dropped_entities[0];
-                    size_t cur_idx = em.get_sibling_index(single_id);
-                    if (cur_idx < target_idx && target_idx > 0) target_idx--;
-                    if (m_command_history) {
-                        m_command_history->execute_command(
-                            std::make_unique<ReorderEntityCommand>(&em, single_id, target_idx, m_selection, m_entity_state_store.get())
-                        );
-                    } else {
-                        static_cast<void>(em.reorder_sibling(single_id, target_idx));
+                if (allows_reparent) {
+                    size_t target_idx = em.get_sibling_index(id);
+                    if (zone == DropZone::After) {
+                        target_idx++;
                     }
-                } else {
-                    // Multi-entity reparenting/reordering
-                    if (m_command_history) {
-                        m_command_history->execute_command(
-                            std::make_unique<ReparentEntitiesCommand>(&em, dropped_entities, target_parent, m_selection, "", m_entity_state_store.get(), target_idx)
-                        );
+
+                    if (dropped_entities.size() == 1 && em.has_component<HierarchyComponent>(dropped_entities[0]) &&
+                        em.get_component<HierarchyComponent>(dropped_entities[0]).parent == target_parent) {
+                        // Single sibling reorder
+                        EntityID single_id = dropped_entities[0];
+                        size_t cur_idx = em.get_sibling_index(single_id);
+                        if (cur_idx < target_idx && target_idx > 0) target_idx--;
+                        if (m_command_history) {
+                            m_command_history->execute_command(
+                                std::make_unique<ReorderEntityCommand>(&em, single_id, target_idx, m_selection, m_entity_state_store.get())
+                            );
+                        } else {
+                            static_cast<void>(em.reorder_sibling(single_id, target_idx));
+                        }
                     } else {
-                        ReparentEntitiesCommand cmd(&em, dropped_entities, target_parent, m_selection, "", m_entity_state_store.get(), target_idx);
-                        cmd.execute();
+                        // Multi-entity reparenting/reordering
+                        if (m_command_history) {
+                            m_command_history->execute_command(
+                                std::make_unique<ReparentEntitiesCommand>(&em, dropped_entities, target_parent, m_selection, "", m_entity_state_store.get(), target_idx)
+                            );
+                        } else {
+                            ReparentEntitiesCommand cmd(&em, dropped_entities, target_parent, m_selection, "", m_entity_state_store.get(), target_idx);
+                            cmd.execute();
+                        }
                     }
                 }
             }
@@ -494,7 +525,8 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         }
 
         bool has_parent = em.has_component<HierarchyComponent>(id) && (em.get_component<HierarchyComponent>(id).parent != 0);
-        if (has_parent && ImGui::MenuItem("Unparent (Move to Root)", nullptr, false, !is_locked)) {
+        const bool in_prefab_stage = m_prefab_stage && m_prefab_stage->is_active();
+        if (has_parent && ImGui::MenuItem("Unparent (Move to Root)", nullptr, false, !is_locked && !in_prefab_stage)) {
             if (m_command_history) {
                 m_command_history->execute_command(
                     std::make_unique<ReparentEntityCommand>(&em, id, 0, m_selection, "", m_entity_state_store.get())
@@ -546,7 +578,16 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             std::string group_label = m_selection->count() > 1
                 ? "Group Selection (" + std::to_string(m_selection->count()) + ")"
                 : "Group Selection";
-            if (ImGui::MenuItem(group_label.c_str(), "Cmd+G", false, !is_locked)) {
+            bool selection_has_prefab_root = false;
+            if (m_prefab_stage && m_prefab_stage->is_active()) {
+                for (EntityID sel_id : m_selection->get_selected()) {
+                    if (m_prefab_stage->is_root_entity(sel_id)) {
+                        selection_has_prefab_root = true;
+                        break;
+                    }
+                }
+            }
+            if (ImGui::MenuItem(group_label.c_str(), "Cmd+G", false, !is_locked && !selection_has_prefab_root)) {
                 std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
                 if (m_command_history) {
                     m_command_history->execute_command(std::make_unique<GroupSelectedEntitiesCommand>(&em, m_selection, selected_vec, "Group", m_entity_state_store.get()));
@@ -597,19 +638,25 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 
         ImGui::Separator();
 
-        if (ImGui::MenuItem("Delete Entity", nullptr, false, !is_locked)) {
+        const bool is_prefab_root = m_prefab_stage && m_prefab_stage->is_root_entity(id);
+        if (ImGui::MenuItem("Delete Entity", nullptr, false, !is_locked && !is_prefab_root)) {
             std::vector<EntityID> to_delete;
             if (m_selection) {
-                for (EntityID s_id : m_selection->get_selected()) to_delete.push_back(s_id);
-            } else {
+                for (EntityID s_id : m_selection->get_selected()) {
+                    if (m_prefab_stage && m_prefab_stage->is_root_entity(s_id)) continue;
+                    to_delete.push_back(s_id);
+                }
+            } else if (!is_prefab_root) {
                 to_delete.push_back(id);
             }
 
-            if (m_command_history) {
-                m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete, m_entity_state_store.get()));
-            } else {
-                for (EntityID s_id : to_delete) em.destroy_entity(s_id);
-                if (m_selection) m_selection->clear();
+            if (!to_delete.empty()) {
+                if (m_command_history) {
+                    m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete, m_entity_state_store.get()));
+                } else {
+                    for (EntityID s_id : to_delete) em.destroy_entity(s_id);
+                    if (m_selection) m_selection->clear();
+                }
             }
         }
         ImGui::EndPopup();

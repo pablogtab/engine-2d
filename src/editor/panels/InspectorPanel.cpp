@@ -1,6 +1,7 @@
 #include "InspectorPanel.hpp"
 #include "SceneHierarchyPanel.hpp"
 #include "SpriteAnimationStudioPanel.hpp"
+#include "../stage/PrefabStageController.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/EditorEntityStateCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
@@ -272,21 +273,34 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
 
     ImGui::Spacing();
     ImGui::Separator();
+
+    std::vector<EntityID> to_delete;
+    for (const EntityID entity : entities) {
+        if (m_prefab_stage && m_prefab_stage->is_root_entity(entity)) continue;
+        to_delete.push_back(entity);
+    }
+    const bool can_delete_any = !to_delete.empty() && !any_editor_locked;
+    if (!can_delete_any) {
+        ImGui::BeginDisabled(true);
+    }
     const std::string delete_label = editor_icon_label(EditorIcon::Trash, "Delete Selected");
     if (ImGui::Button(delete_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26.0f))) {
-        if (!any_editor_locked) {
+        if (can_delete_any) {
             if (m_command_history) {
                 m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(
-                    &em, m_selection, entities, m_entity_state_store.get()
+                    &em, m_selection, to_delete, m_entity_state_store.get()
                 ));
             } else {
-                for (const EntityID entity : entities) em.destroy_entity(entity);
+                for (const EntityID entity : to_delete) em.destroy_entity(entity);
                 m_selection->clear();
             }
         }
     }
-    if (any_editor_locked) {
+    if (!can_delete_any) {
         ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("Prefab root entity cannot be deleted");
+        }
     }
 }
 

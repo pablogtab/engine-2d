@@ -36,6 +36,8 @@ public:
     [[nodiscard]] std::shared_ptr<class EditorEntityStateStore> get_entity_state_store() const { return m_entity_state_store; }
 
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
+    void set_prefab_stage(class PrefabStageController* stage) { m_prefab_stage = stage; }
+    [[nodiscard]] class PrefabStageController* get_prefab_stage() const { return m_prefab_stage; }
 
     // Legacy helper compatibility
     [[nodiscard]] EntityID get_selected_entity() const { 
@@ -54,10 +56,12 @@ private:
     std::string m_name{"Scene Hierarchy"};
     SceneManager* m_scene_manager{nullptr};
     SDL_Renderer* m_renderer{nullptr};
+    class PrefabStageController* m_prefab_stage{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     std::shared_ptr<class EditorEntityStateStore> m_entity_state_store{nullptr};
     char m_search_filter[64]{""};
 };
+
 
 } // namespace Engine

@@ -98,6 +98,7 @@ set(SOURCES
     src/editor/commands/ProjectSettingsCommands.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
     src/editor/shortcuts/ShortcutManager.cpp
+    src/editor/stage/PrefabStageController.cpp
     src/tilemap/Tilemap.cpp
     src/tilemap/TilemapColliderSystem.cpp
     vendor/imgui/imgui.cpp
@@ -412,6 +413,56 @@ target_include_directories(PrefabTests PRIVATE
 )
 target_link_libraries(PrefabTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME PrefabTests COMMAND PrefabTests)
+
+add_executable(PrefabStageControllerTests
+    tests/PrefabStageControllerTests.cpp
+    src/core/AssetManager.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+    src/core/Input.cpp
+    src/core/Time.cpp
+    src/core/ThreadPool.cpp
+    src/ecs/EntityManager.cpp
+    src/ecs/CameraSystem.cpp
+    src/renderer/Texture.cpp
+    src/renderer/Renderer2D.cpp
+    src/renderer/SpriteAnimationSystem.cpp
+    src/renderer/Animation2D.cpp
+    src/renderer/Font.cpp
+    src/renderer/SpriteSheet.cpp
+    src/renderer/postprocess/PostProcessPipeline.cpp
+    src/renderer/postprocess/PostProcessProfile.cpp
+    src/audio/AudioEngine.cpp
+    src/scene/Camera2D.cpp
+    src/scene/CameraController2D.cpp
+    src/scene/BuiltinComponentRegistrations.cpp
+    src/scene/ComponentRegistry.cpp
+    src/scene/SceneSchema.cpp
+    src/scene/SceneSerializer.cpp
+    src/scene/EntitySubtreeArchive.cpp
+    src/scene/PrefabSerializer.cpp
+    src/scene/SceneManager.cpp
+    src/scene/GenericScene.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EntityCommands.cpp
+    src/editor/commands/HierarchyCommands.cpp
+    src/editor/commands/PrefabCommands.cpp
+    src/editor/commands/EditorEntityStateCommands.cpp
+    src/editor/state/EditorEntityStateStore.cpp
+    src/editor/stage/PrefabStageController.cpp
+    src/tilemap/Tilemap.cpp
+    src/tilemap/TilemapColliderSystem.cpp
+    vendor/stb/stb_impl.cpp
+    vendor/miniaudio/miniaudio_impl.cpp
+)
+target_include_directories(PrefabStageControllerTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(PrefabStageControllerTests PRIVATE SDL3::SDL3 glm::glm box2d)
+add_test(NAME PrefabStageControllerTests COMMAND PrefabStageControllerTests)
+
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

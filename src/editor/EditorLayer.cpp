@@ -8,6 +8,7 @@
 #include "shortcuts/ShortcutManager.hpp"
 #include "inspector/InspectorWidgets.hpp"
 #include "tools/EditorIcons.hpp"
+#include "stage/PrefabStageController.hpp"
 #include "../core/Log.hpp"
 #include "../core/Window.hpp"
 #include "../scene/SceneManager.hpp"
@@ -35,6 +36,11 @@
 namespace Engine {
 
 EditorLayer::~EditorLayer() {
+    // PrefabStageController must be torn down before EditorLayer members.
+    if (m_prefab_stage && m_prefab_stage->is_active()) {
+        m_prefab_stage->close_discard();
+    }
+    m_prefab_stage.reset();
     shutdown();
 }
 
@@ -238,6 +244,8 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
 
     sm.load_from_file("config/shortcuts.json");
 
+    m_prefab_stage = std::make_unique<PrefabStageController>();
+
     m_initialized = true;
     ENGINE_LOG_INFO("[EDITOR] Dear ImGui initialized successfully (Docking Enabled).");
 }
@@ -302,6 +310,7 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
         session.command_history = std::make_shared<EditorCommandHistory>();
         session.command_history->reset_clean_baseline(0);
         session.entity_state_store = std::make_shared<EditorEntityStateStore>();
+        session.selection = std::make_shared<EditorSelection>();
 
         std::string scene_name = scene->get_name();
         if (scene_name.empty()) scene_name = default_name;
@@ -318,19 +327,22 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
     return it->second;
 }
 
-void EditorLayer::update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store) {
+void EditorLayer::update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store, std::shared_ptr<EditorSelection> sel) {
     if (m_viewport_panel) {
         m_viewport_panel->set_command_history(ch);
         m_viewport_panel->set_entity_state_store(store);
+        if (sel) m_viewport_panel->set_selection(sel);
     }
     for (auto& panel : m_panels) {
         if (!panel) continue;
         if (auto p = std::dynamic_pointer_cast<SceneHierarchyPanel>(panel)) {
             p->set_command_history(ch);
             p->set_entity_state_store(store);
+            if (sel) p->set_selection(sel);
         } else if (auto p = std::dynamic_pointer_cast<InspectorPanel>(panel)) {
             p->set_command_history(ch);
             p->set_entity_state_store(store);
+            if (sel) p->set_selection(sel);
         } else if (auto p = std::dynamic_pointer_cast<SpriteAnimationStudioPanel>(panel)) {
             p->set_command_history(ch);
         } else if (auto p = std::dynamic_pointer_cast<PostProcessTunerPanel>(panel)) {
@@ -364,6 +376,24 @@ void EditorLayer::cleanup_stale_sessions() {
 
 void EditorLayer::sync_active_scene_session() {
     if (!m_scene_manager) return;
+
+    // --- Prefab Stage takes priority ---
+    if (m_prefab_stage && m_prefab_stage->is_active()) {
+        // Bind stage session to all panels
+        auto ch    = m_prefab_stage->get_command_history();
+        auto store = m_prefab_stage->get_entity_state_store();
+        auto sel   = m_prefab_stage->get_selection();
+        if (ch != m_command_history || store != m_entity_state_store || sel != m_selection) {
+            m_command_history    = ch;
+            m_entity_state_store = store;
+            m_selection          = sel;
+            update_panel_sessions(ch, store, sel);
+            update_window_title();
+        }
+        return;
+    }
+
+    // --- Normal scene session ---
     Scene* active_scene = m_scene_manager->get_active_scene();
     if (!active_scene) return;
 
@@ -372,18 +402,27 @@ void EditorLayer::sync_active_scene_session() {
     if (active_scene != m_last_active_scene || m_command_history == nullptr || m_entity_state_store == nullptr) {
         m_last_active_scene = active_scene;
         auto& session = get_or_create_session(active_scene);
-        m_command_history = session.command_history;
+        m_command_history    = session.command_history;
         m_entity_state_store = session.entity_state_store;
+        m_selection          = session.selection;
         if (m_entity_state_store) {
             m_entity_state_store->prune(active_scene->get_entity_manager());
         }
-        update_panel_sessions(m_command_history, m_entity_state_store);
+        update_panel_sessions(m_command_history, m_entity_state_store, m_selection);
         update_window_title();
     }
 }
 
 void EditorLayer::update_window_title() {
     if (!m_window_wrapper) return;
+
+    // Prefab Stage title takes precedence
+    if (m_prefab_stage && m_prefab_stage->is_active()) {
+        std::string title = "Engine2D [Prefab: " + m_prefab_stage->get_prefab_name() + "]";
+        if (m_prefab_stage->is_dirty()) title += " *";
+        m_window_wrapper->set_title(title);
+        return;
+    }
 
     std::string title = "Engine2D";
     if (m_scene_manager && m_scene_manager->get_active_scene()) {
@@ -398,6 +437,19 @@ void EditorLayer::update_window_title() {
 }
 
 bool EditorLayer::request_destructive_action(PendingDestructiveAction action) {
+    // If a dirty prefab stage is active, block and show the stage exit modal.
+    if (m_prefab_stage && m_prefab_stage->is_active() && m_prefab_stage->is_dirty()) {
+        m_pending_action = std::move(action);
+        m_show_prefab_stage_exit_modal = true;
+        return false;
+    }
+    // If a prefab stage is active but clean, silently close it first.
+    if (m_prefab_stage && m_prefab_stage->is_active()) {
+        m_prefab_stage->close_discard();
+        m_last_active_scene = nullptr; // force session resync
+        sync_active_scene_session();
+    }
+
     if (!m_scene_manager) {
         if (action.action) action.action();
         return true;
@@ -492,8 +544,20 @@ void EditorLayer::create_new_scene(const std::string& name) {
 }
 
 bool EditorLayer::save_active_scene(const std::string& custom_path) {
+    // If a prefab stage is active, save the prefab asset instead
+    if (m_prefab_stage && m_prefab_stage->is_active() && custom_path.empty()) {
+        bool ok = m_prefab_stage->save();
+        update_window_title();
+        return ok;
+    }
+
     if (!m_scene_manager) return false;
-    auto active_scene = m_scene_manager->get_active_scene();
+    // When in prefab stage, get the underlying authoring scene (not the transient one)
+    Scene* active_scene = m_scene_manager->is_transient_scene_active()
+        ? (m_scene_manager->get_scene_count() > 0
+            ? m_scene_manager->get_scenes()[m_scene_manager->get_active_index()].get()
+            : nullptr)
+        : m_scene_manager->get_active_scene();
     if (!active_scene) {
         ENGINE_LOG_WARN("[EDITOR] No active scene to save.");
         return false;
@@ -689,6 +753,8 @@ void EditorLayer::render_dockspace() {
         }
         ImGui::EndPopup();
     }
+
+    render_prefab_stage_modals();
 }
 
 void EditorLayer::render_main_menu_bar() {
@@ -1017,6 +1083,76 @@ std::shared_ptr<EditorPanel> EditorLayer::get_panel(const std::string& name) con
         }
     }
     return nullptr;
+}
+
+PrefabStageController* EditorLayer::get_prefab_stage() const {
+    return m_prefab_stage.get();
+}
+
+void EditorLayer::open_prefab_stage(const std::string& prefab_path) {
+    if (!m_prefab_stage || !m_scene_manager) return;
+    if (m_prefab_stage->is_active()) {
+        ENGINE_LOG_WARN("[EDITOR] Cannot open prefab stage — one is already active ('{}'). Close it first.",
+                        m_prefab_stage->get_prefab_name());
+        return;
+    }
+    if (!m_prefab_stage->open(prefab_path, m_scene_manager, m_renderer)) {
+        ENGINE_LOG_ERROR("[EDITOR] Failed to open prefab stage for '{}'", prefab_path);
+        return;
+    }
+    // Force session resync so all panels switch to the stage's isolated session.
+    m_last_active_scene = nullptr;
+    sync_active_scene_session();
+}
+
+void EditorLayer::render_prefab_stage_modals() {
+    if (!m_prefab_stage) return;
+
+    // Prefab Stage Exit Modal — shown when a dirty stage blocks a destructive action.
+    if (m_show_prefab_stage_exit_modal) {
+        ImGui::OpenPopup("Unsaved Prefab Changes");
+        m_show_prefab_stage_exit_modal = false;
+    }
+
+    if (ImGui::BeginPopupModal("Unsaved Prefab Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Prefab '%s' has unsaved changes.", m_prefab_stage->get_prefab_name().c_str());
+        ImGui::Text("Do you want to save before leaving the Prefab Stage?");
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (ImGui::Button("Save & Continue", ImVec2(140, 0))) {
+            if (m_prefab_stage->save()) {
+                m_prefab_stage->close_discard();
+                m_last_active_scene = nullptr;
+                sync_active_scene_session();
+                ImGui::CloseCurrentPopup();
+                if (m_pending_action.action) {
+                    auto act = std::move(m_pending_action.action);
+                    m_pending_action = {};
+                    act();
+                }
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Discard Changes", ImVec2(140, 0))) {
+            m_prefab_stage->close_discard();
+            m_last_active_scene = nullptr;
+            sync_active_scene_session();
+            ImGui::CloseCurrentPopup();
+            if (m_pending_action.action) {
+                auto act = std::move(m_pending_action.action);
+                m_pending_action = {};
+                act();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100, 0))) {
+            m_pending_action = {};
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 }
 
 } // namespace Engine
