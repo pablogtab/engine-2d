@@ -54,15 +54,22 @@ public:
     GizmoSnapSettings& snap_settings() { return m_snap; }
 
 private:
+    struct RootTransformSnapshot {
+        TransformComponent local;
+        TransformComponent world;
+        EntityID parent_id{0};
+    };
+
     GizmoAxis m_active_axis{GizmoAxis::None};
     GizmoAxis m_hovered_axis{GizmoAxis::None};
     glm::vec2 m_drag_start_world{0.0f, 0.0f};
     glm::vec2 m_drag_axis_x{1.0f, 0.0f};
     glm::vec2 m_drag_axis_y{0.0f, 1.0f};
     glm::vec2 m_drag_origin{0.0f};
+    glm::vec3 m_drag_centroid{0.0f};
     float m_drag_start_angle{0.0f};
     float m_drag_start_distance{1.0f};
-    std::unordered_map<EntityID, TransformComponent> m_start_transforms;
+    std::unordered_map<EntityID, RootTransformSnapshot> m_start_root_snapshots;
     TransformTool m_tool{TransformTool::Move};
     GizmoSpace m_space{GizmoSpace::Local};
     GizmoSnapSettings m_snap;

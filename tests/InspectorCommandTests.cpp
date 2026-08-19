@@ -1,6 +1,7 @@
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/commands/EditorPropertyTransaction.hpp"
 #include "editor/commands/EntityCommands.hpp"
+#include "editor/tools/ViewportTransformMath.hpp"
 #include "ecs/components/AnimationComponents.hpp"
 #include "editor/inspector/InspectorPropertyPolicies.hpp"
 #include "editor/inspector/MultiComponentInspectorTransaction.hpp"
@@ -1024,6 +1025,161 @@ void test_multiselection_locked_state_disables_modifications() {
     assert(any_editor_locked == true);
 }
 
+void test_multiselection_gizmo_world_to_local_translation_and_orbit_rotation() {
+    EntityManager em;
+    EditorCommandHistory history;
+
+    // Parent entity at (100, 50)
+    EntityID parent = em.create_entity();
+    em.add_component<TransformComponent>(parent, TransformComponent{glm::vec3(100.0f, 50.0f, 0.0f)});
+
+    // Child entity at local (10, 0) -> world position (110, 50)
+    EntityID child = em.create_entity();
+    em.add_component<TransformComponent>(child, TransformComponent{glm::vec3(10.0f, 0.0f, 0.0f)});
+    em.add_component<HierarchyComponent>(child, HierarchyComponent{parent});
+
+    // Parent entity at (100, 50) with child
+    HierarchyComponent parent_hier;
+    parent_hier.children.push_back(child);
+    em.add_component<HierarchyComponent>(parent, parent_hier);
+
+    // Root entity 2 at (90, 50)
+    EntityID root2 = em.create_entity();
+    em.add_component<TransformComponent>(root2, TransformComponent{glm::vec3(90.0f, 50.0f, 0.0f)});
+
+    TransformSystem::update(em);
+    assert(em.get_component<TransformComponent>(child).world_position == glm::vec3(110.0f, 50.0f, 0.0f));
+
+    // Multi-selection of child and root2:
+    // Centroid computed via pure math helper
+    const std::vector<glm::vec3> positions = {
+        em.get_component<TransformComponent>(child).world_position,
+        em.get_component<TransformComponent>(root2).world_position
+    };
+    const glm::vec3 centroid = ViewportTransformMath::compute_centroid(positions);
+    assert(centroid == glm::vec3(100.0f, 50.0f, 0.0f));
+
+    // Move test via ViewportTransformMath::calculate_move_target
+    const glm::vec2 move_delta(20.0f, -10.0f);
+    TransformComponent child_move_world = ViewportTransformMath::calculate_move_target(
+        em.get_component<TransformComponent>(child), move_delta
+    );
+    assert(child_move_world.world_position == glm::vec3(130.0f, 40.0f, 0.0f));
+    auto child_move_local = TransformSystem::world_to_local_transform(child_move_world, &em.get_component<TransformComponent>(parent));
+    assert(child_move_local.has_value());
+    assert(child_move_local->position == glm::vec3(30.0f, -10.0f, 0.0f));
+
+    // Rotate test: Orbit 90 degrees around centroid (100, 50) via ViewportTransformMath::calculate_rotate_target
+    const float angle_delta = 90.0f;
+    TransformComponent child_world_target = ViewportTransformMath::calculate_rotate_target(
+        em.get_component<TransformComponent>(child), centroid, angle_delta
+    );
+    assert(std::abs(child_world_target.world_position.x - 100.0f) < 0.001f);
+    assert(std::abs(child_world_target.world_position.y - 60.0f) < 0.001f);
+    assert(std::abs(child_world_target.world_rotation - 90.0f) < 0.001f);
+
+    auto child_local = TransformSystem::world_to_local_transform(child_world_target, &em.get_component<TransformComponent>(parent));
+    assert(child_local.has_value());
+    assert(std::abs(child_local->position.x - 0.0f) < 0.001f);
+    assert(std::abs(child_local->position.y - 10.0f) < 0.001f);
+    assert(std::abs(child_local->rotation - 90.0f) < 0.001f);
+
+    std::unordered_map<EntityID, TransformComponent> before_map;
+    before_map[child] = em.get_component<TransformComponent>(child);
+    before_map[root2] = em.get_component<TransformComponent>(root2);
+
+    std::unordered_map<EntityID, TransformComponent> after_map;
+    after_map[child] = *child_local;
+
+    TransformComponent root2_world_target = ViewportTransformMath::calculate_rotate_target(
+        em.get_component<TransformComponent>(root2), centroid, angle_delta
+    );
+    auto root2_local = TransformSystem::world_to_local_transform(root2_world_target, nullptr);
+    assert(root2_local.has_value());
+    after_map[root2] = *root2_local;
+
+    history.execute_command(std::make_unique<TransformEntitiesCommand>(&em, before_map, after_map, "Rotate Selection"));
+    TransformSystem::update(em);
+
+    assert(std::abs(em.get_component<TransformComponent>(child).world_position.x - 100.0f) < 0.001f);
+    assert(std::abs(em.get_component<TransformComponent>(child).world_position.y - 60.0f) < 0.001f);
+    assert(std::abs(em.get_component<TransformComponent>(root2).world_position.x - 100.0f) < 0.001f);
+    assert(std::abs(em.get_component<TransformComponent>(root2).world_position.y - 40.0f) < 0.001f);
+
+    // Undo restores initial world and local positions
+    history.undo();
+    TransformSystem::update(em);
+    assert(em.get_component<TransformComponent>(child).world_position == glm::vec3(110.0f, 50.0f, 0.0f));
+    assert(em.get_component<TransformComponent>(root2).world_position == glm::vec3(90.0f, 50.0f, 0.0f));
+
+    // Redo restores rotated world positions
+    history.redo();
+    TransformSystem::update(em);
+    assert(std::abs(em.get_component<TransformComponent>(child).world_position.x - 100.0f) < 0.001f);
+    assert(std::abs(em.get_component<TransformComponent>(child).world_position.y - 60.0f) < 0.001f);
+}
+
+void test_multiselection_gizmo_scale_preserves_negative_sign() {
+    EntityManager em;
+    EditorCommandHistory history;
+
+    EntityID e1 = em.create_entity();
+    em.add_component<TransformComponent>(e1, TransformComponent{
+        glm::vec3(-20.0f, 0.0f, 0.0f),
+        glm::vec2(-1.0f, 1.0f) // Flipped horizontally
+    });
+
+    EntityID e2 = em.create_entity();
+    em.add_component<TransformComponent>(e2, TransformComponent{
+        glm::vec3(20.0f, 0.0f, 0.0f),
+        glm::vec2(2.0f, 2.0f)
+    });
+
+    TransformSystem::update(em);
+    const glm::vec3 centroid = ViewportTransformMath::compute_centroid({
+        em.get_component<TransformComponent>(e1).world_position,
+        em.get_component<TransformComponent>(e2).world_position
+    });
+    assert(centroid == glm::vec3(0.0f));
+
+    // Scale by 2.5 via ViewportTransformMath::calculate_scale_target
+    const float scale_factor = 2.5f;
+    const glm::vec2 scale_vec(scale_factor, scale_factor);
+
+    std::unordered_map<EntityID, TransformComponent> before_map;
+    before_map[e1] = em.get_component<TransformComponent>(e1);
+    before_map[e2] = em.get_component<TransformComponent>(e2);
+
+    std::unordered_map<EntityID, TransformComponent> after_map;
+    for (const auto& [id, before_t] : before_map) {
+        TransformComponent target = ViewportTransformMath::calculate_scale_target(before_t, centroid, scale_vec);
+        auto local = TransformSystem::world_to_local_transform(target, nullptr);
+        assert(local.has_value());
+        after_map[id] = *local;
+    }
+
+    history.execute_command(std::make_unique<TransformEntitiesCommand>(&em, before_map, after_map, "Scale Selection"));
+    TransformSystem::update(em);
+
+    assert(em.get_component<TransformComponent>(e1).world_position == glm::vec3(-50.0f, 0.0f, 0.0f));
+    assert(em.get_component<TransformComponent>(e1).world_scale.x == -2.5f); // Negative sign preserved!
+    assert(em.get_component<TransformComponent>(e1).world_scale.y == 2.5f);
+
+    assert(em.get_component<TransformComponent>(e2).world_position == glm::vec3(50.0f, 0.0f, 0.0f));
+    assert(em.get_component<TransformComponent>(e2).world_scale == glm::vec2(5.0f, 5.0f));
+
+    // Undo / Redo
+    history.undo();
+    TransformSystem::update(em);
+    assert(em.get_component<TransformComponent>(e1).world_scale.x == -1.0f);
+    assert(em.get_component<TransformComponent>(e1).world_position.x == -20.0f);
+
+    history.redo();
+    TransformSystem::update(em);
+    assert(em.get_component<TransformComponent>(e1).world_scale.x == -2.5f);
+    assert(em.get_component<TransformComponent>(e1).world_position.x == -50.0f);
+}
+
 } // namespace
 
 int main() {
@@ -1049,6 +1205,8 @@ int main() {
     test_multiselection_camera_bounds_and_follow_target();
     test_multiselection_escape_cancellation_restores_individual_values();
     test_multiselection_locked_state_disables_modifications();
+    test_multiselection_gizmo_world_to_local_translation_and_orbit_rotation();
+    test_multiselection_gizmo_scale_preserves_negative_sign();
     std::cout << "InspectorCommandTests passed\n";
     return 0;
 }
