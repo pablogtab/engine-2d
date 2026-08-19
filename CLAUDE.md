@@ -46,6 +46,20 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
    - Cuando una funcionalidad obtenga configuración propia, extraer su lógica a componentes, sistemas o datos y retirar el código transitorio correspondiente de `GenericScene`.
    - Seguir señalando cualquier hardcoding fuera de este alcance o que impida una extracción limpia posterior.
 
+9. **Método de Refactorización, Incrementos y Entrega:**
+   - Antes de modificar una funcionalidad, inspeccionar su flujo completo y sus consumidores reales: estado, comandos, serialización, recursos derivados, UI, runtime y pruebas. No asumir que un cambio local resuelve el contrato completo.
+   - Si el problema revela hardcoding repetido, responsabilidades mezcladas, una API que no escala o una abstracción ausente, explicar el problema arquitectónico y el enfoque propuesto antes de expandir esa dirección.
+   - Dividir el trabajo en incrementos verticales pequeños pero completos. Cada incremento debe dejar un comportamiento utilizable, migrar todos sus consumidores y mantener el proyecto compilable; evitar estados intermedios con dos arquitecturas compitiendo.
+   - Establecer primero contratos y ownership claros, luego migrar comportamiento y finalmente retirar las rutas anteriores. No crear abstracciones únicamente para reducir líneas: deben eliminar acoplamiento, duplicación o riesgos concretos.
+   - Conservar el comportamiento aprobado salvo que el cambio solicitado requiera modificarlo. Los cambios de semántica, datos, formato o UX deben señalarse explícitamente.
+   - Añadir pruebas de regresión junto con el cambio. Cubrir el camino correcto, errores esperables, cancelación o rollback, límites relevantes y cualquier bug que haya motivado el refactor.
+   - Validar incrementalmente con la prueba enfocada y `cmake --build build`. Antes de entregar, ejecutar la suite CTest completa aplicable y `git diff --check`.
+   - Si una validación visual o dependiente de hardware no puede automatizarse, agregar diagnóstico suficiente y entregar una lista concreta de pasos, resultados esperados y señales de fallo para que el usuario la pruebe.
+   - Preservar cambios locales ajenos al incremento. Revisar `git status` antes de editar y antes de entregar; no sobrescribir, reformatear ni incluir archivos modificados por el usuario sin autorización.
+   - Actualizar el roadmap activo cuando el incremento complete, redefina o descubra trabajo planificado. No marcar un módulo como completo si faltan comportamiento, migración, undo/redo, serialización o pruebas exigidas por su criterio.
+   - La entrega debe resumir el resultado observable, las decisiones arquitectónicas relevantes, la validación ejecutada, los archivos locales preservados y cualquier limitación pendiente. No confundir compilación exitosa con validación funcional completa.
+   - Mantener commits enfocados y verificables. Ejecutarlos solo por solicitud explícita del usuario y excluir cambios locales que no pertenezcan al incremento.
+
 ---
 
 ## 🛠️ Build & Run Commands
