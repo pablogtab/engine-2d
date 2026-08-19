@@ -166,13 +166,14 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Hierarchy Workflow
 
-- [ ] Complete true multi-selection editing with mixed-value presentation across all shared components; Transform and Sprite are implemented.
+- [x] Complete true multi-selection editing with mixed-value presentation across shared components (Transform, RigidBody, Collider, Camera).
 - [x] Add group/container entities (`GroupComponent`) with reversible `GroupSelectedEntitiesCommand` and `UngroupEntitiesCommand`.
 - [x] Preserve local and world transforms correctly during reparenting, grouping, and ungrouping with preflight validation.
 - [x] Route Hierarchy drag-and-drop, grouping, and context actions through command history.
-- [ ] Add reversible hierarchy duplicate, reorder, lock, and visibility commands.
-- [ ] Add entity lock and editor-only visibility states.
+- [x] Add reversible hierarchy duplicate, reorder, lock, and visibility commands.
+- [x] Add entity lock and editor-only visibility states.
 - [x] Detect and reject hierarchy cycles at the `EntityManager` boundary without partially mutating the previous relationship.
+- [x] Support multi-drag and atomic bulk reparenting (`ReparentEntitiesCommand`) in Scene Hierarchy.
 
 ### Dirty State and Saving
 
@@ -208,7 +209,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [ ] Add explicit missing, loading, failed, and ready states with safe fallback assets.
 - [ ] Add metadata and import settings for filtering, pixels per unit, pivot, compression, and platform overrides.
 - [ ] Add dependency tracking and dependency-safe reload.
-- [ ] Add drag-and-drop from Asset Browser to Viewport, Hierarchy, and Inspector fields.
+- [x] Add drag-and-drop from Asset Browser to Viewport and Hierarchy.
 
 ### Materials and Shaders as Assets
 
@@ -374,7 +375,9 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 3 — Hierarchy and Reliability Suites
 
-- [ ] `HierarchyCommandTests` — duplicate, group, reparent, reorder, lock, visibility, local/world preservation, undo, and redo.
+- [x] `EditorEntityStateStoreTests` — lock, visibility, selection isolation, and command synchronization.
+- [x] `ViewportVisibilityTests` — ancestor propagation, picking rejection, rendering filtering, and gizmo exclusion.
+- [x] `HierarchyCommandTests` — duplicate, group, ungroup, reparent, reorder, multi-drag, lock rejection, cycle prevention, local/world preservation, undo, and redo.
 - [ ] `SceneLifecycleTests` — dirty state, save, Save As, Save All, switch/close prompts, Play snapshot restoration, and stale-history prevention.
 - [ ] `AutosaveRecoveryTests` — interval policy, atomic autosave, crash recovery, conflict handling, and cleanup after successful save.
 - [ ] `SceneValidatorTests` — missing assets, invalid colliders/tilemaps, camera rules, hierarchy errors, diagnostics navigation, and reversible fixes.
@@ -453,10 +456,11 @@ These items are useful but should not interrupt the architecture work above unle
 8. Phase 8 — Debugging and Performance.
 9. Phase 9 — Runtime/Editor Separation and Export.
 
-## Next Concrete Increment
+## Next Concrete Increments
 
-Advance Phase 3 with Entity State Flags and Recursive Duplication:
-
-1. Add entity `locked` and `editor_only_visibility` state flags with reversible commands.
-2. Add recursive hierarchy duplication (`DuplicateEntitiesCommand` supporting nested hierarchies and groups).
-3. Provide unit test coverage in `HierarchyCommandTests` and `EntityCommandsTests`.
+1. **Inspector Multi-Selection Completion (Phase 3)**:
+   - Extend multi-selection property transactions to `SpriteComponent` (tint, size, flip X/Y, sorting layer, outline) and `CameraComponent` (zoom, projection, clear color, follow target, bounds).
+2. **Scene Hierarchy Search and Component Filtering (Phase 3)**:
+   - Quick search bar with type filters (`:sprite`, `:collider`, `:camera`, `:locked`, `:hidden`), match highlighting, and auto-expanding matched branches.
+3. **Prefab System Foundation (Phase 4)**:
+   - Save entity subtrees to `.prefab` asset files and instantiate via drag & drop from Content Browser.
