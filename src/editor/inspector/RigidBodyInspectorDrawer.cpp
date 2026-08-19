@@ -53,9 +53,7 @@ void RigidBodyInspectorDrawer::draw(
 ) {
     if (!em.has_component<RigidBodyComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::component_header(
-        "RigidBody 2D", "RigidBodyHeader", true, true, EditorIcon::Physics
-    );
+    const auto header = InspectorWidgets::registered_component_header("rigidbody");
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<RigidBodyComponent>>(
             &em,

@@ -171,6 +171,40 @@ void test_component_presence_round_trips_exact_state() {
     assert(!em.has_component<ColliderComponent>(entity));
 }
 
+void test_registered_component_presence_command_round_trips() {
+    EntityManager em;
+    EditorCommandHistory history;
+    const EntityID entity = em.create_entity();
+    em.add_component<TransformComponent>(entity, TransformComponent{});
+
+    ComponentSnapshotSet before;
+    ComponentSnapshotSet after;
+    SpriteComponent sprite;
+    sprite.size = {96.0f, 48.0f};
+    sprite.color.a = 89;
+    after.set(sprite);
+
+    history.execute_command(std::make_unique<SetRegisteredComponentCommand>(
+        &default_component_registry(),
+        &em,
+        entity,
+        "sprite",
+        std::move(before),
+        std::move(after),
+        ComponentSerializationContext{},
+        "Add Sprite Renderer"
+    ));
+    assert(em.has_component<SpriteComponent>(entity));
+    assert(em.get_component<SpriteComponent>(entity).size == glm::vec2(96.0f, 48.0f));
+    assert(em.get_component<SpriteComponent>(entity).color.a == 89);
+
+    history.undo();
+    assert(!em.has_component<SpriteComponent>(entity));
+    history.redo();
+    assert(em.has_component<SpriteComponent>(entity));
+    assert(em.get_component<SpriteComponent>(entity).size == glm::vec2(96.0f, 48.0f));
+}
+
 void test_physics_rebuild_updates_fixture_without_preview_churn() {
     PhysicsSystem::clear();
     EntityManager em;
@@ -678,6 +712,7 @@ int main() {
     test_entity_rename_round_trips();
     test_sprite_compound_edit_round_trips();
     test_component_presence_round_trips_exact_state();
+    test_registered_component_presence_command_round_trips();
     test_physics_rebuild_updates_fixture_without_preview_churn();
     test_tilemap_edit_rebuilds_only_on_commit_and_round_trips();
     test_clear_and_remove_tilemap_restore_authored_and_generated_state();

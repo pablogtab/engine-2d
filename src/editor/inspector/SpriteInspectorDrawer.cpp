@@ -104,9 +104,7 @@ void SpriteInspectorDrawer::track_edit(
 void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Context& context) {
     if (!em.has_component<SpriteComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::component_header(
-        "Sprite Renderer", "SpriteRendererHeader", true, true, EditorIcon::Sprite
-    );
+    const auto header = InspectorWidgets::registered_component_header("sprite");
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
             &em,
@@ -277,9 +275,7 @@ void SpriteInspectorDrawer::draw_multiple(
 ) {
     auto states = capture_selected_components<SpriteComponent>(em, entities);
     if (states.size() != entities.size()) return;
-    if (!InspectorWidgets::component_header(
-            "Sprite Renderer", "MultiSpriteRendererHeader", false, true, EditorIcon::Sprite
-        ).open) return;
+    if (!InspectorWidgets::registered_component_header("sprite", false).open) return;
 
     using namespace InspectorWidgets;
     const ComponentTransactionContext transaction_context{context.command_history, context.transactions};

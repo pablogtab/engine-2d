@@ -1,4 +1,5 @@
 #include "InspectorWidgets.hpp"
+#include "EditorComponentRegistry.hpp"
 #include "../tools/EditorIcons.hpp"
 #include <imgui_internal.h>
 #include <string>
@@ -100,6 +101,28 @@ ComponentHeaderResult component_header(
 
     ImGui::PopID();
     return {open, remove_requested};
+}
+
+ComponentHeaderResult registered_component_header(
+    std::string_view component_key,
+    bool removable,
+    bool default_open
+) {
+    const EditorComponentDescriptor* descriptor = default_editor_component_registry().find(component_key);
+    if (!descriptor) {
+        const std::string fallback_label(component_key);
+        const std::string fallback_id = fallback_label + "Header";
+        return component_header(
+            fallback_label.c_str(), fallback_id.c_str(), removable, default_open, EditorIcon::Component
+        );
+    }
+    return component_header(
+        descriptor->display_name.c_str(),
+        descriptor->drawer_key.c_str(),
+        removable,
+        default_open,
+        descriptor->icon
+    );
 }
 
 void begin_property_row(const char* label, bool reserve_reset) {

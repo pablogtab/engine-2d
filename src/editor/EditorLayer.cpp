@@ -38,7 +38,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Docking
-    initialize_editor_icons();
+    static_cast<void>(initialize_editor_icons());
 
     // 2. Setup Dear ImGui Modern Theme
     EditorTheme::apply_dark_theme();

@@ -64,9 +64,7 @@ void ColliderInspectorDrawer::draw(
 ) {
     if (!em.has_component<ColliderComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::component_header(
-        "Collider 2D", "ColliderHeader", true, true, EditorIcon::Collider
-    );
+    const auto header = InspectorWidgets::registered_component_header("collider");
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<ColliderComponent>>(
             &em,

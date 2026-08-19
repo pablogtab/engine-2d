@@ -258,6 +258,15 @@ void register_rigidbody(ComponentRegistry& registry) {
             body.restitution = value.at("restitution").get<float>();
             return true;
         },
+        .finalize = [](EntityManager& em, EntityID entity, RigidBodyComponent&, const ComponentFinalizeContext& context, std::string&) {
+            const bool individual_editor_change =
+                context.reason == ComponentFinalizeReason::EditorComponentChange;
+            if (context.reason != ComponentFinalizeReason::DeserializationStaging &&
+                (individual_editor_change || !em.has_component<ColliderComponent>(entity))) {
+                PhysicsSystem::rebuild_body(em, entity);
+            }
+            return true;
+        },
         .after_remove = [](EntityManager& em, EntityID entity) { PhysicsSystem::rebuild_body(em, entity); },
         .validate = [](const RigidBodyComponent& body) -> std::optional<std::string> {
             if (body.body_type == BodyType::Dynamic && body.mass <= 0.0f) return "Dynamic body mass must be positive";

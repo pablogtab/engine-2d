@@ -1,6 +1,7 @@
 #include "ecs/Components.hpp"
 #include "ecs/EntityManager.hpp"
 #include "scene/ComponentRegistry.hpp"
+#include "editor/inspector/EditorComponentRegistry.hpp"
 #include "tilemap/Tilemap.hpp"
 #include <cassert>
 #include <iostream>
@@ -56,6 +57,120 @@ TypedComponentRegistration<SpriteComponent> sprite_registration(
         ) { return true; },
         .validate = {}
     };
+}
+
+EditorComponentDescriptor editor_registration(
+    std::string key,
+    std::string drawer_key,
+    std::vector<std::string> dependencies = {},
+    std::vector<std::string> incompatible = {}
+) {
+    return {
+        .component_key = std::move(key),
+        .drawer_key = std::move(drawer_key),
+        .display_name = "Test Component",
+        .dependencies = std::move(dependencies),
+        .incompatible_components = std::move(incompatible),
+        .draw = [](EntityManager&, EntityID, const EditorInspectorContext&) {},
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet&
+        ) {}
+    };
+}
+
+EditorComponentDescriptor hidden_editor_registration(std::string key) {
+    return {
+        .component_key = std::move(key),
+        .display_name = "Hidden Component",
+        .show_in_inspector = false,
+        .addable = false
+    };
+}
+
+void test_editor_metadata_rejects_duplicate_keys_and_drawers() {
+    EditorComponentRegistry registry;
+    std::string error;
+    assert(registry.register_component(editor_registration("transform", "TransformDrawer"), &error));
+    assert(!registry.register_component(editor_registration("transform", "OtherDrawer"), &error));
+    assert(error == "Duplicate editor component key: transform");
+    assert(!registry.register_component(editor_registration("sprite", "TransformDrawer"), &error));
+    assert(error == "Duplicate component drawer key: TransformDrawer");
+}
+
+void test_editor_metadata_validates_runtime_constraints() {
+    ComponentRegistry runtime;
+    std::string error;
+    assert(runtime.register_component(transform_registration(), &error));
+    assert(runtime.register_component(sprite_registration(), &error));
+
+    EditorComponentRegistry valid;
+    assert(valid.register_component(hidden_editor_registration("transform"), &error));
+    assert(valid.register_component(editor_registration(
+        "sprite", "SpriteDrawer", {"transform"}
+    ), &error));
+    assert(valid.validate(runtime, error));
+
+    EditorComponentRegistry incomplete;
+    assert(incomplete.register_component(editor_registration("sprite", "SpriteDrawer"), &error));
+    assert(!incomplete.validate(runtime, error));
+    assert(error == "Runtime component 'transform' is missing editor metadata");
+
+    EditorComponentRegistry missing_dependency;
+    assert(missing_dependency.register_component(hidden_editor_registration("transform"), &error));
+    assert(missing_dependency.register_component(editor_registration(
+        "sprite", "SpriteDrawer", {"missing"}
+    ), &error));
+    assert(!missing_dependency.validate(runtime, error));
+    assert(error.find("depends on unknown component 'missing'") != std::string::npos);
+
+    EditorComponentRegistry repeated_constraint;
+    assert(repeated_constraint.register_component(hidden_editor_registration("transform"), &error));
+    assert(repeated_constraint.register_component(editor_registration(
+        "sprite", "SpriteDrawer", {"transform"}, {"transform"}
+    ), &error));
+    assert(!repeated_constraint.validate(runtime, error));
+    assert(error.find("repeats constraint 'transform'") != std::string::npos);
+}
+
+void test_editor_component_availability_reports_dependencies_and_conflicts() {
+    ComponentRegistry runtime;
+    std::string error;
+    assert(runtime.register_component(transform_registration(), &error));
+    assert(runtime.register_component(sprite_registration(), &error));
+
+    EditorComponentRegistry editor;
+    assert(editor.register_component(editor_registration(
+        "sprite", "SpriteDrawer", {"transform"}
+    ), &error));
+    const EditorComponentDescriptor& sprite = editor.descriptors().front();
+    EntityManager em;
+    const EntityID entity = em.create_entity();
+
+    auto availability = editor.availability(sprite, runtime, em, entity);
+    assert(!availability.available);
+    assert(availability.reason == "Requires transform");
+    em.add_component<TransformComponent>(entity, TransformComponent{});
+    availability = editor.availability(sprite, runtime, em, entity);
+    assert(availability.available);
+    em.add_component<SpriteComponent>(entity, SpriteComponent{});
+    availability = editor.availability(sprite, runtime, em, entity);
+    assert(!availability.available);
+    assert(availability.reason == "Entity already has this component");
+
+    EditorComponentRegistry conflicting;
+    assert(conflicting.register_component(editor_registration(
+        "sprite", "ConflictingSpriteDrawer", {}, {"transform"}
+    ), &error));
+    availability = conflicting.availability(conflicting.descriptors().front(), runtime, em, entity);
+    assert(!availability.available);
+    assert(availability.reason == "Entity already has this component");
+    em.remove_component<SpriteComponent>(entity);
+    availability = conflicting.availability(conflicting.descriptors().front(), runtime, em, entity);
+    assert(!availability.available);
+    assert(availability.reason == "Incompatible with transform");
 }
 
 void test_registration_rejects_duplicate_keys_and_types() {
@@ -362,6 +477,9 @@ void test_component_type_limit_has_explicit_diagnostic() {
 } // namespace
 
 int main() {
+    test_editor_metadata_rejects_duplicate_keys_and_drawers();
+    test_editor_metadata_validates_runtime_constraints();
+    test_editor_component_availability_reports_dependencies_and_conflicts();
     test_registration_rejects_duplicate_keys_and_types();
     test_component_migration_runs_for_every_entity();
     test_component_migration_rejects_missing_and_future_versions();

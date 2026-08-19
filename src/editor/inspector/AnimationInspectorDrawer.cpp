@@ -129,9 +129,7 @@ void AnimationPreviewState::reset(EntityID target, const AnimationComponent& ani
 void AnimationInspectorDrawer::draw(EntityManager& em, EntityID entity, const Context& context) {
     if (!em.has_component<AnimationComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::component_header(
-        "Sprite Animator 2D", "AnimationHeader", true, true, EditorIcon::Animation
-    );
+    const auto header = InspectorWidgets::registered_component_header("animation");
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<AnimationComponent>>(
             &em,

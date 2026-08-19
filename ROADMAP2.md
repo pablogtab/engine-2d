@@ -134,7 +134,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Register serialize, deserialize, clone, capture, restore, add, remove, and validate operations.
 - [x] Add second-phase lifecycle finalization for derived state and entity references.
 - [x] Keep built-in component registrations separate from the registry core.
-- [ ] Allow editor builds to attach a component drawer and creation metadata without coupling runtime code to ImGui.
+- [x] Allow editor builds to attach component drawers, categories, icons, defaults, dependencies, and incompatibilities without coupling runtime code to ImGui.
 - [x] Reject duplicate serialized keys and component-count overflow with explicit diagnostics.
 
 ### Serialization and Snapshots
@@ -365,7 +365,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 2 — Component and Serialization Suites
 
-- [x] `ComponentRegistryTests` — registration, duplicate keys, schema versions, lifecycle hooks, references, complete add/remove, clone, capture/restore, validation, and component-limit diagnostics.
+- [x] `ComponentRegistryTests` — runtime/editor registration, duplicate keys and drawers, schema versions, lifecycle hooks, dependencies, incompatibilities, complete add/remove, clone, capture/restore, validation, and component-limit diagnostics.
 - [x] `SceneSerializerTests` — deterministic output, component round trips, stable IDs, hierarchy references, malformed data, transactional rejection, and legacy loading.
 - [ ] `EntitySnapshotTests` — delete/restore, duplicate, component completeness, hierarchy restoration, asset references, and runtime-only field exclusion.
 - [x] `SceneMigrationTests` — every supported historical schema migrates forward or fails with an actionable error.
@@ -455,5 +455,4 @@ These items are useful but should not interrupt the architecture work above unle
 
 Finish the Phase 2 registry contract:
 
-1. Add editor-only descriptor metadata for drawers, creation categories, icons, and dependencies without coupling runtime code to ImGui.
-2. Extract domain component definitions from `Components.hpp` now that serialization and snapshots no longer require a central component switch.
+1. Extract domain component definitions from `Components.hpp` now that serialization, snapshots, and editor creation no longer require central component switches.

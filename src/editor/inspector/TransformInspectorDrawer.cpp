@@ -100,9 +100,7 @@ void TransformInspectorDrawer::draw_multiple(
 ) {
     auto states = capture_selected_components<TransformComponent>(em, entities);
     if (states.size() != entities.size()) return;
-    if (!InspectorWidgets::component_header(
-            "Transform", "TransformHeader", false, true, EditorIcon::Move
-        ).open) return;
+    if (!InspectorWidgets::registered_component_header("transform", false).open) return;
 
     using namespace InspectorWidgets;
     namespace Policies = InspectorPropertyPolicies;
@@ -267,9 +265,7 @@ void TransformInspectorDrawer::draw(
     const ComponentTransactionContext& context
 ) {
     if (!em.has_component<TransformComponent>(entity)) return;
-    if (!InspectorWidgets::component_header(
-            "Transform", "TransformHeader", false, true, EditorIcon::Move
-        ).open) return;
+    if (!InspectorWidgets::registered_component_header("transform", false).open) return;
 
     if (locked) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.75f, 1.0f, 1.0f));

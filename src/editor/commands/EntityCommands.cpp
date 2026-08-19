@@ -1,10 +1,66 @@
 #include "EntityCommands.hpp"
+#include "../../core/Log.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include "../../tilemap/TilemapColliderSystem.hpp"
 
 namespace Engine {
+
+SetRegisteredComponentCommand::SetRegisteredComponentCommand(
+    ComponentRegistry* registry,
+    EntityManager* em,
+    EntityID entity,
+    std::string component_key,
+    ComponentSnapshotSet before,
+    ComponentSnapshotSet after,
+    ComponentSerializationContext serialization_context,
+    std::string description
+) : m_registry(registry),
+    m_em(em),
+    m_entity(entity),
+    m_component_key(std::move(component_key)),
+    m_before(std::move(before)),
+    m_after(std::move(after)),
+    m_serialization_context(serialization_context),
+    m_description(std::move(description)) {}
+
+void SetRegisteredComponentCommand::execute() {
+    apply(m_after);
+}
+
+void SetRegisteredComponentCommand::undo() {
+    apply(m_before);
+}
+
+void SetRegisteredComponentCommand::apply(const ComponentSnapshotSet& snapshot) {
+    if (!m_registry || !m_em || !m_em->is_alive(m_entity)) return;
+    const ComponentDescriptor* descriptor = m_registry->find_by_key(m_component_key);
+    if (!descriptor) {
+        ENGINE_LOG_ERROR("[EDITOR COMMAND] Unknown component '{}'.", m_component_key);
+        return;
+    }
+    descriptor->restore(*m_em, m_entity, snapshot);
+    if (!descriptor->has(*m_em, m_entity) || !descriptor->finalize) return;
+
+    std::string error;
+    if (!descriptor->finalize(
+            *m_em,
+            m_entity,
+            ComponentFinalizeContext{
+                .serialization = m_serialization_context,
+                .reason = ComponentFinalizeReason::EditorComponentChange
+            },
+            error
+        )) {
+        ENGINE_LOG_ERROR(
+            "[EDITOR COMMAND] Failed to finalize component '{}' on entity #{}: {}",
+            m_component_key,
+            m_entity,
+            error
+        );
+    }
+}
 
 EntitySnapshot capture_entity_snapshot(EntityManager& em, EntityID entity) {
     EntitySnapshot snapshot;

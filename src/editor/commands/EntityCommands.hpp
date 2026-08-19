@@ -131,6 +131,39 @@ private:
     std::unordered_map<EntityID, CameraComponent> m_after;
 };
 
+// Reversible component presence command driven by the runtime registry. Editor
+// metadata can create component snapshots without adding another typed command
+// branch to InspectorPanel.
+class SetRegisteredComponentCommand final : public IEditorCommand {
+public:
+    SetRegisteredComponentCommand(
+        ComponentRegistry* registry,
+        EntityManager* em,
+        EntityID entity,
+        std::string component_key,
+        ComponentSnapshotSet before,
+        ComponentSnapshotSet after,
+        ComponentSerializationContext serialization_context,
+        std::string description
+    );
+
+    void execute() override;
+    void undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+
+private:
+    void apply(const ComponentSnapshotSet& snapshot);
+
+    ComponentRegistry* m_registry{nullptr};
+    EntityManager* m_em{nullptr};
+    EntityID m_entity{0};
+    std::string m_component_key;
+    ComponentSnapshotSet m_before;
+    ComponentSnapshotSet m_after;
+    ComponentSerializationContext m_serialization_context;
+    std::string m_description;
+};
+
 // 2. Delete Entities Command (with full snapshot restore on undo)
 struct EntitySnapshot {
     EntityID id{0};

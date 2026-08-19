@@ -10,17 +10,12 @@
 #include "../inspector/AnimationInspectorDrawer.hpp"
 #include "../inspector/TransformInspectorDrawer.hpp"
 #include "../inspector/CameraInspectorDrawer.hpp"
+#include "../inspector/EditorComponentRegistry.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/Components.hpp"
-#include "../../ecs/CameraSystem.hpp"
-#include "../../ecs/TransformSystem.hpp"
 #include "../../core/AssetManager.hpp"
-#include "../../physics/PhysicsSystem.hpp"
-#include "../../renderer/Texture.hpp"
-#include "../../renderer/SpriteAnimationSystem.hpp"
-#include "../../tilemap/Tilemap.hpp"
-#include "../../tilemap/TilemapColliderSystem.hpp"
+#include "../../scene/ComponentRegistry.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <cstring>
@@ -240,123 +235,79 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
     ImGui::Separator();
 
-    TransformInspectorDrawer::draw(em, entity, is_locked_tilemap_collider, {
-        m_command_history.get(), &m_property_transactions
-    });
-
-    SpriteInspectorDrawer::draw(em, entity, {
+    const EditorInspectorContext inspector_context{
         m_renderer,
         m_asset_manager,
-        m_command_history.get(),
-        &m_property_transactions
-    });
-
-    const ComponentTransactionContext component_context{
-        m_command_history.get(),
-        &m_property_transactions
-    };
-    RigidBodyInspectorDrawer::draw(em, entity, component_context);
-    ColliderInspectorDrawer::draw(em, entity, component_context);
-
-    TilemapInspectorDrawer::draw(em, entity, {
-        m_renderer,
-        m_asset_manager,
-        m_command_history.get(),
-        &m_property_transactions
-    });
-
-    CameraInspectorDrawer::draw(em, entity, component_context);
-
-    AnimationInspectorDrawer::draw(em, entity, {
         m_command_history.get(),
         &m_property_transactions,
         &m_animation_preview,
-        m_anim_studio
-    });
+        m_anim_studio,
+        is_locked_tilemap_collider
+    };
+    ComponentRegistry& runtime_registry = default_component_registry();
+    EditorComponentRegistry& editor_registry = default_editor_component_registry();
+    for (const EditorComponentDescriptor& descriptor : editor_registry.descriptors()) {
+        if (!descriptor.show_in_inspector || !descriptor.draw) continue;
+        const ComponentDescriptor* runtime_descriptor = runtime_registry.find_by_key(descriptor.component_key);
+        if (runtime_descriptor && runtime_descriptor->has(em, entity)) {
+            descriptor.draw(em, entity, inspector_context);
+        }
+    }
 
     // --- Bottom Add Component Popup ---
     ImGui::Spacing();
-    const auto rebuild_physics = [](EntityManager& command_em, EntityID id) {
-        PhysicsSystem::rebuild_body(command_em, id);
-    };
-    const auto rebuild_transform = [](EntityManager& command_em, EntityID id) {
-        TransformSystem::update(command_em);
-        PhysicsSystem::rebuild_body_hierarchy(command_em, id);
-    };
-    const auto rebuild_tilemap = [](EntityManager& command_em, EntityID id) {
-        if (command_em.has_component<TilemapComponent>(id)) {
-            TilemapColliderSystem::build_composite_colliders(command_em, id);
-        } else {
-            TilemapColliderSystem::clear_composite_colliders(command_em, id);
-        }
-    };
-
     const std::string add_component_label = editor_icon_label(EditorIcon::Plus, "Add Component...");
     if (ImGui::Button(add_component_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
         ImGui::OpenPopup("AddComponentPopup");
     }
 
     if (ImGui::BeginPopup("AddComponentPopup")) {
-        if (!em.has_component<TransformComponent>(entity) && ImGui::MenuItem("Transform") && m_command_history) {
-            m_command_history->execute_command(std::make_unique<SetComponentCommand<TransformComponent>>(
-                &em,
-                entity,
-                std::nullopt,
-                TransformComponent{glm::vec3(0.0f)},
-                "Add Transform",
-                rebuild_transform
-            ));
-        }
-        if (!em.has_component<SpriteComponent>(entity) && ImGui::MenuItem("Sprite Renderer") && m_command_history) {
-            Texture* tex = m_renderer && m_asset_manager
-                ? m_asset_manager->get_white_texture(m_renderer)
-                : nullptr;
-            m_command_history->execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
-                &em, entity, std::nullopt, SpriteComponent{tex, glm::vec2(64.0f, 64.0f)}, "Add Sprite Renderer"
-            ));
-        }
-        if (!em.has_component<AnimationComponent>(entity) && ImGui::MenuItem("Sprite Animator 2D") && m_command_history) {
-            AnimationComponent anim;
-            anim.columns = 8;
-            anim.rows = 3;
-            anim.frame_width = 96.0f;
-            anim.frame_height = 96.0f;
-            anim.add_clip("Idle", 0, 8, 8.0f, true);
-            anim.add_clip("Run", 8, 6, 11.0f, true);
-            anim.add_clip("Jump", 16, 4, 8.0f, false);
-            anim.add_clip("Fall", 20, 4, 8.0f, true);
-            m_command_history->execute_command(std::make_unique<SetComponentCommand<AnimationComponent>>(
-                &em,
-                entity,
-                std::nullopt,
-                std::move(anim),
-                "Add Sprite Animator 2D",
-                [](EntityManager& command_em, EntityID id) {
-                    SpriteAnimationSystem::reset_playback(command_em, id);
+        constexpr EditorComponentCategory categories[] = {
+            EditorComponentCategory::Core,
+            EditorComponentCategory::Rendering,
+            EditorComponentCategory::Physics,
+            EditorComponentCategory::Animation,
+            EditorComponentCategory::World
+        };
+        bool has_previous_category = false;
+        for (const EditorComponentCategory category : categories) {
+            bool category_started = false;
+            for (const EditorComponentDescriptor& descriptor : editor_registry.descriptors()) {
+                if (!descriptor.addable || descriptor.category != category) continue;
+                const ComponentDescriptor* runtime_descriptor = runtime_registry.find_by_key(descriptor.component_key);
+                if (!runtime_descriptor || runtime_descriptor->has(em, entity)) continue;
+                if (!category_started) {
+                    if (has_previous_category) ImGui::Separator();
+                    ImGui::TextDisabled("%s", editor_component_category_label(category));
+                    category_started = true;
+                    has_previous_category = true;
                 }
-            ));
-        }
-        if (!em.has_component<CameraComponent>(entity) && ImGui::MenuItem("Camera 2D") && m_command_history) {
-            CameraComponent camera;
-            camera.is_primary = !CameraSystem::has_camera(em);
-            m_command_history->execute_command(std::make_unique<SetComponentCommand<CameraComponent>>(
-                &em, entity, std::nullopt, camera, "Add Camera 2D"
-            ));
-        }
-        if (!em.has_component<TilemapComponent>(entity) && ImGui::MenuItem("Tilemap Grid") && m_command_history) {
-            m_command_history->execute_command(std::make_unique<SetComponentCommand<TilemapComponent>>(
-                &em, entity, std::nullopt, TilemapComponent{}, "Add Tilemap Grid", rebuild_tilemap
-            ));
-        }
-        if (!em.has_component<RigidBodyComponent>(entity) && ImGui::MenuItem("RigidBody 2D") && m_command_history) {
-            m_command_history->execute_command(std::make_unique<SetComponentCommand<RigidBodyComponent>>(
-                &em, entity, std::nullopt, RigidBodyComponent::Dynamic(), "Add RigidBody 2D", rebuild_physics
-            ));
-        }
-        if (!em.has_component<ColliderComponent>(entity) && ImGui::MenuItem("Collider 2D") && m_command_history) {
-            m_command_history->execute_command(std::make_unique<SetComponentCommand<ColliderComponent>>(
-                &em, entity, std::nullopt, ColliderComponent::Box(glm::vec2(64.0f, 64.0f)), "Add Collider 2D", rebuild_physics
-            ));
+
+                const EditorComponentAvailability availability = editor_registry.availability(
+                    descriptor, runtime_registry, em, entity
+                );
+                const bool enabled = availability.available && m_command_history;
+                const std::string label = editor_icon_label(descriptor.icon, descriptor.display_name.c_str());
+                if (ImGui::MenuItem(label.c_str(), nullptr, false, enabled)) {
+                    ComponentSnapshotSet before;
+                    ComponentSnapshotSet after;
+                    runtime_descriptor->capture(em, entity, before);
+                    descriptor.create_default(em, entity, inspector_context, after);
+                    m_command_history->execute_command(std::make_unique<SetRegisteredComponentCommand>(
+                        &runtime_registry,
+                        &em,
+                        entity,
+                        descriptor.component_key,
+                        std::move(before),
+                        std::move(after),
+                        ComponentSerializationContext{m_renderer, m_asset_manager},
+                        "Add " + descriptor.display_name
+                    ));
+                }
+                if (!enabled && !availability.reason.empty() && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", availability.reason.c_str());
+                }
+            }
         }
         ImGui::EndPopup();
     }

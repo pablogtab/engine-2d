@@ -81,9 +81,7 @@ void track(
 void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Context& context) {
     if (!em.has_component<TilemapComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::component_header(
-        "Tilemap Grid", "TilemapHeader", true, true, EditorIcon::Grid
-    );
+    const auto header = InspectorWidgets::registered_component_header("tilemap");
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<TilemapComponent>>(
             &em,

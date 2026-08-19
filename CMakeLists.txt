@@ -74,6 +74,8 @@ set(SOURCES
     src/editor/inspector/ColliderInspectorDrawer.cpp
     src/editor/inspector/TilemapInspectorDrawer.cpp
     src/editor/inspector/AnimationInspectorDrawer.cpp
+    src/editor/inspector/EditorComponentRegistry.cpp
+    src/editor/inspector/BuiltinEditorComponentRegistrations.cpp
     src/editor/inspector/TransformInspectorDrawer.cpp
     src/editor/inspector/CameraInspectorDrawer.cpp
     src/editor/tools/ViewportCameraController.cpp
@@ -264,12 +266,14 @@ add_executable(ComponentRegistryTests
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
+    src/editor/inspector/EditorComponentRegistry.cpp
     src/tilemap/TilemapColliderSystem.cpp
     vendor/stb/stb_impl.cpp
 )
 target_include_directories(ComponentRegistryTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
 )
 target_link_libraries(ComponentRegistryTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME ComponentRegistryTests COMMAND ComponentRegistryTests)

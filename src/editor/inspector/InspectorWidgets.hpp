@@ -3,6 +3,7 @@
 #include "../tools/EditorIcons.hpp"
 #include "InspectorPropertyPolicies.hpp"
 #include <imgui.h>
+#include <string_view>
 
 namespace Engine::InspectorWidgets {
 
@@ -33,6 +34,13 @@ void request_cancel_active_property();
     bool removable = true,
     bool default_open = true,
     EditorIcon icon = EditorIcon::Component
+);
+
+// Resolves presentation through the editor-only component registry.
+[[nodiscard]] ComponentHeaderResult registered_component_header(
+    std::string_view component_key,
+    bool removable = true,
+    bool default_open = true
 );
 
 void begin_property_row(const char* label, bool reserve_reset = false);

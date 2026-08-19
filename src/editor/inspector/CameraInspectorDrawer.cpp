@@ -42,9 +42,7 @@ void CameraInspectorDrawer::draw(
 ) {
     if (!em.has_component<CameraComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::component_header(
-        "Camera 2D", "CameraHeader", true, true, EditorIcon::Camera
-    );
+    const auto header = InspectorWidgets::registered_component_header("camera");
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<CameraComponent>>(
             &em,

@@ -60,7 +60,8 @@ enum class ComponentFinalizeReason {
     DeserializationCommit,
     SnapshotRestore,
     Clone,
-    DefaultCreation
+    DefaultCreation,
+    EditorComponentChange
 };
 
 struct ComponentFinalizeContext {
