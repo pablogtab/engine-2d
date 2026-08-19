@@ -17,7 +17,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "SkyBackdrop",
             "transform": {
@@ -102,7 +113,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_3",
             "transform": {
@@ -140,7 +162,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_4",
             "transform": {
@@ -178,7 +211,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_5",
             "transform": {
@@ -216,7 +260,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_6",
             "transform": {
@@ -254,7 +309,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_7",
             "transform": {
@@ -292,7 +358,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_8",
             "transform": {
@@ -330,7 +407,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_9",
             "transform": {
@@ -368,7 +456,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_10",
             "transform": {
@@ -406,7 +505,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_11",
             "transform": {
@@ -444,7 +554,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_12",
             "transform": {
@@ -482,7 +603,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_13",
             "transform": {
@@ -520,7 +652,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_14",
             "transform": {
@@ -558,7 +701,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_15",
             "transform": {
@@ -596,7 +750,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_16",
             "transform": {
@@ -634,7 +799,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_17",
             "transform": {
@@ -672,7 +848,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_18",
             "transform": {
@@ -710,7 +897,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_19",
             "transform": {
@@ -748,7 +946,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_20",
             "transform": {
@@ -786,7 +995,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_21",
             "transform": {
@@ -824,7 +1044,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_22",
             "transform": {
@@ -862,7 +1093,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_23",
             "transform": {
@@ -900,7 +1142,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_24",
             "transform": {
@@ -964,7 +1217,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Elevator",
             "transform": {
@@ -1049,7 +1313,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_27",
             "transform": {
@@ -1087,7 +1362,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_28",
             "transform": {
@@ -1172,7 +1458,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_30",
             "transform": {
@@ -1210,7 +1507,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_31",
             "transform": {
@@ -1248,7 +1556,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_32",
             "transform": {
@@ -1333,7 +1652,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_34",
             "transform": {
@@ -1371,7 +1701,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_35",
             "transform": {
@@ -1409,7 +1750,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_36",
             "transform": {
@@ -1494,7 +1846,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_38",
             "transform": {
@@ -1532,7 +1895,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_39",
             "transform": {
@@ -1570,7 +1944,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_40",
             "transform": {
@@ -1634,7 +2019,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "PendulumAnchor",
             "transform": {
@@ -1698,7 +2094,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "WreckingBall",
             "transform": {
@@ -1762,7 +2169,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "LaunchPad",
             "transform": {
@@ -1840,7 +2258,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Slope",
             "transform": {
@@ -1925,7 +2354,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_46",
             "transform": {
@@ -1963,7 +2403,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_47",
             "transform": {
@@ -2001,7 +2452,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_48",
             "transform": {
@@ -2086,7 +2548,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_50",
             "transform": {
@@ -2124,7 +2597,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_51",
             "transform": {
@@ -2162,7 +2646,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Entity_52",
             "transform": {
@@ -2226,7 +2721,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Coin",
             "transform": {
@@ -2290,7 +2796,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Coin",
             "transform": {
@@ -2354,7 +2871,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Coin",
             "transform": {
@@ -2418,7 +2946,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Coin",
             "transform": {
@@ -2482,7 +3021,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Coin",
             "transform": {
@@ -2546,7 +3096,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Coin",
             "transform": {
@@ -2610,7 +3171,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Coin",
             "transform": {
@@ -2680,7 +3252,18 @@
                 ],
                 "texture": "assets/textures/knight_sheet.png",
                 "use_src_rect": true,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "Player",
             "transform": {
@@ -2744,7 +3327,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "RollingWheel",
             "transform": {

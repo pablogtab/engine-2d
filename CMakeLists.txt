@@ -43,6 +43,7 @@ set(SOURCES
     src/renderer/Texture.cpp
     src/scene/Camera2D.cpp
     src/scene/CameraController2D.cpp
+    src/scene/ComponentRegistry.cpp
     src/scene/SceneManager.cpp
     src/scene/GenericScene.cpp
     src/scene/SceneSerializer.cpp
@@ -192,12 +193,16 @@ add_test(NAME EditorCommandHistoryTests COMMAND EditorCommandHistoryTests)
 
 add_executable(InspectorCommandTests
     tests/InspectorCommandTests.cpp
+    src/core/AssetManager.cpp
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EntityCommands.cpp
+    src/renderer/Texture.cpp
+    src/scene/ComponentRegistry.cpp
     src/tilemap/TilemapColliderSystem.cpp
+    vendor/stb/stb_impl.cpp
 )
 target_include_directories(InspectorCommandTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -226,6 +231,7 @@ add_executable(SceneSerializerTests
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/renderer/Texture.cpp
+    src/scene/ComponentRegistry.cpp
     src/scene/SceneSerializer.cpp
     src/tilemap/Tilemap.cpp
     src/tilemap/TilemapColliderSystem.cpp
@@ -236,8 +242,27 @@ target_include_directories(SceneSerializerTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
+target_compile_definitions(SceneSerializerTests PRIVATE
+    ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
 target_link_libraries(SceneSerializerTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME SceneSerializerTests COMMAND SceneSerializerTests)
+
+add_executable(ComponentRegistryTests
+    tests/ComponentRegistryTests.cpp
+    src/core/AssetManager.cpp
+    src/core/Log.cpp
+    src/ecs/EntityManager.cpp
+    src/renderer/Texture.cpp
+    src/scene/ComponentRegistry.cpp
+    vendor/stb/stb_impl.cpp
+)
+target_include_directories(ComponentRegistryTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(ComponentRegistryTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME ComponentRegistryTests COMMAND ComponentRegistryTests)
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

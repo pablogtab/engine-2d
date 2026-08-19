@@ -6,20 +6,49 @@
             "id": 1,
             "tag": "Player_Knight",
             "transform": {
-                "position": [-150.0, -200.0, 0.0],
-                "scale": [1.0, 1.0],
+                "position": [
+                    -150.0,
+                    -200.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0
+                ],
                 "rotation": 0.0,
-                "pivot": [0.5, 0.5],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
                 "visible": true
             },
             "sprite": {
                 "texture": "assets/textures/player.png",
-                "size": [56.0, 56.0],
-                "color": [255, 255, 255, 255],
+                "size": [
+                    56.0,
+                    56.0
+                ],
+                "color": [
+                    255,
+                    255,
+                    255,
+                    255
+                ],
                 "flip_x": false,
                 "flip_y": false,
                 "visible": true,
-                "use_src_rect": false
+                "use_src_rect": false,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "rigidbody": {
                 "type": "Dynamic",
@@ -32,8 +61,14 @@
             "collider": [
                 {
                     "type": "Box",
-                    "offset": [0.0, 0.0],
-                    "size": [44.0, 54.0],
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "size": [
+                        44.0,
+                        54.0
+                    ],
                     "radius": 16.0,
                     "is_trigger": false,
                     "is_one_way": false,
@@ -46,20 +81,49 @@
             "id": 2,
             "tag": "Main_Ground_Terrain",
             "transform": {
-                "position": [0.0, -280.0, 0.0],
-                "scale": [1.0, 1.0],
+                "position": [
+                    0.0,
+                    -280.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0
+                ],
                 "rotation": 0.0,
-                "pivot": [0.5, 0.5],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
                 "visible": true
             },
             "sprite": {
                 "texture": "assets/textures/player.png",
-                "size": [1400.0, 40.0],
-                "color": [90, 160, 90, 255],
+                "size": [
+                    1400.0,
+                    40.0
+                ],
+                "color": [
+                    90,
+                    160,
+                    90,
+                    255
+                ],
                 "flip_x": false,
                 "flip_y": false,
                 "visible": true,
-                "use_src_rect": false
+                "use_src_rect": false,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "rigidbody": {
                 "type": "Static",
@@ -72,8 +136,14 @@
             "collider": [
                 {
                     "type": "Box",
-                    "offset": [0.0, 0.0],
-                    "size": [1400.0, 40.0],
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "size": [
+                        1400.0,
+                        40.0
+                    ],
                     "radius": 16.0,
                     "is_trigger": false,
                     "is_one_way": false,
@@ -86,20 +156,49 @@
             "id": 3,
             "tag": "Platform_Left_TopDeck",
             "transform": {
-                "position": [-500.0, 180.0, 0.0],
-                "scale": [1.0, 1.0],
+                "position": [
+                    -500.0,
+                    180.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0
+                ],
                 "rotation": 0.0,
-                "pivot": [0.5, 0.5],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
                 "visible": true
             },
             "sprite": {
                 "texture": "assets/textures/player.png",
-                "size": [140.0, 24.0],
-                "color": [180, 120, 70, 255],
+                "size": [
+                    140.0,
+                    24.0
+                ],
+                "color": [
+                    180,
+                    120,
+                    70,
+                    255
+                ],
                 "flip_x": false,
                 "flip_y": false,
                 "visible": true,
-                "use_src_rect": false
+                "use_src_rect": false,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "rigidbody": {
                 "type": "Static",
@@ -112,8 +211,14 @@
             "collider": [
                 {
                     "type": "Box",
-                    "offset": [0.0, 0.0],
-                    "size": [140.0, 24.0],
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "size": [
+                        140.0,
+                        24.0
+                    ],
                     "radius": 16.0,
                     "is_trigger": false,
                     "is_one_way": false,
@@ -126,20 +231,49 @@
             "id": 4,
             "tag": "Platform_Mid_Left",
             "transform": {
-                "position": [-320.0, -60.0, 0.0],
-                "scale": [1.0, 1.0],
+                "position": [
+                    -320.0,
+                    -60.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0
+                ],
                 "rotation": 0.0,
-                "pivot": [0.5, 0.5],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
                 "visible": true
             },
             "sprite": {
                 "texture": "assets/textures/player.png",
-                "size": [180.0, 22.0],
-                "color": [210, 150, 90, 255],
+                "size": [
+                    180.0,
+                    22.0
+                ],
+                "color": [
+                    210,
+                    150,
+                    90,
+                    255
+                ],
                 "flip_x": false,
                 "flip_y": false,
                 "visible": true,
-                "use_src_rect": false
+                "use_src_rect": false,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "rigidbody": {
                 "type": "Static",
@@ -152,8 +286,14 @@
             "collider": [
                 {
                     "type": "Box",
-                    "offset": [0.0, 0.0],
-                    "size": [180.0, 22.0],
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "size": [
+                        180.0,
+                        22.0
+                    ],
                     "radius": 16.0,
                     "is_trigger": false,
                     "is_one_way": true,
@@ -166,20 +306,49 @@
             "id": 5,
             "tag": "Platform_Center_Arch",
             "transform": {
-                "position": [0.0, 220.0, 0.0],
-                "scale": [1.0, 1.0],
+                "position": [
+                    0.0,
+                    220.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0
+                ],
                 "rotation": 0.0,
-                "pivot": [0.5, 0.5],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
                 "visible": true
             },
             "sprite": {
                 "texture": "assets/textures/player.png",
-                "size": [180.0, 24.0],
-                "color": [170, 110, 60, 255],
+                "size": [
+                    180.0,
+                    24.0
+                ],
+                "color": [
+                    170,
+                    110,
+                    60,
+                    255
+                ],
                 "flip_x": false,
                 "flip_y": false,
                 "visible": true,
-                "use_src_rect": false
+                "use_src_rect": false,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "rigidbody": {
                 "type": "Static",
@@ -192,8 +361,14 @@
             "collider": [
                 {
                     "type": "Box",
-                    "offset": [0.0, 0.0],
-                    "size": [180.0, 24.0],
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "size": [
+                        180.0,
+                        24.0
+                    ],
                     "radius": 16.0,
                     "is_trigger": false,
                     "is_one_way": false,
@@ -206,20 +381,49 @@
             "id": 6,
             "tag": "Platform_Right_Deck",
             "transform": {
-                "position": [460.0, -125.0, 0.0],
-                "scale": [1.0, 1.0],
+                "position": [
+                    460.0,
+                    -125.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0
+                ],
                 "rotation": 0.0,
-                "pivot": [0.5, 0.5],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
                 "visible": true
             },
             "sprite": {
                 "texture": "assets/textures/player.png",
-                "size": [180.0, 30.0],
-                "color": [190, 130, 80, 255],
+                "size": [
+                    180.0,
+                    30.0
+                ],
+                "color": [
+                    190,
+                    130,
+                    80,
+                    255
+                ],
                 "flip_x": false,
                 "flip_y": false,
                 "visible": true,
-                "use_src_rect": false
+                "use_src_rect": false,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "rigidbody": {
                 "type": "Static",
@@ -232,8 +436,14 @@
             "collider": [
                 {
                     "type": "Box",
-                    "offset": [0.0, 0.0],
-                    "size": [180.0, 30.0],
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "size": [
+                        180.0,
+                        30.0
+                    ],
                     "radius": 16.0,
                     "is_trigger": false,
                     "is_one_way": false,
@@ -246,20 +456,49 @@
             "id": 7,
             "tag": "Collectible_Coin_1",
             "transform": {
-                "position": [-500.0, 230.0, 0.0],
-                "scale": [1.0, 1.0],
+                "position": [
+                    -500.0,
+                    230.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0
+                ],
                 "rotation": 0.0,
-                "pivot": [0.5, 0.5],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
                 "visible": true
             },
             "sprite": {
                 "texture": "assets/textures/player.png",
-                "size": [28.0, 28.0],
-                "color": [255, 215, 0, 255],
+                "size": [
+                    28.0,
+                    28.0
+                ],
+                "color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
                 "flip_x": false,
                 "flip_y": false,
                 "visible": true,
-                "use_src_rect": false
+                "use_src_rect": false,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "rigidbody": {
                 "type": "Static",
@@ -272,8 +511,14 @@
             "collider": [
                 {
                     "type": "Circle",
-                    "offset": [0.0, 0.0],
-                    "size": [28.0, 28.0],
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "size": [
+                        28.0,
+                        28.0
+                    ],
                     "radius": 14.0,
                     "is_trigger": true,
                     "is_one_way": false,
@@ -286,20 +531,49 @@
             "id": 8,
             "tag": "Collectible_Coin_2",
             "transform": {
-                "position": [-320.0, 130.0, 0.0],
-                "scale": [1.0, 1.0],
+                "position": [
+                    -320.0,
+                    130.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0
+                ],
                 "rotation": 0.0,
-                "pivot": [0.5, 0.5],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
                 "visible": true
             },
             "sprite": {
                 "texture": "assets/textures/player.png",
-                "size": [28.0, 28.0],
-                "color": [255, 215, 0, 255],
+                "size": [
+                    28.0,
+                    28.0
+                ],
+                "color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
                 "flip_x": false,
                 "flip_y": false,
                 "visible": true,
-                "use_src_rect": false
+                "use_src_rect": false,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "rigidbody": {
                 "type": "Static",
@@ -312,8 +586,14 @@
             "collider": [
                 {
                     "type": "Circle",
-                    "offset": [0.0, 0.0],
-                    "size": [28.0, 28.0],
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "size": [
+                        28.0,
+                        28.0
+                    ],
                     "radius": 14.0,
                     "is_trigger": true,
                     "is_one_way": false,
@@ -326,20 +606,49 @@
             "id": 9,
             "tag": "Collectible_Coin_3",
             "transform": {
-                "position": [460.0, -60.0, 0.0],
-                "scale": [1.0, 1.0],
+                "position": [
+                    460.0,
+                    -60.0,
+                    0.0
+                ],
+                "scale": [
+                    1.0,
+                    1.0
+                ],
                 "rotation": 0.0,
-                "pivot": [0.5, 0.5],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
                 "visible": true
             },
             "sprite": {
                 "texture": "assets/textures/player.png",
-                "size": [28.0, 28.0],
-                "color": [255, 215, 0, 255],
+                "size": [
+                    28.0,
+                    28.0
+                ],
+                "color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
                 "flip_x": false,
                 "flip_y": false,
                 "visible": true,
-                "use_src_rect": false
+                "use_src_rect": false,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "rigidbody": {
                 "type": "Static",
@@ -352,8 +661,14 @@
             "collider": [
                 {
                     "type": "Circle",
-                    "offset": [0.0, 0.0],
-                    "size": [28.0, 28.0],
+                    "offset": [
+                        0.0,
+                        0.0
+                    ],
+                    "size": [
+                        28.0,
+                        28.0
+                    ],
                     "radius": 14.0,
                     "is_trigger": true,
                     "is_one_way": false,

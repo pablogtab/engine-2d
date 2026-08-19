@@ -1,4 +1,5 @@
 #include "SceneSerializer.hpp"
+#include "ComponentRegistry.hpp"
 #include "../core/FileSystem.hpp"
 #include "../core/Log.hpp"
 #include "../ecs/Components.hpp"
@@ -47,8 +48,13 @@ std::string SceneSerializer::serialize_to_string() {
 
     json entities_array = json::array();
     EntityManager& em = m_scene->get_entity_manager();
+    const ComponentSerializationContext component_context{m_renderer, &AssetManager::get()};
+    std::string component_error;
+    bool component_serialization_failed = false;
 
     em.for_each<TransformComponent>([&](EntityID id, const TransformComponent& transform) {
+        (void)transform;
+        if (component_serialization_failed) return;
         if (!em.is_alive(id)) return;
 
         // Tilemap colliders are derived runtime data and are rebuilt after load.
@@ -65,14 +71,12 @@ std::string SceneSerializer::serialize_to_string() {
             entity_json["tag"] = "Entity_" + std::to_string(id);
         }
 
-        // TransformComponent
-        json tf_json;
-        tf_json["position"] = { transform.position.x, transform.position.y, transform.position.z };
-        tf_json["scale"] = { transform.scale.x, transform.scale.y };
-        tf_json["rotation"] = transform.rotation;
-        tf_json["pivot"] = { transform.pivot.x, transform.pivot.y };
-        tf_json["visible"] = transform.visible;
-        entity_json["transform"] = tf_json;
+        if (!default_component_registry().serialize_entity(
+                em, id, entity_json, component_context, component_error
+            )) {
+            component_serialization_failed = true;
+            return;
+        }
 
         // Store only the authoritative parent relation. The children list is
         // derived by EntityManager::set_parent() while loading, which avoids
@@ -80,34 +84,6 @@ std::string SceneSerializer::serialize_to_string() {
         if (em.has_component<HierarchyComponent>(id)) {
             const auto& hierarchy = em.get_component<HierarchyComponent>(id);
             entity_json["hierarchy"] = {{"parent", hierarchy.parent}};
-        }
-
-        // SpriteComponent
-        if (em.has_component<SpriteComponent>(id)) {
-            auto& sprite = em.get_component<SpriteComponent>(id);
-            json sp_json;
-            sp_json["texture"] = sprite.texture ? sprite.texture->get_filepath() : "";
-            sp_json["size"] = { sprite.size.x, sprite.size.y };
-            sp_json["color"] = { sprite.color.r, sprite.color.g, sprite.color.b, sprite.color.a };
-            sp_json["flip_x"] = sprite.flip_x;
-            sp_json["flip_y"] = sprite.flip_y;
-            sp_json["visible"] = sprite.visible;
-            sp_json["sorting_layer"] = sprite.sorting_layer;
-            sp_json["order_in_layer"] = sprite.order_in_layer;
-            sp_json["has_outline"] = sprite.has_outline;
-            sp_json["outline_color"] = {
-                sprite.outline_color.r,
-                sprite.outline_color.g,
-                sprite.outline_color.b,
-                sprite.outline_color.a
-            };
-            sp_json["outline_thickness"] = sprite.outline_thickness;
-            sp_json["outline_pulse"] = sprite.outline_pulse;
-            sp_json["use_src_rect"] = sprite.use_src_rect;
-            if (sprite.use_src_rect) {
-                sp_json["src_rect"] = { sprite.src_rect.x, sprite.src_rect.y, sprite.src_rect.w, sprite.src_rect.h };
-            }
-            entity_json["sprite"] = sp_json;
         }
 
         // TilemapComponent
@@ -230,6 +206,11 @@ std::string SceneSerializer::serialize_to_string() {
         entities_array.push_back(entity_json);
     });
 
+    if (component_serialization_failed) {
+        ENGINE_LOG_ERROR("[SERIALIZER] {}", component_error);
+        return "";
+    }
+
     root["entities"] = entities_array;
     return root.dump(4);
 }
@@ -262,6 +243,7 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
         json root = json::parse(json_text);
         EntityManager& em = m_scene->get_entity_manager();
         em.clear();
+        const ComponentSerializationContext component_context{m_renderer, &AssetManager::get()};
         std::vector<EntityID> tilemaps_to_rebuild;
         std::vector<std::pair<EntityID, EntityID>> hierarchy_links;
 
@@ -281,33 +263,13 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     em.add_component<TagComponent>(id, TagComponent{ entity_json["tag"].get<std::string>() });
                 }
 
-                // TransformComponent
-                TransformComponent tf;
-                if (entity_json.contains("transform")) {
-                    const auto& tf_j = entity_json["transform"];
-                    if (tf_j.contains("position") && tf_j["position"].is_array() && tf_j["position"].size() >= 2) {
-                        float z = (tf_j["position"].size() >= 3) ? tf_j["position"][2].get<float>() : 0.0f;
-                        tf.position = glm::vec3(tf_j["position"][0].get<float>(), tf_j["position"][1].get<float>(), z);
-                    }
-                    if (tf_j.contains("scale") && tf_j["scale"].is_array() && tf_j["scale"].size() >= 2) {
-                        tf.scale = glm::vec2(tf_j["scale"][0].get<float>(), tf_j["scale"][1].get<float>());
-                    }
-                    if (tf_j.contains("rotation")) {
-                        tf.rotation = tf_j["rotation"].get<float>();
-                    }
-                    if (tf_j.contains("pivot") && tf_j["pivot"].is_array() && tf_j["pivot"].size() >= 2) {
-                        tf.pivot = glm::vec2(tf_j["pivot"][0].get<float>(), tf_j["pivot"][1].get<float>());
-                    }
-                    if (tf_j.contains("visible")) {
-                        tf.visible = tf_j["visible"].get<bool>();
-                    }
-                    tf.world_position = tf.position;
-                    tf.world_scale = tf.scale;
-                    tf.world_rotation = tf.rotation;
-                    tf.world_pivot = tf.pivot;
-                    tf.world_visible = tf.visible;
+                std::string component_error;
+                if (!default_component_registry().deserialize_entity(
+                        em, id, entity_json, component_context, component_error
+                    )) {
+                    ENGINE_LOG_ERROR("[SERIALIZER] Entity {}: {}", id, component_error);
+                    return false;
                 }
-                em.add_component<TransformComponent>(id, tf);
 
                 // Entity references may point forward in the JSON array, so
                 // create every entity before resolving any parent relation.
@@ -315,58 +277,6 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                     const auto& hierarchy_json = entity_json["hierarchy"];
                     em.add_component<HierarchyComponent>(id, HierarchyComponent{});
                     hierarchy_links.emplace_back(id, hierarchy_json.value("parent", EntityID{0}));
-                }
-
-                // SpriteComponent
-                if (entity_json.contains("sprite")) {
-                    const auto& sp_j = entity_json["sprite"];
-                    SpriteComponent sc;
-                    if (sp_j.contains("texture") && sp_j["texture"].is_string()) {
-                        std::string tex_path = sp_j["texture"].get<std::string>();
-                        if (m_renderer) {
-                            sc.texture = AssetManager::get().get_texture(m_renderer, tex_path);
-                        }
-                    }
-                    if (!sc.texture && m_renderer) {
-                        sc.texture = AssetManager::get().get_white_texture(m_renderer);
-                    }
-                    if (sp_j.contains("size") && sp_j["size"].is_array() && sp_j["size"].size() >= 2) {
-                        sc.size = glm::vec2(sp_j["size"][0].get<float>(), sp_j["size"][1].get<float>());
-                    }
-                    if (sp_j.contains("color") && sp_j["color"].is_array() && sp_j["color"].size() >= 4) {
-                        sc.color = SDL_Color{
-                            sp_j["color"][0].get<uint8_t>(),
-                            sp_j["color"][1].get<uint8_t>(),
-                            sp_j["color"][2].get<uint8_t>(),
-                            sp_j["color"][3].get<uint8_t>()
-                        };
-                    }
-                    if (sp_j.contains("flip_x")) sc.flip_x = sp_j["flip_x"].get<bool>();
-                    if (sp_j.contains("flip_y")) sc.flip_y = sp_j["flip_y"].get<bool>();
-                    if (sp_j.contains("visible")) sc.visible = sp_j["visible"].get<bool>();
-                    if (sp_j.contains("sorting_layer")) sc.sorting_layer = sp_j["sorting_layer"].get<int16_t>();
-                    if (sp_j.contains("order_in_layer")) sc.order_in_layer = sp_j["order_in_layer"].get<int16_t>();
-                    if (sp_j.contains("has_outline")) sc.has_outline = sp_j["has_outline"].get<bool>();
-                    if (sp_j.contains("outline_color") && sp_j["outline_color"].is_array() && sp_j["outline_color"].size() >= 4) {
-                        sc.outline_color = SDL_Color{
-                            sp_j["outline_color"][0].get<uint8_t>(),
-                            sp_j["outline_color"][1].get<uint8_t>(),
-                            sp_j["outline_color"][2].get<uint8_t>(),
-                            sp_j["outline_color"][3].get<uint8_t>()
-                        };
-                    }
-                    if (sp_j.contains("outline_thickness")) sc.outline_thickness = sp_j["outline_thickness"].get<float>();
-                    if (sp_j.contains("outline_pulse")) sc.outline_pulse = sp_j["outline_pulse"].get<bool>();
-                    if (sp_j.contains("use_src_rect")) sc.use_src_rect = sp_j["use_src_rect"].get<bool>();
-                    if (sc.use_src_rect && sp_j.contains("src_rect") && sp_j["src_rect"].size() >= 4) {
-                        sc.src_rect = SDL_FRect{
-                            sp_j["src_rect"][0].get<float>(),
-                            sp_j["src_rect"][1].get<float>(),
-                            sp_j["src_rect"][2].get<float>(),
-                            sp_j["src_rect"][3].get<float>()
-                        };
-                    }
-                    em.add_component<SpriteComponent>(id, sc);
                 }
 
                 // TilemapComponent

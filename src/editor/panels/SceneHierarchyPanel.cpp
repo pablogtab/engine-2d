@@ -310,10 +310,12 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
     EntitySnapshot snap;
     snap.has_tag = true;
     snap.tag = TagComponent{parent_id == 0 ? "New_Entity" : "Child_Entity"};
-    snap.has_transform = true;
-    snap.transform = TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)};
-    snap.has_sprite = true;
-    snap.sprite = SpriteComponent{AssetManager::get().get_white_texture(m_renderer), glm::vec2(64.0f, 64.0f), SDL_Color{255, 255, 255, 255}};
+    snap.registered_components.set(TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
+    snap.registered_components.set(SpriteComponent{
+        AssetManager::get().get_white_texture(m_renderer),
+        glm::vec2(64.0f, 64.0f),
+        SDL_Color{255, 255, 255, 255}
+    });
     if (parent_id != 0) {
         snap.has_hierarchy = true;
         snap.hierarchy.parent = parent_id;
@@ -324,8 +326,7 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
     } else {
         EntityID new_id = em.create_entity();
         em.add_component<TagComponent>(new_id, snap.tag);
-        em.add_component<TransformComponent>(new_id, snap.transform);
-        em.add_component<SpriteComponent>(new_id, snap.sprite);
+        default_component_registry().restore_entity(em, new_id, snap.registered_components);
         if (parent_id != 0) {
             em.set_parent(new_id, parent_id);
         }
@@ -337,8 +338,7 @@ void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID pare
     EntitySnapshot snap;
     snap.has_tag = true;
     snap.tag = TagComponent{parent_id == 0 ? "Tilemap" : "Child_Tilemap"};
-    snap.has_transform = true;
-    snap.transform = TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)};
+    snap.registered_components.set(TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
     snap.has_tilemap = true;
     snap.tilemap = TilemapComponent{};
     if (parent_id != 0) {

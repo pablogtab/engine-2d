@@ -93,7 +93,16 @@
                 ],
                 "texture": "assets/textures/knight_sheet.png",
                 "use_src_rect": true,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Player_Knight",
             "transform": {
@@ -159,7 +168,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Terrain_Main_Ground",
             "transform": {
@@ -225,7 +243,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Platform_Left_Top",
             "transform": {
@@ -291,7 +318,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Platform_Mid_Left_OneWay",
             "transform": {
@@ -357,7 +393,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Platform_Center_Crown",
             "transform": {
@@ -423,7 +468,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Platform_Right_Deck",
             "transform": {
@@ -489,7 +543,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Trampoline_Spring_Pad",
             "transform": {
@@ -555,7 +618,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Collectible_Coin_1",
             "transform": {
@@ -621,7 +693,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Collectible_Coin_2",
             "transform": {
@@ -687,7 +768,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Collectible_Coin_3",
             "transform": {
@@ -753,7 +843,16 @@
                 "sorting_layer": 0,
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false
             },
             "tag": "Moving_Elevator_Platform",
             "transform": {

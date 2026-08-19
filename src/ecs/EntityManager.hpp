@@ -9,6 +9,7 @@
 #include <functional>
 #include <tuple>
 #include <string>
+#include <stdexcept>
 
 namespace Engine {
 
@@ -52,6 +53,13 @@ public:
     template<typename T>
     T& get_component(EntityID entity) {
         return get_component_array<T>()->get_data(entity);
+    }
+
+    template<typename T>
+    const T& get_component(EntityID entity) const {
+        const ComponentArray<T>* components = get_component_array_const<T>();
+        if (!components) throw std::runtime_error("Retrieving non-existent component storage");
+        return components->get_data(entity);
     }
 
     // C++20 Structured Bindings unpacking for multiple components: auto [transform, sprite] = get_components<...>(e);

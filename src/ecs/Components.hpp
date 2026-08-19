@@ -9,6 +9,7 @@
 #include <functional>
 #include <bitset>
 #include <memory>
+#include <stdexcept>
 
 namespace Engine {
 
@@ -21,8 +22,11 @@ using ComponentMask = std::bitset<MAX_COMPONENTS>;
 
 // Helper function to assign a unique 0..63 ID per Component type
 inline ComponentTypeID get_next_type_id() {
-    static ComponentTypeID last_id = 0;
-    return last_id++;
+    static std::size_t last_id = 0;
+    if (last_id >= MAX_COMPONENTS) {
+        throw std::runtime_error("ECS component type limit exceeded (64)");
+    }
+    return static_cast<ComponentTypeID>(last_id++);
 }
 
 template<typename T>

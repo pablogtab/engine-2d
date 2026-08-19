@@ -1,3 +1,4 @@
+#include "core/FileSystem.hpp"
 #include "ecs/Components.hpp"
 #include "scene/Scene.hpp"
 #include "scene/SceneSerializer.hpp"
@@ -93,12 +94,26 @@ void test_sprite_outline_authoring_round_trips() {
     assert(restored.outline_pulse);
 }
 
+void test_all_project_scenes_match_the_registered_schema() {
+    const std::string scenes_directory = std::string(ENGINE_SOURCE_DIR) + "/assets/scenes";
+    const auto scene_files = FileSystem::list_files(scenes_directory, ".scene");
+    assert(!scene_files.empty());
+    for (const std::string& scene_file : scene_files) {
+        TestScene scene;
+        SceneSerializer serializer(&scene);
+        const std::string contents = FileSystem::read_text(scene_file);
+        assert(!contents.empty());
+        assert(serializer.deserialize_from_string(contents));
+    }
+}
+
 } // namespace
 
 int main() {
     test_round_trip_restores_destroyed_child_hierarchy();
     test_forward_parent_reference_is_order_independent();
     test_sprite_outline_authoring_round_trips();
+    test_all_project_scenes_match_the_registered_schema();
     std::cout << "Scene serializer tests passed\n";
     return 0;
 }

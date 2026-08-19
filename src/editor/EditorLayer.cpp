@@ -436,8 +436,7 @@ void EditorLayer::render_main_menu_bar() {
                     EntitySnapshot snapshot;
                     snapshot.has_tag = true;
                     snapshot.tag = TagComponent{"Tilemap"};
-                    snapshot.has_transform = true;
-                    snapshot.transform = TransformComponent{glm::vec3(0.0f)};
+                    snapshot.registered_components.set(TransformComponent{glm::vec3(0.0f)});
                     snapshot.has_tilemap = true;
                     snapshot.tilemap = TilemapComponent{};
                     if (m_command_history) m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, nullptr, std::move(snapshot)));
@@ -450,10 +449,8 @@ void EditorLayer::render_main_menu_bar() {
                     EntitySnapshot snapshot;
                     snapshot.has_tag = true;
                     snapshot.tag = TagComponent{"Sprite_Entity"};
-                    snapshot.has_transform = true;
-                    snapshot.transform = TransformComponent{glm::vec3(0.0f)};
-                    snapshot.has_sprite = true;
-                    snapshot.sprite = SpriteComponent{nullptr, glm::vec2(64.0f, 64.0f)};
+                    snapshot.registered_components.set(TransformComponent{glm::vec3(0.0f)});
+                    snapshot.registered_components.set(SpriteComponent{nullptr, glm::vec2(64.0f, 64.0f)});
                     if (m_command_history) m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, nullptr, std::move(snapshot)));
                 }
             }
@@ -464,8 +461,7 @@ void EditorLayer::render_main_menu_bar() {
                     EntitySnapshot snapshot;
                     snapshot.has_tag = true;
                     snapshot.tag = TagComponent{"Main_Camera"};
-                    snapshot.has_transform = true;
-                    snapshot.transform = TransformComponent{glm::vec3(0.0f, 60.0f, 0.0f)};
+                    snapshot.registered_components.set(TransformComponent{glm::vec3(0.0f, 60.0f, 0.0f)});
                     snapshot.has_camera = true;
                     snapshot.camera = CameraComponent{};
                     snapshot.camera.is_primary = !CameraSystem::has_camera(em);
@@ -479,8 +475,7 @@ void EditorLayer::render_main_menu_bar() {
                     EntitySnapshot snapshot;
                     snapshot.has_tag = true;
                     snapshot.tag = TagComponent{"Empty_Entity"};
-                    snapshot.has_transform = true;
-                    snapshot.transform = TransformComponent{glm::vec3(0.0f)};
+                    snapshot.registered_components.set(TransformComponent{glm::vec3(0.0f)});
                     if (m_command_history) m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, nullptr, std::move(snapshot)));
                 }
             }

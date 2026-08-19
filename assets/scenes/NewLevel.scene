@@ -17,7 +17,18 @@
                 ],
                 "texture": "",
                 "use_src_rect": false,
-                "visible": true
+                "visible": true,
+                "has_outline": false,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_thickness": 2.0,
+                "outline_pulse": false,
+                "sorting_layer": 0,
+                "order_in_layer": 0
             },
             "tag": "SPRITE RANDOM",
             "transform": {

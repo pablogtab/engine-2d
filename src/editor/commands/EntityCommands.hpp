@@ -4,6 +4,7 @@
 #include "../../ecs/EntityManager.hpp"
 #include "../../ecs/Components.hpp"
 #include "../../tilemap/Tilemap.hpp"
+#include "../../scene/ComponentRegistry.hpp"
 #include "../EditorSelection.hpp"
 #include <glm/glm.hpp>
 #include <unordered_map>
@@ -135,12 +136,9 @@ struct EntitySnapshot {
     EntityID id{0};
     bool has_tag{false};
     TagComponent tag;
-    bool has_transform{false};
-    TransformComponent transform;
     bool has_hierarchy{false};
     HierarchyComponent hierarchy;
-    bool has_sprite{false};
-    SpriteComponent sprite;
+    ComponentSnapshotSet registered_components;
     bool has_rigidbody{false};
     RigidBodyComponent rigidbody;
     bool has_collider{false};

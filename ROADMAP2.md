@@ -129,16 +129,16 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Component Descriptors
 
-- [ ] Introduce an explicit typed component registry without requiring a complex reflection system.
-- [ ] Register component name, stable serialized key, schema version, and runtime type.
-- [ ] Register serialize, deserialize, clone, capture, restore, add, remove, and validate operations.
+- [x] Introduce an explicit typed component registry without requiring a complex reflection system.
+- [x] Register component name, stable serialized key, schema version, and runtime type.
+- [x] Register serialize, deserialize, clone, capture, restore, add, remove, and validate operations.
 - [ ] Allow editor builds to attach a component drawer and creation metadata without coupling runtime code to ImGui.
-- [ ] Reject duplicate serialized keys and component-count overflow with explicit diagnostics.
+- [x] Reject duplicate serialized keys and component-count overflow with explicit diagnostics.
 
 ### Serialization and Snapshots
 
-- [ ] Migrate `SceneSerializer` component switches to registered serializers.
-- [ ] Migrate `EntitySnapshot` manual fields to registry-backed component snapshots.
+- [ ] Migrate `SceneSerializer` component switches to registered serializers; Transform and Sprite are migrated.
+- [ ] Migrate `EntitySnapshot` manual fields to registry-backed component snapshots; Transform and Sprite are migrated.
 - [ ] Preserve stable entity IDs and hierarchy references across save/load and undo/redo.
 - [ ] Add scene schema versioning and explicit migrations.
 - [ ] Define which fields are authored, derived, transient, or runtime-only.
@@ -362,7 +362,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 2 — Component and Serialization Suites
 
-- [ ] `ComponentRegistryTests` — registration, duplicate keys, schema versions, add/remove, clone, capture/restore, validation, and component-limit diagnostics.
+- [x] `ComponentRegistryTests` — registration, duplicate keys, schema versions, add/remove, clone, capture/restore, validation, and component-limit diagnostics.
 - [ ] `SceneSerializationTests` — deterministic output, complete component round trips, stable IDs, hierarchy references, missing fields, malformed data, and migrations.
 - [ ] `EntitySnapshotTests` — delete/restore, duplicate, component completeness, hierarchy restoration, asset references, and runtime-only field exclusion.
 - [ ] `SceneMigrationTests` — every supported historical schema migrates forward or fails with an actionable error.
@@ -450,8 +450,8 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increment
 
-Begin the Phase 2 architecture gate:
+Continue the Phase 2 registry migration:
 
-1. Introduce the typed component descriptor registry and validate stable serialized keys.
-2. Migrate Transform and Sprite serialization/snapshot metadata as the first registry-backed components.
-3. Add focused component-registry and schema round-trip tests before migrating the remaining component domains.
+1. Add descriptor lifecycle/finalization hooks for components with derived state or entity references.
+2. Migrate Tag, RigidBody, Collider, Tilemap, Camera, and Animation serialization and snapshots.
+3. Remove their manual `EntitySnapshot` fields and extend round-trip coverage for every migrated component.
