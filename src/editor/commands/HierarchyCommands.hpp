@@ -49,6 +49,43 @@ private:
     std::string m_description;
 };
 
+struct ReparentBatchEntry {
+    EntityID entity{0};
+    EntityID old_parent{0};
+    size_t old_index{0};
+    std::optional<size_t> target_index{std::nullopt};
+    TransformComponent old_transform;
+    TransformComponent new_transform;
+};
+
+class ReparentEntitiesCommand final : public IEditorCommand {
+public:
+    ReparentEntitiesCommand(
+        EntityManager* em,
+        std::vector<EntityID> entities,
+        EntityID new_parent,
+        std::shared_ptr<EditorSelection> selection = nullptr,
+        std::string custom_description = "",
+        const EditorEntityStateStore* state_store = nullptr,
+        std::optional<size_t> target_index = std::nullopt
+    );
+
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
+
+private:
+    EntityManager* m_em{nullptr};
+    std::shared_ptr<EditorSelection> m_selection{nullptr};
+    std::vector<EntityID> m_original_selection;
+    EntityID m_new_parent{0};
+    std::optional<size_t> m_target_index{std::nullopt};
+    std::vector<ReparentBatchEntry> m_entries;
+    bool m_valid{false};
+    std::string m_description{"Reparent Entities"};
+};
+
 class ReorderEntityCommand final : public IEditorCommand {
 public:
     ReorderEntityCommand(

@@ -1339,6 +1339,173 @@ void test_duplicate_subtree_under_rotated_scaled_external_parent_preserves_world
     std::cout << "test_duplicate_subtree_under_rotated_scaled_external_parent_preserves_world_offset_and_relative_transforms passed." << std::endl;
 }
 
+void test_reparent_multiple_entities_preserves_world_transforms_and_order() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+    auto selection = std::make_shared<EditorSelection>();
+
+    EntityID parent = em.create_entity();
+    em.add_component<TagComponent>(parent, TagComponent{"TargetParent"});
+    em.add_component<TransformComponent>(parent, TransformComponent{
+        glm::vec3(200.0f, 100.0f, 0.0f),
+        glm::vec2(1.5f, 0.8f),
+        30.0f
+    });
+
+    EntityID e1 = em.create_entity();
+    em.add_component<TagComponent>(e1, TagComponent{"Entity1"});
+    em.add_component<TransformComponent>(e1, TransformComponent{glm::vec3(10.0f, 20.0f, 0.0f)});
+
+    EntityID e2 = em.create_entity();
+    em.add_component<TagComponent>(e2, TagComponent{"Entity2"});
+    em.add_component<TransformComponent>(e2, TransformComponent{glm::vec3(50.0f, 60.0f, 0.0f)});
+
+    EntityID e3 = em.create_entity();
+    em.add_component<TagComponent>(e3, TagComponent{"Entity3"});
+    em.add_component<TransformComponent>(e3, TransformComponent{glm::vec3(100.0f, 120.0f, 0.0f)});
+
+    TransformSystem::update(em);
+    const glm::vec3 w1 = em.get_component<TransformComponent>(e1).world_position;
+    const glm::vec3 w2 = em.get_component<TransformComponent>(e2).world_position;
+    const glm::vec3 w3 = em.get_component<TransformComponent>(e3).world_position;
+
+    selection->select(e1);
+    selection->select(e2, true);
+    selection->select(e3, true);
+
+    auto cmd = std::make_unique<ReparentEntitiesCommand>(&em, std::vector<EntityID>{e1, e2, e3}, parent, selection, "", nullptr, 0);
+    assert(cmd->is_valid());
+    history.execute_command(std::move(cmd));
+
+    TransformSystem::update(em);
+
+    // Verify all 3 entities are now children of parent in order
+    assert(em.has_component<HierarchyComponent>(parent));
+    const auto& children = em.get_component<HierarchyComponent>(parent).children;
+    assert(children.size() == 3);
+    assert(children[0] == e1);
+    assert(children[1] == e2);
+    assert(children[2] == e3);
+
+    // Verify world positions are preserved
+    assert(glm::distance(em.get_component<TransformComponent>(e1).world_position, w1) < 0.01f);
+    assert(glm::distance(em.get_component<TransformComponent>(e2).world_position, w2) < 0.01f);
+    assert(glm::distance(em.get_component<TransformComponent>(e3).world_position, w3) < 0.01f);
+
+    // Verify Undo restores them as roots with identical world transforms
+    history.undo();
+    TransformSystem::update(em);
+    assert(!em.has_component<HierarchyComponent>(parent) || em.get_component<HierarchyComponent>(parent).children.empty());
+    assert(glm::distance(em.get_component<TransformComponent>(e1).world_position, w1) < 0.01f);
+    assert(glm::distance(em.get_component<TransformComponent>(e2).world_position, w2) < 0.01f);
+    assert(glm::distance(em.get_component<TransformComponent>(e3).world_position, w3) < 0.01f);
+
+    // Verify Redo restores parent-child relationships and transforms
+    history.redo();
+    TransformSystem::update(em);
+    const auto& children_redone = em.get_component<HierarchyComponent>(parent).children;
+    assert(children_redone.size() == 3);
+    assert(children_redone[0] == e1);
+    assert(children_redone[1] == e2);
+    assert(children_redone[2] == e3);
+    assert(glm::distance(em.get_component<TransformComponent>(e1).world_position, w1) < 0.01f);
+    assert(glm::distance(em.get_component<TransformComponent>(e2).world_position, w2) < 0.01f);
+    assert(glm::distance(em.get_component<TransformComponent>(e3).world_position, w3) < 0.01f);
+
+    std::cout << "test_reparent_multiple_entities_preserves_world_transforms_and_order passed." << std::endl;
+}
+
+void test_reparent_multiple_entities_with_cycle_rejection() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+
+    EntityID root1 = em.create_entity();
+    em.add_component<TransformComponent>(root1, TransformComponent{glm::vec3(0.0f)});
+
+    EntityID child1 = em.create_entity();
+    em.add_component<TransformComponent>(child1, TransformComponent{glm::vec3(10.0f, 0.0f, 0.0f)});
+    assert(em.set_parent(child1, root1).succeeded());
+
+    EntityID grandchild1 = em.create_entity();
+    em.add_component<TransformComponent>(grandchild1, TransformComponent{glm::vec3(20.0f, 0.0f, 0.0f)});
+    assert(em.set_parent(grandchild1, child1).succeeded());
+
+    EntityID other = em.create_entity();
+    em.add_component<TransformComponent>(other, TransformComponent{glm::vec3(30.0f, 0.0f, 0.0f)});
+
+    // Attempting to reparent {root1, other} into grandchild1 must fail preflight check
+    auto cmd = std::make_unique<ReparentEntitiesCommand>(&em, std::vector<EntityID>{root1, other}, grandchild1);
+    assert(!cmd->is_valid());
+    history.execute_command(std::move(cmd));
+    assert(!history.can_undo());
+
+    std::cout << "test_reparent_multiple_entities_with_cycle_rejection passed." << std::endl;
+}
+
+void test_reparent_multiple_entities_with_locked_entity_rejection() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+    EditorEntityStateStore state_store;
+
+    EntityID target = em.create_entity();
+    em.add_component<TransformComponent>(target, TransformComponent{glm::vec3(0.0f)});
+
+    EntityID e1 = em.create_entity();
+    em.add_component<TransformComponent>(e1, TransformComponent{glm::vec3(10.0f, 0.0f, 0.0f)});
+
+    EntityID e2 = em.create_entity();
+    em.add_component<TransformComponent>(e2, TransformComponent{glm::vec3(20.0f, 0.0f, 0.0f)});
+
+    state_store.set_locked(e2, true);
+
+    auto cmd = std::make_unique<ReparentEntitiesCommand>(&em, std::vector<EntityID>{e1, e2}, target, nullptr, "", &state_store);
+    assert(!cmd->is_valid());
+    history.execute_command(std::move(cmd));
+    assert(!history.can_undo());
+
+    std::cout << "test_reparent_multiple_entities_with_locked_entity_rejection passed." << std::endl;
+}
+
+void test_reparent_multiple_entities_unparent_to_root() {
+    EntityManager em;
+    EditorCommandHistory history(100);
+    auto selection = std::make_shared<EditorSelection>();
+
+    EntityID parent = em.create_entity();
+    em.add_component<TransformComponent>(parent, TransformComponent{glm::vec3(100.0f, 50.0f, 0.0f), glm::vec2(2.0f, 2.0f)});
+
+    EntityID c1 = em.create_entity();
+    em.add_component<TransformComponent>(c1, TransformComponent{glm::vec3(10.0f, 0.0f, 0.0f)});
+    assert(em.set_parent(c1, parent).succeeded());
+
+    EntityID c2 = em.create_entity();
+    em.add_component<TransformComponent>(c2, TransformComponent{glm::vec3(20.0f, 0.0f, 0.0f)});
+    assert(em.set_parent(c2, parent).succeeded());
+
+    TransformSystem::update(em);
+    const glm::vec3 w1 = em.get_component<TransformComponent>(c1).world_position;
+    const glm::vec3 w2 = em.get_component<TransformComponent>(c2).world_position;
+
+    auto cmd = std::make_unique<ReparentEntitiesCommand>(&em, std::vector<EntityID>{c1, c2}, 0, selection);
+    assert(cmd->is_valid());
+    history.execute_command(std::move(cmd));
+
+    TransformSystem::update(em);
+    assert(!em.has_component<HierarchyComponent>(c1) || em.get_component<HierarchyComponent>(c1).parent == 0);
+    assert(!em.has_component<HierarchyComponent>(c2) || em.get_component<HierarchyComponent>(c2).parent == 0);
+    assert(glm::distance(em.get_component<TransformComponent>(c1).world_position, w1) < 0.01f);
+    assert(glm::distance(em.get_component<TransformComponent>(c2).world_position, w2) < 0.01f);
+
+    history.undo();
+    TransformSystem::update(em);
+    assert(em.get_component<HierarchyComponent>(c1).parent == parent);
+    assert(em.get_component<HierarchyComponent>(c2).parent == parent);
+    assert(glm::distance(em.get_component<TransformComponent>(c1).world_position, w1) < 0.01f);
+    assert(glm::distance(em.get_component<TransformComponent>(c2).world_position, w2) < 0.01f);
+
+    std::cout << "test_reparent_multiple_entities_unparent_to_root passed." << std::endl;
+}
+
 int main() {
     test_reparent_preserves_world_transform();
     test_unparent_preserves_world_transform();
@@ -1372,6 +1539,10 @@ int main() {
     test_duplicate_subtree_hierarchy_remaps_children_and_preserves_transforms();
     test_duplicate_locked_entity_or_subtree_aborts_without_mutation();
     test_duplicate_subtree_under_rotated_scaled_external_parent_preserves_world_offset_and_relative_transforms();
+    test_reparent_multiple_entities_preserves_world_transforms_and_order();
+    test_reparent_multiple_entities_with_cycle_rejection();
+    test_reparent_multiple_entities_with_locked_entity_rejection();
+    test_reparent_multiple_entities_unparent_to_root();
 
     std::cout << "All HierarchyCommandTests passed successfully!" << std::endl;
     return 0;

@@ -1,6 +1,8 @@
 #include "HierarchyCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
+#include "../tools/EditorTransformUtils.hpp"
 #include "../../ecs/TransformSystem.hpp"
+#include "../../physics/PhysicsSystem.hpp"
 #include "../../core/Log.hpp"
 #include <algorithm>
 #include <unordered_set>
@@ -149,6 +151,276 @@ bool ReparentEntityCommand::undo() {
     }
 
     TransformSystem::update(*m_em);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// 1a. ReparentEntitiesCommand (Bulk / Multi-Entity Reparenting)
+// ---------------------------------------------------------------------------
+static bool is_entity_descendant(const EntityManager& em, EntityID potential_descendant, EntityID ancestor) {
+    if (potential_descendant == 0 || ancestor == 0) return false;
+    if (potential_descendant == ancestor) return true;
+    if (!em.has_component<HierarchyComponent>(potential_descendant)) return false;
+
+    EntityID curr = em.get_component<HierarchyComponent>(potential_descendant).parent;
+    while (curr != 0 && em.is_alive(curr)) {
+        if (curr == ancestor) return true;
+        if (!em.has_component<HierarchyComponent>(curr)) break;
+        curr = em.get_component<HierarchyComponent>(curr).parent;
+    }
+    return false;
+}
+
+ReparentEntitiesCommand::ReparentEntitiesCommand(
+    EntityManager* em,
+    std::vector<EntityID> entities,
+    EntityID new_parent,
+    std::shared_ptr<EditorSelection> selection,
+    std::string custom_description,
+    const EditorEntityStateStore* state_store,
+    std::optional<size_t> target_index
+) : m_em(em),
+    m_selection(std::move(selection)),
+    m_original_selection(entities),
+    m_new_parent(new_parent),
+    m_target_index(target_index) {
+    if (!m_em || entities.empty()) {
+        m_valid = false;
+        return;
+    }
+
+    TransformSystem::update(*m_em);
+
+    const std::unordered_set<EntityID> entity_set(entities.begin(), entities.end());
+
+    // Filter to roots among the selected entities (exclude children whose ancestor is also selected)
+    std::vector<EntityID> filtered_roots;
+    for (EntityID id : entities) {
+        if (!m_em->is_alive(id) || !m_em->has_component<TransformComponent>(id)) continue;
+        if (!has_selected_ancestor(*m_em, id, entity_set)) {
+            filtered_roots.push_back(id);
+        }
+    }
+
+    if (filtered_roots.empty()) {
+        m_valid = false;
+        return;
+    }
+
+    // Validate new parent
+    if (m_new_parent != 0) {
+        if (!m_em->is_alive(m_new_parent) || !m_em->has_component<TransformComponent>(m_new_parent)) {
+            m_valid = false;
+            return;
+        }
+
+        if (state_store && state_store->is_locked(m_new_parent)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot reparent entities to locked parent #{}", m_new_parent);
+            m_valid = false;
+            return;
+        }
+
+        // Cycle check: none of the filtered roots can be the new parent or an ancestor of the new parent
+        for (EntityID root_id : filtered_roots) {
+            if (root_id == m_new_parent || is_entity_descendant(*m_em, m_new_parent, root_id)) {
+                ENGINE_LOG_WARN("[HIERARCHY] Cannot reparent entity #{} into its own descendant #{}", root_id, m_new_parent);
+                m_valid = false;
+                return;
+            }
+        }
+    }
+
+    // Validate each entity and pre-calculate local transforms
+    for (size_t i = 0; i < filtered_roots.size(); ++i) {
+        const EntityID id = filtered_roots[i];
+
+        if (state_store && state_store->is_locked(id)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot reparent locked entity #{}", id);
+            m_valid = false;
+            return;
+        }
+
+        EntityID old_parent = 0;
+        if (m_em->has_component<HierarchyComponent>(id)) {
+            old_parent = m_em->get_component<HierarchyComponent>(id).parent;
+        }
+
+        if (old_parent != 0 && state_store && state_store->is_locked(old_parent)) {
+            ENGINE_LOG_WARN("[HIERARCHY] Cannot reparent entity #{} from locked parent #{}", id, old_parent);
+            m_valid = false;
+            return;
+        }
+
+        auto local_opt = TransformSystem::calculate_reparent_local_transform(*m_em, id, m_new_parent);
+        if (!local_opt) {
+            ENGINE_LOG_WARN("[HIERARCHY] Transform calculation failed for entity #{} reparented to parent #{}", id, m_new_parent);
+            m_valid = false;
+            return;
+        }
+
+        ReparentBatchEntry entry;
+        entry.entity = id;
+        entry.old_parent = old_parent;
+        entry.old_index = m_em->get_sibling_index(id);
+        entry.target_index = m_target_index.has_value() ? std::make_optional(*m_target_index + i) : std::nullopt;
+        entry.old_transform = m_em->get_component<TransformComponent>(id);
+        entry.new_transform = *local_opt;
+
+        m_entries.push_back(std::move(entry));
+    }
+
+    if (m_entries.empty()) {
+        m_valid = false;
+        return;
+    }
+
+    if (!custom_description.empty()) {
+        m_description = std::move(custom_description);
+    } else if (m_entries.size() == 1) {
+        std::string entity_name = "Entity #" + std::to_string(m_entries[0].entity);
+        if (m_em->has_component<TagComponent>(m_entries[0].entity)) {
+            entity_name = "'" + m_em->get_component<TagComponent>(m_entries[0].entity).tag + "'";
+        }
+        if (m_new_parent == 0) {
+            m_description = "Unparent " + entity_name;
+        } else {
+            std::string parent_name = "Entity #" + std::to_string(m_new_parent);
+            if (m_em->has_component<TagComponent>(m_new_parent)) {
+                parent_name = "'" + m_em->get_component<TagComponent>(m_new_parent).tag + "'";
+            }
+            m_description = "Reparent " + entity_name + " to " + parent_name;
+        }
+    } else {
+        if (m_new_parent == 0) {
+            m_description = "Unparent (" + std::to_string(m_entries.size()) + ") Entities";
+        } else {
+            std::string parent_name = "Entity #" + std::to_string(m_new_parent);
+            if (m_em->has_component<TagComponent>(m_new_parent)) {
+                parent_name = "'" + m_em->get_component<TagComponent>(m_new_parent).tag + "'";
+            }
+            m_description = "Reparent (" + std::to_string(m_entries.size()) + ") Entities to " + parent_name;
+        }
+    }
+
+    m_valid = true;
+}
+
+bool ReparentEntitiesCommand::execute() {
+    if (!m_valid || !m_em) return false;
+
+    size_t applied_count = 0;
+    for (size_t i = 0; i < m_entries.size(); ++i) {
+        const auto& entry = m_entries[i];
+        if (!m_em->is_alive(entry.entity)) {
+            // Rollback previously applied entries
+            for (size_t r = applied_count; r > 0; --r) {
+                const auto& undo_entry = m_entries[r - 1];
+                if (undo_entry.old_parent == 0) {
+                    (void)m_em->remove_parent(undo_entry.entity, undo_entry.old_index);
+                } else {
+                    (void)m_em->set_parent(undo_entry.entity, undo_entry.old_parent, undo_entry.old_index);
+                }
+                if (m_em->has_component<TransformComponent>(undo_entry.entity)) {
+                    m_em->get_component<TransformComponent>(undo_entry.entity) = undo_entry.old_transform;
+                }
+            }
+            TransformSystem::update(*m_em);
+            return false;
+        }
+
+        if (m_new_parent == 0) {
+            const auto result = m_em->remove_parent(entry.entity, entry.target_index);
+            if (!result.succeeded()) {
+                ENGINE_LOG_WARN("[HIERARCHY] ReparentEntitiesCommand remove_parent failed on entity #{}: {}", entry.entity, result.message());
+                // Rollback
+                for (size_t r = applied_count; r > 0; --r) {
+                    const auto& undo_entry = m_entries[r - 1];
+                    if (undo_entry.old_parent == 0) {
+                        (void)m_em->remove_parent(undo_entry.entity, undo_entry.old_index);
+                    } else {
+                        (void)m_em->set_parent(undo_entry.entity, undo_entry.old_parent, undo_entry.old_index);
+                    }
+                    if (m_em->has_component<TransformComponent>(undo_entry.entity)) {
+                        m_em->get_component<TransformComponent>(undo_entry.entity) = undo_entry.old_transform;
+                    }
+                }
+                TransformSystem::update(*m_em);
+                return false;
+            }
+        } else {
+            const auto result = m_em->set_parent(entry.entity, m_new_parent, entry.target_index);
+            if (!result.succeeded()) {
+                ENGINE_LOG_WARN("[HIERARCHY] ReparentEntitiesCommand set_parent failed on entity #{}: {}", entry.entity, result.message());
+                // Rollback
+                for (size_t r = applied_count; r > 0; --r) {
+                    const auto& undo_entry = m_entries[r - 1];
+                    if (undo_entry.old_parent == 0) {
+                        (void)m_em->remove_parent(undo_entry.entity, undo_entry.old_index);
+                    } else {
+                        (void)m_em->set_parent(undo_entry.entity, undo_entry.old_parent, undo_entry.old_index);
+                    }
+                    if (m_em->has_component<TransformComponent>(undo_entry.entity)) {
+                        m_em->get_component<TransformComponent>(undo_entry.entity) = undo_entry.old_transform;
+                    }
+                }
+                TransformSystem::update(*m_em);
+                return false;
+            }
+        }
+
+        if (m_em->has_component<TransformComponent>(entry.entity)) {
+            m_em->get_component<TransformComponent>(entry.entity) = entry.new_transform;
+        }
+        PhysicsSystem::sync_body_hierarchy(*m_em, entry.entity);
+        applied_count++;
+    }
+
+    TransformSystem::update(*m_em);
+
+    if (m_selection) {
+        std::unordered_set<EntityID> reparented_set;
+        for (const auto& entry : m_entries) {
+            reparented_set.insert(entry.entity);
+        }
+        m_selection->set_selection(reparented_set);
+    }
+    return true;
+}
+
+bool ReparentEntitiesCommand::undo() {
+    if (!m_valid || !m_em) return false;
+
+    // Restore in reverse order
+    for (auto it = m_entries.rbegin(); it != m_entries.rend(); ++it) {
+        if (!m_em->is_alive(it->entity)) continue;
+
+        if (it->old_parent == 0) {
+            const auto result = m_em->remove_parent(it->entity, it->old_index);
+            if (!result.succeeded()) {
+                ENGINE_LOG_WARN("[HIERARCHY] ReparentEntitiesCommand undo remove_parent failed: {}", result.message());
+            }
+        } else {
+            const auto result = m_em->set_parent(it->entity, it->old_parent, it->old_index);
+            if (!result.succeeded()) {
+                ENGINE_LOG_WARN("[HIERARCHY] ReparentEntitiesCommand undo set_parent failed: {}", result.message());
+            }
+        }
+
+        if (m_em->has_component<TransformComponent>(it->entity)) {
+            m_em->get_component<TransformComponent>(it->entity) = it->old_transform;
+        }
+        PhysicsSystem::sync_body_hierarchy(*m_em, it->entity);
+    }
+
+    TransformSystem::update(*m_em);
+
+    if (m_selection) {
+        std::unordered_set<EntityID> original_set;
+        for (EntityID id : m_original_selection) {
+            if (m_em->is_alive(id)) original_set.insert(id);
+        }
+        m_selection->set_selection(original_set);
+    }
     return true;
 }
 

@@ -5,6 +5,7 @@
 #include "../state/EditorEntityStateStore.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../tools/EditorIcons.hpp"
+#include "../tools/EditorTransformUtils.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
@@ -94,17 +95,25 @@ void SceneHierarchyPanel::on_gui() {
         if (avail.y > 10.0f) {
             ImGui::Dummy(avail);
             if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG")) {
-                    EntityID dropped_id = *(const EntityID*)payload->Data;
-                    if (em.is_alive(dropped_id)) {
-                        if (m_command_history) {
-                            m_command_history->execute_command(
-                                std::make_unique<ReparentEntityCommand>(&em, dropped_id, 0, m_selection, "", m_entity_state_store.get())
-                            );
-                        } else {
-                            ReparentEntityCommand cmd(&em, dropped_id, 0, m_selection, "", m_entity_state_store.get());
-                            cmd.execute();
-                        }
+                const ImGuiPayload* multi_payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_MULTI_DRAG");
+                const ImGuiPayload* single_payload = multi_payload ? nullptr : ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG");
+                std::vector<EntityID> dropped_entities;
+                if (multi_payload) {
+                    const size_t count = multi_payload->DataSize / sizeof(EntityID);
+                    const EntityID* data = (const EntityID*)multi_payload->Data;
+                    dropped_entities.assign(data, data + count);
+                } else if (single_payload) {
+                    dropped_entities.push_back(*(const EntityID*)single_payload->Data);
+                }
+
+                if (!dropped_entities.empty()) {
+                    if (m_command_history) {
+                        m_command_history->execute_command(
+                            std::make_unique<ReparentEntitiesCommand>(&em, dropped_entities, 0, m_selection, "", m_entity_state_store.get())
+                        );
+                    } else {
+                        ReparentEntitiesCommand cmd(&em, dropped_entities, 0, m_selection, "", m_entity_state_store.get());
+                        cmd.execute();
                     }
                 }
                 ImGui::EndDragDropTarget();
@@ -291,16 +300,47 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
     }
 
     // Single click / multi-click selection on the tree node item
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
-        if (m_selection) {
-            m_selection->select(id, is_multi_key);
+    if (m_selection) {
+        if (is_multi_key) {
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
+                m_selection->select(id, true);
+            }
+        } else if (!is_selected) {
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
+                m_selection->select(id, false);
+            }
+        } else {
+            // Already selected item clicked without modifiers:
+            // Defer narrowing selection until mouse release without drag to allow dragging the multi-selection
+            if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                !ImGui::IsItemToggledOpen() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                m_selection->select(id, false);
+            }
         }
     }
 
     // --- Drag and Drop: Source ---
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-        ImGui::SetDragDropPayload("ENTITY_HIERARCHY_DRAG", &id, sizeof(EntityID));
-        ImGui::Text("Reparent '%s'", name.c_str());
+        std::vector<EntityID> drag_entities;
+        if (m_selection && m_selection->is_selected(id) && m_selection->count() > 1) {
+            const std::unordered_set<EntityID> sel_set = m_selection->get_selected();
+            for (EntityID s_id : m_selection->get_selected()) {
+                if (em.is_alive(s_id) && !has_selected_ancestor(em, s_id, sel_set)) {
+                    drag_entities.push_back(s_id);
+                }
+            }
+        }
+        if (drag_entities.empty()) {
+            drag_entities.push_back(id);
+        }
+
+        ImGui::SetDragDropPayload("ENTITY_HIERARCHY_MULTI_DRAG", drag_entities.data(), drag_entities.size() * sizeof(EntityID));
+
+        if (drag_entities.size() > 1) {
+            ImGui::Text("Reparent (%zu) Entities", drag_entities.size());
+        } else {
+            ImGui::Text("Reparent '%s'", name.c_str());
+        }
         ImGui::EndDragDropSource();
     }
 
@@ -332,57 +372,60 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             draw_list->AddRect(item_min, item_max, IM_COL32(95, 145, 255, 180), 2.0f);
         }
 
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG")) {
-            EntityID dropped_id = *(const EntityID*)payload->Data;
-            if (em.is_alive(dropped_id) && dropped_id != id) {
-                if (zone == DropZone::Inside) {
-                    if (!is_descendant(em, id, dropped_id)) {
-                        if (m_command_history) {
-                            m_command_history->execute_command(
-                                std::make_unique<ReparentEntityCommand>(&em, dropped_id, id, m_selection, "", m_entity_state_store.get())
-                            );
-                        } else {
-                            ReparentEntityCommand cmd(&em, dropped_id, id, m_selection, "", m_entity_state_store.get());
-                            cmd.execute();
-                        }
+        const ImGuiPayload* multi_payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_MULTI_DRAG");
+        const ImGuiPayload* single_payload = multi_payload ? nullptr : ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG");
+        std::vector<EntityID> dropped_entities;
+        if (multi_payload) {
+            const size_t count = multi_payload->DataSize / sizeof(EntityID);
+            const EntityID* data = (const EntityID*)multi_payload->Data;
+            dropped_entities.assign(data, data + count);
+        } else if (single_payload) {
+            dropped_entities.push_back(*(const EntityID*)single_payload->Data);
+        }
+
+        if (!dropped_entities.empty()) {
+            if (zone == DropZone::Inside) {
+                if (m_command_history) {
+                    m_command_history->execute_command(
+                        std::make_unique<ReparentEntitiesCommand>(&em, dropped_entities, id, m_selection, "", m_entity_state_store.get())
+                    );
+                } else {
+                    ReparentEntitiesCommand cmd(&em, dropped_entities, id, m_selection, "", m_entity_state_store.get());
+                    cmd.execute();
+                }
+            } else {
+                EntityID target_parent = 0;
+                if (em.has_component<HierarchyComponent>(id)) {
+                    target_parent = em.get_component<HierarchyComponent>(id).parent;
+                }
+
+                size_t target_idx = em.get_sibling_index(id);
+                if (zone == DropZone::After) {
+                    target_idx++;
+                }
+
+                if (dropped_entities.size() == 1 && em.has_component<HierarchyComponent>(dropped_entities[0]) &&
+                    em.get_component<HierarchyComponent>(dropped_entities[0]).parent == target_parent) {
+                    // Single sibling reorder
+                    EntityID single_id = dropped_entities[0];
+                    size_t cur_idx = em.get_sibling_index(single_id);
+                    if (cur_idx < target_idx && target_idx > 0) target_idx--;
+                    if (m_command_history) {
+                        m_command_history->execute_command(
+                            std::make_unique<ReorderEntityCommand>(&em, single_id, target_idx, m_selection, m_entity_state_store.get())
+                        );
+                    } else {
+                        static_cast<void>(em.reorder_sibling(single_id, target_idx));
                     }
                 } else {
-                    EntityID target_parent = 0;
-                    if (em.has_component<HierarchyComponent>(id)) {
-                        target_parent = em.get_component<HierarchyComponent>(id).parent;
-                    }
-
-                    if (!is_descendant(em, target_parent, dropped_id)) {
-                        size_t target_idx = em.get_sibling_index(id);
-                        if (zone == DropZone::After) {
-                            target_idx++;
-                        }
-
-                        EntityID dropped_parent = 0;
-                        if (em.has_component<HierarchyComponent>(dropped_id)) {
-                            dropped_parent = em.get_component<HierarchyComponent>(dropped_id).parent;
-                        }
-
-                        if (dropped_parent == target_parent) {
-                            size_t cur_idx = em.get_sibling_index(dropped_id);
-                            if (cur_idx < target_idx && target_idx > 0) target_idx--;
-                            if (m_command_history) {
-                                m_command_history->execute_command(
-                                    std::make_unique<ReorderEntityCommand>(&em, dropped_id, target_idx, m_selection, m_entity_state_store.get())
-                                );
-                            } else {
-                                static_cast<void>(em.reorder_sibling(dropped_id, target_idx));
-                            }
-                        } else {
-                            if (m_command_history) {
-                                m_command_history->execute_command(
-                                    std::make_unique<ReparentEntityCommand>(&em, dropped_id, target_parent, m_selection, "", m_entity_state_store.get(), target_idx)
-                                );
-                            } else {
-                                ReparentEntityCommand cmd(&em, dropped_id, target_parent, m_selection, "", m_entity_state_store.get(), target_idx);
-                                cmd.execute();
-                            }
-                        }
+                    // Multi-entity reparenting/reordering
+                    if (m_command_history) {
+                        m_command_history->execute_command(
+                            std::make_unique<ReparentEntitiesCommand>(&em, dropped_entities, target_parent, m_selection, "", m_entity_state_store.get(), target_idx)
+                        );
+                    } else {
+                        ReparentEntitiesCommand cmd(&em, dropped_entities, target_parent, m_selection, "", m_entity_state_store.get(), target_idx);
+                        cmd.execute();
                     }
                 }
             }
