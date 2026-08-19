@@ -10,12 +10,14 @@ EditorValueCommand::EditorValueCommand(
     m_apply_after(std::move(apply_after)),
     m_description(std::move(description)) {}
 
-void EditorValueCommand::execute() {
+bool EditorValueCommand::execute() {
     if (m_apply_after) m_apply_after();
+    return true;
 }
 
-void EditorValueCommand::undo() {
+bool EditorValueCommand::undo() {
     if (m_apply_before) m_apply_before();
+    return true;
 }
 
 EditorPropertyTransaction::Key EditorPropertyTransaction::make_key(

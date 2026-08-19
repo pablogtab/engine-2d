@@ -16,12 +16,12 @@ public:
         PostProcessProfile after
     );
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return "Change Post-Processing Profile"; }
 
 private:
-    void apply(const PostProcessProfile& value);
+    bool apply(const PostProcessProfile& value);
 
     PostProcessProfile* m_target{nullptr};
     PostProcessPipeline* m_pipeline{nullptr};

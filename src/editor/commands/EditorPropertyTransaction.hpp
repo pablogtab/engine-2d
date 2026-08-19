@@ -19,8 +19,8 @@ public:
 
     EditorValueCommand(Operation apply_before, Operation apply_after, std::string description);
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:

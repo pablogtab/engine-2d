@@ -8,14 +8,14 @@ class IEditorCommand {
 public:
     virtual ~IEditorCommand() = default;
 
-    // Executes the command (applied first time)
-    virtual void execute() = 0;
+    // Executes the command (applied first time). Returns true on success.
+    virtual bool execute() = 0;
 
-    // Reverses the command (Undo)
-    virtual void undo() = 0;
+    // Reverses the command (Undo). Returns true on success.
+    virtual bool undo() = 0;
 
-    // Re-applies the command (Redo) - defaults to execute()
-    virtual void redo() { execute(); }
+    // Re-applies the command (Redo) - defaults to execute(). Returns true on success.
+    virtual bool redo() { return execute(); }
 
     // Human-readable description for UI tooltips (e.g. "Move Player_Knight")
     [[nodiscard]] virtual std::string get_description() const = 0;

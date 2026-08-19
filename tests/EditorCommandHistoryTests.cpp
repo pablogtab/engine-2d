@@ -13,8 +13,8 @@ public:
     SetIntegerCommand(int& target, int before, int after, std::string description)
         : m_target(target), m_before(before), m_after(after), m_description(std::move(description)) {}
 
-    void execute() override { m_target = m_after; }
-    void undo() override { m_target = m_before; }
+    bool execute() override { m_target = m_after; return true; }
+    bool undo() override { m_target = m_before; return true; }
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:
@@ -22,6 +22,28 @@ private:
     int m_before;
     int m_after;
     std::string m_description;
+};
+
+class FailingCommand final : public IEditorCommand {
+public:
+    bool execute() override { return false; }
+    bool undo() override { return false; }
+    [[nodiscard]] std::string get_description() const override { return "Failing Command"; }
+};
+
+class FailingUndoCommand final : public IEditorCommand {
+public:
+    bool execute() override { return true; }
+    bool undo() override { return false; }
+    [[nodiscard]] std::string get_description() const override { return "Failing Undo Command"; }
+};
+
+class FailingRedoCommand final : public IEditorCommand {
+public:
+    bool execute() override { return true; }
+    bool undo() override { return true; }
+    bool redo() override { return false; }
+    [[nodiscard]] std::string get_description() const override { return "Failing Redo Command"; }
 };
 
 void test_execute_undo_redo_and_descriptions() {
@@ -41,6 +63,49 @@ void test_execute_undo_redo_and_descriptions() {
     history.redo();
     assert(value == 7);
     assert(history.get_undo_count() == 1);
+}
+
+void test_failed_command_is_not_added_to_history() {
+    EditorCommandHistory history;
+    history.execute_command(std::make_unique<FailingCommand>());
+
+    assert(!history.can_undo());
+    assert(history.get_undo_count() == 0);
+    assert(!history.can_redo());
+}
+
+void test_failing_undo_retains_command_in_undo_stack() {
+    EditorCommandHistory history;
+    history.execute_command(std::make_unique<FailingUndoCommand>());
+    assert(history.can_undo());
+    assert(history.get_undo_count() == 1);
+
+    // Undo fails
+    history.undo();
+    // Command must still be on undo stack and NOT moved to redo stack
+    assert(history.can_undo());
+    assert(history.get_undo_count() == 1);
+    assert(!history.can_redo());
+    assert(history.get_redo_count() == 0);
+}
+
+void test_failing_redo_retains_command_in_redo_stack() {
+    EditorCommandHistory history;
+    history.execute_command(std::make_unique<FailingRedoCommand>());
+    assert(history.can_undo());
+
+    // Undo succeeds, moves to redo stack
+    history.undo();
+    assert(!history.can_undo());
+    assert(history.can_redo());
+    assert(history.get_redo_count() == 1);
+
+    // Redo fails
+    history.redo();
+    // Command must still be on redo stack and NOT lost
+    assert(!history.can_undo());
+    assert(history.can_redo());
+    assert(history.get_redo_count() == 1);
 }
 
 void test_new_command_invalidates_redo() {
@@ -101,6 +166,9 @@ void test_null_commands_are_ignored() {
 
 int main() {
     test_execute_undo_redo_and_descriptions();
+    test_failed_command_is_not_added_to_history();
+    test_failing_undo_retains_command_in_undo_stack();
+    test_failing_redo_retains_command_in_redo_stack();
     test_new_command_invalidates_redo();
     test_bounded_history_discards_oldest_command();
     test_push_executed_and_clear();

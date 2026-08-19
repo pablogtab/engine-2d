@@ -15,18 +15,19 @@ ModifyPostProcessProfileCommand::ModifyPostProcessProfileCommand(
       m_before(std::move(before)),
       m_after(std::move(after)) {}
 
-void ModifyPostProcessProfileCommand::apply(const PostProcessProfile& value) {
-    if (!m_target || !m_pipeline) return;
+bool ModifyPostProcessProfileCommand::apply(const PostProcessProfile& value) {
+    if (!m_target || !m_pipeline) return false;
     *m_target = value;
     m_target->apply_to_pipeline(*m_pipeline);
+    return true;
 }
 
-void ModifyPostProcessProfileCommand::execute() {
-    apply(m_after);
+bool ModifyPostProcessProfileCommand::execute() {
+    return apply(m_after);
 }
 
-void ModifyPostProcessProfileCommand::undo() {
-    apply(m_before);
+bool ModifyPostProcessProfileCommand::undo() {
+    return apply(m_before);
 }
 
 } // namespace Engine

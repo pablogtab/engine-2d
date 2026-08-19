@@ -14,18 +14,19 @@ ModifyProjectDisplaySettingsCommand::ModifyProjectDisplaySettingsCommand(
       m_after(after),
       m_on_changed(std::move(on_changed)) {}
 
-void ModifyProjectDisplaySettingsCommand::apply(const ProjectDisplaySettings& value) {
-    if (!m_settings) return;
+bool ModifyProjectDisplaySettingsCommand::apply(const ProjectDisplaySettings& value) {
+    if (!m_settings) return false;
     m_settings->set_display(value);
     if (m_on_changed) m_on_changed(value);
+    return true;
 }
 
-void ModifyProjectDisplaySettingsCommand::execute() {
-    apply(m_after);
+bool ModifyProjectDisplaySettingsCommand::execute() {
+    return apply(m_after);
 }
 
-void ModifyProjectDisplaySettingsCommand::undo() {
-    apply(m_before);
+bool ModifyProjectDisplaySettingsCommand::undo() {
+    return apply(m_before);
 }
 
 } // namespace Engine

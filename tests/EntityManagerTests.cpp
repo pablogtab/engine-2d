@@ -93,8 +93,11 @@ void test_component_lifecycle_clone_and_filtered_views() {
 void test_hierarchy_rejects_invalid_relations_atomically() {
     EntityManager em;
     const EntityID root = em.create_entity();
+    em.add_component<TransformComponent>(root, TransformComponent{});
     const EntityID child = em.create_entity();
+    em.add_component<TransformComponent>(child, TransformComponent{});
     const EntityID grandchild = em.create_entity();
+    em.add_component<TransformComponent>(grandchild, TransformComponent{});
 
     assert(em.set_parent(child, root).status == HierarchyOperationStatus::Changed);
     assert(em.set_parent(grandchild, child).status == HierarchyOperationStatus::Changed);
@@ -114,12 +117,19 @@ void test_hierarchy_rejects_invalid_relations_atomically() {
     assert(em.set_parent(child, 9999).status == HierarchyOperationStatus::InvalidParent);
     assert(em.set_parent(9999, root).status == HierarchyOperationStatus::InvalidChild);
     assert(em.get_component<HierarchyComponent>(child).parent == root);
+
+    // Missing Transform rejection
+    const EntityID no_transform = em.create_entity();
+    assert(em.set_parent(no_transform, root).status == HierarchyOperationStatus::MissingTransform);
+    assert(em.set_parent(child, no_transform).status == HierarchyOperationStatus::MissingTransform);
 }
 
 void test_unparent_and_destroy_preserve_reciprocal_links() {
     EntityManager em;
     const EntityID root = em.create_entity();
+    em.add_component<TransformComponent>(root, TransformComponent{});
     const EntityID child = em.create_entity();
+    em.add_component<TransformComponent>(child, TransformComponent{});
 
     assert(em.set_parent(child, root).changed());
     assert(em.remove_parent(child).changed());

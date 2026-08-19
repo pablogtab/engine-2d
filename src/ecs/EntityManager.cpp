@@ -13,6 +13,7 @@ const char* HierarchyOperationResult::message() const {
         case HierarchyOperationStatus::InvalidParent: return "Parent entity does not exist";
         case HierarchyOperationStatus::SelfParent: return "An entity cannot be parented to itself";
         case HierarchyOperationStatus::CycleDetected: return "Reparenting would create a hierarchy cycle";
+        case HierarchyOperationStatus::MissingTransform: return "Hierarchy requires TransformComponent on both child and parent entities";
     }
     return "Unknown hierarchy result";
 }
@@ -148,8 +149,10 @@ bool EntityManager::would_create_hierarchy_cycle(EntityID child, EntityID parent
 
 HierarchyOperationResult EntityManager::set_parent(EntityID child, EntityID parent) {
     if (child == 0 || !is_alive(child)) return {HierarchyOperationStatus::InvalidChild};
+    if (!has_component<TransformComponent>(child)) return {HierarchyOperationStatus::MissingTransform};
     if (parent == 0) return remove_parent(child);
     if (!is_alive(parent)) return {HierarchyOperationStatus::InvalidParent};
+    if (!has_component<TransformComponent>(parent)) return {HierarchyOperationStatus::MissingTransform};
     if (child == parent) return {HierarchyOperationStatus::SelfParent};
     if (would_create_hierarchy_cycle(child, parent)) {
         return {HierarchyOperationStatus::CycleDetected};

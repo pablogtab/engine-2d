@@ -1,5 +1,6 @@
 #include "SceneHierarchyPanel.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/HierarchyCommands.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
@@ -98,13 +99,13 @@ void SceneHierarchyPanel::on_gui() {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG")) {
                     EntityID dropped_id = *(const EntityID*)payload->Data;
                     if (em.is_alive(dropped_id)) {
-                        const HierarchyOperationResult result = em.remove_parent(dropped_id);
-                        if (!result.succeeded()) {
-                            ENGINE_LOG_WARN(
-                                "[HIERARCHY] Cannot unparent entity #{}: {}",
-                                dropped_id,
-                                result.message()
+                        if (m_command_history) {
+                            m_command_history->execute_command(
+                                std::make_unique<ReparentEntityCommand>(&em, dropped_id, 0, m_selection)
                             );
+                        } else {
+                            ReparentEntityCommand cmd(&em, dropped_id, 0, m_selection);
+                            cmd.execute();
                         }
                     }
                 }
@@ -259,14 +260,13 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG")) {
             EntityID dropped_id = *(const EntityID*)payload->Data;
             if (em.is_alive(dropped_id) && dropped_id != id && !is_descendant(em, id, dropped_id)) {
-                const HierarchyOperationResult result = em.set_parent(dropped_id, id);
-                if (!result.succeeded()) {
-                    ENGINE_LOG_WARN(
-                        "[HIERARCHY] Cannot parent entity #{} to #{}: {}",
-                        dropped_id,
-                        id,
-                        result.message()
+                if (m_command_history) {
+                    m_command_history->execute_command(
+                        std::make_unique<ReparentEntityCommand>(&em, dropped_id, id, m_selection)
                     );
+                } else {
+                    ReparentEntityCommand cmd(&em, dropped_id, id, m_selection);
+                    cmd.execute();
                 }
             }
         }
@@ -288,9 +288,13 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 
         bool has_parent = em.has_component<HierarchyComponent>(id) && (em.get_component<HierarchyComponent>(id).parent != 0);
         if (has_parent && ImGui::MenuItem("⤴️ Unparent (Move to Root)")) {
-            const HierarchyOperationResult result = em.remove_parent(id);
-            if (!result.succeeded()) {
-                ENGINE_LOG_WARN("[HIERARCHY] Cannot unparent entity #{}: {}", id, result.message());
+            if (m_command_history) {
+                m_command_history->execute_command(
+                    std::make_unique<ReparentEntityCommand>(&em, id, 0, m_selection)
+                );
+            } else {
+                ReparentEntityCommand cmd(&em, id, 0, m_selection);
+                cmd.execute();
             }
         }
 

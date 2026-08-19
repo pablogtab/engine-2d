@@ -7,7 +7,10 @@ void EditorCommandHistory::execute_command(std::unique_ptr<IEditorCommand> comma
     if (!command) return;
 
     std::string desc = command->get_description();
-    command->execute();
+    if (!command->execute()) {
+        ENGINE_LOG_WARN("[COMMAND] Execution failed, not added to history: '{}'", desc);
+        return;
+    }
 
     push_executed_command(std::move(command));
     ENGINE_LOG_INFO("[COMMAND] Executed: '{}'", desc);
@@ -34,7 +37,11 @@ void EditorCommandHistory::undo() {
     m_undo_stack.pop_back();
 
     std::string desc = cmd->get_description();
-    cmd->undo();
+    if (!cmd->undo()) {
+        ENGINE_LOG_WARN("[COMMAND] Undo failed for: '{}'", desc);
+        m_undo_stack.push_back(std::move(cmd));
+        return;
+    }
 
     m_redo_stack.push_back(std::move(cmd));
     ENGINE_LOG_INFO("[COMMAND] Undone: '{}'", desc);
@@ -47,7 +54,11 @@ void EditorCommandHistory::redo() {
     m_redo_stack.pop_back();
 
     std::string desc = cmd->get_description();
-    cmd->redo();
+    if (!cmd->redo()) {
+        ENGINE_LOG_WARN("[COMMAND] Redo failed for: '{}'", desc);
+        m_redo_stack.push_back(std::move(cmd));
+        return;
+    }
 
     m_undo_stack.push_back(std::move(cmd));
     ENGINE_LOG_INFO("[COMMAND] Redone: '{}'", desc);

@@ -89,6 +89,7 @@ set(SOURCES
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EntityCommands.cpp
+    src/editor/commands/HierarchyCommands.cpp
     src/editor/commands/ProjectSettingsCommands.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
     src/editor/shortcuts/ShortcutManager.cpp
@@ -239,6 +240,19 @@ target_include_directories(EntityManagerTests PRIVATE
 )
 target_link_libraries(EntityManagerTests PRIVATE glm::glm)
 add_test(NAME EntityManagerTests COMMAND EntityManagerTests)
+
+add_executable(HierarchyCommandTests
+    tests/HierarchyCommandTests.cpp
+    src/core/Log.cpp
+    src/ecs/EntityManager.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/HierarchyCommands.cpp
+)
+target_include_directories(HierarchyCommandTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(HierarchyCommandTests PRIVATE glm::glm)
+add_test(NAME HierarchyCommandTests COMMAND HierarchyCommandTests)
 
 add_executable(SceneSerializerTests
     tests/SceneSerializerTests.cpp

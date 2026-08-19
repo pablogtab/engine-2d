@@ -19,7 +19,8 @@ enum class HierarchyOperationStatus {
     InvalidChild,
     InvalidParent,
     SelfParent,
-    CycleDetected
+    CycleDetected,
+    MissingTransform
 };
 
 struct HierarchyOperationResult {

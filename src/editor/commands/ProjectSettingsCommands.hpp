@@ -15,12 +15,12 @@ public:
         std::function<void(const ProjectDisplaySettings&)> on_changed = {}
     );
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return "Change Project Display Settings"; }
 
 private:
-    void apply(const ProjectDisplaySettings& value);
+    bool apply(const ProjectDisplaySettings& value);
 
     ProjectSettings* m_settings{nullptr};
     ProjectDisplaySettings m_before;

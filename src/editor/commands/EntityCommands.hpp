@@ -32,8 +32,8 @@ public:
         std::string description
     );
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:
@@ -66,13 +66,13 @@ public:
         m_description(std::move(description)),
         m_side_effect(std::move(side_effect)) {}
 
-    void execute() override { apply(m_after); }
-    void undo() override { apply(m_before); }
+    bool execute() override { return apply(m_after); }
+    bool undo() override { return apply(m_before); }
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:
-    void apply(const std::optional<Component>& state) {
-        if (!m_em || !m_em->is_alive(m_entity)) return;
+    bool apply(const std::optional<Component>& state) {
+        if (!m_em || !m_em->is_alive(m_entity)) return false;
         if (state) {
             if (m_em->has_component<Component>(m_entity)) {
                 m_em->get_component<Component>(m_entity) = *state;
@@ -83,6 +83,7 @@ private:
             m_em->remove_component<Component>(m_entity);
         }
         if (m_side_effect) m_side_effect(*m_em, m_entity);
+        return true;
     }
 
     EntityManager* m_em{nullptr};
@@ -103,12 +104,12 @@ public:
         std::string description
     );
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:
-    void apply(const std::unordered_map<EntityID, TransformComponent>& states);
+    bool apply(const std::unordered_map<EntityID, TransformComponent>& states);
 
     EntityManager* m_em{nullptr};
     std::unordered_map<EntityID, TransformComponent> m_before;
@@ -120,12 +121,12 @@ class SetPrimaryCameraCommand final : public IEditorCommand {
 public:
     SetPrimaryCameraCommand(EntityManager* em, EntityID primary_camera);
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return "Set Primary Camera"; }
 
 private:
-    void apply(const std::unordered_map<EntityID, CameraComponent>& states);
+    bool apply(const std::unordered_map<EntityID, CameraComponent>& states);
 
     EntityManager* m_em{nullptr};
     std::unordered_map<EntityID, CameraComponent> m_before;
@@ -148,12 +149,12 @@ public:
         std::string description
     );
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:
-    void apply(const ComponentSnapshotSet& snapshot);
+    bool apply(const ComponentSnapshotSet& snapshot);
 
     ComponentRegistry* m_registry{nullptr};
     EntityManager* m_em{nullptr};
@@ -184,8 +185,8 @@ public:
         std::vector<EntityID> entities_to_delete
     );
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:
@@ -204,8 +205,8 @@ public:
         EntitySnapshot snapshot
     );
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
     [[nodiscard]] EntityID get_created_entity() const { return m_created_id; }
 
@@ -227,8 +228,8 @@ public:
         std::vector<EntityID> source_entities
     );
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:
@@ -251,8 +252,8 @@ public:
         std::string description = "Paint Tiles"
     );
 
-    void execute() override;
-    void undo() override;
+    bool execute() override;
+    bool undo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:

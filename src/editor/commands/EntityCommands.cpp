@@ -25,23 +25,23 @@ SetRegisteredComponentCommand::SetRegisteredComponentCommand(
     m_serialization_context(serialization_context),
     m_description(std::move(description)) {}
 
-void SetRegisteredComponentCommand::execute() {
-    apply(m_after);
+bool SetRegisteredComponentCommand::execute() {
+    return apply(m_after);
 }
 
-void SetRegisteredComponentCommand::undo() {
-    apply(m_before);
+bool SetRegisteredComponentCommand::undo() {
+    return apply(m_before);
 }
 
-void SetRegisteredComponentCommand::apply(const ComponentSnapshotSet& snapshot) {
-    if (!m_registry || !m_em || !m_em->is_alive(m_entity)) return;
+bool SetRegisteredComponentCommand::apply(const ComponentSnapshotSet& snapshot) {
+    if (!m_registry || !m_em || !m_em->is_alive(m_entity)) return false;
     const ComponentDescriptor* descriptor = m_registry->find_by_key(m_component_key);
     if (!descriptor) {
         ENGINE_LOG_ERROR("[EDITOR COMMAND] Unknown component '{}'.", m_component_key);
-        return;
+        return false;
     }
     descriptor->restore(*m_em, m_entity, snapshot);
-    if (!descriptor->has(*m_em, m_entity) || !descriptor->finalize) return;
+    if (!descriptor->has(*m_em, m_entity) || !descriptor->finalize) return true;
 
     std::string error;
     if (!descriptor->finalize(
@@ -59,7 +59,9 @@ void SetRegisteredComponentCommand::apply(const ComponentSnapshotSet& snapshot) 
             m_entity,
             error
         );
+        return false;
     }
+    return true;
 }
 
 EntitySnapshot capture_entity_snapshot(EntityManager& em, EntityID entity) {
@@ -113,16 +115,20 @@ ModifyEntityCommand::ModifyEntityCommand(
     m_apply_after(std::move(apply_after)),
     m_description(std::move(description)) {}
 
-void ModifyEntityCommand::execute() {
+bool ModifyEntityCommand::execute() {
     if (m_em && m_em->is_alive(m_entity) && m_apply_after) {
         m_apply_after(*m_em, m_entity);
+        return true;
     }
+    return false;
 }
 
-void ModifyEntityCommand::undo() {
+bool ModifyEntityCommand::undo() {
     if (m_em && m_em->is_alive(m_entity) && m_apply_before) {
         m_apply_before(*m_em, m_entity);
+        return true;
     }
+    return false;
 }
 
 TransformEntitiesCommand::TransformEntitiesCommand(
@@ -132,8 +138,8 @@ TransformEntitiesCommand::TransformEntitiesCommand(
     std::string description
 ) : m_em(em), m_before(std::move(before)), m_after(std::move(after)), m_description(std::move(description)) {}
 
-void TransformEntitiesCommand::apply(const std::unordered_map<EntityID, TransformComponent>& states) {
-    if (!m_em) return;
+bool TransformEntitiesCommand::apply(const std::unordered_map<EntityID, TransformComponent>& states) {
+    if (!m_em) return false;
     std::unordered_set<EntityID> rebuild_roots;
     for (const auto& [id, transform] : states) {
         if (!m_em->is_alive(id) || !m_em->has_component<TransformComponent>(id)) continue;
@@ -154,10 +160,11 @@ void TransformEntitiesCommand::apply(const std::unordered_map<EntityID, Transfor
             PhysicsSystem::sync_body_hierarchy(*m_em, id);
         }
     }
+    return true;
 }
 
-void TransformEntitiesCommand::execute() { apply(m_after); }
-void TransformEntitiesCommand::undo() { apply(m_before); }
+bool TransformEntitiesCommand::execute() { return apply(m_after); }
+bool TransformEntitiesCommand::undo() { return apply(m_before); }
 
 SetPrimaryCameraCommand::SetPrimaryCameraCommand(EntityManager* em, EntityID primary_camera)
     : m_em(em) {
@@ -170,17 +177,18 @@ SetPrimaryCameraCommand::SetPrimaryCameraCommand(EntityManager* em, EntityID pri
     });
 }
 
-void SetPrimaryCameraCommand::apply(const std::unordered_map<EntityID, CameraComponent>& states) {
-    if (!m_em) return;
+bool SetPrimaryCameraCommand::apply(const std::unordered_map<EntityID, CameraComponent>& states) {
+    if (!m_em) return false;
     for (const auto& [id, camera] : states) {
         if (m_em->is_alive(id) && m_em->has_component<CameraComponent>(id)) {
             m_em->get_component<CameraComponent>(id) = camera;
         }
     }
+    return true;
 }
 
-void SetPrimaryCameraCommand::execute() { apply(m_after); }
-void SetPrimaryCameraCommand::undo() { apply(m_before); }
+bool SetPrimaryCameraCommand::execute() { return apply(m_after); }
+bool SetPrimaryCameraCommand::undo() { return apply(m_before); }
 
 // ---------------------------------------------------------------------------
 // 2. Delete Entities Command
@@ -205,8 +213,8 @@ DeleteEntitiesCommand::DeleteEntitiesCommand(
     }
 }
 
-void DeleteEntitiesCommand::execute() {
-    if (!m_em) return;
+bool DeleteEntitiesCommand::execute() {
+    if (!m_em) return false;
 
     for (const auto& snap : m_snapshots) {
         if (m_em->is_alive(snap.id)) {
@@ -220,10 +228,11 @@ void DeleteEntitiesCommand::execute() {
     if (m_selection) {
         m_selection->clear();
     }
+    return true;
 }
 
-void DeleteEntitiesCommand::undo() {
-    if (!m_em) return;
+bool DeleteEntitiesCommand::undo() {
+    if (!m_em) return false;
 
     std::unordered_set<EntityID> restored_ids;
 
@@ -266,6 +275,7 @@ void DeleteEntitiesCommand::undo() {
     if (m_selection) {
         m_selection->set_selection(restored_ids);
     }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,14 +289,14 @@ CreateEntityCommand::CreateEntityCommand(
     m_description = "Create " + snapshot_tag(m_snapshot);
 }
 
-void CreateEntityCommand::execute() {
-    if (!m_em) return;
+bool CreateEntityCommand::execute() {
+    if (!m_em) return false;
 
     if (m_snapshot.id == 0) {
         m_snapshot.id = m_em->create_entity();
         attach_snapshot_components(*m_em, m_snapshot);
     } else if (!restore_entity_snapshot(*m_em, m_snapshot)) {
-        return;
+        return false;
     }
     m_created_id = m_snapshot.id;
 
@@ -304,23 +314,24 @@ void CreateEntityCommand::execute() {
             );
             m_em->destroy_entity(m_created_id);
             m_created_id = 0;
-            return;
+            return false;
         }
     }
 
     if (!finalize_snapshot_components(*m_em, m_created_id)) {
         m_em->destroy_entity(m_created_id);
         m_created_id = 0;
-        return;
+        return false;
     }
 
     if (m_selection) {
         m_selection->select(m_created_id, false);
     }
+    return true;
 }
 
-void CreateEntityCommand::undo() {
-    if (!m_em) return;
+bool CreateEntityCommand::undo() {
+    if (!m_em) return false;
 
     if (m_created_id != 0 && m_em->is_alive(m_created_id)) {
         if (m_em->has_component<TilemapComponent>(m_created_id)) {
@@ -332,6 +343,7 @@ void CreateEntityCommand::undo() {
     if (m_selection && m_selection->is_selected(m_created_id)) {
         m_selection->clear();
     }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,12 +374,12 @@ DuplicateEntitiesCommand::DuplicateEntitiesCommand(
     if (m_create_commands.size() == 1) m_description = "Duplicate Entity";
 }
 
-void DuplicateEntitiesCommand::execute() {
-    if (!m_em) return;
+bool DuplicateEntitiesCommand::execute() {
+    if (!m_em) return false;
 
     m_duplicate_entities.clear();
     for (auto& command : m_create_commands) {
-        command->execute();
+        if (!command->execute()) continue;
         const EntityID id = command->get_created_entity();
         if (id != 0 && m_em->is_alive(id)) m_duplicate_entities.push_back(id);
     }
@@ -382,10 +394,11 @@ void DuplicateEntitiesCommand::execute() {
         std::unordered_set<EntityID> duplicated(m_duplicate_entities.begin(), m_duplicate_entities.end());
         m_selection->set_selection(duplicated);
     }
+    return true;
 }
 
-void DuplicateEntitiesCommand::undo() {
-    if (!m_em) return;
+bool DuplicateEntitiesCommand::undo() {
+    if (!m_em) return false;
     for (auto it = m_create_commands.rbegin(); it != m_create_commands.rend(); ++it) (*it)->undo();
 
     if (m_selection) {
@@ -393,6 +406,7 @@ void DuplicateEntitiesCommand::undo() {
         for (EntityID id : m_source_entities) if (m_em->is_alive(id)) sources.insert(id);
         m_selection->set_selection(sources);
     }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -410,8 +424,8 @@ PaintTilesCommand::PaintTilesCommand(
     m_new_tiles(std::move(new_tiles)),
     m_description(std::move(description)) {}
 
-void PaintTilesCommand::execute() {
-    if (!m_em || !m_em->is_alive(m_tilemap_entity) || !m_em->has_component<TilemapComponent>(m_tilemap_entity)) return;
+bool PaintTilesCommand::execute() {
+    if (!m_em || !m_em->is_alive(m_tilemap_entity) || !m_em->has_component<TilemapComponent>(m_tilemap_entity)) return false;
 
     auto& tilemap = m_em->get_component<TilemapComponent>(m_tilemap_entity);
     for (const auto& [key, new_id] : m_new_tiles) {
@@ -420,10 +434,11 @@ void PaintTilesCommand::execute() {
         tilemap.set_tile(x, y, new_id);
     }
     TilemapColliderSystem::build_composite_colliders(*m_em, m_tilemap_entity);
+    return true;
 }
 
-void PaintTilesCommand::undo() {
-    if (!m_em || !m_em->is_alive(m_tilemap_entity) || !m_em->has_component<TilemapComponent>(m_tilemap_entity)) return;
+bool PaintTilesCommand::undo() {
+    if (!m_em || !m_em->is_alive(m_tilemap_entity) || !m_em->has_component<TilemapComponent>(m_tilemap_entity)) return false;
 
     auto& tilemap = m_em->get_component<TilemapComponent>(m_tilemap_entity);
     for (const auto& [key, old_id] : m_old_tiles) {
@@ -432,6 +447,7 @@ void PaintTilesCommand::undo() {
         tilemap.set_tile(x, y, old_id);
     }
     TilemapColliderSystem::build_composite_colliders(*m_em, m_tilemap_entity);
+    return true;
 }
 
 } // namespace Engine
