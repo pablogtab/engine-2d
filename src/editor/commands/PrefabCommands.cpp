@@ -860,11 +860,12 @@ CreatePrefabVariantCommand::CreatePrefabVariantCommand(
         return;
     }
 
-    if (EntitySubtreeArchive::has_prefab_nesting_cycle(m_base_prefab_path, m_variant_filepath)) {
+    if (EntitySubtreeArchive::has_prefab_nesting_cycle(m_variant_filepath, m_base_prefab_path)) {
         ENGINE_LOG_ERROR("[PREFAB] CreatePrefabVariantCommand: nesting cycle between '{}' and '{}'", m_variant_filepath, m_base_prefab_path);
         m_valid = false;
         return;
     }
+
 
     m_description = "Create Prefab Variant: " + m_variant_filepath;
 }

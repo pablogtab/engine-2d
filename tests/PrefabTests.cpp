@@ -1327,7 +1327,15 @@ void test_prefab_variant_creation_and_command_undo_redo() {
     assert(redone_link.prefab_asset_path == variant_file);
     assert(redone_link.base_prefab_path == base_file);
 
-    // 6. Test Variant Instantiation from JSON
+    // 6. Test Undo then create variant again (file already exists on disk)
+    history.undo();
+    assert(!em.get_component<PrefabLinkComponent>(base_entity).is_variant());
+    auto create_var_cmd2 = std::make_unique<CreatePrefabVariantCommand>(&em, base_entity, variant_file);
+    assert(create_var_cmd2->is_valid());
+    history.execute_command(std::move(create_var_cmd2));
+    assert(em.get_component<PrefabLinkComponent>(base_entity).is_variant());
+
+    // 7. Test Variant Instantiation from JSON
     EntityManager scene_em;
     ComponentSerializationContext ctx;
     std::string var_json = PrefabSerializer::read_json_from_file(variant_file);
@@ -1339,6 +1347,7 @@ void test_prefab_variant_creation_and_command_undo_redo() {
     std::filesystem::remove(variant_file);
     std::cout << "test_prefab_variant_creation_and_command_undo_redo passed." << std::endl;
 }
+
 
 
 int main() {

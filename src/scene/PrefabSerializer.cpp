@@ -61,10 +61,11 @@ bool PrefabSerializer::save_variant_to_file(
         return false;
     }
 
-    if (EntitySubtreeArchive::has_prefab_nesting_cycle(base_prefab_path, filepath)) {
+    if (EntitySubtreeArchive::has_prefab_nesting_cycle(filepath, base_prefab_path)) {
         ENGINE_LOG_ERROR("[PREFAB] Cannot save prefab variant: cycle detected between '{}' and '{}'", filepath, base_prefab_path);
         return false;
     }
+
 
     ComponentSerializationContext context{
         .renderer = renderer,
