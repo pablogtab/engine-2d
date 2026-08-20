@@ -983,14 +983,15 @@
             },
             "sprite": {
                 "color": [
-                    214,
-                    78,
-                    4,
+                    255,
+                    255,
+                    255,
                     255
                 ],
                 "flip_x": false,
                 "flip_y": false,
                 "has_outline": false,
+                "material_handle": "dbd2385da3441a11",
                 "order_in_layer": 0,
                 "outline_color": [
                     255,

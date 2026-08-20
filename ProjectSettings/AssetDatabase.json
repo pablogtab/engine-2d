@@ -143,6 +143,18 @@
       "path": "assets/textures/tilesets/terrain_tileset.png",
       "status": "ready",
       "type": "texture"
+    },
+    {
+      "handle": "dbd2385da3441a11",
+      "path": "assets/shaders/TstMaterial.material",
+      "status": "ready",
+      "type": "material"
+    },
+    {
+      "handle": "abd59e02595c829e",
+      "path": "assets/shaders/TstMaterial_Copy.material",
+      "status": "missing",
+      "type": "material"
     }
   ],
   "version": 1

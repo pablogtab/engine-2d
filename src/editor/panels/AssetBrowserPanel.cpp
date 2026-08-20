@@ -3,13 +3,47 @@
 #include "../../core/Log.hpp"
 #include "../../core/FileSystem.hpp"
 #include "../../renderer/postprocess/PostProcessProfile.hpp"
+#include "../../renderer/material/MaterialAsset.hpp"
 #include "../commands/AssetFileCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include <imgui.h>
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <iomanip>
+#include <sstream>
 #include <nlohmann/json.hpp>
 
 namespace Engine {
+
+namespace {
+
+std::string format_bytes(const std::vector<std::byte>& bytes) {
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0');
+    for (std::size_t index = 0; index < bytes.size(); ++index) {
+        if (index != 0) stream << ' ';
+        stream << std::setw(2) << std::to_integer<unsigned>(bytes[index]);
+    }
+    return stream.str();
+}
+
+bool parse_hex_bytes(const char* text, std::vector<std::byte>& bytes) {
+    bytes.clear();
+    std::istringstream stream(text);
+    std::string token;
+    while (stream >> token) {
+        if (token.size() != 2 || !std::isxdigit(static_cast<unsigned char>(token[0])) ||
+            !std::isxdigit(static_cast<unsigned char>(token[1]))) return false;
+        unsigned value = 0;
+        std::istringstream parser(token);
+        parser >> std::hex >> value;
+        bytes.push_back(static_cast<std::byte>(value));
+    }
+    return true;
+}
+
+} // namespace
 
 AssetBrowserPanel::AssetBrowserPanel(AssetDatabase* asset_database, std::string root_path)
     : m_root_path(std::move(root_path)), m_current_path(m_root_path), m_asset_database(asset_database) {
@@ -150,6 +184,26 @@ void AssetBrowserPanel::on_gui() {
                             if (m_on_open_prefab) {
                                 m_on_open_prefab(path.string());
                             }
+                        } else if (extension == ".material" && m_asset_database) {
+                            const AssetRecord* material = m_asset_database->find_by_path(path);
+                            std::string error;
+                            const auto description = material
+                                ? MaterialAsset::read(material->handle, *m_asset_database, &error)
+                                : std::nullopt;
+                            if (description) {
+                                m_edit_material_handle = material->handle;
+                                m_edit_material_shader_handle = description->shader_handle;
+                                std::snprintf(m_edit_material_name_buf, sizeof(m_edit_material_name_buf), "%s", description->name.c_str());
+                                m_edit_material_uniform_count = description->uniforms.size();
+                                for (std::size_t index = 0; index < m_edit_material_uniform_count; ++index) {
+                                    const std::string text = format_bytes(description->uniforms[index]);
+                                    std::snprintf(m_edit_material_uniforms[index].data(), m_edit_material_uniforms[index].size(), "%s", text.c_str());
+                                }
+                                m_edit_material_error.clear();
+                                m_show_edit_material_popup = true;
+                            } else {
+                                ENGINE_LOG_WARN("[ASSET BROWSER] Cannot edit material '{}': {}", path.string(), error);
+                            }
                         }
                     }
 
@@ -167,6 +221,17 @@ void AssetBrowserPanel::on_gui() {
                             if (ImGui::MenuItem("Open Prefab")) {
                                 if (m_on_open_prefab) m_on_open_prefab(path.string());
                             }
+                        }
+                        if (extension == ".material" && ImGui::MenuItem("Duplicate Material") &&
+                            m_command_history && m_asset_database) {
+                            std::filesystem::path copy = path.parent_path() / (path.stem().string() + "_Copy.material");
+                            unsigned suffix = 2;
+                            while (std::filesystem::exists(copy)) {
+                                copy = path.parent_path() / (path.stem().string() + "_Copy_" + std::to_string(suffix++) + ".material");
+                            }
+                            m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
+                                m_asset_database, copy, FileSystem::read_text(path.string())
+                            ));
                         }
                         if (ImGui::MenuItem("Delete")) {
                             if (!is_dir && m_command_history && m_asset_database) {
@@ -224,6 +289,10 @@ void AssetBrowserPanel::on_gui() {
         if (m_show_new_post_process_popup) {
             ImGui::OpenPopup("Create New Post-Process Profile");
             m_show_new_post_process_popup = false;
+        }
+        if (m_show_edit_material_popup) {
+            ImGui::OpenPopup("Edit Material");
+            m_show_edit_material_popup = false;
         }
 
         if (ImGui::BeginPopupModal("Create New Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -296,6 +365,65 @@ void AssetBrowserPanel::on_gui() {
                     ));
                 }
                 ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        if (ImGui::BeginPopupModal("Edit Material", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::InputText("Name", m_edit_material_name_buf, sizeof(m_edit_material_name_buf));
+            const AssetRecord* shader = m_edit_material_shader_handle.is_valid() && m_asset_database
+                ? m_asset_database->find(m_edit_material_shader_handle) : nullptr;
+            if (ImGui::BeginCombo("Shader", shader ? shader->source_path.c_str() : "Missing shader")) {
+                if (m_asset_database) {
+                    for (const AssetRecord& record : m_asset_database->records()) {
+                        if (record.type != AssetType::Shader || record.status != AssetStatus::Ready) continue;
+                        const bool selected = record.handle == m_edit_material_shader_handle;
+                        if (ImGui::Selectable(record.source_path.c_str(), selected)) m_edit_material_shader_handle = record.handle;
+                        if (selected) ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (!shader || shader->status != AssetStatus::Ready || shader->type != AssetType::Shader) {
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "Select a ready shader asset before saving.");
+            }
+            ImGui::Separator();
+            ImGui::TextUnformatted("Uniform buffers (hex bytes, e.g. 00 ff 2a):");
+            for (std::size_t index = 0; index < m_edit_material_uniform_count; ++index) {
+                ImGui::PushID(static_cast<int>(index));
+                ImGui::InputText("##uniform", m_edit_material_uniforms[index].data(), m_edit_material_uniforms[index].size());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) {
+                    for (std::size_t next = index + 1; next < m_edit_material_uniform_count; ++next) {
+                        m_edit_material_uniforms[next - 1] = m_edit_material_uniforms[next];
+                    }
+                    --m_edit_material_uniform_count;
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::PopID();
+            }
+            if (m_edit_material_uniform_count < m_edit_material_uniforms.size() && ImGui::Button("Add Uniform Buffer")) {
+                m_edit_material_uniforms[m_edit_material_uniform_count++].fill('\0');
+            }
+            if (!m_edit_material_error.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s", m_edit_material_error.c_str());
+            ImGui::Separator();
+            if (ImGui::Button("Save", ImVec2(120, 0)) && m_asset_database) {
+                MaterialAssetDescription description;
+                description.name = m_edit_material_name_buf;
+                description.shader_handle = m_edit_material_shader_handle;
+                bool valid = !description.name.empty();
+                for (std::size_t index = 0; valid && index < m_edit_material_uniform_count; ++index) {
+                    std::vector<std::byte> bytes;
+                    valid = parse_hex_bytes(m_edit_material_uniforms[index].data(), bytes);
+                    if (valid) description.uniforms.push_back(std::move(bytes));
+                }
+                if (!valid) {
+                    m_edit_material_error = "Each uniform buffer must use two-digit hexadecimal bytes.";
+                } else if (MaterialAsset::save(m_edit_material_handle, description, *m_asset_database, &m_edit_material_error)) {
+                    ImGui::CloseCurrentPopup();
+                }
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();

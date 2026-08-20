@@ -56,7 +56,7 @@ These systems form the current baseline and should be extended rather than rewri
 
 - [x] Global post-processing pipeline with reusable profiles.
 - [x] GPU material abstraction shared by sprites and fullscreen passes.
-- [x] Night Vision GPU material validated on sprites and fullscreen output.
+- [ ] Validate the Night Vision GPU material on Metal sprites and fullscreen output (MSL entry point corrected; hardware smoke test pending).
 - [x] Backend-neutral shader variants with an SDL GPU material backend.
 - [x] Regression tests for post-process state, history, material uniforms, and source/destination routing.
 
@@ -222,7 +222,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Recreate global post-process presets as `.postprocess` assets and select them from the Tuner.
 - [ ] Add an offline shader compilation/validation pipeline for Metal, Vulkan, and Direct3D variants.
 - [ ] Report unavailable shader variants before runtime.
-- [ ] Add material parameter inspection, serialization, duplication, and missing-shader diagnostics.
+- [x] Add material parameter editing, serialization, duplication, and missing-shader diagnostics in Asset Browser.
 
 ### Prefabs
 

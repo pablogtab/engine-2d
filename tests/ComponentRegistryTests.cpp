@@ -555,9 +555,10 @@ void test_material_assets_load_by_handle() {
     [[maybe_unused]] const AssetScanResult shader_scan = database.scan(root / "assets");
     const AssetRecord* shader = database.find_by_path("assets/shaders/Test.msl");
     assert(shader && shader->type == AssetType::Shader);
+    const AssetHandle shader_handle = shader->handle;
     const nlohmann::json material_json{
         {"name", "Test Material"},
-        {"shader_handle", shader->handle.to_string()},
+        {"shader_handle", shader_handle.to_string()},
         {"uniforms", nlohmann::json::array({nlohmann::json::array({1, 2, 3, 4})})}
     };
     assert(FileSystem::write_text((root / "assets/materials/Test.material").string(), material_json.dump()));
@@ -567,6 +568,15 @@ void test_material_assets_load_by_handle() {
     const auto loaded = MaterialAsset::load(material->handle, database);
     assert(loaded && loaded->name() == "Test Material");
     assert(loaded->uniform_bytes(0).size() == 4);
+    assert(loaded->shader().variants().front().entry_point == "main0");
+    auto description = MaterialAsset::read(material->handle, database);
+    assert(description && description->shader_handle == shader_handle);
+    description->name = "Edited Material";
+    description->uniforms[0] = {std::byte{9}, std::byte{8}};
+    assert(MaterialAsset::save(material->handle, *description, database));
+    const auto edited = MaterialAsset::load(material->handle, database);
+    assert(edited && edited->name() == "Edited Material");
+    assert(edited->uniform_bytes(0).size() == 2);
 
     fs::remove_all(root, ignored);
 }

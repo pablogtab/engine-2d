@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../EditorPanel.hpp"
+#include "../../core/AssetHandle.hpp"
+#include <array>
 #include <string>
 #include <filesystem>
 #include <functional>
@@ -46,6 +48,13 @@ private:
     bool m_show_new_scene_popup{false};
     bool m_show_new_material_popup{false};
     bool m_show_new_post_process_popup{false};
+    bool m_show_edit_material_popup{false};
+    AssetHandle m_edit_material_handle{};
+    AssetHandle m_edit_material_shader_handle{};
+    char m_edit_material_name_buf[128]{};
+    std::array<std::array<char, 513>, 8> m_edit_material_uniforms{};
+    std::size_t m_edit_material_uniform_count{0};
+    std::string m_edit_material_error;
     float m_thumbnail_size{72.0f};
     float m_padding{14.0f};
 };
