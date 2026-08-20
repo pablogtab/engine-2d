@@ -220,12 +220,18 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Prefabs
 
-- [ ] Add prefab assets backed by registry-based entity/component serialization.
-- [ ] Add instance identity and explicit property overrides.
-- [ ] Add Apply, Revert, Unpack, and nested-prefab policies.
-- [ ] Make prefab operations reversible and dependency-safe.
+- [x] Add prefab assets backed by registry-based entity/component serialization (`EntitySubtreeArchive`, `PrefabSerializer`).
+- [x] Add isolated Prefab Stage edit mode (`PrefabStageController`, transient scene, isolated command history, breadcrumb navigation, dirty protection).
+- [x] Add instance linkage (`PrefabLinkComponent`, `[P]` cyan visual cues in Hierarchy, asset path tooltips).
+- [x] Add Apply, Revert Contents, Unpack, and batch multi-selection actions (`ApplyPrefabCommand`, `RevertPrefabCommand`, `UnpackPrefabCommand`).
+- [x] Add Live Asset Propagation (`PrefabPropagation::propagate_to_instances`) from Prefab Stage save and Inspector Apply to all active scene instances.
+- [x] Add duplication link preservation (`DuplicateEntitiesCommand` clones preserve independent `PrefabLinkComponent`).
+- [x] Make prefab operations fully reversible, transactional, and dependency-safe without disk dependencies on undo/redo.
+- [ ] Add explicit per-property override tracking & granular property revert/apply visuals in the Inspector.
+- [ ] Add nested-prefab policies and Prefab Variants.
 
 **Completion criteria:** Assets and prefabs remain valid across reload, move, duplication, save/load, and standalone packaging without runtime-pointer fragility.
+
 
 ---
 
