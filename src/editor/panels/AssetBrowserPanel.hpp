@@ -8,6 +8,8 @@
 #include <functional>
 #include <memory>
 
+struct SDL_Renderer;
+
 namespace Engine {
 
 class AssetDatabase;
@@ -30,6 +32,7 @@ public:
     void set_command_history(std::shared_ptr<EditorCommandHistory> command_history) {
         m_command_history = std::move(command_history);
     }
+    void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
 
     void refresh();
 
@@ -38,6 +41,7 @@ private:
     std::filesystem::path m_root_path;
     std::filesystem::path m_current_path;
     AssetDatabase* m_asset_database{nullptr};
+    SDL_Renderer* m_renderer{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history;
     std::function<void(const std::string&)> m_on_load_scene;
     std::function<void(const std::string&)> m_on_open_prefab;

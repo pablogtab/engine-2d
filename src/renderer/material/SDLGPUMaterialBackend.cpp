@@ -16,6 +16,10 @@ SDL_GPUShaderFormat to_sdl_format(ShaderBinaryFormat format) {
     return SDL_GPU_SHADERFORMAT_INVALID;
 }
 
+void set_error(std::string* error, std::string message) {
+    if (error) *error = std::move(message);
+}
+
 } // namespace
 
 SDLGPUMaterialBackend::SDLGPUMaterialBackend(SDL_Renderer* renderer)
@@ -37,15 +41,36 @@ const char* SDLGPUMaterialBackend::backend_name() const {
     return m_device ? SDL_GetGPUDeviceDriver(m_device) : "unavailable";
 }
 
+bool SDLGPUMaterialBackend::supports(
+    SDL_Renderer* renderer, const FragmentShader& shader, std::string* error
+) {
+    SDL_GPUDevice* device = renderer ? SDL_GetGPURendererDevice(renderer) : nullptr;
+    if (!device) {
+        set_error(error, "The current renderer does not provide an SDL GPU shader backend");
+        return false;
+    }
+    if (shader.sampler_count() != 1) {
+        set_error(error, "This renderer supports exactly one sprite source sampler");
+        return false;
+    }
+
+    const SDL_GPUShaderFormat supported = SDL_GetGPUShaderFormats(device);
+    for (const auto& variant : shader.variants()) {
+        const SDL_GPUShaderFormat format = to_sdl_format(variant.format);
+        if ((supported & format) != 0 && !variant.code.empty()) return true;
+    }
+    set_error(error, std::string("No non-empty shader variant is supported by ") + SDL_GetGPUDeviceDriver(device));
+    return false;
+}
+
 SDLGPUMaterialBackend::CachedState* SDLGPUMaterialBackend::state_for(
     const std::shared_ptr<const FragmentShader>& shader
 ) {
     if (!m_device || !m_renderer) return nullptr;
     if (auto found = m_states.find(shader); found != m_states.end()) return &found->second;
-    if (shader->sampler_count() != 1) {
-        ENGINE_LOG_ERROR(
-            "[MATERIAL] Shader '{}' requests {} samplers; the first material slice supports the sprite source sampler only",
-            shader->name(), shader->sampler_count());
+    std::string support_error;
+    if (!supports(m_renderer, *shader, &support_error)) {
+        ENGINE_LOG_ERROR("[MATERIAL] Shader '{}' is unavailable: {}", shader->name(), support_error);
         return nullptr;
     }
 

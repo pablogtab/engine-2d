@@ -397,6 +397,7 @@ add_executable(ComponentRegistryTests
     src/renderer/Texture.cpp
     src/renderer/material/FragmentShader.cpp
     src/renderer/material/MaterialAsset.cpp
+    src/renderer/material/SDLGPUMaterialBackend.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp

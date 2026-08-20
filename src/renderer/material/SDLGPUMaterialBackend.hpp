@@ -3,6 +3,7 @@
 #include "IMaterialBackend.hpp"
 #include <SDL3/SDL.h>
 #include <memory>
+#include <string>
 #include <unordered_map>
 
 namespace Engine {
@@ -19,6 +20,9 @@ public:
 
     [[nodiscard]] bool is_available() const override { return m_device != nullptr; }
     [[nodiscard]] const char* backend_name() const override;
+    [[nodiscard]] static bool supports(
+        SDL_Renderer* renderer, const FragmentShader& shader, std::string* error = nullptr
+    );
     bool bind(const Material& material, const MaterialRenderContext& context) override;
     void unbind() override;
     bool draw_fullscreen(

@@ -10,6 +10,7 @@
 #include "../../renderer/Texture.hpp"
 #include "../../renderer/material/Material.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
+#include "../../renderer/material/SDLGPUMaterialBackend.hpp"
 #include "../../scene/PrefabOverrides.hpp"
 
 #include <algorithm>
@@ -45,7 +46,7 @@ bool sprite_states_equal(const SpriteComponent& lhs, const SpriteComponent& rhs)
         lhs.order_in_layer == rhs.order_in_layer;
 }
 
-bool draw_material_value(SpriteComponent& sprite) {
+bool draw_material_value(SpriteComponent& sprite, SDL_Renderer* renderer) {
     InspectorWidgets::begin_property_row("Material");
     AssetDatabase& database = AssetDatabase::get();
     const AssetRecord* selected = sprite.material_handle.is_valid() ? database.find(sprite.material_handle) : nullptr;
@@ -60,10 +61,22 @@ bool draw_material_value(SpriteComponent& sprite) {
         for (const AssetRecord& record : database.records()) {
             if (record.type != AssetType::Material || record.status != AssetStatus::Ready) continue;
             const bool is_selected = sprite.material_handle == record.handle;
+            std::string compatibility_error;
+            const auto material = MaterialAsset::load(record.handle, database);
+            const bool compatible = !renderer || (material && SDLGPUMaterialBackend::supports(
+                renderer, material->shader(), &compatibility_error
+            ));
+            if (!compatible) ImGui::BeginDisabled();
             if (ImGui::Selectable(record.source_path.c_str(), is_selected)) {
                 sprite.material_handle = record.handle;
-                sprite.material = MaterialAsset::load(record.handle, database);
+                sprite.material = material;
                 changed = true;
+            }
+            if (!compatible) {
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Unavailable: %s", compatibility_error.c_str());
+                }
             }
             if (is_selected) ImGui::SetItemDefaultFocus();
         }
@@ -264,7 +277,7 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
 
     const SpriteComponent material_before = sprite;
     begin_property_interaction("Sprite.Material");
-    const bool material_changed = draw_material_value(sprite);
+    const bool material_changed = draw_material_value(sprite, context.renderer);
     capture_property_interaction();
     track_edit(em, entity, material_before, "Sprite.Material", "Change Sprite Material", context, material_changed);
 

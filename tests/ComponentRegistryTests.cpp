@@ -7,6 +7,7 @@
 #include "renderer/material/MaterialAsset.hpp"
 #include "renderer/material/ShaderAsset.hpp"
 #include "renderer/material/Material.hpp"
+#include "renderer/material/SDLGPUMaterialBackend.hpp"
 #include "ecs/EntityManager.hpp"
 #include "scene/ComponentRegistry.hpp"
 #include "editor/inspector/EditorComponentRegistry.hpp"
@@ -616,6 +617,13 @@ void test_material_assets_load_by_handle() {
     fs::remove_all(root, ignored);
 }
 
+void test_shader_preflight_reports_missing_renderer() {
+    FragmentShader shader("Test");
+    std::string error;
+    assert(!SDLGPUMaterialBackend::supports(nullptr, shader, &error));
+    assert(error == "The current renderer does not provide an SDL GPU shader backend");
+}
+
 template<std::size_t... Indices>
 void request_overflow_component_ids(std::index_sequence<Indices...>) {
     (static_cast<void>(get_component_type_id<OverflowComponent<Indices>>()), ...);
@@ -649,6 +657,7 @@ int main() {
     test_prefab_links_persist_asset_handles();
     test_sprite_textures_persist_asset_handles();
     test_material_assets_load_by_handle();
+    test_shader_preflight_reports_missing_renderer();
     test_finalization_runs_after_entity_references_exist();
     test_animation_lifecycle_clears_runtime_playback();
     test_component_type_limit_has_explicit_diagnostic();

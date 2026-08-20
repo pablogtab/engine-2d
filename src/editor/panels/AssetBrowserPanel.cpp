@@ -4,6 +4,7 @@
 #include "../../core/FileSystem.hpp"
 #include "../../renderer/postprocess/PostProcessProfile.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
+#include "../../renderer/material/SDLGPUMaterialBackend.hpp"
 #include "../../renderer/material/ShaderAsset.hpp"
 #include "../commands/AssetFileCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
@@ -397,6 +398,20 @@ void AssetBrowserPanel::on_gui() {
             }
             if (!shader || shader->status != AssetStatus::Ready || shader->type != AssetType::Shader) {
                 ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "Select a ready shader asset before saving.");
+            } else if (!m_renderer) {
+                ImGui::TextDisabled("Shader compatibility is unavailable until the renderer starts.");
+            } else {
+                std::string compatibility_error;
+                const auto runtime_shader = ShaderAsset::load(shader->handle, *m_asset_database, &compatibility_error);
+                const bool compatible = runtime_shader && SDLGPUMaterialBackend::supports(
+                    m_renderer, *runtime_shader, &compatibility_error
+                );
+                const ImVec4 color = compatible
+                    ? ImVec4(0.35f, 0.9f, 0.45f, 1.0f)
+                    : ImVec4(1.0f, 0.55f, 0.35f, 1.0f);
+                ImGui::TextColored(color, "%s", compatible
+                    ? "Compatible with the current renderer."
+                    : compatibility_error.c_str());
             }
             ImGui::Separator();
             ImGui::TextUnformatted("Uniform buffers (hex bytes):");
