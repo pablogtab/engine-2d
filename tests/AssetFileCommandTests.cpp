@@ -36,16 +36,16 @@ int main() {
 
     history.execute_command(std::make_unique<Engine::CreateAssetCommand>(
         &database, scene, "{\"scene_name\":\"Created\"}\n"));
-    require(fs::exists(scene) && fs::exists(root / "Library/AssetDatabase.json"), "create makes asset and central record");
+    require(fs::exists(scene) && fs::exists(root / "ProjectSettings/AssetDatabase.json"), "create makes asset and central record");
     const auto* created = database.find_by_path(scene);
     require(created != nullptr, "create imports asset");
     const Engine::AssetHandle handle = created->handle;
-    const std::string metadata = read(root / "Library/AssetDatabase.json");
+    const std::string metadata = read(root / "ProjectSettings/AssetDatabase.json");
 
     history.undo();
     require(!fs::exists(scene), "undo create removes source asset");
     history.redo();
-    require(fs::exists(scene) && fs::exists(root / "Library/AssetDatabase.json"), "redo create restores source and central record");
+    require(fs::exists(scene) && fs::exists(root / "ProjectSettings/AssetDatabase.json"), "redo create restores source and central record");
     require(database.find_by_path(scene)->handle == handle, "redo create preserves handle");
 
     history.execute_command(std::make_unique<Engine::MoveAssetCommand>(&database, scene, renamed));
@@ -60,7 +60,7 @@ int main() {
     require(!fs::exists(renamed), "delete removes source asset");
     history.undo();
     require(fs::exists(renamed), "undo delete restores source asset");
-    require(fs::exists(root / "Library/AssetDatabase.json"), "undo delete preserves central database");
+    require(fs::exists(root / "ProjectSettings/AssetDatabase.json"), "undo delete preserves central database");
     require(database.resolve(handle) == renamed.string(), "undo delete restores handle resolution");
 
     fs::remove_all(root, error);

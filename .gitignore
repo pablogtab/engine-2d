@@ -6,7 +6,6 @@ dist/
 .cache/
 compile_commands.json
 saves/
-Library/
 vscode*/
 
 # Logs & runtime locks

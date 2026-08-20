@@ -1,0 +1,107 @@
+{
+  "assets": [
+    {
+      "handle": "180fac6bfc4947a2",
+      "path": "assets/.DS_Store",
+      "status": "ready",
+      "type": "unknown"
+    },
+    {
+      "handle": "fedc3053e67a4a8f",
+      "path": "assets/audio/theme.wav",
+      "status": "ready",
+      "type": "audio"
+    },
+    {
+      "handle": "c3817f695d2ddbb1",
+      "path": "assets/prefabs/Coins.prefab",
+      "status": "ready",
+      "type": "prefab"
+    },
+    {
+      "handle": "970975f9481c9850",
+      "path": "assets/prefabs/Collectible_Coin_1.prefab",
+      "status": "ready",
+      "type": "prefab"
+    },
+    {
+      "handle": "5b415e7f7b576167",
+      "path": "assets/prefabs/Collectible_Coin_1_Variant.prefab",
+      "status": "ready",
+      "type": "prefab"
+    },
+    {
+      "handle": "36969535f79f5074",
+      "path": "assets/prefabs/Player_Knight.prefab",
+      "status": "ready",
+      "type": "prefab"
+    },
+    {
+      "handle": "d84fc86b59efd7ef",
+      "path": "assets/scenes/2D Platformer & Collision Layer Matrix.scene",
+      "status": "ready",
+      "type": "scene"
+    },
+    {
+      "handle": "0f2289f5eed11a72",
+      "path": "assets/scenes/NewLevel.scene",
+      "status": "ready",
+      "type": "scene"
+    },
+    {
+      "handle": "a0fe361f48120edc",
+      "path": "assets/scenes/PlatformerDemo.scene",
+      "status": "ready",
+      "type": "scene"
+    },
+    {
+      "handle": "af83fedbdd9a2907",
+      "path": "assets/scenes/PlatformerLevel.scene",
+      "status": "ready",
+      "type": "scene"
+    },
+    {
+      "handle": "9a171b1652fe8a86",
+      "path": "assets/scenes/SampleLevel.scene",
+      "status": "ready",
+      "type": "scene"
+    },
+    {
+      "handle": "6795fafb54837f0b",
+      "path": "assets/shaders/night_vision.frag.hlsl",
+      "status": "ready",
+      "type": "shader"
+    },
+    {
+      "handle": "7215eb4de35c643b",
+      "path": "assets/shaders/night_vision.frag.msl",
+      "status": "ready",
+      "type": "shader"
+    },
+    {
+      "handle": "438f769b97bf56b5",
+      "path": "assets/textures/.DS_Store",
+      "status": "ready",
+      "type": "unknown"
+    },
+    {
+      "handle": "8e84233ff6f447b0",
+      "path": "assets/textures/knight_sheet.png",
+      "status": "ready",
+      "type": "texture"
+    },
+    {
+      "handle": "507a5df9eaa7428c",
+      "path": "assets/textures/player.png",
+      "status": "ready",
+      "type": "texture"
+    },
+    {
+      "handle": "f9f7148e69473a8a",
+      "path": "assets/textures/tilesets/terrain_tileset.png",
+      "status": "ready",
+      "type": "texture"
+    }
+  ],
+  "version": 1
+}

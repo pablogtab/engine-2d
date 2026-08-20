@@ -37,7 +37,7 @@ std::optional<AssetHandle> AssetHandle::from_string(const std::string& text) {
 
 AssetDatabase::AssetDatabase(fs::path root) : m_project_root(fs::absolute(std::move(root)).lexically_normal()) {}
 AssetDatabase& AssetDatabase::get() { static AssetDatabase database; return database; }
-fs::path AssetDatabase::database_path() const { return m_project_root / "Library/AssetDatabase.json"; }
+fs::path AssetDatabase::database_path() const { return m_project_root / "ProjectSettings/AssetDatabase.json"; }
 
 AssetScanResult AssetDatabase::scan(const fs::path& assets_root) {
     m_scanned_root = assets_root;

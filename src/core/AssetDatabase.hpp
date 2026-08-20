@@ -45,7 +45,7 @@ public:
 
     static AssetDatabase& get();
 
-    // Scans an asset root, persisting identity in Library/AssetDatabase.json.
+    // Scans an asset root, persisting identity in ProjectSettings/AssetDatabase.json.
     [[nodiscard]] AssetScanResult scan(const std::filesystem::path& assets_root = "assets");
     [[nodiscard]] AssetScanResult rescan();
     void clear();

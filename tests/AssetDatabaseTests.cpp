@@ -35,7 +35,7 @@ int main() {
     const auto initial = database.scan(root / "assets");
     require(initial.imported == 3, "scan imports source assets into central database");
     require(initial.ready == 3, "all imported assets become ready");
-    require(fs::exists(root / "Library/AssetDatabase.json"), "central asset database is created");
+    require(fs::exists(root / "ProjectSettings/AssetDatabase.json"), "central asset database is created");
 
     const auto* prefab = database.find_by_path(root / "assets/prefabs/Hero.prefab");
     require(prefab != nullptr, "path resolves to record");
