@@ -238,7 +238,9 @@ add_test(NAME AssetFileCommandTests COMMAND AssetFileCommandTests)
 
 add_executable(InspectorCommandTests
     tests/InspectorCommandTests.cpp
+    src/core/AssetDatabase.cpp
     src/core/AssetManager.cpp
+    src/core/FileSystem.cpp
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/editor/state/EditorEntityStateStore.cpp
@@ -298,6 +300,7 @@ add_test(NAME EditorEntityStateStoreTests COMMAND EditorEntityStateStoreTests)
 
 add_executable(HierarchyCommandTests
     tests/HierarchyCommandTests.cpp
+    src/core/AssetDatabase.cpp
     src/core/AssetManager.cpp
     src/core/FileSystem.cpp
     src/core/Log.cpp
@@ -348,6 +351,7 @@ add_test(NAME ViewportVisibilityTests COMMAND ViewportVisibilityTests)
 
 add_executable(SceneSerializerTests
     tests/SceneSerializerTests.cpp
+    src/core/AssetDatabase.cpp
     src/core/AssetManager.cpp
     src/core/FileSystem.cpp
     src/core/Log.cpp
@@ -376,7 +380,9 @@ add_test(NAME SceneSerializerTests COMMAND SceneSerializerTests)
 
 add_executable(ComponentRegistryTests
     tests/ComponentRegistryTests.cpp
+    src/core/AssetDatabase.cpp
     src/core/AssetManager.cpp
+    src/core/FileSystem.cpp
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/renderer/Texture.cpp
@@ -397,7 +403,9 @@ add_test(NAME ComponentRegistryTests COMMAND ComponentRegistryTests)
 
 add_executable(SceneMigrationTests
     tests/SceneMigrationTests.cpp
+    src/core/AssetDatabase.cpp
     src/core/AssetManager.cpp
+    src/core/FileSystem.cpp
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/renderer/Texture.cpp
@@ -417,6 +425,7 @@ add_test(NAME SceneMigrationTests COMMAND SceneMigrationTests)
 
 add_executable(PrefabTests
     tests/PrefabTests.cpp
+    src/core/AssetDatabase.cpp
     src/core/AssetManager.cpp
     src/core/FileSystem.cpp
     src/core/Log.cpp
@@ -452,6 +461,7 @@ add_test(NAME PrefabTests COMMAND PrefabTests)
 
 add_executable(PrefabStageControllerTests
     tests/PrefabStageControllerTests.cpp
+    src/core/AssetDatabase.cpp
     src/core/AssetManager.cpp
     src/core/FileSystem.cpp
     src/core/Log.cpp

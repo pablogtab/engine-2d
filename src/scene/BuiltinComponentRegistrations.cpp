@@ -1,6 +1,7 @@
 #include "BuiltinComponentRegistrations.hpp"
 
 #include "ComponentRegistry.hpp"
+#include "../core/AssetDatabase.hpp"
 #include "../core/AssetManager.hpp"
 #include "../ecs/components/AnimationComponents.hpp"
 #include "../ecs/components/CoreComponents.hpp"
@@ -118,24 +119,55 @@ void register_prefab_link(ComponentRegistry& registry) {
     register_or_throw<PrefabLinkComponent>(registry, {
         .display_name = "Prefab Link",
         .serialized_key = "prefab_link",
-        .serialize = [](const PrefabLinkComponent& link, const ComponentSerializationContext&) {
-            Json j{
-                {"asset_path", link.prefab_asset_path}
-            };
+        .serialize = [](const PrefabLinkComponent& link, const ComponentSerializationContext& context) {
+            if (!context.asset_database) {
+                throw std::runtime_error("Prefab Link serialization requires an AssetDatabase");
+            }
+            const AssetRecord* prefab = context.asset_database->find_by_path(link.prefab_asset_path);
+            if (!prefab || prefab->status != AssetStatus::Ready || prefab->type != AssetType::Prefab) {
+                throw std::runtime_error("Prefab Link references an unregistered prefab: " + link.prefab_asset_path);
+            }
+            Json j{{"asset_handle", prefab->handle.to_string()}};
             if (!link.base_prefab_path.empty()) {
-                j["base_prefab_path"] = link.base_prefab_path;
+                const AssetRecord* base = context.asset_database->find_by_path(link.base_prefab_path);
+                if (!base || base->status != AssetStatus::Ready || base->type != AssetType::Prefab) {
+                    throw std::runtime_error("Prefab Link references an unregistered base prefab: " + link.base_prefab_path);
+                }
+                j["base_asset_handle"] = base->handle.to_string();
             }
             j["source_local_id"] = link.source_local_id;
             j["is_root_instance"] = link.is_root_instance;
             return j;
         },
-        .deserialize = [](PrefabLinkComponent& link, const Json& value, const ComponentSerializationContext&, std::string& error) {
+        .deserialize = [](PrefabLinkComponent& link, const Json& value, const ComponentSerializationContext& context, std::string& error) {
             if (!value.is_object()) {
                 error = "Prefab link must be an object";
                 return false;
             }
-            link.prefab_asset_path = value.value("asset_path", "");
-            link.base_prefab_path = value.value("base_prefab_path", "");
+            if (!context.asset_database) {
+                error = "Prefab link deserialization requires an AssetDatabase";
+                return false;
+            }
+            const auto resolve = [&](const char* key, std::string& destination, bool required) {
+                if (!value.contains(key)) {
+                    if (required) error = std::string("Prefab link is missing ") + key;
+                    return !required;
+                }
+                if (!value[key].is_string()) {
+                    error = std::string(key) + " must be a string";
+                    return false;
+                }
+                const auto handle = AssetHandle::from_string(value[key].get<std::string>());
+                const AssetRecord* record = handle ? context.asset_database->find(*handle) : nullptr;
+                if (!record || record->status != AssetStatus::Ready || record->type != AssetType::Prefab) {
+                    error = std::string(key) + " does not resolve to a ready prefab";
+                    return false;
+                }
+                destination = record->source_path;
+                return true;
+            };
+            if (!resolve("asset_handle", link.prefab_asset_path, true) ||
+                !resolve("base_asset_handle", link.base_prefab_path, false)) return false;
             link.source_local_id = value.value("source_local_id", EntityID{1});
             link.is_root_instance = value.value("is_root_instance", true);
             return true;

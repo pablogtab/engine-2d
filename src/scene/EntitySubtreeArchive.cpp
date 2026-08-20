@@ -1,6 +1,7 @@
 #include "EntitySubtreeArchive.hpp"
 #include "../core/Log.hpp"
 #include "../core/FileSystem.hpp"
+#include "../core/AssetDatabase.hpp"
 #include "../ecs/TransformSystem.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include <queue>
@@ -170,9 +171,12 @@ bool EntitySubtreeArchive::has_prefab_nesting_cycle(
         if (!json_text.empty()) {
             try {
                 nlohmann::json root = nlohmann::json::parse(json_text);
-                // Check base_prefab_path (for variants)
-                if (root.contains("base_prefab_path") && root["base_prefab_path"].is_string()) {
-                    std::string base = normalize_prefab_path(root["base_prefab_path"].get<std::string>());
+                // Check the variant base through its stable asset identity.
+                if (root.contains("base_asset_handle") && root["base_asset_handle"].is_string()) {
+                    const auto handle = AssetHandle::from_string(root["base_asset_handle"].get<std::string>());
+                    const AssetRecord* record = handle ? AssetDatabase::get().find(*handle) : nullptr;
+                    std::string base = record && record->status == AssetStatus::Ready && record->type == AssetType::Prefab
+                        ? normalize_prefab_path(record->source_path) : std::string{};
                     if (base == normalized_parent) return true;
                     if (!base.empty() && visited.insert(base).second) {
                         queue.push(base);
@@ -183,7 +187,12 @@ bool EntitySubtreeArchive::has_prefab_nesting_cycle(
                 if (root.contains("entities") && root["entities"].is_array()) {
                     for (const auto& ent : root["entities"]) {
                         if (ent.is_object() && ent.contains("prefab_link") && ent["prefab_link"].is_object()) {
-                            std::string link_path = normalize_prefab_path(ent["prefab_link"].value("asset_path", ""));
+                            std::string link_path;
+                            const auto handle = AssetHandle::from_string(ent["prefab_link"].value("asset_handle", ""));
+                            if (const AssetRecord* record = handle ? AssetDatabase::get().find(*handle) : nullptr;
+                                record && record->status == AssetStatus::Ready && record->type == AssetType::Prefab) {
+                                link_path = normalize_prefab_path(record->source_path);
+                            }
                             if (link_path == normalized_parent) return true;
                             if (!link_path.empty() && visited.insert(link_path).second) {
                                 queue.push(link_path);
@@ -211,6 +220,11 @@ SubtreeInstantiationResult EntitySubtreeArchive::instantiate_from_json(
 ) {
     if (json_text.empty()) {
         return {.success = false, .error_message = "Prefab JSON content is empty"};
+    }
+
+    ComponentSerializationContext effective_context = context;
+    if (!effective_context.asset_database) {
+        effective_context.asset_database = &AssetDatabase::get();
     }
 
     // 0. Preflight validation of target parent
@@ -332,7 +346,7 @@ SubtreeInstantiationResult EntitySubtreeArchive::instantiate_from_json(
         created_entities.push_back(new_id);
         local_to_runtime[local_id] = new_id;
 
-        if (!reg.deserialize_entity(em, new_id, entity_json, context, error_msg)) {
+        if (!reg.deserialize_entity(em, new_id, entity_json, effective_context, error_msg)) {
             rollback();
             return {.success = false, .error_message = "Failed deserializing component: " + error_msg};
         }
@@ -395,7 +409,7 @@ SubtreeInstantiationResult EntitySubtreeArchive::instantiate_from_json(
 
     // Stage 4: Finalize components across all created entities
     ComponentFinalizeContext finalize_context{
-        .serialization = context,
+        .serialization = effective_context,
         .reason = ComponentFinalizeReason::DeserializationCommit
     };
 

@@ -7,6 +7,7 @@
 #include "../ecs/TransformSystem.hpp"
 #include "../tilemap/Tilemap.hpp"
 #include "../core/AssetManager.hpp"
+#include "../core/AssetDatabase.hpp"
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -36,7 +37,7 @@ std::string SceneSerializer::serialize_to_string() {
 
     json entities_array = json::array();
     EntityManager& em = m_scene->get_entity_manager();
-    const ComponentSerializationContext component_context{m_renderer, &AssetManager::get()};
+    const ComponentSerializationContext component_context{m_renderer, &AssetManager::get(), &AssetDatabase::get()};
     std::string component_error;
     bool component_serialization_failed = false;
 
@@ -115,7 +116,7 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
         }
 
         EntityManager candidate;
-        const ComponentSerializationContext component_context{m_renderer, &AssetManager::get()};
+        const ComponentSerializationContext component_context{m_renderer, &AssetManager::get(), &AssetDatabase::get()};
         std::vector<EntityID> loaded_entities;
         std::vector<std::pair<EntityID, EntityID>> hierarchy_links;
 

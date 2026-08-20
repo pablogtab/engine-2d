@@ -1,4 +1,5 @@
 #include "core/FileSystem.hpp"
+#include "core/AssetDatabase.hpp"
 #include "ecs/components/AnimationComponents.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
@@ -418,6 +419,8 @@ void test_entity_lock_and_editor_visibility_are_not_serialized() {
 } // namespace
 
 int main() {
+    std::filesystem::current_path(ENGINE_SOURCE_DIR);
+    [[maybe_unused]] const AssetScanResult assets = AssetDatabase::get().scan("assets");
     test_round_trip_restores_destroyed_child_hierarchy();
     test_forward_parent_reference_is_order_independent();
     test_sprite_outline_authoring_round_trips();

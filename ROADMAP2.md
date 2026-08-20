@@ -204,6 +204,7 @@ These systems form the current baseline and should be extended rather than rewri
 ### Asset Database
 
 - [x] Introduce stable `AssetHandle` identities and project-relative source paths (`AssetDatabase`, atomic `.meta` sidecars, project-root resolver, duplicate-handle rejection).
+- [x] Persist prefab links and prefab-variant bases as `AssetHandle`; resolve their runtime paths only through `AssetDatabase` (initial format, with no legacy migration path).
 - [ ] Make components serialize asset handles instead of runtime pointers.
 - [ ] Resolve handles to runtime resources through the asset system.
 - [ ] Add explicit missing, loading, failed, and ready states with safe fallback assets.
@@ -471,5 +472,5 @@ These items are useful but should not interrupt the architecture work above unle
    - Extend multi-selection property transactions to `SpriteComponent` (tint, size, flip X/Y, sorting layer, outline) and `CameraComponent` (zoom, projection, clear color, follow target, bounds).
 2. **Scene Hierarchy Search and Component Filtering (Phase 3)**:
    - Quick search bar with type filters (`:sprite`, `:collider`, `:camera`, `:locked`, `:hidden`), match highlighting, and auto-expanding matched branches.
-3. **Prefab Handle Migration (Phase 4)**:
-   - Serialize prefab links and base-variant references with `AssetHandle`; resolve paths only through `AssetDatabase`.
+3. **Prefab Handle References (Phase 4)**:
+   - [x] Serialize prefab links and base-variant references with `AssetHandle`; resolve paths only through `AssetDatabase`.

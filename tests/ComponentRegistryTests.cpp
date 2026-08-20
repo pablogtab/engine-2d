@@ -1,4 +1,6 @@
 #include "ecs/components/AnimationComponents.hpp"
+#include "core/AssetDatabase.hpp"
+#include "core/FileSystem.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
@@ -7,6 +9,7 @@
 #include "editor/inspector/EditorComponentRegistry.hpp"
 #include "tilemap/Tilemap.hpp"
 #include <cassert>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <typeindex>
@@ -378,12 +381,10 @@ void test_builtin_components_round_trip_through_registry() {
     tilemap.set_tile(-2, 5, 7);
     em.add_component<TilemapComponent>(source, tilemap);
 
-    em.add_component<PrefabLinkComponent>(source, PrefabLinkComponent{"assets/prefabs/test.prefab"});
-
     nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
-    for (const char* key : {"tag", "group", "prefab_link", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
+    for (const char* key : {"tag", "group", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
         assert(value.contains(key));
     }
 
@@ -397,7 +398,6 @@ void test_builtin_components_round_trip_through_registry() {
     ));
     assert(em.get_component<TagComponent>(target).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(target));
-    assert(em.get_component<PrefabLinkComponent>(target).prefab_asset_path == "assets/prefabs/test.prefab");
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<AnimationComponent>(target).clips.front().name == "Run");
     assert(em.get_component<RigidBodyComponent>(target).mass == 3.0f);
@@ -414,10 +414,9 @@ void test_builtin_components_round_trip_through_registry() {
         ComponentFinalizeContext{.reason = ComponentFinalizeReason::SnapshotRestore},
         error
     ));
-    assert(snapshot.size() == default_component_registry().descriptors().size());
+    assert(snapshot.size() + 1 == default_component_registry().descriptors().size());
     assert(em.get_component<TagComponent>(restored).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(restored));
-    assert(em.get_component<PrefabLinkComponent>(restored).prefab_asset_path == "assets/prefabs/test.prefab");
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
     assert(em.get_component<AnimationComponent>(restored).clips.size() == 1);
     assert(em.get_component<RigidBodyComponent>(restored).body_type == BodyType::Dynamic);
@@ -473,6 +472,39 @@ void test_animation_lifecycle_clears_runtime_playback() {
     assert(!em.has_component<AnimationPlaybackStateComponent>(entity));
 }
 
+void test_prefab_links_persist_asset_handles() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_component_registry_asset_handles";
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+    fs::create_directories(root / "assets/prefabs");
+    assert(FileSystem::write_text((root / "assets/prefabs/Hero.prefab").string(), "{}"));
+
+    AssetDatabase database(root);
+    [[maybe_unused]] const AssetScanResult scan = database.scan(root / "assets");
+    assert(database.find_by_path("assets/prefabs/Hero.prefab"));
+    EntityManager em;
+    const EntityID source = em.create_entity();
+    em.add_component<TransformComponent>(source, TransformComponent{});
+    em.add_component<PrefabLinkComponent>(source, PrefabLinkComponent{"assets/prefabs/Hero.prefab"});
+    ComponentSerializationContext context{.asset_database = &database};
+    nlohmann::json serialized;
+    std::string error;
+    assert(default_component_registry().serialize_entity(em, source, serialized, context, error));
+    assert(serialized["prefab_link"].contains("asset_handle"));
+    assert(!serialized["prefab_link"].contains("asset_path"));
+
+    const fs::path renamed = root / "assets/prefabs/HeroRenamed.prefab";
+    fs::rename(root / "assets/prefabs/Hero.prefab", renamed, ignored);
+    assert(!ignored);
+    assert(database.move_asset("assets/prefabs/Hero.prefab", "assets/prefabs/HeroRenamed.prefab"));
+
+    const EntityID target = em.create_entity();
+    assert(default_component_registry().deserialize_entity(em, target, serialized, context, error));
+    assert(em.get_component<PrefabLinkComponent>(target).prefab_asset_path == "assets/prefabs/HeroRenamed.prefab");
+    fs::remove_all(root, ignored);
+}
+
 template<std::size_t... Indices>
 void request_overflow_component_ids(std::index_sequence<Indices...>) {
     (static_cast<void>(get_component_type_id<OverflowComponent<Indices>>()), ...);
@@ -503,6 +535,7 @@ int main() {
     test_registered_json_round_trip_and_validation();
     test_missing_required_component_is_rejected();
     test_builtin_components_round_trip_through_registry();
+    test_prefab_links_persist_asset_handles();
     test_finalization_runs_after_entity_references_exist();
     test_animation_lifecycle_clears_runtime_playback();
     test_component_type_limit_has_explicit_diagnostic();

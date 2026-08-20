@@ -1,6 +1,7 @@
 #include "PrefabCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../../core/AssetManager.hpp"
+#include "../../core/AssetDatabase.hpp"
 #include "../../core/FileSystem.hpp"
 #include "../../core/Log.hpp"
 #include "../../ecs/TransformSystem.hpp"
@@ -43,6 +44,11 @@ InstantiatePrefabCommand::InstantiatePrefabCommand(
     } else {
         m_prefab_filepath = prefab_filepath_or_json;
         std::replace(m_prefab_filepath.begin(), m_prefab_filepath.end(), '\\', '/');
+        if (!AssetDatabase::get().import_asset(m_prefab_filepath)) {
+            ENGINE_LOG_ERROR("[PREFAB] InstantiatePrefabCommand: prefab '{}' is not importable", m_prefab_filepath);
+            m_valid = false;
+            return;
+        }
         m_json_content = PrefabSerializer::read_json_from_file(m_prefab_filepath);
         std::filesystem::path p(m_prefab_filepath);
         std::string stem = p.stem().string();
@@ -71,7 +77,8 @@ bool InstantiatePrefabCommand::execute() {
     if (m_snapshots.empty()) {
         ComponentSerializationContext context{
             .renderer = m_renderer,
-            .asset_manager = &AssetManager::get()
+            .asset_manager = &AssetManager::get(),
+            .asset_database = &AssetDatabase::get()
         };
 
         auto result = EntitySubtreeArchive::instantiate_from_json(

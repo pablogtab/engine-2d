@@ -123,8 +123,8 @@
                     0.5
                 ],
                 "position": [
-                    91.7891845703125,
-                    -94.8538818359375,
+                    -189.2108154296875,
+                    -83.8538818359375,
                     0.0
                 ],
                 "rotation": 0.0,
@@ -979,7 +979,8 @@
             ],
             "id": 14,
             "prefab_link": {
-                "asset_path": "assets/prefabs/Collectible_Coin_1.prefab"
+                "asset_handle": "5b415e7f7b576167",
+                "base_asset_handle": "970975f9481c9850"
             },
             "rigidbody": {
                 "fixed_rotation": true,
@@ -1024,8 +1025,8 @@
                     0.5
                 ],
                 "position": [
-                    -562.7374267578125,
-                    -41.0,
+                    -401.5323486328125,
+                    1.11663818359375,
                     0.0
                 ],
                 "rotation": 0.0,

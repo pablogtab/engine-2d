@@ -2,6 +2,7 @@
 #include "../core/FileSystem.hpp"
 #include "../core/Log.hpp"
 #include "../core/AssetManager.hpp"
+#include "../core/AssetDatabase.hpp"
 #include <filesystem>
 #include <optional>
 #include <unordered_map>
@@ -13,6 +14,14 @@ namespace {
 
 std::string normalize_prefab_path(const std::string& path) {
     return std::filesystem::path(path).lexically_normal().generic_string();
+}
+
+std::string resolve_prefab_handle(const nlohmann::json& document, const char* key) {
+    if (!document.contains(key) || !document[key].is_string()) return {};
+    const auto handle = AssetHandle::from_string(document[key].get<std::string>());
+    const AssetRecord* record = handle ? AssetDatabase::get().find(*handle) : nullptr;
+    return record && record->status == AssetStatus::Ready && record->type == AssetType::Prefab
+        ? record->source_path : std::string{};
 }
 
 std::optional<nlohmann::json> make_merge_patch(const nlohmann::json& base, const nlohmann::json& target) {
@@ -159,10 +168,14 @@ std::string resolve_prefab_json(const std::string& filepath, std::unordered_set<
     if (raw.empty()) return {};
     try {
         nlohmann::json document = nlohmann::json::parse(raw);
-        if (!document.contains("base_prefab_path") || !document["base_prefab_path"].is_string()) {
+        if (!document.contains("base_asset_handle")) {
             return document.dump(4);
         }
-        const std::string base_path = normalize_prefab_path(document["base_prefab_path"].get<std::string>());
+        const std::string base_path = normalize_prefab_path(resolve_prefab_handle(document, "base_asset_handle"));
+        if (base_path.empty()) {
+            ENGINE_LOG_ERROR("[PREFAB] Variant '{}' references an unavailable base prefab", normalized_path);
+            return {};
+        }
         const std::string base_text = resolve_prefab_json(base_path, visiting);
         if (base_text.empty()) return {};
         nlohmann::json resolved = nlohmann::json::parse(base_text);
@@ -200,7 +213,8 @@ bool PrefabSerializer::save_to_file(
 
     ComponentSerializationContext context{
         .renderer = renderer,
-        .asset_manager = &AssetManager::get()
+        .asset_manager = &AssetManager::get(),
+        .asset_database = &AssetDatabase::get()
     };
 
     std::string json_text = EntitySubtreeArchive::capture_to_json(em, root_entity, context, registry);
@@ -221,6 +235,10 @@ bool PrefabSerializer::save_to_file(
 
     if (!FileSystem::write_text_atomically(filepath, json_text)) {
         ENGINE_LOG_ERROR("[PREFAB] Failed writing prefab JSON atomically to '{}'", filepath);
+        return false;
+    }
+    if (!AssetDatabase::get().import_asset(filepath)) {
+        ENGINE_LOG_ERROR("[PREFAB] Failed registering saved prefab '{}'", filepath);
         return false;
     }
 
@@ -249,7 +267,8 @@ bool PrefabSerializer::save_variant_to_file(
 
     ComponentSerializationContext context{
         .renderer = renderer,
-        .asset_manager = &AssetManager::get()
+        .asset_manager = &AssetManager::get(),
+        .asset_database = &AssetDatabase::get()
     };
 
     const std::string resolved_base_text = read_json_from_file(base_prefab_path);
@@ -268,9 +287,14 @@ bool PrefabSerializer::save_variant_to_file(
         ENGINE_LOG_ERROR("[PREFAB] Failed preparing variant '{}': {}", filepath, e.what());
         return false;
     }
+    const AssetRecord* base = AssetDatabase::get().find_by_path(base_prefab_path);
+    if (!base || base->status != AssetStatus::Ready || base->type != AssetType::Prefab) {
+        ENGINE_LOG_ERROR("[PREFAB] Cannot save prefab variant: base '{}' is not a registered prefab", base_prefab_path);
+        return false;
+    }
     nlohmann::json stored_document = {
         {"prefab_version", EntitySubtreeArchive::CURRENT_PREFAB_VERSION},
-        {"base_prefab_path", normalize_prefab_path(base_prefab_path)},
+        {"base_asset_handle", base->handle.to_string()},
         {"variant_overrides", make_variant_overrides(base_document, variant_document)}
     };
 
@@ -288,6 +312,10 @@ bool PrefabSerializer::save_variant_to_file(
         ENGINE_LOG_ERROR("[PREFAB] Failed writing variant prefab JSON atomically to '{}'", filepath);
         return false;
     }
+    if (!AssetDatabase::get().import_asset(filepath)) {
+        ENGINE_LOG_ERROR("[PREFAB] Failed registering saved variant '{}'", filepath);
+        return false;
+    }
 
     ENGINE_LOG_INFO("[PREFAB] Successfully saved prefab variant to '{}' (Base: '{}')", filepath, base_prefab_path);
     return true;
@@ -299,8 +327,8 @@ bool PrefabSerializer::is_variant_file(const std::string& filepath, std::string*
     if (json_text.empty()) return false;
     try {
         nlohmann::json root = nlohmann::json::parse(json_text);
-        if (root.contains("base_prefab_path") && root["base_prefab_path"].is_string()) {
-            std::string base = root["base_prefab_path"].get<std::string>();
+        if (root.contains("base_asset_handle")) {
+            std::string base = resolve_prefab_handle(root, "base_asset_handle");
             if (!base.empty()) {
                 if (out_base_path) *out_base_path = base;
                 return true;
@@ -317,16 +345,19 @@ bool PrefabSerializer::write_resolved_to_file(const std::string& filepath, const
         const std::string raw_text = FileSystem::read_text(filepath);
         if (raw_text.empty()) return FileSystem::write_text_atomically(filepath, resolved.dump(4));
         const nlohmann::json raw = nlohmann::json::parse(raw_text);
-        if (!raw.contains("base_prefab_path") || !raw["base_prefab_path"].is_string()) {
+        if (!raw.contains("base_asset_handle")) {
             return FileSystem::write_text_atomically(filepath, resolved.dump(4));
         }
-        const std::string base_path = normalize_prefab_path(raw["base_prefab_path"].get<std::string>());
+        const std::string base_path = normalize_prefab_path(resolve_prefab_handle(raw, "base_asset_handle"));
+        if (base_path.empty()) return false;
+        const AssetRecord* base_record = AssetDatabase::get().find_by_path(base_path);
+        if (!base_record) return false;
         const std::string base_text = read_json_from_file(base_path);
         if (base_text.empty()) return false;
         const nlohmann::json base = nlohmann::json::parse(base_text);
         const nlohmann::json variant = {
             {"prefab_version", EntitySubtreeArchive::CURRENT_PREFAB_VERSION},
-            {"base_prefab_path", base_path},
+            {"base_asset_handle", base_record->handle.to_string()},
             {"variant_overrides", make_variant_overrides(base, resolved)}
         };
         return FileSystem::write_text_atomically(filepath, variant.dump(4));

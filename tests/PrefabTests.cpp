@@ -15,6 +15,7 @@
 #include "ecs/components/PhysicsComponents.hpp"
 #include "tilemap/Tilemap.hpp"
 #include "core/FileSystem.hpp"
+#include "core/AssetDatabase.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -561,17 +562,21 @@ void test_prefab_link_component_and_unpack_revert_commands() {
     EditorEntityStateStore state_store;
     auto selection = std::make_shared<EditorSelection>();
     EditorCommandHistory history;
-    ComponentSerializationContext ctx;
+    std::filesystem::create_directories("assets/prefabs");
+    const std::string link_prefab_file = "assets/prefabs/Hero.prefab";
+    assert(FileSystem::write_text_atomically(link_prefab_file, "{}"));
+    [[maybe_unused]] const AssetScanResult asset_scan = AssetDatabase::get().scan("assets");
+    ComponentSerializationContext ctx{.asset_database = &AssetDatabase::get()};
 
     // 1. Test ComponentRegistry serialization of PrefabLinkComponent
     EntityID test_link_entity = em.create_entity();
     em.add_component<TransformComponent>(test_link_entity, TransformComponent{});
-    em.add_component<PrefabLinkComponent>(test_link_entity, PrefabLinkComponent{"assets/prefabs/Hero.prefab"});
+    em.add_component<PrefabLinkComponent>(test_link_entity, PrefabLinkComponent{link_prefab_file});
     nlohmann::json entity_json;
     std::string err;
     assert(default_component_registry().serialize_entity(em, test_link_entity, entity_json, ctx, err));
     assert(entity_json.contains("prefab_link"));
-    assert(entity_json["prefab_link"]["asset_path"] == "assets/prefabs/Hero.prefab");
+    assert(entity_json["prefab_link"].contains("asset_handle"));
     em.destroy_entity(test_link_entity);
 
 
@@ -1319,6 +1324,8 @@ void test_nested_prefab_cycle_rejection() {
     emA.add_component<TransformComponent>(rootA, TransformComponent{});
     EntityID childA = emA.create_entity();
     emA.add_component<TransformComponent>(childA, TransformComponent{});
+    assert(FileSystem::write_text_atomically(pB, "{}"));
+    assert(AssetDatabase::get().import_asset(pB));
     emA.add_component<PrefabLinkComponent>(childA, PrefabLinkComponent{pB});
     assert(emA.set_parent(childA, rootA).succeeded());
 
