@@ -94,9 +94,14 @@ struct GroupComponent {};
 
 struct PrefabLinkComponent {
     std::string prefab_asset_path;
+    std::string base_prefab_path; // Non-empty if this instance is a Prefab Variant
 
     PrefabLinkComponent() = default;
-    explicit PrefabLinkComponent(std::string path) : prefab_asset_path(std::move(path)) {}
+    explicit PrefabLinkComponent(std::string path, std::string base_path = "")
+        : prefab_asset_path(std::move(path)), base_prefab_path(std::move(base_path)) {}
+
+    [[nodiscard]] bool is_variant() const { return !base_prefab_path.empty(); }
 };
+
 
 } // namespace Engine

@@ -229,7 +229,8 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Make prefab operations fully reversible, transactional, and dependency-safe without disk dependencies on undo/redo.
 - [x] Add explicit per-property/component override tracking & granular revert/apply visuals (3px blue gutter, context menus, and Overrides dropdown popup) in the Inspector.
 
-- [ ] Add nested-prefab policies and Prefab Variants.
+- [x] Add nested-prefab policies and Prefab Variants (`has_prefab_nesting_cycle`, `base_prefab_path`, `[V]` badge, `CreatePrefabVariantCommand`).
+
 
 **Completion criteria:** Assets and prefabs remain valid across reload, move, duplication, save/load, and standalone packaging without runtime-pointer fragility.
 

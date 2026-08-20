@@ -202,5 +202,35 @@ private:
     bool m_first_execute{true};
 };
 
+class CreatePrefabVariantCommand : public IEditorCommand {
+public:
+    CreatePrefabVariantCommand(
+        EntityManager* em,
+        EntityID root_entity,
+        std::string variant_filepath,
+        SDL_Renderer* renderer = nullptr,
+        const EditorEntityStateStore* state_store = nullptr
+    );
+
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
+
+private:
+    EntityManager* m_em{nullptr};
+    EntityID m_root_entity{0};
+    std::string m_variant_filepath;
+    std::string m_base_prefab_path;
+    PrefabLinkComponent m_previous_link;
+    bool m_had_previous_link{false};
+    SDL_Renderer* m_renderer{nullptr};
+    std::string m_description{"Create Prefab Variant"};
+    bool m_valid{true};
+    bool m_first_execute{true};
+};
+
 } // namespace Engine
+
+
 

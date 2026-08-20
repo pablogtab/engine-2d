@@ -98,12 +98,17 @@ std::vector<EntityID> PrefabPropagation::propagate_to_instances(
 
         if (result.success) {
             if (!em.has_component<PrefabLinkComponent>(result.root_entity)) {
-                em.add_component<PrefabLinkComponent>(result.root_entity, PrefabLinkComponent{prefab_asset_path});
+                em.add_component<PrefabLinkComponent>(result.root_entity, PrefabLinkComponent{prefab_asset_path, result.base_prefab_path});
+            } else {
+                auto& l = em.get_component<PrefabLinkComponent>(result.root_entity);
+                l.prefab_asset_path = prefab_asset_path;
+                l.base_prefab_path = result.base_prefab_path;
             }
             new_roots.push_back(result.root_entity);
         } else {
             ENGINE_LOG_ERROR("[PREFAB] PrefabPropagation failed instantiating instance: {}", result.error_message);
         }
+
     }
 
     TransformSystem::update(em);

@@ -93,9 +93,14 @@ bool InstantiatePrefabCommand::execute() {
         // If instantiated from file, attach PrefabLinkComponent to the root entity
         if (!m_is_raw_json && !m_prefab_filepath.empty() && m_root_entity != 0) {
             if (!m_em->has_component<PrefabLinkComponent>(m_root_entity)) {
-                m_em->add_component<PrefabLinkComponent>(m_root_entity, PrefabLinkComponent{m_prefab_filepath});
+                m_em->add_component<PrefabLinkComponent>(m_root_entity, PrefabLinkComponent{m_prefab_filepath, result.base_prefab_path});
+            } else {
+                auto& link = m_em->get_component<PrefabLinkComponent>(m_root_entity);
+                link.prefab_asset_path = m_prefab_filepath;
+                link.base_prefab_path = result.base_prefab_path;
             }
         }
+
 
         // Capture in-memory snapshots for subsequent Redo cycles without disk access
         m_snapshots.clear();
@@ -823,5 +828,79 @@ bool ApplyComponentPrefabCommand::undo() {
     return true;
 }
 
+CreatePrefabVariantCommand::CreatePrefabVariantCommand(
+    EntityManager* em,
+    EntityID root_entity,
+    std::string variant_filepath,
+    SDL_Renderer* renderer,
+    const EditorEntityStateStore* state_store
+)
+    : m_em(em),
+      m_root_entity(root_entity),
+      m_variant_filepath(std::move(variant_filepath)),
+      m_renderer(renderer)
+{
+    (void)state_store;
+    if (!m_em || !m_em->is_alive(m_root_entity) || m_variant_filepath.empty()) {
+        m_valid = false;
+        return;
+    }
+
+    if (m_em->has_component<PrefabLinkComponent>(m_root_entity)) {
+        m_previous_link = m_em->get_component<PrefabLinkComponent>(m_root_entity);
+        m_had_previous_link = true;
+        m_base_prefab_path = m_previous_link.prefab_asset_path;
+    } else {
+        m_valid = false;
+        return;
+    }
+
+    if (m_base_prefab_path.empty() || m_base_prefab_path == m_variant_filepath) {
+        m_valid = false;
+        return;
+    }
+
+    if (EntitySubtreeArchive::has_prefab_nesting_cycle(m_base_prefab_path, m_variant_filepath)) {
+        ENGINE_LOG_ERROR("[PREFAB] CreatePrefabVariantCommand: nesting cycle between '{}' and '{}'", m_variant_filepath, m_base_prefab_path);
+        m_valid = false;
+        return;
+    }
+
+    m_description = "Create Prefab Variant: " + m_variant_filepath;
+}
+
+bool CreatePrefabVariantCommand::execute() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_root_entity)) return false;
+
+    if (m_first_execute) {
+        if (!PrefabSerializer::save_variant_to_file(*m_em, m_root_entity, m_variant_filepath, m_base_prefab_path, m_renderer)) {
+            ENGINE_LOG_ERROR("[PREFAB] CreatePrefabVariantCommand failed saving variant to '{}'", m_variant_filepath);
+            return false;
+        }
+        m_first_execute = false;
+    }
+
+    auto& link = m_em->get_component<PrefabLinkComponent>(m_root_entity);
+    link.prefab_asset_path = m_variant_filepath;
+    link.base_prefab_path = m_base_prefab_path;
+    return true;
+}
+
+bool CreatePrefabVariantCommand::undo() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_root_entity)) return false;
+
+    if (m_had_previous_link) {
+        if (!m_em->has_component<PrefabLinkComponent>(m_root_entity)) {
+            m_em->add_component<PrefabLinkComponent>(m_root_entity, m_previous_link);
+        } else {
+            m_em->get_component<PrefabLinkComponent>(m_root_entity) = m_previous_link;
+        }
+    } else if (m_em->has_component<PrefabLinkComponent>(m_root_entity)) {
+        m_em->remove_component<PrefabLinkComponent>(m_root_entity);
+    }
+    return true;
+}
+
 } // namespace Engine
+
 

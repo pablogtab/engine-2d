@@ -18,8 +18,22 @@ public:
         const ComponentRegistry* registry = nullptr
     );
 
+    // Saves a root entity as a Prefab Variant deriving from base_prefab_path.
+    [[nodiscard]] static bool save_variant_to_file(
+        const EntityManager& em,
+        EntityID root_entity,
+        const std::string& filepath,
+        const std::string& base_prefab_path,
+        SDL_Renderer* renderer = nullptr,
+        const ComponentRegistry* registry = nullptr
+    );
+
+    // Returns true if the file on disk is a Prefab Variant, and optionally populates out_base_path.
+    [[nodiscard]] static bool is_variant_file(const std::string& filepath, std::string* out_base_path = nullptr);
+
     // Reads the raw JSON text from a .prefab file.
     [[nodiscard]] static std::string read_json_from_file(const std::string& filepath);
 };
+
 
 } // namespace Engine

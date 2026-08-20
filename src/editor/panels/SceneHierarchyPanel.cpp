@@ -316,7 +316,13 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
     const bool is_effectively_visible = is_visible && !is_ancestor_hidden;
     const bool directly_matches = !filter_str.empty() && EditorHierarchyFilter::matches_single(em, id, filter_str, m_entity_state_store.get());
     const bool is_prefab_instance = em.has_component<PrefabLinkComponent>(id);
-    const std::string display_name = is_prefab_instance ? "[P] " + name : name;
+    bool is_variant = false;
+    if (is_prefab_instance) {
+        is_variant = em.get_component<PrefabLinkComponent>(id).is_variant();
+    }
+    const std::string display_name = is_prefab_instance
+        ? (is_variant ? "[V] " + name : "[P] " + name)
+        : name;
 
     int style_color_count = 0;
     if (!is_effectively_visible) {
@@ -327,8 +333,13 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.85f, 1.0f, 1.0f));
         style_color_count++;
     } else if (is_prefab_instance) {
-        // Highlight prefab instance in soft electric cyan/blue
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.75f, 1.0f, 1.0f));
+        if (is_variant) {
+            // Highlight variant in soft electric lavender/purple
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.55f, 1.0f, 1.0f));
+        } else {
+            // Highlight prefab instance in soft electric cyan/blue
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.75f, 1.0f, 1.0f));
+        }
         style_color_count++;
     } else if (!filter_str.empty()) {
         // Ancestor container of matching child (subtle dimming)
@@ -343,8 +354,13 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 
     if (is_prefab_instance && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
         const auto& link = em.get_component<PrefabLinkComponent>(id);
-        ImGui::SetTooltip("Prefab Instance: %s", link.prefab_asset_path.c_str());
+        if (link.is_variant()) {
+            ImGui::SetTooltip("Prefab Variant: %s\nBase: %s", link.prefab_asset_path.c_str(), link.base_prefab_path.c_str());
+        } else {
+            ImGui::SetTooltip("Prefab Instance: %s", link.prefab_asset_path.c_str());
+        }
     }
+
 
 
     // Single click / multi-click selection on the tree node item
@@ -535,6 +551,27 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             std::string filepath = "assets/prefabs/" + clean_name + ".prefab";
             static_cast<void>(PrefabSerializer::save_to_file(em, id, filepath, m_renderer));
         }
+
+        if (em.has_component<PrefabLinkComponent>(id)) {
+            if (ImGui::MenuItem("Create Prefab Variant...", nullptr, false, !is_locked)) {
+                std::string tag_name = em.has_component<TagComponent>(id) ? em.get_component<TagComponent>(id).tag : "Variant";
+                std::string clean_name = tag_name;
+                for (char& c : clean_name) {
+                    if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
+                }
+                if (clean_name.empty()) clean_name = "Variant";
+                std::string variant_path = "assets/prefabs/" + clean_name + "_Variant.prefab";
+                if (m_command_history) {
+                    m_command_history->execute_command(
+                        std::make_unique<CreatePrefabVariantCommand>(&em, id, variant_path, m_renderer, m_entity_state_store.get())
+                    );
+                } else {
+                    CreatePrefabVariantCommand cmd(&em, id, variant_path, m_renderer, m_entity_state_store.get());
+                    cmd.execute();
+                }
+            }
+        }
+
 
 
         bool has_parent = em.has_component<HierarchyComponent>(id) && (em.get_component<HierarchyComponent>(id).parent != 0);

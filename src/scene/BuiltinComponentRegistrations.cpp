@@ -119,9 +119,13 @@ void register_prefab_link(ComponentRegistry& registry) {
         .display_name = "Prefab Link",
         .serialized_key = "prefab_link",
         .serialize = [](const PrefabLinkComponent& link, const ComponentSerializationContext&) {
-            return Json{
+            Json j{
                 {"asset_path", link.prefab_asset_path}
             };
+            if (!link.base_prefab_path.empty()) {
+                j["base_prefab_path"] = link.base_prefab_path;
+            }
+            return j;
         },
         .deserialize = [](PrefabLinkComponent& link, const Json& value, const ComponentSerializationContext&, std::string& error) {
             if (!value.is_object()) {
@@ -129,10 +133,12 @@ void register_prefab_link(ComponentRegistry& registry) {
                 return false;
             }
             link.prefab_asset_path = value.value("asset_path", "");
+            link.base_prefab_path = value.value("base_prefab_path", "");
             return true;
         }
     });
 }
+
 
 void register_camera(ComponentRegistry& registry) {
     register_or_throw<CameraComponent>(registry, {

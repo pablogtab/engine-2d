@@ -16,6 +16,7 @@ struct SubtreeInstantiationResult {
     bool success{false};
     EntityID root_entity{0};
     std::vector<EntityID> created_entities;
+    std::string base_prefab_path;
     std::string error_message;
 };
 
@@ -30,7 +31,14 @@ public:
         const EntityManager& em,
         EntityID root_entity,
         const ComponentSerializationContext& context,
-        const ComponentRegistry* registry = nullptr
+        const ComponentRegistry* registry = nullptr,
+        const std::string& base_prefab_path = ""
+    );
+
+    // Checks whether nesting candidate_child_prefab_path into parent_prefab_path would form a cycle.
+    [[nodiscard]] static bool has_prefab_nesting_cycle(
+        const std::string& parent_prefab_path,
+        const std::string& candidate_child_prefab_path
     );
 
     // Instantiates a subtree archive JSON at desired world transform or under a target parent.
@@ -44,5 +52,6 @@ public:
         const ComponentRegistry* registry = nullptr
     );
 };
+
 
 } // namespace Engine

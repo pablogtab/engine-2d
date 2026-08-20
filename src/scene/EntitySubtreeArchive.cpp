@@ -1,10 +1,12 @@
 #include "EntitySubtreeArchive.hpp"
 #include "../core/Log.hpp"
+#include "../core/FileSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include <queue>
 #include <algorithm>
 #include <unordered_set>
+#include <filesystem>
 
 namespace Engine {
 
@@ -12,8 +14,10 @@ std::string EntitySubtreeArchive::capture_to_json(
     const EntityManager& em,
     EntityID root_entity,
     const ComponentSerializationContext& context,
-    const ComponentRegistry* registry
+    const ComponentRegistry* registry,
+    const std::string& base_prefab_path
 ) {
+
     if (!em.is_alive(root_entity)) {
         ENGINE_LOG_ERROR("[ARCHIVE] Cannot capture subtree: root entity #{} is not alive", root_entity);
         return "";
@@ -77,6 +81,9 @@ std::string EntitySubtreeArchive::capture_to_json(
     nlohmann::json root_json;
     root_json["prefab_version"] = CURRENT_PREFAB_VERSION;
     root_json["root_local_id"] = 1;
+    if (!base_prefab_path.empty()) {
+        root_json["base_prefab_path"] = base_prefab_path;
+    }
 
     std::string tag_name = "Prefab";
     if (em.has_component<TagComponent>(root_entity)) {
@@ -123,6 +130,59 @@ std::string EntitySubtreeArchive::capture_to_json(
     root_json["entities"] = std::move(entities_array);
     return root_json.dump(4);
 }
+
+bool EntitySubtreeArchive::has_prefab_nesting_cycle(
+    const std::string& parent_prefab_path,
+    const std::string& candidate_child_prefab_path
+) {
+    if (parent_prefab_path.empty() || candidate_child_prefab_path.empty()) return false;
+    if (parent_prefab_path == candidate_child_prefab_path) return true;
+
+    std::unordered_set<std::string> visited;
+    std::queue<std::string> queue;
+    queue.push(candidate_child_prefab_path);
+    visited.insert(candidate_child_prefab_path);
+
+    while (!queue.empty()) {
+        std::string current_path = queue.front();
+        queue.pop();
+
+        if (current_path == parent_prefab_path) return true;
+
+        std::string json_text = FileSystem::read_text(current_path);
+        if (!json_text.empty()) {
+            try {
+                nlohmann::json root = nlohmann::json::parse(json_text);
+                // Check base_prefab_path (for variants)
+                if (root.contains("base_prefab_path") && root["base_prefab_path"].is_string()) {
+                    std::string base = root["base_prefab_path"].get<std::string>();
+                    if (base == parent_prefab_path) return true;
+                    if (!base.empty() && visited.insert(base).second) {
+                        queue.push(base);
+                    }
+                }
+
+                // Check nested prefab links in entities
+                if (root.contains("entities") && root["entities"].is_array()) {
+                    for (const auto& ent : root["entities"]) {
+                        if (ent.is_object() && ent.contains("prefab_link") && ent["prefab_link"].is_object()) {
+                            std::string link_path = ent["prefab_link"].value("asset_path", "");
+                            if (link_path == parent_prefab_path) return true;
+                            if (!link_path.empty() && visited.insert(link_path).second) {
+                                queue.push(link_path);
+                            }
+                        }
+                    }
+                }
+            } catch (...) {
+                // Ignore parse errors on malformed candidate files
+            }
+        }
+    }
+    return false;
+}
+
+
 
 SubtreeInstantiationResult EntitySubtreeArchive::instantiate_from_json(
     EntityManager& em,
@@ -329,12 +389,19 @@ SubtreeInstantiationResult EntitySubtreeArchive::instantiate_from_json(
 
     TransformSystem::update(em);
 
+    std::string base_prefab_path;
+    if (root_json.contains("base_prefab_path") && root_json["base_prefab_path"].is_string()) {
+        base_prefab_path = root_json["base_prefab_path"].get<std::string>();
+    }
+
     return {
         .success = true,
         .root_entity = runtime_root,
         .created_entities = std::move(created_entities),
+        .base_prefab_path = std::move(base_prefab_path),
         .error_message = ""
     };
 }
+
 
 } // namespace Engine

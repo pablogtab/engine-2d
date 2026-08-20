@@ -426,16 +426,25 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
     // Prefab Instance Card or Save As Prefab button
     if (em.has_component<PrefabLinkComponent>(entity)) {
         const auto& link = em.get_component<PrefabLinkComponent>(entity);
+        const bool is_variant = link.is_variant();
         const std::vector<std::string> overrides = PrefabOverrides::get_overridden_components(em, entity);
 
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.16f, 0.22f, 0.90f));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, is_variant ? ImVec4(0.16f, 0.13f, 0.24f, 0.90f) : ImVec4(0.12f, 0.16f, 0.22f, 0.90f));
         ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
         if (ImGui::BeginChild("##prefab_link_card", ImVec2(0.0f, 62.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar)) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.75f, 1.0f, 1.0f));
-            ImGui::Text("%s", editor_icon_label(EditorIcon::Component, "Prefab Instance").c_str());
-            ImGui::PopStyleColor();
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%s)", link.prefab_asset_path.c_str());
+            if (is_variant) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.55f, 1.0f, 1.0f));
+                ImGui::Text("%s", editor_icon_label(EditorIcon::Component, "Prefab Variant").c_str());
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%s)", link.prefab_asset_path.c_str());
+            } else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.75f, 1.0f, 1.0f));
+                ImGui::Text("%s", editor_icon_label(EditorIcon::Component, "Prefab Instance").c_str());
+                ImGui::PopStyleColor();
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%s)", link.prefab_asset_path.c_str());
+            }
 
             ImGui::Spacing();
             if (ImGui::Button("Open Prefab", ImVec2(90.0f, 22.0f))) {
@@ -447,11 +456,23 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                 ImGui::SetTooltip("Open this prefab in isolated Prefab Stage");
             }
 
+            if (is_variant) {
+                ImGui::SameLine();
+                if (ImGui::Button("Open Base", ImVec2(80.0f, 22.0f))) {
+                    if (m_on_open_prefab) {
+                        m_on_open_prefab(link.base_prefab_path);
+                    }
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Open base prefab in isolated Prefab Stage: %s", link.base_prefab_path.c_str());
+                }
+            }
+
             ImGui::SameLine();
             if (!overrides.empty()) {
                 const std::string overrides_button_text = "Overrides (" + std::to_string(overrides.size()) + ") \xe2\x96\xbe";
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.35f, 0.55f, 0.90f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.45f, 0.70f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Button, is_variant ? ImVec4(0.35f, 0.22f, 0.55f, 0.90f) : ImVec4(0.18f, 0.35f, 0.55f, 0.90f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, is_variant ? ImVec4(0.45f, 0.28f, 0.70f, 1.0f) : ImVec4(0.24f, 0.45f, 0.70f, 1.0f));
                 if (ImGui::Button(overrides_button_text.c_str(), ImVec2(120.0f, 22.0f))) {
                     ImGui::OpenPopup("##prefab_overrides_popup");
                 }
@@ -461,7 +482,7 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                 }
 
                 if (ImGui::BeginPopup("##prefab_overrides_popup")) {
-                    ImGui::TextColored(ImVec4(0.40f, 0.75f, 1.0f, 1.0f), "Modified Components (%zu)", overrides.size());
+                    ImGui::TextColored(is_variant ? ImVec4(0.75f, 0.55f, 1.0f, 1.0f) : ImVec4(0.40f, 0.75f, 1.0f, 1.0f), "Modified Components (%zu)", overrides.size());
                     ImGui::Separator();
                     const auto& ed_reg = default_editor_component_registry();
 
@@ -548,12 +569,37 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Unpack this instance into standard scene entities");
             }
+
+            if (!is_variant) {
+                ImGui::SameLine();
+                if (ImGui::Button("Save as Variant...", ImVec2(125.0f, 22.0f))) {
+                    std::string tag_name = em.has_component<TagComponent>(entity) ? em.get_component<TagComponent>(entity).tag : "Entity";
+                    std::string clean_name = tag_name;
+                    for (char& c : clean_name) {
+                        if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
+                    }
+                    if (clean_name.empty()) clean_name = "Prefab";
+                    std::string var_path = "assets/prefabs/" + clean_name + "_Variant.prefab";
+                    if (m_command_history) {
+                        m_command_history->execute_command(std::make_unique<CreatePrefabVariantCommand>(
+                            &em, entity, var_path, m_renderer, m_entity_state_store.get()
+                        ));
+                    } else {
+                        CreatePrefabVariantCommand cmd(&em, entity, var_path, m_renderer, m_entity_state_store.get());
+                        cmd.execute();
+                    }
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Creates a new Prefab Variant asset deriving from this base prefab");
+                }
+            }
         }
         ImGui::EndChild();
         ImGui::PopStyleVar();
         ImGui::PopStyleColor();
     } else {
         const std::string prefab_btn_label = editor_icon_label(EditorIcon::Component, "Save As Prefab...");
+
 
         if (ImGui::Button(prefab_btn_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 22.0f))) {
             std::string tag_name = em.has_component<TagComponent>(entity) ? em.get_component<TagComponent>(entity).tag : "Entity";

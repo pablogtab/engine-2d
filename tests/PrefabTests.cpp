@@ -1201,6 +1201,146 @@ void test_granular_revert_and_apply_component_command() {
     std::cout << "test_granular_revert_and_apply_component_command passed." << std::endl;
 }
 
+void test_nested_prefab_serialization_and_instantiation() {
+    std::string child_prefab_file = "temp_nested_child.prefab";
+    std::string parent_prefab_file = "temp_nested_parent.prefab";
+
+    // 1. Create and save child prefab
+    EntityManager child_em;
+    EntityID child_root = child_em.create_entity();
+    child_em.add_component<TagComponent>(child_root, TagComponent{"Child_Weapon"});
+    child_em.add_component<TransformComponent>(child_root, TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
+    child_em.add_component<SpriteComponent>(child_root, SpriteComponent{});
+    assert(PrefabSerializer::save_to_file(child_em, child_root, child_prefab_file));
+
+    // 2. Create parent entity and attach child as a nested prefab instance
+    EntityManager parent_em;
+    EntityID p_root = parent_em.create_entity();
+    parent_em.add_component<TagComponent>(p_root, TagComponent{"Parent_Character"});
+    parent_em.add_component<TransformComponent>(p_root, TransformComponent{glm::vec3(10.0f, 20.0f, 0.0f)});
+
+    EntityID p_nested_child = parent_em.create_entity();
+    parent_em.add_component<TagComponent>(p_nested_child, TagComponent{"Equipped_Weapon"});
+    parent_em.add_component<TransformComponent>(p_nested_child, TransformComponent{glm::vec3(2.0f, 1.0f, 0.0f)});
+    parent_em.add_component<SpriteComponent>(p_nested_child, SpriteComponent{});
+    parent_em.add_component<PrefabLinkComponent>(p_nested_child, PrefabLinkComponent{child_prefab_file});
+    assert(parent_em.set_parent(p_nested_child, p_root).succeeded());
+
+    // 3. Save parent prefab
+    assert(PrefabSerializer::save_to_file(parent_em, p_root, parent_prefab_file));
+
+    // 4. Instantiate parent prefab into a new scene
+    EntityManager scene_em;
+    ComponentSerializationContext ctx;
+    std::string json = PrefabSerializer::read_json_from_file(parent_prefab_file);
+    auto res = EntitySubtreeArchive::instantiate_from_json(scene_em, json, std::nullopt, 0, ctx);
+    assert(res.success);
+    assert(res.created_entities.size() == 2);
+
+    EntityID inst_root = res.root_entity;
+    assert(scene_em.has_component<HierarchyComponent>(inst_root));
+    const auto& children = scene_em.get_component<HierarchyComponent>(inst_root).children;
+    assert(children.size() == 1);
+
+    EntityID inst_nested = children[0];
+    assert(scene_em.has_component<PrefabLinkComponent>(inst_nested));
+    assert(scene_em.get_component<PrefabLinkComponent>(inst_nested).prefab_asset_path == child_prefab_file);
+
+    std::filesystem::remove(child_prefab_file);
+    std::filesystem::remove(parent_prefab_file);
+    std::cout << "test_nested_prefab_serialization_and_instantiation passed." << std::endl;
+}
+
+void test_nested_prefab_cycle_rejection() {
+    std::string pA = "temp_cycle_A.prefab";
+    std::string pB = "temp_cycle_B.prefab";
+
+    // Direct self-nesting check
+    assert(EntitySubtreeArchive::has_prefab_nesting_cycle(pA, pA));
+
+    // Create A containing link to B
+    EntityManager emA;
+    EntityID rootA = emA.create_entity();
+    emA.add_component<TransformComponent>(rootA, TransformComponent{});
+    EntityID childA = emA.create_entity();
+    emA.add_component<TransformComponent>(childA, TransformComponent{});
+    emA.add_component<PrefabLinkComponent>(childA, PrefabLinkComponent{pB});
+    assert(emA.set_parent(childA, rootA).succeeded());
+
+    assert(PrefabSerializer::save_to_file(emA, rootA, pA));
+
+    // If B tries to nest A, it must detect the cycle!
+    assert(EntitySubtreeArchive::has_prefab_nesting_cycle(pB, pA));
+
+    std::filesystem::remove(pA);
+    std::filesystem::remove(pB);
+    std::cout << "test_nested_prefab_cycle_rejection passed." << std::endl;
+}
+
+void test_prefab_variant_creation_and_command_undo_redo() {
+    std::string base_file = "temp_base_enemy.prefab";
+    std::string variant_file = "temp_variant_enemy.prefab";
+
+    // 1. Create Base Prefab
+    EntityManager em;
+    EntityID base_entity = em.create_entity();
+    em.add_component<TagComponent>(base_entity, TagComponent{"BaseEnemy"});
+    em.add_component<TransformComponent>(base_entity, TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
+    SpriteComponent base_sprite;
+    base_sprite.color = SDL_Color{255, 0, 0, 255};
+    em.add_component<SpriteComponent>(base_entity, base_sprite);
+    assert(PrefabSerializer::save_to_file(em, base_entity, base_file));
+
+    // 2. Instantiate base prefab into scene
+    em.add_component<PrefabLinkComponent>(base_entity, PrefabLinkComponent{base_file});
+
+    // 3. Create Variant Command
+    EditorCommandHistory history;
+    auto create_var_cmd = std::make_unique<CreatePrefabVariantCommand>(&em, base_entity, variant_file);
+    assert(create_var_cmd->is_valid());
+    history.execute_command(std::move(create_var_cmd));
+
+    // Verify entity is now marked as a variant
+    assert(em.has_component<PrefabLinkComponent>(base_entity));
+    const auto& var_link = em.get_component<PrefabLinkComponent>(base_entity);
+    assert(var_link.is_variant());
+    assert(var_link.prefab_asset_path == variant_file);
+    assert(var_link.base_prefab_path == base_file);
+
+    // Verify file on disk is recognized as variant
+    std::string detected_base;
+    assert(PrefabSerializer::is_variant_file(variant_file, &detected_base));
+    assert(detected_base == base_file);
+
+    // 4. Test Undo
+    assert(history.can_undo());
+    history.undo();
+    const auto& reverted_link = em.get_component<PrefabLinkComponent>(base_entity);
+    assert(!reverted_link.is_variant());
+    assert(reverted_link.prefab_asset_path == base_file);
+
+    // 5. Test Redo
+    assert(history.can_redo());
+    history.redo();
+    const auto& redone_link = em.get_component<PrefabLinkComponent>(base_entity);
+    assert(redone_link.is_variant());
+    assert(redone_link.prefab_asset_path == variant_file);
+    assert(redone_link.base_prefab_path == base_file);
+
+    // 6. Test Variant Instantiation from JSON
+    EntityManager scene_em;
+    ComponentSerializationContext ctx;
+    std::string var_json = PrefabSerializer::read_json_from_file(variant_file);
+    auto inst_res = EntitySubtreeArchive::instantiate_from_json(scene_em, var_json, std::nullopt, 0, ctx);
+    assert(inst_res.success);
+    assert(inst_res.base_prefab_path == base_file);
+
+    std::filesystem::remove(base_file);
+    std::filesystem::remove(variant_file);
+    std::cout << "test_prefab_variant_creation_and_command_undo_redo passed." << std::endl;
+}
+
+
 int main() {
     std::cout << "=== Running Prefab System Tests ===" << std::endl;
     test_prefab_serialization_and_deserialization_round_trip();
@@ -1221,7 +1361,11 @@ int main() {
     test_prefab_multi_selection_batch_unpack();
     test_prefab_property_overrides_detection();
     test_granular_revert_and_apply_component_command();
+    test_nested_prefab_serialization_and_instantiation();
+    test_nested_prefab_cycle_rejection();
+    test_prefab_variant_creation_and_command_undo_redo();
     std::cout << "=== All Prefab System Tests Passed! ===" << std::endl;
     return 0;
 }
+
 
