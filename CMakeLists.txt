@@ -174,6 +174,19 @@ add_custom_target(stage_runtime_assets
     VERBATIM
 )
 
+if(APPLE)
+    add_custom_target(package_macos_app
+        COMMAND "${CMAKE_COMMAND}"
+            "-DENGINE_STAGE_DIR=${CMAKE_BINARY_DIR}/runtime"
+            "-DENGINE_APP_DIR=${CMAKE_BINARY_DIR}/dist/Engine2D.app"
+            "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"
+            -P "${CMAKE_SOURCE_DIR}/cmake/PackageMacOSApp.cmake"
+        DEPENDS stage_runtime_assets
+        COMMENT "Packaging the standalone runtime as a self-contained macOS app"
+        VERBATIM
+    )
+endif()
+
 add_test(NAME RuntimeBoundaryTests
     COMMAND "${CMAKE_COMMAND}"
         "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"

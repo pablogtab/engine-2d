@@ -91,7 +91,18 @@ The target copies `assets/`, `ProjectSettings/`, and the standalone executable
 into `build/runtime/`. It keeps the stable source handle and replaces its file
 with MSL on macOS, DXIL on Windows, or SPIR-V on Linux; the staged descriptor
 declares that corresponding format. Native library bundling and code-signing
-remain separate standalone-export tasks.
+remain separate standalone-export tasks on Windows and Linux.
+
+On macOS, package the staged runtime as a self-contained application bundle
+with:
+
+```sh
+cmake --build build --target package_macos_app
+```
+
+This produces `build/dist/Engine2D.app`. It places assets and project settings
+under `Contents/Resources`, copies non-system dynamic libraries to
+`Contents/Frameworks`, rewrites their load paths, and ad-hoc signs the bundle.
 
 ## Asset pipeline boundary
 
