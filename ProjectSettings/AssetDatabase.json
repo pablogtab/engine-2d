@@ -112,11 +112,17 @@
       "handle": "6795fafb54837f0b",
       "path": "assets/shaders/night_vision.frag.hlsl",
       "status": "ready",
-      "type": "shader"
+      "type": "unknown"
     },
     {
       "handle": "7215eb4de35c643b",
       "path": "assets/shaders/night_vision.frag.msl",
+      "status": "ready",
+      "type": "unknown"
+    },
+    {
+      "handle": "5ea4a637c713ed89",
+      "path": "assets/shaders/NightVision.shader",
       "status": "ready",
       "type": "shader"
     },
@@ -155,6 +161,12 @@
       "path": "assets/shaders/TstMaterial_Copy.material",
       "status": "missing",
       "type": "material"
+    },
+    {
+      "handle": "ef1036d8c6ce483f",
+      "path": "assets/NewPostProcessProfile.postprocess",
+      "status": "missing",
+      "type": "post_process_profile"
     }
   ],
   "version": 1

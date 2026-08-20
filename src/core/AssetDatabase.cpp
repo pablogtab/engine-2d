@@ -112,7 +112,7 @@ AssetType AssetDatabase::type_for_path(const fs::path& path) {
     if (ext == ".scene") return AssetType::Scene; if (ext == ".prefab") return AssetType::Prefab;
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") return AssetType::Texture;
     if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac") return AssetType::Audio;
-    if (ext == ".hlsl" || ext == ".msl" || ext == ".glsl" || ext == ".frag" || ext == ".vert") return AssetType::Shader;
+    if (ext == ".shader") return AssetType::Shader;
     if (ext == ".material") return AssetType::Material;
     if (ext == ".postprocess") return AssetType::PostProcessProfile;
     return ext == ".json" ? AssetType::Data : AssetType::Unknown;

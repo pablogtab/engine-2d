@@ -1,6 +1,6 @@
 #include "MaterialAsset.hpp"
 #include "Material.hpp"
-#include "FragmentShader.hpp"
+#include "ShaderAsset.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include "../../core/FileSystem.hpp"
 #include <nlohmann/json.hpp>
@@ -8,16 +8,6 @@
 
 namespace Engine {
 namespace {
-ShaderBinaryFormat format_for(const std::string& path) {
-    return std::filesystem::path(path).extension() == ".msl" ? ShaderBinaryFormat::Msl : ShaderBinaryFormat::SpirV;
-}
-
-const char* default_entry_point_for(ShaderBinaryFormat format) {
-    // SDL's MSL source convention uses main0, while the portable shader
-    // formats in this first material slice use main.
-    return format == ShaderBinaryFormat::Msl ? "main0" : "main";
-}
-
 void set_error(std::string* error, std::string message) {
     if (error) *error = std::move(message);
 }
@@ -66,13 +56,14 @@ bool MaterialAsset::save(
     std::string* error
 ) {
     const AssetRecord* record = database.find(handle);
-    const AssetRecord* shader = description.shader_handle.is_valid() ? database.find(description.shader_handle) : nullptr;
+    const auto shader = ShaderAsset::read(description.shader_handle, database, error);
     if (!record || record->status != AssetStatus::Ready || record->type != AssetType::Material ||
-        description.name.empty() || !shader || shader->status != AssetStatus::Ready || shader->type != AssetType::Shader ||
+        description.name.empty() || !shader ||
         description.uniforms.size() > Material::MAX_UNIFORM_SLOTS) {
         set_error(error, "Material asset or shader is invalid");
         return false;
     }
+    if (!ShaderAsset::validate_material(*shader, description.uniforms, error)) return false;
     nlohmann::json uniforms = nlohmann::json::array();
     for (const auto& bytes : description.uniforms) {
         nlohmann::json uniform = nlohmann::json::array();
@@ -90,16 +81,11 @@ bool MaterialAsset::save(
 std::shared_ptr<const Material> MaterialAsset::load(AssetHandle handle, const AssetDatabase& database) {
     const auto description = read(handle, database);
     if (!description) return {};
-    const AssetRecord* shader_record = database.find(description->shader_handle);
-    if (!shader_record || shader_record->status != AssetStatus::Ready || shader_record->type != AssetType::Shader) return {};
-    auto shader = std::make_shared<FragmentShader>(description->name + "Shader");
-    const ShaderBinaryFormat format = format_for(shader_record->source_path);
-    if (!shader->add_variant_from_file(
-            format,
-            database.resolve(description->shader_handle),
-            default_entry_point_for(format)
-        )) return {};
-    shader->set_uniform_buffer_count(static_cast<std::uint32_t>(description->uniforms.size()));
+    std::string error;
+    const auto shader_description = ShaderAsset::read(description->shader_handle, database, &error);
+    if (!shader_description || !ShaderAsset::validate_material(*shader_description, description->uniforms, &error)) return {};
+    const auto shader = ShaderAsset::load(description->shader_handle, database, &error);
+    if (!shader) return {};
     auto material = std::make_shared<Material>(description->name, shader);
     for (std::size_t i = 0; i < description->uniforms.size(); ++i) {
         material->set_uniform_bytes(i, description->uniforms[i]);

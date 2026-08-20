@@ -4,6 +4,7 @@
 #include "../../core/FileSystem.hpp"
 #include "../../renderer/postprocess/PostProcessProfile.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
+#include "../../renderer/material/ShaderAsset.hpp"
 #include "../commands/AssetFileCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include <imgui.h>
@@ -333,16 +334,22 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::Button("Create", ImVec2(120, 0))) {
                 const std::string name = m_new_material_name_buf;
                 if (!name.empty() && m_command_history && m_asset_database) {
-                    const auto shader = std::find_if(m_asset_database->records().begin(), m_asset_database->records().end(), [](const AssetRecord& record) {
+                    const auto shader = std::find_if(m_asset_database->records().begin(), m_asset_database->records().end(), [this](const AssetRecord& record) {
                         return record.type == AssetType::Shader && record.status == AssetStatus::Ready &&
-                            std::filesystem::path(record.source_path).extension() == ".msl";
+                            ShaderAsset::read(record.handle, *m_asset_database).has_value();
                     });
                     if (shader != m_asset_database->records().end()) {
                         const auto file = m_current_path / (name + ".material");
-                        const nlohmann::json material_json{{"name", name}, {"shader_handle", shader->handle.to_string()}, {"uniforms", nlohmann::json::array()}};
+                        const auto shader_description = ShaderAsset::read(shader->handle, *m_asset_database);
+                        nlohmann::json uniforms = nlohmann::json::array();
+                        for (const auto& layout : shader_description->uniform_buffers) {
+                            uniforms.push_back(nlohmann::json::array());
+                            for (std::size_t byte = 0; byte < layout.size; ++byte) uniforms.back().push_back(0);
+                        }
+                        const nlohmann::json material_json{{"name", name}, {"shader_handle", shader->handle.to_string()}, {"uniforms", uniforms}};
                         m_command_history->execute_command(std::make_unique<CreateAssetCommand>(m_asset_database, file, material_json.dump(2) + "\n"));
                     } else {
-                        ENGINE_LOG_WARN("[ASSET BROWSER] Cannot create material: no ready MSL shader asset is available.");
+                        ENGINE_LOG_WARN("[ASSET BROWSER] Cannot create material: no ready shader asset is available.");
                     }
                 }
                 ImGui::CloseCurrentPopup();
@@ -374,6 +381,9 @@ void AssetBrowserPanel::on_gui() {
             ImGui::InputText("Name", m_edit_material_name_buf, sizeof(m_edit_material_name_buf));
             const AssetRecord* shader = m_edit_material_shader_handle.is_valid() && m_asset_database
                 ? m_asset_database->find(m_edit_material_shader_handle) : nullptr;
+            const auto shader_description = shader && m_asset_database
+                ? ShaderAsset::read(shader->handle, *m_asset_database)
+                : std::nullopt;
             if (ImGui::BeginCombo("Shader", shader ? shader->source_path.c_str() : "Missing shader")) {
                 if (m_asset_database) {
                     for (const AssetRecord& record : m_asset_database->records()) {
@@ -389,10 +399,14 @@ void AssetBrowserPanel::on_gui() {
                 ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "Select a ready shader asset before saving.");
             }
             ImGui::Separator();
-            ImGui::TextUnformatted("Uniform buffers (hex bytes, e.g. 00 ff 2a):");
+            ImGui::TextUnformatted("Uniform buffers (hex bytes):");
             for (std::size_t index = 0; index < m_edit_material_uniform_count; ++index) {
                 ImGui::PushID(static_cast<int>(index));
-                ImGui::InputText("##uniform", m_edit_material_uniforms[index].data(), m_edit_material_uniforms[index].size());
+                const std::string label = shader_description && index < shader_description->uniform_buffers.size()
+                    ? shader_description->uniform_buffers[index].name + " (" +
+                        std::to_string(shader_description->uniform_buffers[index].size) + " bytes)"
+                    : "Uniform buffer";
+                ImGui::InputText(label.c_str(), m_edit_material_uniforms[index].data(), m_edit_material_uniforms[index].size());
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Remove")) {
                     for (std::size_t next = index + 1; next < m_edit_material_uniform_count; ++next) {
@@ -404,7 +418,7 @@ void AssetBrowserPanel::on_gui() {
                 }
                 ImGui::PopID();
             }
-            if (m_edit_material_uniform_count < m_edit_material_uniforms.size() && ImGui::Button("Add Uniform Buffer")) {
+            if (!shader_description && m_edit_material_uniform_count < m_edit_material_uniforms.size() && ImGui::Button("Add Uniform Buffer")) {
                 m_edit_material_uniforms[m_edit_material_uniform_count++].fill('\0');
             }
             if (!m_edit_material_error.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s", m_edit_material_error.c_str());

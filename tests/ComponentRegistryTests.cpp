@@ -5,6 +5,7 @@
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
 #include "renderer/material/MaterialAsset.hpp"
+#include "renderer/material/ShaderAsset.hpp"
 #include "renderer/material/Material.hpp"
 #include "ecs/EntityManager.hpp"
 #include "scene/ComponentRegistry.hpp"
@@ -553,12 +554,21 @@ void test_material_assets_load_by_handle() {
 
     AssetDatabase database(root);
     [[maybe_unused]] const AssetScanResult shader_scan = database.scan(root / "assets");
-    const AssetRecord* shader = database.find_by_path("assets/shaders/Test.msl");
-    assert(shader && shader->type == AssetType::Shader);
-    const AssetHandle shader_handle = shader->handle;
+    const AssetRecord* source = database.find_by_path("assets/shaders/Test.msl");
+    assert(source && source->status == AssetStatus::Ready);
+    const AssetHandle source_handle = source->handle;
+    const nlohmann::json shader_json{
+        {"name", "Test Shader"},
+        {"sampler_count", 1},
+        {"uniform_buffers", nlohmann::json::array({{{"name", "TestUniforms"}, {"size", 4}}})},
+        {"variants", nlohmann::json::array({{{"format", "msl"}, {"source_handle", source_handle.to_string()}, {"entry_point", "main0"}}})}
+    };
+    assert(FileSystem::write_text((root / "assets/shaders/Test.shader").string(), shader_json.dump()));
+    const auto shader_handle = database.import_asset(root / "assets/shaders/Test.shader");
+    assert(shader_handle);
     const nlohmann::json material_json{
         {"name", "Test Material"},
-        {"shader_handle", shader_handle.to_string()},
+        {"shader_handle", shader_handle->to_string()},
         {"uniforms", nlohmann::json::array({nlohmann::json::array({1, 2, 3, 4})})}
     };
     assert(FileSystem::write_text((root / "assets/materials/Test.material").string(), material_json.dump()));
@@ -570,13 +580,17 @@ void test_material_assets_load_by_handle() {
     assert(loaded->uniform_bytes(0).size() == 4);
     assert(loaded->shader().variants().front().entry_point == "main0");
     auto description = MaterialAsset::read(material->handle, database);
-    assert(description && description->shader_handle == shader_handle);
+    assert(description && description->shader_handle == *shader_handle);
     description->name = "Edited Material";
     description->uniforms[0] = {std::byte{9}, std::byte{8}};
+    std::string error;
+    assert(!MaterialAsset::save(material->handle, *description, database, &error));
+    assert(error.find("must contain 4 bytes") != std::string::npos);
+    description->uniforms[0] = {std::byte{9}, std::byte{8}, std::byte{7}, std::byte{6}};
     assert(MaterialAsset::save(material->handle, *description, database));
     const auto edited = MaterialAsset::load(material->handle, database);
     assert(edited && edited->name() == "Edited Material");
-    assert(edited->uniform_bytes(0).size() == 2);
+    assert(edited->uniform_bytes(0).size() == 4);
 
     fs::remove_all(root, ignored);
 }

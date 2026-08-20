@@ -1,6 +1,6 @@
 {
   "name": "TstMaterial",
-  "shader_handle": "7215eb4de35c643b",
+  "shader_handle": "5ea4a637c713ed89",
   "uniforms": [
     [
       141,
@@ -35,11 +35,6 @@
       160,
       32,
       62
-    ],
-    [
-      131,
-      37,
-      58
     ]
   ]
 }
