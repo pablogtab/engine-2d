@@ -45,6 +45,15 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         .addable = false
     });
     register_or_throw(registry, {
+        .component_key = "prefab_link",
+        .display_name = "Prefab Link",
+        .category = EditorComponentCategory::Core,
+        .icon = EditorIcon::Component,
+        .show_in_inspector = false,
+        .addable = false
+    });
+
+    register_or_throw(registry, {
         .component_key = "transform",
         .drawer_key = "TransformHeader",
         .display_name = "Transform",

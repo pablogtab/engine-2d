@@ -3,6 +3,7 @@
 #include "SpriteAnimationStudioPanel.hpp"
 #include "../stage/PrefabStageController.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../commands/EditorEntityStateCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../inspector/InspectorWidgets.hpp"
@@ -362,17 +363,73 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         }
     }
 
-    // Save As Prefab button
-    const std::string prefab_btn_label = editor_icon_label(EditorIcon::Component, "Save As Prefab...");
-    if (ImGui::Button(prefab_btn_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 22.0f))) {
-        std::string tag_name = em.has_component<TagComponent>(entity) ? em.get_component<TagComponent>(entity).tag : "Entity";
-        std::string clean_name = tag_name;
-        for (char& c : clean_name) {
-            if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
+    // Prefab Instance Card or Save As Prefab button
+    if (em.has_component<PrefabLinkComponent>(entity)) {
+        const auto& link = em.get_component<PrefabLinkComponent>(entity);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.16f, 0.22f, 0.90f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+        if (ImGui::BeginChild("##prefab_link_card", ImVec2(0.0f, 62.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar)) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.75f, 1.0f, 1.0f));
+            ImGui::Text("%s", editor_icon_label(EditorIcon::Component, "Prefab Instance").c_str());
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%s)", link.prefab_asset_path.c_str());
+
+            ImGui::Spacing();
+            if (ImGui::Button("Open Prefab", ImVec2(90.0f, 22.0f))) {
+                if (m_on_open_prefab) {
+                    m_on_open_prefab(link.prefab_asset_path);
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Open this prefab in isolated Prefab Stage");
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Unpack", ImVec2(70.0f, 22.0f))) {
+                if (m_command_history) {
+                    m_command_history->execute_command(std::make_unique<UnpackPrefabCommand>(
+                        &em, m_selection, entity, m_entity_state_store.get()
+                    ));
+                } else {
+                    UnpackPrefabCommand cmd(&em, m_selection, entity, m_entity_state_store.get());
+                    cmd.execute();
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Unpack this instance into standard scene entities");
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Revert Contents", ImVec2(115.0f, 22.0f))) {
+                if (m_command_history) {
+                    m_command_history->execute_command(std::make_unique<RevertPrefabCommand>(
+                        &em, m_selection, entity, m_renderer, m_entity_state_store.get()
+                    ));
+                } else {
+                    RevertPrefabCommand cmd(&em, m_selection, entity, m_renderer, m_entity_state_store.get());
+                    cmd.execute();
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Restores asset contents from disk while keeping current scene placement and parent");
+            }
         }
-        if (clean_name.empty()) clean_name = "Prefab";
-        std::string filepath = "assets/prefabs/" + clean_name + ".prefab";
-        static_cast<void>(PrefabSerializer::save_to_file(em, entity, filepath, m_renderer));
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+    } else {
+        const std::string prefab_btn_label = editor_icon_label(EditorIcon::Component, "Save As Prefab...");
+        if (ImGui::Button(prefab_btn_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 22.0f))) {
+            std::string tag_name = em.has_component<TagComponent>(entity) ? em.get_component<TagComponent>(entity).tag : "Entity";
+            std::string clean_name = tag_name;
+            for (char& c : clean_name) {
+                if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
+            }
+            if (clean_name.empty()) clean_name = "Prefab";
+            std::string filepath = "assets/prefabs/" + clean_name + ".prefab";
+            static_cast<void>(PrefabSerializer::save_to_file(em, entity, filepath, m_renderer));
+        }
     }
 
     ImGui::Separator();

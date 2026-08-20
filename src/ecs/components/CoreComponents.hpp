@@ -92,4 +92,11 @@ struct BehaviorComponent {
 
 struct GroupComponent {};
 
+struct PrefabLinkComponent {
+    std::string prefab_asset_path;
+
+    PrefabLinkComponent() = default;
+    explicit PrefabLinkComponent(std::string path) : prefab_asset_path(std::move(path)) {}
+};
+
 } // namespace Engine

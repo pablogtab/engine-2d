@@ -241,15 +241,17 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 9);
+    assert(registry.descriptors().size() == 10);
     assert(registry.find_by_type(typeid(TagComponent)));
     assert(registry.find_by_type(typeid(GroupComponent)));
+    assert(registry.find_by_type(typeid(PrefabLinkComponent)));
     assert(registry.find_by_type(typeid(CameraComponent)));
     assert(registry.find_by_type(typeid(AnimationComponent)));
     assert(registry.find_by_type(typeid(RigidBodyComponent)));
     assert(registry.find_by_type(typeid(ColliderComponent)));
     assert(registry.find_by_type(typeid(TilemapComponent)));
 }
+
 
 void test_registered_snapshot_capture_and_restore() {
     EntityManager em;
@@ -376,10 +378,12 @@ void test_builtin_components_round_trip_through_registry() {
     tilemap.set_tile(-2, 5, 7);
     em.add_component<TilemapComponent>(source, tilemap);
 
+    em.add_component<PrefabLinkComponent>(source, PrefabLinkComponent{"assets/prefabs/test.prefab"});
+
     nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
-    for (const char* key : {"tag", "group", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
+    for (const char* key : {"tag", "group", "prefab_link", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
         assert(value.contains(key));
     }
 
@@ -393,6 +397,7 @@ void test_builtin_components_round_trip_through_registry() {
     ));
     assert(em.get_component<TagComponent>(target).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(target));
+    assert(em.get_component<PrefabLinkComponent>(target).prefab_asset_path == "assets/prefabs/test.prefab");
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<AnimationComponent>(target).clips.front().name == "Run");
     assert(em.get_component<RigidBodyComponent>(target).mass == 3.0f);
@@ -412,12 +417,14 @@ void test_builtin_components_round_trip_through_registry() {
     assert(snapshot.size() == default_component_registry().descriptors().size());
     assert(em.get_component<TagComponent>(restored).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(restored));
+    assert(em.get_component<PrefabLinkComponent>(restored).prefab_asset_path == "assets/prefabs/test.prefab");
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
     assert(em.get_component<AnimationComponent>(restored).clips.size() == 1);
     assert(em.get_component<RigidBodyComponent>(restored).body_type == BodyType::Dynamic);
     assert(em.get_component<ColliderComponent>(restored).shapes.size() == 1);
     assert(em.get_component<TilemapComponent>(restored).get_tile(-2, 5) == 7);
 }
+
 
 void test_finalization_runs_after_entity_references_exist() {
     EntityManager em;

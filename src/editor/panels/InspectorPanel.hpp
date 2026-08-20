@@ -37,6 +37,7 @@ public:
     void set_animation_studio(class SpriteAnimationStudioPanel* studio) { m_anim_studio = studio; }
     void set_prefab_stage(class PrefabStageController* stage) { m_prefab_stage = stage; }
     [[nodiscard]] class PrefabStageController* get_prefab_stage() const { return m_prefab_stage; }
+    void set_on_open_prefab_callback(std::function<void(const std::string&)> cb) { m_on_open_prefab = std::move(cb); }
 
 private:
     void draw_components(EntityManager& em, EntityID entity);
@@ -54,9 +55,11 @@ private:
     AssetManager* m_asset_manager{nullptr};
     class SpriteAnimationStudioPanel* m_anim_studio{nullptr};
     class PrefabStageController* m_prefab_stage{nullptr};
+    std::function<void(const std::string&)> m_on_open_prefab;
     char m_multi_tag_buffer[128]{""};
     std::uint32_t m_multi_tag_selection_owner{0};
 };
+
 
 
 } // namespace Engine

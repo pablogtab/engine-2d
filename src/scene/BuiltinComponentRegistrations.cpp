@@ -114,6 +114,26 @@ void register_group(ComponentRegistry& registry) {
     });
 }
 
+void register_prefab_link(ComponentRegistry& registry) {
+    register_or_throw<PrefabLinkComponent>(registry, {
+        .display_name = "Prefab Link",
+        .serialized_key = "prefab_link",
+        .serialize = [](const PrefabLinkComponent& link, const ComponentSerializationContext&) {
+            return Json{
+                {"asset_path", link.prefab_asset_path}
+            };
+        },
+        .deserialize = [](PrefabLinkComponent& link, const Json& value, const ComponentSerializationContext&, std::string& error) {
+            if (!value.is_object()) {
+                error = "Prefab link must be an object";
+                return false;
+            }
+            link.prefab_asset_path = value.value("asset_path", "");
+            return true;
+        }
+    });
+}
+
 void register_camera(ComponentRegistry& registry) {
     register_or_throw<CameraComponent>(registry, {
         .display_name = "Camera 2D",
@@ -443,6 +463,7 @@ void register_tilemap(ComponentRegistry& registry) {
 void register_additional_builtin_components(ComponentRegistry& registry) {
     register_tag(registry);
     register_group(registry);
+    register_prefab_link(registry);
     register_camera(registry);
     register_animation(registry);
     register_rigidbody(registry);

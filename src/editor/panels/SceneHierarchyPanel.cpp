@@ -315,6 +315,8 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
     }
     const bool is_effectively_visible = is_visible && !is_ancestor_hidden;
     const bool directly_matches = !filter_str.empty() && EditorHierarchyFilter::matches_single(em, id, filter_str, m_entity_state_store.get());
+    const bool is_prefab_instance = em.has_component<PrefabLinkComponent>(id);
+    const std::string display_name = is_prefab_instance ? "[P] " + name : name;
 
     int style_color_count = 0;
     if (!is_effectively_visible) {
@@ -324,16 +326,26 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         // Highlight matching node in vibrant cyan
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.85f, 1.0f, 1.0f));
         style_color_count++;
+    } else if (is_prefab_instance) {
+        // Highlight prefab instance in soft electric cyan/blue
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.75f, 1.0f, 1.0f));
+        style_color_count++;
     } else if (!filter_str.empty()) {
         // Ancestor container of matching child (subtle dimming)
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.72f, 0.78f, 0.75f));
         style_color_count++;
     }
 
-    bool node_open = ImGui::TreeNodeEx((void*)(uintptr_t)id, flags, "%s", name.c_str());
+    bool node_open = ImGui::TreeNodeEx((void*)(uintptr_t)id, flags, "%s", display_name.c_str());
     if (style_color_count > 0) {
         ImGui::PopStyleColor(style_color_count);
     }
+
+    if (is_prefab_instance && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+        const auto& link = em.get_component<PrefabLinkComponent>(id);
+        ImGui::SetTooltip("Prefab Instance: %s", link.prefab_asset_path.c_str());
+    }
+
 
     // Single click / multi-click selection on the tree node item
     if (m_selection) {
@@ -521,8 +533,9 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             }
             if (clean_name.empty()) clean_name = "Prefab";
             std::string filepath = "assets/prefabs/" + clean_name + ".prefab";
-            PrefabSerializer::save_to_file(em, id, filepath, m_renderer);
+            static_cast<void>(PrefabSerializer::save_to_file(em, id, filepath, m_renderer));
         }
+
 
         bool has_parent = em.has_component<HierarchyComponent>(id) && (em.get_component<HierarchyComponent>(id).parent != 0);
         const bool in_prefab_stage = m_prefab_stage && m_prefab_stage->is_active();

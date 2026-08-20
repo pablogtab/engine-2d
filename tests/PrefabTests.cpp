@@ -550,7 +550,272 @@ void test_instantiate_prefab_drag_drop_scenarios() {
     std::cout << "test_instantiate_prefab_drag_drop_scenarios passed." << std::endl;
 }
 
+void test_prefab_link_component_and_unpack_revert_commands() {
 
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+    ComponentSerializationContext ctx;
+
+    // 1. Test ComponentRegistry serialization of PrefabLinkComponent
+    EntityID test_link_entity = em.create_entity();
+    em.add_component<TransformComponent>(test_link_entity, TransformComponent{});
+    em.add_component<PrefabLinkComponent>(test_link_entity, PrefabLinkComponent{"assets/prefabs/Hero.prefab"});
+    std::string scene_json = EntitySubtreeArchive::capture_to_json(em, test_link_entity, ctx);
+    assert(!scene_json.empty());
+    assert(scene_json.find("prefab_link") != std::string::npos);
+    assert(scene_json.find("assets/prefabs/Hero.prefab") != std::string::npos);
+    em.destroy_entity(test_link_entity);
+
+
+    // 2. Create a 2-entity prefab on disk
+    EntityID disk_root = em.create_entity();
+    em.add_component<TagComponent>(disk_root, TagComponent{"Goblin_Root"});
+    em.add_component<TransformComponent>(disk_root, TransformComponent{glm::vec3(0.0f)});
+
+    EntityID disk_child = em.create_entity();
+    em.add_component<TagComponent>(disk_child, TagComponent{"Goblin_Dagger"});
+    em.add_component<TransformComponent>(disk_child, TransformComponent{glm::vec3(15.0f, 0.0f, 0.0f)});
+    static_cast<void>(em.set_parent(disk_child, disk_root));
+    TransformSystem::update(em);
+
+    std::string prefab_json = EntitySubtreeArchive::capture_to_json(em, disk_root, ctx);
+    assert(!prefab_json.empty());
+    em.destroy_entity(disk_root);
+
+    std::filesystem::create_directories("assets/prefabs");
+    const std::string prefab_file = "assets/prefabs/goblin_test.prefab";
+    assert(FileSystem::write_text_atomically(prefab_file, prefab_json));
+
+    // 3. Instantiate prefab in scene under a parent container at (100, 200, 0)
+    EntityID scene_parent = em.create_entity();
+    em.add_component<TagComponent>(scene_parent, TagComponent{"Enemies_Group"});
+    em.add_component<TransformComponent>(scene_parent, TransformComponent{glm::vec3(50.0f, 50.0f, 0.0f)});
+    TransformSystem::update(em);
+
+    TransformComponent desired_world{glm::vec3(100.0f, 200.0f, 0.0f)};
+    auto instantiate_cmd = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, prefab_file, false, desired_world, scene_parent, nullptr, &state_store
+    );
+    assert(instantiate_cmd->is_valid());
+    history.execute_command(std::move(instantiate_cmd));
+
+    EntityID inst_root = selection->get_primary();
+    assert(inst_root != 0);
+    assert(em.has_component<PrefabLinkComponent>(inst_root));
+    assert(em.get_component<PrefabLinkComponent>(inst_root).prefab_asset_path == prefab_file);
+
+    // Child must NOT have PrefabLinkComponent (root only)
+    assert(em.has_component<HierarchyComponent>(inst_root));
+    const auto& children = em.get_component<HierarchyComponent>(inst_root).children;
+    assert(children.size() == 1);
+    EntityID inst_child = children.front();
+    assert(!em.has_component<PrefabLinkComponent>(inst_child));
+
+    // Verify parentage
+    assert(em.get_component<HierarchyComponent>(inst_root).parent == scene_parent);
+
+    // 4. Test Nested Prefab Link preservation during Unpack
+    // Attach a separate PrefabLinkComponent to child to simulate nested prefab instance
+    em.add_component<PrefabLinkComponent>(inst_child, PrefabLinkComponent{"assets/prefabs/dagger.prefab"});
+
+    auto unpack_cmd = std::make_unique<UnpackPrefabCommand>(&em, selection, inst_root, &state_store);
+    assert(unpack_cmd->is_valid());
+    history.execute_command(std::move(unpack_cmd));
+
+    // Root link is removed
+    assert(!em.has_component<PrefabLinkComponent>(inst_root));
+    // Nested child link remains intact
+    assert(em.has_component<PrefabLinkComponent>(inst_child));
+
+    // Undo unpack: restores root link
+    history.undo();
+    assert(em.has_component<PrefabLinkComponent>(inst_root));
+    assert(em.get_component<PrefabLinkComponent>(inst_root).prefab_asset_path == prefab_file);
+
+    // Redo unpack: removes root link
+    history.redo();
+    assert(!em.has_component<PrefabLinkComponent>(inst_root));
+
+    // Undo again so root has PrefabLinkComponent for Revert test
+    history.undo();
+    assert(em.has_component<PrefabLinkComponent>(inst_root));
+    // Remove the fake child link
+    em.remove_component<PrefabLinkComponent>(inst_child);
+
+    // 5. Test RevertPrefabCommand
+    // Modify instance: rename tag, add a new custom child
+    em.get_component<TagComponent>(inst_root).tag = "Goblin_Overridden";
+    EntityID extra_child = em.create_entity();
+    em.add_component<TagComponent>(extra_child, TagComponent{"Extra_Armor"});
+    em.add_component<TransformComponent>(extra_child, TransformComponent{glm::vec3(0.0f)});
+    static_cast<void>(em.set_parent(extra_child, inst_root));
+    TransformSystem::update(em);
+
+    assert(em.get_component<HierarchyComponent>(inst_root).children.size() == 2);
+
+
+    auto revert_cmd = std::make_unique<RevertPrefabCommand>(&em, selection, inst_root, nullptr, &state_store);
+    assert(revert_cmd->is_valid());
+    history.execute_command(std::move(revert_cmd));
+
+    EntityID reverted_root = selection->get_primary();
+    assert(reverted_root != 0);
+    assert(em.is_alive(reverted_root));
+
+    // Tag restored from disk
+    assert(em.get_component<TagComponent>(reverted_root).tag == "Goblin_Root");
+
+    // Children restored to 1 (extra_child destroyed)
+    assert(em.has_component<HierarchyComponent>(reverted_root));
+    assert(em.get_component<HierarchyComponent>(reverted_root).children.size() == 1);
+    assert(!em.is_alive(extra_child));
+
+    // Placement and parent preserved
+    assert(em.get_component<HierarchyComponent>(reverted_root).parent == scene_parent);
+    const auto& rev_tr = em.get_component<TransformComponent>(reverted_root);
+    assert(approx_equal(rev_tr.world_position.x, 100.0f));
+    assert(approx_equal(rev_tr.world_position.y, 200.0f));
+
+    // PrefabLinkComponent attached to new root
+    assert(em.has_component<PrefabLinkComponent>(reverted_root));
+    assert(em.get_component<PrefabLinkComponent>(reverted_root).prefab_asset_path == prefab_file);
+
+    // 6. Test Undo of Revert (restores user overrides & extra_child)
+    history.undo();
+    EntityID un_revert_root = selection->get_primary();
+    assert(em.is_alive(un_revert_root));
+    assert(em.get_component<TagComponent>(un_revert_root).tag == "Goblin_Overridden");
+    assert(em.get_component<HierarchyComponent>(un_revert_root).children.size() == 2);
+
+    // 7. Test Redo of Revert (re-applies clean asset without disk access)
+    history.redo();
+    EntityID redo_revert_root = selection->get_primary();
+    assert(em.is_alive(redo_revert_root));
+    assert(em.get_component<TagComponent>(redo_revert_root).tag == "Goblin_Root");
+    assert(em.get_component<HierarchyComponent>(redo_revert_root).children.size() == 1);
+
+    // 8. Revert failure cases
+    // Locked entity rejection
+    state_store.set_locked(redo_revert_root, true);
+    auto revert_locked = std::make_unique<RevertPrefabCommand>(&em, selection, redo_revert_root, nullptr, &state_store);
+    assert(!revert_locked->is_valid());
+    state_store.set_locked(redo_revert_root, false);
+
+    // Entity without PrefabLinkComponent rejection
+    EntityID plain_entity = em.create_entity();
+    auto revert_plain = std::make_unique<RevertPrefabCommand>(&em, selection, plain_entity, nullptr, &state_store);
+    assert(!revert_plain->is_valid());
+    em.destroy_entity(plain_entity);
+
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_prefab_link_component_and_unpack_revert_commands passed." << std::endl;
+}
+
+void test_revert_prefab_physics_and_atomic_rollback() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+    ComponentSerializationContext ctx;
+
+    // 1. Create physics prefab with RigidBody & Collider
+    EntityID phys_root = em.create_entity();
+    em.add_component<TagComponent>(phys_root, TagComponent{"Phys_Box"});
+    em.add_component<TransformComponent>(phys_root, TransformComponent{glm::vec3(10.0f, 20.0f, 0.0f)});
+    em.add_component<RigidBodyComponent>(phys_root, RigidBodyComponent::Dynamic(1.0f, 0.2f, 0.5f, false));
+    em.add_component<ColliderComponent>(phys_root, ColliderComponent::Box({32.0f, 32.0f}));
+    TransformSystem::update(em);
+
+    std::string phys_json = EntitySubtreeArchive::capture_to_json(em, phys_root, ctx);
+    em.destroy_entity(phys_root);
+
+    const std::string phys_prefab_file = "assets/prefabs/phys_revert_test.prefab";
+    assert(FileSystem::write_text_atomically(phys_prefab_file, phys_json));
+
+    // Instantiate in scene
+    auto inst_cmd = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, phys_prefab_file, false, std::nullopt, 0, nullptr, &state_store
+    );
+    assert(inst_cmd->is_valid());
+    history.execute_command(std::move(inst_cmd));
+
+    EntityID inst_phys = selection->get_primary();
+    assert(inst_phys != 0);
+    assert(em.has_component<RigidBodyComponent>(inst_phys));
+    assert(em.has_component<ColliderComponent>(inst_phys));
+
+    // Execute Revert
+    auto rev_phys_cmd = std::make_unique<RevertPrefabCommand>(&em, selection, inst_phys, nullptr, &state_store);
+    assert(rev_phys_cmd->is_valid());
+    history.execute_command(std::move(rev_phys_cmd));
+
+    EntityID rev_phys = selection->get_primary();
+    assert(rev_phys != 0);
+    assert(em.has_component<RigidBodyComponent>(rev_phys));
+    assert(em.has_component<ColliderComponent>(rev_phys));
+
+    // Undo / Redo cycles
+    history.undo();
+    EntityID un_phys = selection->get_primary();
+    assert(em.is_alive(un_phys));
+    assert(em.has_component<RigidBodyComponent>(un_phys));
+
+    history.redo();
+    EntityID redo_phys = selection->get_primary();
+    assert(em.is_alive(redo_phys));
+    assert(em.has_component<RigidBodyComponent>(redo_phys));
+
+    std::filesystem::remove(phys_prefab_file);
+
+    // 2. Test Atomic Rollback on corrupt instantiation with 2-level nested children
+    EntityID deep_root = em.create_entity();
+    em.add_component<TagComponent>(deep_root, TagComponent{"Deep_Root"});
+    em.add_component<TransformComponent>(deep_root, TransformComponent{glm::vec3(0.0f)});
+    em.add_component<PrefabLinkComponent>(deep_root, PrefabLinkComponent{"assets/prefabs/corrupt_target.prefab"});
+
+    EntityID deep_child1 = em.create_entity();
+    em.add_component<TagComponent>(deep_child1, TagComponent{"Deep_Child1"});
+    em.add_component<TransformComponent>(deep_child1, TransformComponent{glm::vec3(5.0f, 0.0f, 0.0f)});
+    static_cast<void>(em.set_parent(deep_child1, deep_root));
+
+    EntityID deep_child2 = em.create_entity();
+    em.add_component<TagComponent>(deep_child2, TagComponent{"Deep_Child2"});
+    em.add_component<TransformComponent>(deep_child2, TransformComponent{glm::vec3(10.0f, 0.0f, 0.0f)});
+    static_cast<void>(em.set_parent(deep_child2, deep_child1));
+    TransformSystem::update(em);
+
+    // Create an invalid asset file (syntactically valid JSON array but missing root)
+    const std::string corrupt_file = "assets/prefabs/corrupt_target.prefab";
+    assert(FileSystem::write_text_atomically(corrupt_file, R"({"entities": []})"));
+
+    auto bad_revert = std::make_unique<RevertPrefabCommand>(&em, selection, deep_root, nullptr, &state_store);
+    assert(bad_revert->is_valid());
+    assert(!bad_revert->execute()); // execute fails and triggers rollback
+
+    // Verify all 3 entities were safely restored and parent hierarchy is intact
+    EntityID restored_root = selection->get_primary();
+    assert(restored_root != 0);
+    assert(em.is_alive(restored_root));
+    assert(em.get_component<TagComponent>(restored_root).tag == "Deep_Root");
+    assert(em.has_component<HierarchyComponent>(restored_root));
+    assert(em.get_component<HierarchyComponent>(restored_root).children.size() == 1);
+
+    EntityID res_child1 = em.get_component<HierarchyComponent>(restored_root).children.front();
+    assert(em.is_alive(res_child1));
+    assert(em.get_component<TagComponent>(res_child1).tag == "Deep_Child1");
+    assert(em.get_component<HierarchyComponent>(res_child1).parent == restored_root);
+    assert(em.get_component<HierarchyComponent>(res_child1).children.size() == 1);
+
+    EntityID res_child2 = em.get_component<HierarchyComponent>(res_child1).children.front();
+    assert(em.is_alive(res_child2));
+    assert(em.get_component<TagComponent>(res_child2).tag == "Deep_Child2");
+    assert(em.get_component<HierarchyComponent>(res_child2).parent == res_child1);
+
+    std::filesystem::remove(corrupt_file);
+    std::cout << "test_revert_prefab_physics_and_atomic_rollback passed." << std::endl;
+}
 
 int main() {
     std::cout << "=== Running Prefab System Tests ===" << std::endl;
@@ -564,6 +829,8 @@ int main() {
     test_prefab_physics_and_tilemap_undo_redo();
     test_prefab_structural_rejections();
     test_instantiate_prefab_drag_drop_scenarios();
+    test_prefab_link_component_and_unpack_revert_commands();
+    test_revert_prefab_physics_and_atomic_rollback();
     std::cout << "=== All Prefab System Tests Passed! ===" << std::endl;
     return 0;
 }

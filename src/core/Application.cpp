@@ -177,6 +177,18 @@ Application::Application(const std::string& name, int width, int height, bool st
 
     hierarchy_panel->set_prefab_stage(m_editor_layer->get_prefab_stage());
     inspector_panel->set_prefab_stage(m_editor_layer->get_prefab_stage());
+    inspector_panel->set_on_open_prefab_callback([this](const std::string& prefab_path) {
+        if (m_editor_layer) {
+            m_editor_layer->request_destructive_action({
+                .type = PendingActionType::LoadScene,
+                .target = prefab_path,
+                .action = [this, prefab_path]() {
+                    m_editor_layer->open_prefab_stage(prefab_path);
+                }
+            });
+        }
+    });
+
 
     auto anim_studio_panel = std::make_shared<SpriteAnimationStudioPanel>(&m_scene_manager, selection);
     anim_studio_panel->set_command_history(command_history);
