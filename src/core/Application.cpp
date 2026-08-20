@@ -114,9 +114,11 @@ Application::Application(const std::string& name, int width, int height, bool st
     inspector_panel->set_command_history(command_history);
     auto console_panel = std::make_shared<ConsolePanel>();
     auto stats_panel = std::make_shared<StatsPanel>();
+    stats_panel->is_open = false; // Closed by default at startup (accessible via Panels menu)
     auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");
     auto postprocess_panel = std::make_shared<PostProcessTunerPanel>(&m_scene_manager, command_history);
     postprocess_panel->is_open = false; // Closed by default at startup (accessible via View / Windows menu)
+
 
     auto project_command_history = std::make_shared<EditorCommandHistory>();
     auto project_settings_panel = std::make_shared<ProjectSettingsPanel>(&m_project_settings, &m_scene_manager, project_command_history);

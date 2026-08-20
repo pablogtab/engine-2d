@@ -52,7 +52,9 @@ set(SOURCES
     src/scene/EntitySubtreeArchive.cpp
     src/scene/PrefabSerializer.cpp
     src/scene/PrefabPropagation.cpp
+    src/scene/PrefabOverrides.cpp
     src/sandbox/AnimatedSpriteDemoScene.cpp
+
 
     src/sandbox/DepthDemoScene.cpp
     src/sandbox/PlatformerDemoScene.cpp
@@ -399,6 +401,7 @@ add_executable(PrefabTests
     src/scene/EntitySubtreeArchive.cpp
     src/scene/PrefabSerializer.cpp
     src/scene/PrefabPropagation.cpp
+    src/scene/PrefabOverrides.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp
@@ -445,7 +448,9 @@ add_executable(PrefabStageControllerTests
     src/scene/EntitySubtreeArchive.cpp
     src/scene/PrefabSerializer.cpp
     src/scene/PrefabPropagation.cpp
+    src/scene/PrefabOverrides.cpp
     src/scene/SceneManager.cpp
+
 
     src/scene/GenericScene.cpp
     src/editor/commands/EditorCommandHistory.cpp

@@ -227,7 +227,8 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Add Live Asset Propagation (`PrefabPropagation::propagate_to_instances`) from Prefab Stage save and Inspector Apply to all active scene instances.
 - [x] Add duplication link preservation (`DuplicateEntitiesCommand` clones preserve independent `PrefabLinkComponent`).
 - [x] Make prefab operations fully reversible, transactional, and dependency-safe without disk dependencies on undo/redo.
-- [ ] Add explicit per-property override tracking & granular property revert/apply visuals in the Inspector.
+- [x] Add explicit per-property/component override tracking & granular revert/apply visuals (3px blue gutter, context menus, and Overrides dropdown popup) in the Inspector.
+
 - [ ] Add nested-prefab policies and Prefab Variants.
 
 **Completion criteria:** Assets and prefabs remain valid across reload, move, duplication, save/load, and standalone packaging without runtime-pointer fragility.

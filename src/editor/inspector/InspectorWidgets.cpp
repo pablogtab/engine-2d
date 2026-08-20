@@ -64,7 +64,8 @@ ComponentHeaderResult component_header(
     const char* id,
     bool removable,
     bool default_open,
-    EditorIcon icon
+    EditorIcon icon,
+    bool has_override
 ) {
     ImGui::PushID(id);
     const ImVec2 header_position = ImGui::GetCursorScreenPos();
@@ -74,6 +75,38 @@ ComponentHeaderResult component_header(
     const bool open = ImGui::CollapsingHeader(header_label.c_str(), flags);
     const ImVec2 content_position = ImGui::GetCursorScreenPos();
     bool remove_requested = false;
+    bool revert_override_requested = false;
+    bool apply_override_requested = false;
+
+    // Draw subtle vertical gutter indicator bar on the left margin when overridden
+    if (has_override) {
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        const float bar_height = ImGui::GetFrameHeight();
+        draw_list->AddRectFilled(
+            header_position,
+            ImVec2(header_position.x + 3.5f, header_position.y + bar_height),
+            IM_COL32(95, 185, 255, 255),
+            1.5f
+        );
+    }
+
+    // Right-click context popup directly on header item
+    if (ImGui::BeginPopupContextItem("ComponentHeaderContextMenu")) {
+        if (has_override) {
+            if (ImGui::MenuItem("Revert to Prefab")) {
+                revert_override_requested = true;
+            }
+            if (ImGui::MenuItem("Apply to Prefab Asset")) {
+                apply_override_requested = true;
+            }
+            ImGui::Separator();
+        }
+        if (removable) {
+            const std::string remove_label = editor_icon_label(EditorIcon::Trash, "Remove Component");
+            remove_requested = ImGui::MenuItem(remove_label.c_str());
+        }
+        ImGui::EndPopup();
+    }
 
     if (removable) {
         const ImGuiStyle& style = ImGui::GetStyle();
@@ -94,6 +127,15 @@ ComponentHeaderResult component_header(
         }
 
         if (ImGui::BeginPopup("ComponentOptions")) {
+            if (has_override) {
+                if (ImGui::MenuItem("Revert to Prefab")) {
+                    revert_override_requested = true;
+                }
+                if (ImGui::MenuItem("Apply to Prefab Asset")) {
+                    apply_override_requested = true;
+                }
+                ImGui::Separator();
+            }
             const std::string remove_label = editor_icon_label(EditorIcon::Trash, "Remove Component");
             remove_requested = ImGui::MenuItem(remove_label.c_str());
             ImGui::EndPopup();
@@ -102,20 +144,21 @@ ComponentHeaderResult component_header(
     }
 
     ImGui::PopID();
-    return {open, remove_requested};
+    return {open, remove_requested, revert_override_requested, apply_override_requested};
 }
 
 ComponentHeaderResult registered_component_header(
     std::string_view component_key,
     bool removable,
-    bool default_open
+    bool default_open,
+    bool has_override
 ) {
     const EditorComponentDescriptor* descriptor = default_editor_component_registry().find(component_key);
     if (!descriptor) {
         const std::string fallback_label(component_key);
         const std::string fallback_id = fallback_label + "Header";
         return component_header(
-            fallback_label.c_str(), fallback_id.c_str(), removable, default_open, EditorIcon::Component
+            fallback_label.c_str(), fallback_id.c_str(), removable, default_open, EditorIcon::Component, has_override
         );
     }
     return component_header(
@@ -123,9 +166,11 @@ ComponentHeaderResult registered_component_header(
         descriptor->drawer_key.c_str(),
         removable,
         default_open,
-        descriptor->icon
+        descriptor->icon,
+        has_override
     );
 }
+
 
 void begin_property_row(const char* label, bool reserve_reset) {
     ImGui::AlignTextToFramePadding();

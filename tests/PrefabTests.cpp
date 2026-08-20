@@ -1,7 +1,9 @@
 #include "scene/EntitySubtreeArchive.hpp"
 #include "scene/PrefabSerializer.hpp"
 #include "scene/PrefabPropagation.hpp"
+#include "scene/PrefabOverrides.hpp"
 #include "editor/commands/PrefabCommands.hpp"
+
 #include "editor/commands/EntityCommands.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/EditorSelection.hpp"
@@ -1075,6 +1077,130 @@ void test_prefab_multi_selection_batch_unpack() {
     std::cout << "test_prefab_multi_selection_batch_unpack passed." << std::endl;
 }
 
+void test_prefab_property_overrides_detection() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+
+    // Create prefab with Transform and Sprite
+    EntityID orig = em.create_entity();
+    em.add_component<TagComponent>(orig, TagComponent{"Enemy"});
+    em.add_component<TransformComponent>(orig, TransformComponent{glm::vec3(10.0f, 20.0f, 0.0f), glm::vec2(1.0f, 1.0f), 0.0f});
+    em.add_component<SpriteComponent>(orig, SpriteComponent{nullptr, glm::vec2(32.0f, 32.0f), SDL_Color{255, 255, 255, 255}});
+    TransformSystem::update(em);
+
+    std::filesystem::create_directories("assets/prefabs");
+    const std::string prefab_file = "assets/prefabs/override_detection_test.prefab";
+    assert(PrefabSerializer::save_to_file(em, orig, prefab_file, nullptr));
+    em.destroy_entity(orig);
+
+    // Instantiate prefab instance into scene
+    auto inst_cmd = std::make_unique<InstantiatePrefabCommand>(&em, selection, prefab_file, false, std::nullopt, 0, nullptr, &state_store);
+    history.execute_command(std::move(inst_cmd));
+    EntityID instance = selection->get_primary();
+    assert(instance != 0);
+
+    // 1. Initially (placed in scene, position may differ), no non-position overrides exist
+    auto initial_overrides = PrefabOverrides::get_overridden_components(em, instance);
+    assert(initial_overrides.empty());
+    assert(!PrefabOverrides::is_component_overridden(em, instance, "sprite"));
+    assert(!PrefabOverrides::is_component_overridden(em, instance, "transform"));
+
+    // Changing scene position does NOT trigger transform override for root entity
+    em.get_component<TransformComponent>(instance).position = glm::vec3(500.0f, 500.0f, 0.0f);
+    assert(!PrefabOverrides::is_component_overridden(em, instance, "transform"));
+
+    // 2. Modify sprite color -> sprite override detected!
+    em.get_component<SpriteComponent>(instance).color = SDL_Color{255, 0, 0, 255};
+    assert(PrefabOverrides::is_component_overridden(em, instance, "sprite"));
+    assert(!PrefabOverrides::is_component_overridden(em, instance, "transform"));
+    auto sprite_overrides = PrefabOverrides::get_overridden_components(em, instance);
+    assert(sprite_overrides.size() == 1);
+    assert(sprite_overrides[0] == "sprite");
+
+    // 3. Modify transform scale -> both sprite and transform overrides detected!
+    em.get_component<TransformComponent>(instance).scale = glm::vec2(2.5f, 2.5f);
+    assert(PrefabOverrides::is_component_overridden(em, instance, "transform"));
+    auto multi_overrides = PrefabOverrides::get_overridden_components(em, instance);
+    assert(multi_overrides.size() == 2);
+
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_prefab_property_overrides_detection passed." << std::endl;
+}
+
+void test_granular_revert_and_apply_component_command() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+
+    // Create master prefab
+    EntityID orig = em.create_entity();
+    em.add_component<TagComponent>(orig, TagComponent{"Player"});
+    em.add_component<TransformComponent>(orig, TransformComponent{glm::vec3(0.0f), glm::vec2(1.0f, 1.0f), 0.0f});
+    em.add_component<SpriteComponent>(orig, SpriteComponent{nullptr, glm::vec2(32.0f, 32.0f), SDL_Color{255, 255, 255, 255}});
+    em.add_component<RigidBodyComponent>(orig, RigidBodyComponent{BodyType::Dynamic, 1.0f, 1.0f});
+    TransformSystem::update(em);
+
+    std::filesystem::create_directories("assets/prefabs");
+    const std::string prefab_file = "assets/prefabs/granular_cmd_test.prefab";
+    assert(PrefabSerializer::save_to_file(em, orig, prefab_file, nullptr));
+    em.destroy_entity(orig);
+
+    // Instantiate prefab
+    auto inst_cmd = std::make_unique<InstantiatePrefabCommand>(&em, selection, prefab_file, false, std::nullopt, 0, nullptr, &state_store);
+    history.execute_command(std::move(inst_cmd));
+    EntityID instance = selection->get_primary();
+    assert(instance != 0);
+
+    // Modify sprite and rigidbody
+    em.get_component<SpriteComponent>(instance).color = SDL_Color{0, 255, 0, 255};
+    em.get_component<RigidBodyComponent>(instance).gravity_scale = 5.0f;
+
+    assert(PrefabOverrides::is_component_overridden(em, instance, "sprite"));
+    assert(PrefabOverrides::is_component_overridden(em, instance, "rigidbody"));
+
+    // --- 1. Granular Revert: Revert ONLY sprite ---
+    auto revert_sprite = std::make_unique<RevertComponentPrefabCommand>(&em, instance, "sprite", nullptr, &state_store);
+    history.execute_command(std::move(revert_sprite));
+
+    // Sprite color reverted back to 255,255,255
+    const auto& s = em.get_component<SpriteComponent>(instance);
+    assert(s.color.r == 255 && s.color.g == 255 && s.color.b == 255);
+    assert(!PrefabOverrides::is_component_overridden(em, instance, "sprite"));
+    // RigidBody is STILL overridden (gravity_scale = 5.0)
+    assert(PrefabOverrides::is_component_overridden(em, instance, "rigidbody"));
+    assert(em.get_component<RigidBodyComponent>(instance).gravity_scale == 5.0f);
+
+    // Undo sprite revert
+    history.undo();
+    assert(em.get_component<SpriteComponent>(instance).color.g == 255 && em.get_component<SpriteComponent>(instance).color.r == 0);
+    assert(PrefabOverrides::is_component_overridden(em, instance, "sprite"));
+
+    // Redo sprite revert
+    history.redo();
+    assert(em.get_component<SpriteComponent>(instance).color.r == 255 && em.get_component<SpriteComponent>(instance).color.g == 255);
+
+    // --- 2. Granular Apply: Apply ONLY RigidBody modifications to asset ---
+    auto apply_rb = std::make_unique<ApplyComponentPrefabCommand>(&em, instance, "rigidbody", nullptr, &state_store);
+    history.execute_command(std::move(apply_rb));
+
+    // RigidBody override is now cleared because disk asset matches current instance!
+    assert(!PrefabOverrides::is_component_overridden(em, instance, "rigidbody"));
+
+    // Instantiate a second instance from updated asset to verify disk was updated with gravity_scale 5.0
+    auto inst2_cmd = std::make_unique<InstantiatePrefabCommand>(&em, selection, prefab_file, false, std::nullopt, 0, nullptr, &state_store);
+    history.execute_command(std::move(inst2_cmd));
+    EntityID instance2 = selection->get_primary();
+    assert(em.get_component<RigidBodyComponent>(instance2).gravity_scale == 5.0f);
+    // And Sprite in asset remains uncorrupted white
+    assert(em.get_component<SpriteComponent>(instance2).color.r == 255);
+
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_granular_revert_and_apply_component_command passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Prefab System Tests ===" << std::endl;
     test_prefab_serialization_and_deserialization_round_trip();
@@ -1093,6 +1219,9 @@ int main() {
     test_prefab_live_propagation_on_apply();
     test_prefab_duplication_preserves_link();
     test_prefab_multi_selection_batch_unpack();
+    test_prefab_property_overrides_detection();
+    test_granular_revert_and_apply_component_command();
     std::cout << "=== All Prefab System Tests Passed! ===" << std::endl;
     return 0;
 }
+

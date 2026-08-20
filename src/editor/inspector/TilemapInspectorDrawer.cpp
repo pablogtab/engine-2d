@@ -1,9 +1,12 @@
 #include "TilemapInspectorDrawer.hpp"
 #include "InspectorWidgets.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../tilemap/TilemapColliderSystem.hpp"
+#include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
+
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -81,7 +84,20 @@ void track(
 void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Context& context) {
     if (!em.has_component<TilemapComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::registered_component_header("tilemap");
+    const bool has_override = PrefabOverrides::is_component_overridden(em, entity, "tilemap");
+    const auto header = InspectorWidgets::registered_component_header("tilemap", true, true, has_override);
+    if (header.revert_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<RevertComponentPrefabCommand>(
+            &em, entity, "tilemap", context.renderer
+        ));
+        return;
+    }
+    if (header.apply_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<ApplyComponentPrefabCommand>(
+            &em, entity, "tilemap", context.renderer
+        ));
+        return;
+    }
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<TilemapComponent>>(
             &em,
@@ -94,6 +110,7 @@ void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Cont
         return;
     }
     if (!header.open) return;
+
 
     using namespace InspectorWidgets;
     auto& tilemap = em.get_component<TilemapComponent>(entity);

@@ -1,10 +1,13 @@
 #include "AnimationInspectorDrawer.hpp"
 #include "InspectorWidgets.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../panels/SpriteAnimationStudioPanel.hpp"
 #include "../../renderer/SpriteAnimationSystem.hpp"
 #include "../../renderer/Texture.hpp"
+#include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
+
 #include <algorithm>
 #include <cstring>
 #include <string>
@@ -129,7 +132,20 @@ void AnimationPreviewState::reset(EntityID target, const AnimationComponent& ani
 void AnimationInspectorDrawer::draw(EntityManager& em, EntityID entity, const Context& context) {
     if (!em.has_component<AnimationComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::registered_component_header("animation");
+    const bool has_override = PrefabOverrides::is_component_overridden(em, entity, "animation");
+    const auto header = InspectorWidgets::registered_component_header("animation", true, true, has_override);
+    if (header.revert_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<RevertComponentPrefabCommand>(
+            &em, entity, "animation", nullptr
+        ));
+        return;
+    }
+    if (header.apply_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<ApplyComponentPrefabCommand>(
+            &em, entity, "animation", nullptr
+        ));
+        return;
+    }
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<AnimationComponent>>(
             &em,
@@ -142,6 +158,7 @@ void AnimationInspectorDrawer::draw(EntityManager& em, EntityID entity, const Co
         return;
     }
     if (!header.open) return;
+
 
     using namespace InspectorWidgets;
     auto& animation = em.get_component<AnimationComponent>(entity);

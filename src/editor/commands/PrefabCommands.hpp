@@ -142,4 +142,65 @@ private:
     bool m_first_execute{true};
 };
 
+
+class RevertComponentPrefabCommand : public IEditorCommand {
+public:
+    RevertComponentPrefabCommand(
+        EntityManager* em,
+        EntityID entity,
+        std::string component_key,
+        SDL_Renderer* renderer = nullptr,
+        const EditorEntityStateStore* state_store = nullptr
+    );
+
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
+
+private:
+    EntityManager* m_em{nullptr};
+    EntityID m_entity{0};
+    std::string m_component_key;
+    std::string m_prefab_filepath;
+    SDL_Renderer* m_renderer{nullptr};
+    std::string m_description{"Revert Component to Prefab"};
+    bool m_valid{true};
+    bool m_first_execute{true};
+
+    ComponentSnapshotSet m_before_snapshot;
+    ComponentSnapshotSet m_after_snapshot;
+    bool m_had_before{false};
+    bool m_had_after{false};
+};
+
+class ApplyComponentPrefabCommand : public IEditorCommand {
+public:
+    ApplyComponentPrefabCommand(
+        EntityManager* em,
+        EntityID root_entity,
+        std::string component_key,
+        SDL_Renderer* renderer = nullptr,
+        const EditorEntityStateStore* state_store = nullptr
+    );
+
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
+
+private:
+    EntityManager* m_em{nullptr};
+    EntityID m_root_entity{0};
+    std::string m_component_key;
+    std::string m_prefab_filepath;
+    std::string m_previous_file_content;
+    std::string m_new_file_content;
+    SDL_Renderer* m_renderer{nullptr};
+    std::string m_description{"Apply Component to Prefab Asset"};
+    bool m_valid{true};
+    bool m_first_execute{true};
+};
+
 } // namespace Engine
+

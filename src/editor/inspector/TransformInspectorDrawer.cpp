@@ -2,12 +2,15 @@
 #include "InspectorWidgets.hpp"
 #include "InspectorPropertyPolicies.hpp"
 #include "MultiComponentInspectorTransaction.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
+#include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
 #include <string>
+
 
 namespace Engine {
 
@@ -266,7 +269,23 @@ void TransformInspectorDrawer::draw(
     const ComponentTransactionContext& context
 ) {
     if (!em.has_component<TransformComponent>(entity)) return;
-    if (!InspectorWidgets::registered_component_header("transform", false).open) return;
+
+    const bool has_override = PrefabOverrides::is_component_overridden(em, entity, "transform");
+    const auto header = InspectorWidgets::registered_component_header("transform", false, true, has_override);
+    if (header.revert_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<RevertComponentPrefabCommand>(
+            &em, entity, "transform", nullptr
+        ));
+        return;
+    }
+    if (header.apply_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<ApplyComponentPrefabCommand>(
+            &em, entity, "transform", nullptr
+        ));
+        return;
+    }
+    if (!header.open) return;
+
 
     const bool is_tilemap_managed = em.has_component<TilemapGeneratedColliderComponent>(entity);
     if (is_tilemap_managed) {

@@ -23,6 +23,8 @@ struct PropertyInteraction {
 struct ComponentHeaderResult {
     bool open{false};
     bool remove_requested{false};
+    bool revert_override_requested{false};
+    bool apply_override_requested{false};
 };
 
 void begin_property_interaction(const char* label);
@@ -39,15 +41,18 @@ void request_cancel_active_property();
     const char* id,
     bool removable = true,
     bool default_open = true,
-    EditorIcon icon = EditorIcon::Component
+    EditorIcon icon = EditorIcon::Component,
+    bool has_override = false
 );
 
 // Resolves presentation through the editor-only component registry.
 [[nodiscard]] ComponentHeaderResult registered_component_header(
     std::string_view component_key,
     bool removable = true,
-    bool default_open = true
+    bool default_open = true,
+    bool has_override = false
 );
+
 
 void begin_property_row(const char* label, bool reserve_reset = false);
 bool property_float(const char* label, float* value, float speed, float min = 0.0f, float max = 0.0f, const char* format = "%.3f", bool mixed = false);

@@ -24,7 +24,9 @@
 #include "../../core/AssetManager.hpp"
 #include "../../scene/ComponentRegistry.hpp"
 #include "../../scene/PrefabSerializer.hpp"
+#include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
+
 #include <algorithm>
 #include <cstring>
 #include <unordered_set>
@@ -424,6 +426,8 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
     // Prefab Instance Card or Save As Prefab button
     if (em.has_component<PrefabLinkComponent>(entity)) {
         const auto& link = em.get_component<PrefabLinkComponent>(entity);
+        const std::vector<std::string> overrides = PrefabOverrides::get_overridden_components(em, entity);
+
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.16f, 0.22f, 0.90f));
         ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
         if (ImGui::BeginChild("##prefab_link_card", ImVec2(0.0f, 62.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar)) {
@@ -444,6 +448,93 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             }
 
             ImGui::SameLine();
+            if (!overrides.empty()) {
+                const std::string overrides_button_text = "Overrides (" + std::to_string(overrides.size()) + ") \xe2\x96\xbe";
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.35f, 0.55f, 0.90f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.24f, 0.45f, 0.70f, 1.0f));
+                if (ImGui::Button(overrides_button_text.c_str(), ImVec2(120.0f, 22.0f))) {
+                    ImGui::OpenPopup("##prefab_overrides_popup");
+                }
+                ImGui::PopStyleColor(2);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("View, Revert, or Apply modified components");
+                }
+
+                if (ImGui::BeginPopup("##prefab_overrides_popup")) {
+                    ImGui::TextColored(ImVec4(0.40f, 0.75f, 1.0f, 1.0f), "Modified Components (%zu)", overrides.size());
+                    ImGui::Separator();
+                    const auto& ed_reg = default_editor_component_registry();
+
+                    for (const std::string& comp_key : overrides) {
+                        std::string display_name = comp_key;
+                        const auto* ed_desc = ed_reg.find(comp_key);
+                        if (ed_desc) display_name = ed_desc->display_name;
+
+                        ImGui::PushID(comp_key.c_str());
+                        ImGui::TextUnformatted(display_name.c_str());
+                        ImGui::SameLine(180.0f);
+                        if (ImGui::Button("Revert", ImVec2(55.0f, 20.0f))) {
+                            if (m_command_history) {
+                                m_command_history->execute_command(std::make_unique<RevertComponentPrefabCommand>(
+                                    &em, entity, comp_key, m_renderer, m_entity_state_store.get()
+                                ));
+                            } else {
+                                RevertComponentPrefabCommand cmd(&em, entity, comp_key, m_renderer, m_entity_state_store.get());
+                                cmd.execute();
+                            }
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Apply", ImVec2(50.0f, 20.0f))) {
+                            if (m_command_history) {
+                                m_command_history->execute_command(std::make_unique<ApplyComponentPrefabCommand>(
+                                    &em, entity, comp_key, m_renderer, m_entity_state_store.get()
+                                ));
+                            } else {
+                                ApplyComponentPrefabCommand cmd(&em, entity, comp_key, m_renderer, m_entity_state_store.get());
+                                cmd.execute();
+                            }
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::PopID();
+                    }
+
+                    ImGui::Separator();
+                    if (ImGui::Button("Revert All", ImVec2(130.0f, 22.0f))) {
+                        if (m_command_history) {
+                            m_command_history->execute_command(std::make_unique<RevertPrefabCommand>(
+                                &em, m_selection, entity, m_renderer, m_entity_state_store.get()
+                            ));
+                        } else {
+                            RevertPrefabCommand cmd(&em, m_selection, entity, m_renderer, m_entity_state_store.get());
+                            cmd.execute();
+                        }
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Apply All", ImVec2(130.0f, 22.0f))) {
+                        if (m_command_history) {
+                            m_command_history->execute_command(std::make_unique<ApplyPrefabCommand>(
+                                &em, entity, m_renderer, m_entity_state_store.get()
+                            ));
+                        } else {
+                            ApplyPrefabCommand cmd(&em, entity, m_renderer, m_entity_state_store.get());
+                            cmd.execute();
+                        }
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::EndPopup();
+                }
+            } else {
+                ImGui::BeginDisabled(true);
+                ImGui::Button("No Overrides", ImVec2(100.0f, 22.0f));
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Instance is identical to prefab asset on disk");
+                }
+            }
+
+            ImGui::SameLine();
             if (ImGui::Button("Unpack", ImVec2(70.0f, 22.0f))) {
                 if (m_command_history) {
                     m_command_history->execute_command(std::make_unique<UnpackPrefabCommand>(
@@ -457,43 +548,13 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Unpack this instance into standard scene entities");
             }
-
-            ImGui::SameLine();
-            if (ImGui::Button("Revert Contents", ImVec2(115.0f, 22.0f))) {
-                if (m_command_history) {
-                    m_command_history->execute_command(std::make_unique<RevertPrefabCommand>(
-                        &em, m_selection, entity, m_renderer, m_entity_state_store.get()
-                    ));
-                } else {
-                    RevertPrefabCommand cmd(&em, m_selection, entity, m_renderer, m_entity_state_store.get());
-                    cmd.execute();
-                }
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Restores asset contents from disk while keeping current scene placement and parent");
-            }
-
-            ImGui::SameLine();
-            if (ImGui::Button("Apply to Asset", ImVec2(105.0f, 22.0f))) {
-                if (m_command_history) {
-                    m_command_history->execute_command(std::make_unique<ApplyPrefabCommand>(
-                        &em, entity, m_renderer, m_entity_state_store.get()
-                    ));
-                } else {
-                    ApplyPrefabCommand cmd(&em, entity, m_renderer, m_entity_state_store.get());
-                    cmd.execute();
-                }
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Writes this instance's current modifications back to the prefab asset file on disk");
-            }
         }
-
         ImGui::EndChild();
         ImGui::PopStyleVar();
         ImGui::PopStyleColor();
     } else {
         const std::string prefab_btn_label = editor_icon_label(EditorIcon::Component, "Save As Prefab...");
+
         if (ImGui::Button(prefab_btn_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 22.0f))) {
             std::string tag_name = em.has_component<TagComponent>(entity) ? em.get_component<TagComponent>(entity).tag : "Entity";
             std::string clean_name = tag_name;

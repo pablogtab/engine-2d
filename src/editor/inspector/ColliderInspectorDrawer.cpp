@@ -2,10 +2,13 @@
 #include "InspectorWidgets.hpp"
 #include "MultiComponentInspectorTransaction.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../physics/PhysicsSystem.hpp"
+#include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
 #include <string>
+
 
 namespace Engine {
 
@@ -73,7 +76,20 @@ void ColliderInspectorDrawer::draw(
 ) {
     if (!em.has_component<ColliderComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::registered_component_header("collider");
+    const bool has_override = PrefabOverrides::is_component_overridden(em, entity, "collider");
+    const auto header = InspectorWidgets::registered_component_header("collider", true, true, has_override);
+    if (header.revert_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<RevertComponentPrefabCommand>(
+            &em, entity, "collider", nullptr
+        ));
+        return;
+    }
+    if (header.apply_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<ApplyComponentPrefabCommand>(
+            &em, entity, "collider", nullptr
+        ));
+        return;
+    }
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<ColliderComponent>>(
             &em,
@@ -87,6 +103,7 @@ void ColliderInspectorDrawer::draw(
     }
     if (!header.open) return;
     ImGui::PushID("ColliderComponentDrawer");
+
 
     using namespace InspectorWidgets;
     auto& collider = em.get_component<ColliderComponent>(entity);

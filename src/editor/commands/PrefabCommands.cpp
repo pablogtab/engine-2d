@@ -5,7 +5,9 @@
 #include "../../core/Log.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../scene/PrefabPropagation.hpp"
+#include "../../scene/PrefabOverrides.hpp"
 #include <filesystem>
+
 
 
 namespace Engine {
@@ -602,4 +604,224 @@ bool ApplyPrefabCommand::undo() {
     return true;
 }
 
+RevertComponentPrefabCommand::RevertComponentPrefabCommand(
+    EntityManager* em,
+    EntityID entity,
+    std::string component_key,
+    SDL_Renderer* renderer,
+    const EditorEntityStateStore* state_store
+) : m_em(em),
+    m_entity(entity),
+    m_component_key(std::move(component_key)),
+    m_renderer(renderer)
+{
+    if (!m_em || !m_em->is_alive(m_entity) || (state_store && state_store->is_locked(m_entity))) {
+        m_valid = false;
+        return;
+    }
+    if (!m_em->has_component<PrefabLinkComponent>(m_entity)) {
+        m_valid = false;
+        return;
+    }
+    m_prefab_filepath = m_em->get_component<PrefabLinkComponent>(m_entity).prefab_asset_path;
+    m_description = "Revert Component '" + m_component_key + "' to Prefab";
+}
+
+bool RevertComponentPrefabCommand::execute() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_entity)) return false;
+
+    const ComponentRegistry& reg = default_component_registry();
+    const ComponentDescriptor* desc = reg.find_by_key(m_component_key);
+    if (!desc) return false;
+
+    if (m_first_execute) {
+        // Capture initial state
+        m_had_before = desc->has(*m_em, m_entity);
+        if (m_had_before) {
+            desc->capture(*m_em, m_entity, m_before_snapshot);
+        }
+
+        nlohmann::json master_comp_json = PrefabOverrides::get_master_component_json(m_prefab_filepath, m_component_key);
+        if (master_comp_json.is_null()) {
+            // Master didn't have component
+            if (m_had_before) {
+                desc->remove(*m_em, m_entity);
+            }
+            m_had_after = false;
+        } else {
+            if (m_component_key == "transform") {
+                if (!m_em->has_component<TransformComponent>(m_entity)) {
+                    m_em->add_component<TransformComponent>(m_entity, TransformComponent{});
+                }
+                auto& t = m_em->get_component<TransformComponent>(m_entity);
+                if (master_comp_json.contains("scale") && master_comp_json["scale"].is_array() && master_comp_json["scale"].size() >= 2) {
+                    t.scale = glm::vec2(master_comp_json["scale"][0].get<float>(), master_comp_json["scale"][1].get<float>());
+                }
+                if (master_comp_json.contains("rotation")) {
+                    t.rotation = master_comp_json["rotation"].get<float>();
+                }
+                if (master_comp_json.contains("pivot") && master_comp_json["pivot"].is_array() && master_comp_json["pivot"].size() >= 2) {
+                    t.pivot = glm::vec2(master_comp_json["pivot"][0].get<float>(), master_comp_json["pivot"][1].get<float>());
+                }
+                if (master_comp_json.contains("visible")) {
+                    t.visible = master_comp_json["visible"].get<bool>();
+                }
+            } else {
+                ComponentSerializationContext ctx{.renderer = m_renderer, .asset_manager = &AssetManager::get()};
+                std::string err;
+                if (!desc->deserialize(*m_em, m_entity, master_comp_json, ctx, err)) {
+                    ENGINE_LOG_ERROR("[PREFAB] RevertComponentPrefabCommand failed deserializing '{}': {}", m_component_key, err);
+                    return false;
+                }
+            }
+            m_had_after = true;
+            desc->capture(*m_em, m_entity, m_after_snapshot);
+        }
+
+        ComponentFinalizeContext finalize_ctx{
+            .serialization = {.renderer = m_renderer, .asset_manager = &AssetManager::get()},
+            .reason = ComponentFinalizeReason::SnapshotRestore
+        };
+        std::string err;
+        static_cast<void>(reg.finalize_entity(*m_em, m_entity, finalize_ctx, err));
+        TransformSystem::update(*m_em);
+
+        m_first_execute = false;
+        return true;
+    }
+
+    // Redo
+    if (m_had_after) {
+        desc->restore(*m_em, m_entity, m_after_snapshot);
+    } else if (desc->has(*m_em, m_entity)) {
+        desc->remove(*m_em, m_entity);
+    }
+    ComponentFinalizeContext finalize_ctx{
+        .serialization = {.renderer = m_renderer, .asset_manager = &AssetManager::get()},
+        .reason = ComponentFinalizeReason::SnapshotRestore
+    };
+    std::string err;
+    static_cast<void>(reg.finalize_entity(*m_em, m_entity, finalize_ctx, err));
+    TransformSystem::update(*m_em);
+    return true;
+}
+
+bool RevertComponentPrefabCommand::undo() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_entity)) return false;
+
+    const ComponentRegistry& reg = default_component_registry();
+    const ComponentDescriptor* desc = reg.find_by_key(m_component_key);
+    if (!desc) return false;
+
+    if (m_had_before) {
+        desc->restore(*m_em, m_entity, m_before_snapshot);
+    } else if (desc->has(*m_em, m_entity)) {
+        desc->remove(*m_em, m_entity);
+    }
+    ComponentFinalizeContext finalize_ctx{
+        .serialization = {.renderer = m_renderer, .asset_manager = &AssetManager::get()},
+        .reason = ComponentFinalizeReason::SnapshotRestore
+    };
+    std::string err;
+    static_cast<void>(reg.finalize_entity(*m_em, m_entity, finalize_ctx, err));
+    TransformSystem::update(*m_em);
+    return true;
+}
+
+
+ApplyComponentPrefabCommand::ApplyComponentPrefabCommand(
+    EntityManager* em,
+    EntityID root_entity,
+    std::string component_key,
+    SDL_Renderer* renderer,
+    const EditorEntityStateStore* state_store
+) : m_em(em),
+    m_root_entity(root_entity),
+    m_component_key(std::move(component_key)),
+    m_renderer(renderer)
+{
+    if (!m_em || !m_em->is_alive(m_root_entity) || (state_store && state_store->is_locked(m_root_entity))) {
+        m_valid = false;
+        return;
+    }
+    if (!m_em->has_component<PrefabLinkComponent>(m_root_entity)) {
+        m_valid = false;
+        return;
+    }
+    m_prefab_filepath = m_em->get_component<PrefabLinkComponent>(m_root_entity).prefab_asset_path;
+    m_previous_file_content = PrefabSerializer::read_json_from_file(m_prefab_filepath);
+    if (m_previous_file_content.empty()) {
+        m_valid = false;
+        return;
+    }
+    m_description = "Apply Component '" + m_component_key + "' to Prefab Asset";
+}
+
+bool ApplyComponentPrefabCommand::execute() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_root_entity)) return false;
+
+    if (m_first_execute) {
+        try {
+            nlohmann::json data = nlohmann::json::parse(m_previous_file_content);
+            if (!data.contains("entities") || !data["entities"].is_array() || data["entities"].empty()) {
+                return false;
+            }
+            auto& entities = data["entities"];
+            auto it = std::find_if(entities.begin(), entities.end(), [](const nlohmann::json& e) {
+                return e.value("id", 0) == 1;
+            });
+            auto& root_obj = (it != entities.end()) ? *it : entities[0];
+
+            const ComponentRegistry& reg = default_component_registry();
+            const ComponentDescriptor* desc = reg.find_by_key(m_component_key);
+            if (!desc) return false;
+
+            ComponentSerializationContext ctx{.renderer = m_renderer, .asset_manager = &AssetManager::get()};
+            if (desc->has(*m_em, m_root_entity)) {
+                nlohmann::json comp_json = desc->serialize(*m_em, m_root_entity, ctx);
+                if (m_component_key == "transform") {
+                    if (root_obj.contains("transform") && root_obj["transform"].contains("position")) {
+                        comp_json["position"] = root_obj["transform"]["position"];
+                    }
+                }
+                root_obj[m_component_key] = comp_json;
+            } else {
+                root_obj.erase(m_component_key);
+            }
+
+            m_new_file_content = data.dump(4);
+        } catch (const std::exception& e) {
+            ENGINE_LOG_ERROR("[PREFAB] ApplyComponentPrefabCommand error updating JSON: {}", e.what());
+            return false;
+        }
+
+        if (!FileSystem::write_text_atomically(m_prefab_filepath, m_new_file_content)) {
+            ENGINE_LOG_ERROR("[PREFAB] ApplyComponentPrefabCommand failed writing '{}'", m_prefab_filepath);
+            return false;
+        }
+
+        m_first_execute = false;
+        PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, m_root_entity, m_renderer);
+        return true;
+    }
+
+    // Redo
+    if (!FileSystem::write_text_atomically(m_prefab_filepath, m_new_file_content)) {
+        return false;
+    }
+    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer);
+    return true;
+}
+
+bool ApplyComponentPrefabCommand::undo() {
+    if (!m_valid || !m_em) return false;
+
+    if (!FileSystem::write_text_atomically(m_prefab_filepath, m_previous_file_content)) {
+        return false;
+    }
+    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer);
+    return true;
+}
+
 } // namespace Engine
+

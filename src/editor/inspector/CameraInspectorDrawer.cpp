@@ -3,9 +3,12 @@
 #include "InspectorPropertyPolicies.hpp"
 #include "MultiComponentInspectorTransaction.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
+#include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
+
 #include <algorithm>
 #include <string>
 
@@ -44,7 +47,20 @@ void CameraInspectorDrawer::draw(
 ) {
     if (!em.has_component<CameraComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::registered_component_header("camera");
+    const bool has_override = PrefabOverrides::is_component_overridden(em, entity, "camera");
+    const auto header = InspectorWidgets::registered_component_header("camera", true, true, has_override);
+    if (header.revert_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<RevertComponentPrefabCommand>(
+            &em, entity, "camera", nullptr
+        ));
+        return;
+    }
+    if (header.apply_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<ApplyComponentPrefabCommand>(
+            &em, entity, "camera", nullptr
+        ));
+        return;
+    }
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<CameraComponent>>(
             &em,
@@ -56,6 +72,7 @@ void CameraInspectorDrawer::draw(
         return;
     }
     if (!header.open) return;
+
     ImGui::PushID("CameraComponentDrawer");
 
     using namespace InspectorWidgets;

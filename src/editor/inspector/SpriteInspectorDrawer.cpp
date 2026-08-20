@@ -3,10 +3,13 @@
 #include "InspectorPropertyPolicies.hpp"
 #include "MultiComponentInspectorTransaction.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../ecs/EntityManager.hpp"
 #include "../../renderer/Texture.hpp"
 #include "../../renderer/material/Material.hpp"
+#include "../../scene/PrefabOverrides.hpp"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -104,7 +107,20 @@ void SpriteInspectorDrawer::track_edit(
 void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Context& context) {
     if (!em.has_component<SpriteComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::registered_component_header("sprite");
+    const bool has_override = PrefabOverrides::is_component_overridden(em, entity, "sprite");
+    const auto header = InspectorWidgets::registered_component_header("sprite", true, true, has_override);
+    if (header.revert_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<RevertComponentPrefabCommand>(
+            &em, entity, "sprite", context.renderer
+        ));
+        return;
+    }
+    if (header.apply_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<ApplyComponentPrefabCommand>(
+            &em, entity, "sprite", context.renderer
+        ));
+        return;
+    }
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
             &em,
@@ -117,6 +133,7 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
     }
     if (!header.open) return;
     ImGui::PushID("SpriteComponentDrawer");
+
 
     using namespace InspectorWidgets;
     auto& sprite = em.get_component<SpriteComponent>(entity);

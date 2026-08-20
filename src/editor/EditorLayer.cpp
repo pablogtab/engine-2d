@@ -513,12 +513,13 @@ void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
 
     ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
     ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left_id);
-    ImGui::DockBuilderDockWindow("Entity Inspector", dock_right_id);
     ImGui::DockBuilderDockWindow("Engine & Metrics", dock_right_id);
-    ImGui::DockBuilderDockWindow("Console & Logs", dock_down_id);
+    ImGui::DockBuilderDockWindow("Entity Inspector", dock_right_id);
     ImGui::DockBuilderDockWindow("Asset Browser", dock_down_id);
+    ImGui::DockBuilderDockWindow("Console & Logs", dock_down_id);
 
     ImGui::DockBuilderFinish(dockspace_id);
+
 }
 
 void EditorLayer::create_new_scene(const std::string& name) {

@@ -2,9 +2,12 @@
 #include "InspectorWidgets.hpp"
 #include "MultiComponentInspectorTransaction.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../physics/PhysicsSystem.hpp"
+#include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
+
 
 namespace Engine {
 
@@ -62,7 +65,20 @@ void RigidBodyInspectorDrawer::draw(
 ) {
     if (!em.has_component<RigidBodyComponent>(entity)) return;
 
-    const auto header = InspectorWidgets::registered_component_header("rigidbody");
+    const bool has_override = PrefabOverrides::is_component_overridden(em, entity, "rigidbody");
+    const auto header = InspectorWidgets::registered_component_header("rigidbody", true, true, has_override);
+    if (header.revert_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<RevertComponentPrefabCommand>(
+            &em, entity, "rigidbody", nullptr
+        ));
+        return;
+    }
+    if (header.apply_override_requested && context.command_history) {
+        context.command_history->execute_command(std::make_unique<ApplyComponentPrefabCommand>(
+            &em, entity, "rigidbody", nullptr
+        ));
+        return;
+    }
     if (header.remove_requested && context.command_history) {
         context.command_history->execute_command(std::make_unique<SetComponentCommand<RigidBodyComponent>>(
             &em,
@@ -76,6 +92,7 @@ void RigidBodyInspectorDrawer::draw(
     }
     if (!header.open) return;
     ImGui::PushID("RigidBodyComponentDrawer");
+
 
     using namespace InspectorWidgets;
     auto& rigidbody = em.get_component<RigidBodyComponent>(entity);
