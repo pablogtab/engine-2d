@@ -129,6 +129,30 @@ add_subdirectory(vendor/box2d)
 
 add_executable(Engine2D ${SOURCES})
 
+if(APPLE)
+    set(ENGINE_RUNTIME_SHADER_FORMAT "msl")
+    set(ENGINE_RUNTIME_SHADER_EXTENSION "msl")
+elseif(WIN32)
+    set(ENGINE_RUNTIME_SHADER_FORMAT "dxil")
+    set(ENGINE_RUNTIME_SHADER_EXTENSION "dxil")
+else()
+    set(ENGINE_RUNTIME_SHADER_FORMAT "spirv")
+    set(ENGINE_RUNTIME_SHADER_EXTENSION "spv")
+endif()
+
+add_custom_target(stage_runtime_assets
+    COMMAND "${CMAKE_COMMAND}"
+        "-DENGINE_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DENGINE_STAGE_DIR=${CMAKE_BINARY_DIR}/runtime"
+        "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2D>"
+        "-DENGINE_SHADER_VARIANT=${ENGINE_SHADER_OUTPUT_DIR}/night_vision.frag.${ENGINE_RUNTIME_SHADER_EXTENSION}"
+        "-DENGINE_SHADER_FORMAT=${ENGINE_RUNTIME_SHADER_FORMAT}"
+        -P "${CMAKE_SOURCE_DIR}/cmake/StageRuntimeAssets.cmake"
+    DEPENDS Engine2D compile_shaders
+    COMMENT "Staging runtime assets with the platform shader variant"
+    VERBATIM
+)
+
 add_executable(Camera2DTests
     tests/Camera2DTests.cpp
     src/scene/Camera2D.cpp

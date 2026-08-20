@@ -80,8 +80,18 @@ cmake --build build --target validate_compiled_shaders
 The toolchain is deliberately separate from the normal engine build. It is
 downloaded and built only by that target, or a developer can point
 `ENGINE_SHADERCROSS_EXECUTABLE` to a prebuilt `shadercross` executable. The
-generated files live under `build/shader_assets`; packaging them into each
-platform artifact is the next export-pipeline step.
+generated files live under `build/shader_assets`. Stage a runnable project
+root with the platform-specific variant using:
+
+```sh
+cmake --build build --target stage_runtime_assets
+```
+
+The target copies `assets/`, `ProjectSettings/`, the executable and its editor
+assets into `build/runtime/`. It keeps the stable source handle and replaces
+its file with MSL on macOS, DXIL on Windows, or SPIR-V on Linux; the staged
+descriptor declares that corresponding format. Native library bundling and
+code-signing remain separate standalone-export tasks.
 
 ## Asset pipeline boundary
 
