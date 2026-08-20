@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../EditorPanel.hpp"
+#include "../../core/AssetHandle.hpp"
 #include "../../renderer/postprocess/PostProcessProfile.hpp"
 #include <memory>
 #include <optional>
@@ -42,6 +43,7 @@ private:
     std::shared_ptr<EditorCommandHistory> m_command_history;
     PostProcessProfile* m_interaction_target{nullptr};
     std::optional<PostProcessProfile> m_interaction_before;
+    AssetHandle m_selected_profile_handle{};
 };
 
 } // namespace Engine

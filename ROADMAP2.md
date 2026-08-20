@@ -217,6 +217,7 @@ These systems form the current baseline and should be extended rather than rewri
 ### Materials and Shaders as Assets
 
 - [x] Register materials and post-process profiles as project assets; create initial `.material` and `.postprocess` files from Asset Browser.
+- [x] Select, load, and atomically save `.postprocess` assets from Post-Processing Tuner.
 - [ ] Add an offline shader compilation/validation pipeline for Metal, Vulkan, and Direct3D variants.
 - [ ] Report unavailable shader variants before runtime.
 - [ ] Add material parameter inspection, serialization, duplication, and missing-shader diagnostics.

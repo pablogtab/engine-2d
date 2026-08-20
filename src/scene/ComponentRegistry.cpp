@@ -410,7 +410,8 @@ ComponentRegistry& default_component_registry() {
                     {"outline_pulse", sprite.outline_pulse},
                     {"use_src_rect", sprite.use_src_rect}
                 };
-                if (sprite.texture && !sprite.texture->get_filepath().empty()) {
+                AssetHandle texture_handle = sprite.texture_handle;
+                if (!texture_handle.is_valid() && sprite.texture && !sprite.texture->get_filepath().empty()) {
                     if (!context.asset_database) {
                         throw std::runtime_error("Sprite texture serialization requires an AssetDatabase");
                     }
@@ -418,8 +419,9 @@ ComponentRegistry& default_component_registry() {
                     if (!texture || texture->status != AssetStatus::Ready || texture->type != AssetType::Texture) {
                         throw std::runtime_error("Sprite references an unregistered texture: " + sprite.texture->get_filepath());
                     }
-                    value["texture_handle"] = texture->handle.to_string();
+                    texture_handle = texture->handle;
                 }
+                if (texture_handle.is_valid()) value["texture_handle"] = texture_handle.to_string();
                 if (sprite.material_handle.is_valid()) value["material_handle"] = sprite.material_handle.to_string();
                 if (sprite.use_src_rect) {
                     value["src_rect"] = {
@@ -439,6 +441,7 @@ ComponentRegistry& default_component_registry() {
                     deserialize_error = "Sprite Renderer must be an object";
                     return false;
                 }
+                sprite.texture_handle = {};
                 if (value.contains("texture_handle")) {
                     if (!value["texture_handle"].is_string()) {
                         deserialize_error = "Sprite texture_handle must be a string";
@@ -446,9 +449,11 @@ ComponentRegistry& default_component_registry() {
                     }
                     const auto handle = AssetHandle::from_string(value["texture_handle"].get<std::string>());
                     const AssetRecord* texture = context.asset_database && handle ? context.asset_database->find(*handle) : nullptr;
-                    if (texture && texture->status == AssetStatus::Ready && texture->type == AssetType::Texture &&
-                        context.renderer && context.asset_manager) {
-                        sprite.texture = context.asset_manager->get_texture(context.renderer, texture->source_path);
+                    if (texture && texture->status == AssetStatus::Ready && texture->type == AssetType::Texture) {
+                        sprite.texture_handle = *handle;
+                        if (context.renderer && context.asset_manager) {
+                            sprite.texture = context.asset_manager->get_texture(context.renderer, texture->source_path);
+                        }
                     }
                 }
                 sprite.material.reset();

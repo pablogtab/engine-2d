@@ -2,6 +2,7 @@
 #include "PostProcessPipeline.hpp"
 #include "PostProcessPasses.hpp"
 #include "../../core/Log.hpp"
+#include "../../core/FileSystem.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include "../../core/FileSystem.hpp"
 #include <fstream>
@@ -336,9 +337,7 @@ bool PostProcessProfile::from_json(const std::string& json_str) {
 }
 
 bool PostProcessProfile::save_to_file(const std::string& filepath) const {
-    std::ofstream out(filepath);
-    if (!out.is_open()) return false;
-    out << to_json();
+    if (!FileSystem::write_text_atomically(filepath, to_json())) return false;
     ENGINE_LOG_INFO("[POST-PROCESS] Saved profile preset '{}' to {}", name, filepath);
     return true;
 }

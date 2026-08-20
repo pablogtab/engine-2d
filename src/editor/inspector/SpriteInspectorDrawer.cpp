@@ -14,7 +14,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstring>
 #include <imgui_internal.h>
 #include <optional>
 
@@ -24,6 +23,7 @@ namespace {
 
 bool sprite_states_equal(const SpriteComponent& lhs, const SpriteComponent& rhs) {
     return lhs.texture == rhs.texture &&
+        lhs.texture_handle == rhs.texture_handle &&
         lhs.color.r == rhs.color.r && lhs.color.g == rhs.color.g &&
         lhs.color.b == rhs.color.b && lhs.color.a == rhs.color.a &&
         lhs.src_rect.x == rhs.src_rect.x && lhs.src_rect.y == rhs.src_rect.y &&
@@ -88,6 +88,44 @@ void draw_material_value(const SelectedComponentStates<SpriteComponent>& states)
     } else {
         ImGui::TextDisabled("None");
     }
+}
+
+Texture* resolve_texture(AssetHandle handle, const SpriteInspectorDrawer::Context& context) {
+    if (!handle.is_valid() || !context.renderer || !context.asset_manager) return nullptr;
+    const AssetRecord* record = AssetDatabase::get().find(handle);
+    if (!record || record->status != AssetStatus::Ready || record->type != AssetType::Texture) return nullptr;
+    return context.asset_manager->get_texture(context.renderer, record->source_path);
+}
+
+bool draw_texture_value(SpriteComponent& sprite, const SpriteInspectorDrawer::Context& context) {
+    InspectorWidgets::begin_property_row("Texture");
+    AssetDatabase& database = AssetDatabase::get();
+    const AssetRecord* selected = sprite.texture_handle.is_valid() ? database.find(sprite.texture_handle) : nullptr;
+    const char* preview = selected ? selected->source_path.c_str() : "None";
+    bool changed = false;
+    if (ImGui::BeginCombo("##texture", preview)) {
+        if (ImGui::Selectable("None", !sprite.texture_handle.is_valid())) {
+            sprite.texture_handle = {};
+            sprite.texture = context.renderer && context.asset_manager
+                ? context.asset_manager->get_white_texture(context.renderer) : nullptr;
+            changed = true;
+        }
+        for (const AssetRecord& record : database.records()) {
+            if (record.type != AssetType::Texture || record.status != AssetStatus::Ready) continue;
+            const bool is_selected = sprite.texture_handle == record.handle;
+            if (ImGui::Selectable(record.source_path.c_str(), is_selected)) {
+                sprite.texture_handle = record.handle;
+                sprite.texture = resolve_texture(record.handle, context);
+                if (!sprite.texture && context.renderer && context.asset_manager) {
+                    sprite.texture = context.asset_manager->get_white_texture(context.renderer);
+                }
+                changed = true;
+            }
+            if (is_selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
 }
 
 } // namespace
@@ -164,27 +202,10 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
     using namespace InspectorWidgets;
     auto& sprite = em.get_component<SpriteComponent>(entity);
 
-    std::string texture_path = sprite.texture ? sprite.texture->get_filepath() : "";
-    char texture_buffer[256];
-    std::strncpy(texture_buffer, texture_path.c_str(), sizeof(texture_buffer) - 1);
-    texture_buffer[sizeof(texture_buffer) - 1] = '\0';
-
     const SpriteComponent texture_before = sprite;
     begin_property_interaction("Sprite.Texture");
-    const bool texture_submitted = ImGui::InputText(
-        "Texture",
-        texture_buffer,
-        sizeof(texture_buffer),
-        ImGuiInputTextFlags_EnterReturnsTrue
-    );
+    const bool texture_changed = draw_texture_value(sprite, context);
     capture_property_interaction();
-    if (texture_submitted && context.renderer && context.asset_manager) {
-        if (std::strlen(texture_buffer) == 0) {
-            sprite.texture = context.asset_manager->get_white_texture(context.renderer);
-        } else if (auto texture = context.asset_manager->load_texture(context.renderer, texture_buffer)) {
-            sprite.texture = texture.get();
-        }
-    }
     track_edit(
         em,
         entity,
@@ -192,7 +213,7 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
         "Sprite.Texture",
         "Change Sprite Texture",
         context,
-        texture_submitted
+        texture_changed
     );
 
     Texture* preview_texture = sprite.texture;
@@ -341,38 +362,47 @@ void SpriteInspectorDrawer::draw_multiple(
 
     {
         const auto before = capture_selected_components<SpriteComponent>(em, entities);
-        const bool mixed = selected_values_mixed<SpriteComponent, Texture*>(
-            before, [](const SpriteComponent& sprite) { return sprite.texture; }
+        const bool mixed = selected_values_mixed<SpriteComponent, AssetHandle>(
+            before, [](const SpriteComponent& sprite) { return sprite.texture_handle; }
         );
-        std::string texture_path = mixed || !before.front().second.texture
-            ? ""
-            : before.front().second.texture->get_filepath();
-        char texture_buffer[256];
-        std::strncpy(texture_buffer, texture_path.c_str(), sizeof(texture_buffer) - 1);
-        texture_buffer[sizeof(texture_buffer) - 1] = '\0';
+        const AssetHandle selected_handle = before.front().second.texture_handle;
+        const AssetRecord* selected = !mixed && selected_handle.is_valid()
+            ? AssetDatabase::get().find(selected_handle) : nullptr;
         begin_property_interaction("MultiSprite.Texture");
-        const bool submitted = ImGui::InputTextWithHint(
-            "Texture", mixed ? "Multiple values" : "Texture path",
-            texture_buffer, sizeof(texture_buffer), ImGuiInputTextFlags_EnterReturnsTrue
-        );
-        capture_property_interaction();
-        if (submitted && context.renderer && context.asset_manager) {
-            Texture* texture = nullptr;
-            bool valid = false;
-            if (std::strlen(texture_buffer) == 0) {
-                texture = context.asset_manager->get_white_texture(context.renderer);
-                valid = true;
-            } else if (auto loaded = context.asset_manager->load_texture(context.renderer, texture_buffer)) {
-                texture = loaded.get();
-                valid = true;
+        InspectorWidgets::begin_property_row("Texture");
+        bool changed = false;
+        if (ImGui::BeginCombo("##texture", mixed ? "Multiple values" : (selected ? selected->source_path.c_str() : "None"))) {
+            if (ImGui::Selectable("None", !mixed && !selected_handle.is_valid())) {
+                Texture* white = context.renderer && context.asset_manager
+                    ? context.asset_manager->get_white_texture(context.renderer) : nullptr;
+                apply_all([&](SpriteComponent& sprite) {
+                    sprite.texture_handle = {};
+                    sprite.texture = white;
+                });
+                changed = true;
             }
-            if (valid) apply_all([&](SpriteComponent& sprite) { sprite.texture = texture; });
+            for (const AssetRecord& record : AssetDatabase::get().records()) {
+                if (record.type != AssetType::Texture || record.status != AssetStatus::Ready) continue;
+                const bool is_selected = !mixed && selected_handle == record.handle;
+                if (ImGui::Selectable(record.source_path.c_str(), is_selected)) {
+                    Texture* texture = resolve_texture(record.handle, context);
+                    if (!texture && context.renderer && context.asset_manager) texture = context.asset_manager->get_white_texture(context.renderer);
+                    apply_all([&](SpriteComponent& sprite) {
+                        sprite.texture_handle = record.handle;
+                        sprite.texture = texture;
+                    });
+                    changed = true;
+                }
+                if (is_selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
         }
-        track(before, "Sprite.Texture", "Change Selected Sprite Textures", submitted);
+        capture_property_interaction();
+        track(before, "Sprite.Texture", "Change Selected Sprite Textures", changed);
 
         const auto current = capture_selected_components<SpriteComponent>(em, entities);
-        const bool current_mixed = selected_values_mixed<SpriteComponent, Texture*>(
-            current, [](const SpriteComponent& sprite) { return sprite.texture; }
+        const bool current_mixed = selected_values_mixed<SpriteComponent, AssetHandle>(
+            current, [](const SpriteComponent& sprite) { return sprite.texture_handle; }
         );
         if (current_mixed) {
             begin_property_row("Preview");

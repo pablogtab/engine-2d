@@ -15,6 +15,7 @@ class Material;
 
 struct SpriteComponent {
     Texture* texture{nullptr};
+    AssetHandle texture_handle{};
     SDL_Color color{255, 255, 255, 255};
     SDL_FRect src_rect{0.0f, 0.0f, 0.0f, 0.0f};
     bool use_src_rect{false};

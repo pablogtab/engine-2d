@@ -517,6 +517,8 @@ void test_sprite_textures_persist_asset_handles() {
 
     AssetDatabase database(root);
     [[maybe_unused]] const AssetScanResult scan = database.scan(root / "assets");
+    const AssetRecord* texture_record = database.find_by_path("assets/textures/Icon.png");
+    assert(texture_record && texture_record->type == AssetType::Texture);
     const std::uint32_t pixel = 0xffffffff;
     Texture texture(nullptr, 1, 1, &pixel);
     texture.set_filepath("assets/textures/Icon.png");
@@ -524,13 +526,18 @@ void test_sprite_textures_persist_asset_handles() {
     EntityManager em;
     const EntityID source = em.create_entity();
     em.add_component<TransformComponent>(source, TransformComponent{});
-    em.add_component<SpriteComponent>(source, SpriteComponent{&texture});
+    SpriteComponent sprite{&texture};
+    sprite.texture_handle = texture_record->handle;
+    em.add_component<SpriteComponent>(source, sprite);
     ComponentSerializationContext context{.asset_database = &database};
     nlohmann::json serialized;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, serialized, context, error));
     assert(serialized["sprite"].contains("texture_handle"));
     assert(!serialized["sprite"].contains("texture"));
+    const EntityID target = em.create_entity();
+    assert(default_component_registry().deserialize_entity(em, target, serialized, context, error));
+    assert(em.get_component<SpriteComponent>(target).texture_handle == texture_record->handle);
 
     fs::remove_all(root, ignored);
 }

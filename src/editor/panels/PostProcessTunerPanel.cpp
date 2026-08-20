@@ -1,18 +1,17 @@
 #include "PostProcessTunerPanel.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/PostProcessProfileCommands.hpp"
+#include "../../core/AssetDatabase.hpp"
+#include "../../core/Log.hpp"
 #include "../../renderer/postprocess/PostProcessPipeline.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../scene/SceneManager.hpp"
 #include <algorithm>
-#include <filesystem>
 #include <imgui.h>
 
 namespace Engine {
 
 namespace {
-
-constexpr const char* CUSTOM_PROFILE_PATH = "assets/presets/custom_postfx.json";
 
 float channel_to_float(uint8_t channel) {
     return static_cast<float>(channel) / 255.0f;
@@ -92,6 +91,29 @@ void PostProcessTunerPanel::on_gui() {
 
     ImGui::TextColored(ImVec4(0.4f, 0.75f, 1.0f, 1.0f), "%s", profile->name.c_str());
     ImGui::TextDisabled("Base profile. Runtime volumes blend over these values.");
+    AssetDatabase& database = AssetDatabase::get();
+    const AssetRecord* selected_asset = m_selected_profile_handle.is_valid()
+        ? database.find(m_selected_profile_handle) : nullptr;
+    if (ImGui::BeginCombo("Profile Asset", selected_asset ? selected_asset->source_path.c_str() : "Unsaved scene profile")) {
+        if (ImGui::Selectable("Unsaved scene profile", !m_selected_profile_handle.is_valid())) {
+            m_selected_profile_handle = {};
+        }
+        for (const AssetRecord& record : database.records()) {
+            if (record.type != AssetType::PostProcessProfile || record.status != AssetStatus::Ready) continue;
+            const bool selected = record.handle == m_selected_profile_handle;
+            if (ImGui::Selectable(record.source_path.c_str(), selected)) {
+                if (const auto loaded = PostProcessProfile::load_asset(record.handle, database)) {
+                    apply_immediate(profile, pipeline, *loaded);
+                    m_selected_profile_handle = record.handle;
+                }
+            }
+            if (selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (!selected_asset && m_selected_profile_handle.is_valid()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "Selected profile asset is missing or invalid.");
+    }
     ImGui::Separator();
 
     if (ImGui::Button("Default")) apply_immediate(profile, pipeline, PostProcessProfile::PresetDefault());
@@ -237,17 +259,17 @@ void PostProcessTunerPanel::on_gui() {
     }
 
     ImGui::Separator();
-    if (ImGui::Button("Save Profile")) {
-        std::filesystem::create_directories("assets/presets");
-        profile->save_to_file(CUSTOM_PROFILE_PATH);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Load Profile")) {
-        PostProcessProfile loaded = *profile;
-        if (loaded.load_from_file(CUSTOM_PROFILE_PATH)) {
-            apply_immediate(profile, pipeline, std::move(loaded));
+    const bool can_save_asset = selected_asset && selected_asset->type == AssetType::PostProcessProfile &&
+        selected_asset->status == AssetStatus::Ready;
+    if (!can_save_asset) ImGui::BeginDisabled();
+    if (ImGui::Button("Save Asset")) {
+        if (!profile->save_asset(database.resolve(m_selected_profile_handle), database)) {
+            ENGINE_LOG_ERROR("[POST-PROCESS] Failed saving profile asset '{}'.", selected_asset->source_path);
         }
     }
+    if (!can_save_asset) ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled(can_save_asset ? "Writes atomically to the selected asset." : "Create/select a .postprocess asset in Asset Browser first.");
 
     ImGui::End();
 }

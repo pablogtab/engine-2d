@@ -401,6 +401,7 @@ void test_profile_assets_round_trip_by_handle() {
     assert(record && record->type == Engine::AssetType::PostProcessProfile);
     const auto loaded = Engine::PostProcessProfile::load_asset(record->handle, database);
     assert(loaded && loaded->name == "AssetProfile");
+    assert(!fs::exists(path.string() + ".tmp"));
     fs::remove_all(root, ignored);
 }
 
