@@ -65,5 +65,42 @@ int main() {
 
     fs::remove_all(root, error);
     fs::remove(outside, error);
+
+    const fs::path dependency_root = fs::temp_directory_path() / "engine2d_asset_dependency_tests";
+    fs::remove_all(dependency_root, error);
+    write_file(dependency_root / "assets/shaders/Test.msl", "fragment float4 main0() { return float4(1); }");
+    Engine::AssetDatabase dependency_database(dependency_root);
+    [[maybe_unused]] const auto dependency_scan = dependency_database.scan(dependency_root / "assets");
+    const auto* source = dependency_database.find_by_path("assets/shaders/Test.msl");
+    require(source != nullptr, "shader source is registered before descriptor import");
+    const Engine::AssetHandle source_handle = source->handle;
+    const std::string shader_json =
+        "{\"name\":\"Test\",\"sampler_count\":1,\"uniform_buffers\":[],\"variants\":[{\"format\":\"msl\",\"source_handle\":\"" +
+        source_handle.to_string() + "\",\"entry_point\":\"main0\"}]}";
+    write_file(dependency_root / "assets/shaders/Test.shader", shader_json);
+    const auto shader = dependency_database.import_asset("assets/shaders/Test.shader");
+    require(shader.has_value(), "shader descriptor imports");
+    write_file(dependency_root / "assets/materials/Test.material",
+        "{\"name\":\"Test\",\"shader_handle\":\"" + shader->to_string() + "\",\"uniforms\":[]}");
+    const auto material = dependency_database.import_asset("assets/materials/Test.material");
+    require(material.has_value(), "material imports");
+    require(dependency_database.dependencies(*material).size() == 1, "material exposes shader dependency");
+    require(dependency_database.dependencies(*shader).size() == 1, "shader exposes source dependency");
+    require(dependency_database.dependents(source_handle).size() == 1, "source exposes descriptor dependent");
+
+    fs::remove(dependency_root / "assets/shaders/Test.msl", error);
+    [[maybe_unused]] const auto missing_dependency_scan = dependency_database.rescan();
+    require(dependency_database.find(*shader)->status == Engine::AssetStatus::MissingDependency,
+        "missing variant source invalidates shader descriptor");
+    require(dependency_database.find(*material)->status == Engine::AssetStatus::MissingDependency,
+        "missing shader invalidates material");
+
+    write_file(dependency_root / "assets/shaders/Test.msl", "fragment float4 main0() { return float4(1); }");
+    [[maybe_unused]] const auto repaired_dependency_scan = dependency_database.rescan();
+    require(dependency_database.find(*shader)->status == Engine::AssetStatus::Ready,
+        "restored variant source repairs shader descriptor");
+    require(dependency_database.find(*material)->status == Engine::AssetStatus::Ready,
+        "restored shader repairs material");
+    fs::remove_all(dependency_root, error);
     return EXIT_SUCCESS;
 }

@@ -3,6 +3,8 @@
 #include "ShaderAsset.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include "../../core/FileSystem.hpp"
+#include "../../ecs/EntityManager.hpp"
+#include "../../ecs/components/RenderingComponents.hpp"
 #include <nlohmann/json.hpp>
 #include <filesystem>
 
@@ -91,5 +93,21 @@ std::shared_ptr<const Material> MaterialAsset::load(AssetHandle handle, const As
         material->set_uniform_bytes(i, description->uniforms[i]);
     }
     return material;
+}
+
+MaterialAssetRefreshResult MaterialAsset::refresh_assigned(EntityManager& entities, const AssetDatabase& database) {
+    MaterialAssetRefreshResult result;
+    entities.for_each<SpriteComponent>([&](EntityID, SpriteComponent& sprite) {
+        if (!sprite.material_handle.is_valid()) return;
+        const auto material = load(sprite.material_handle, database);
+        if (material) {
+            sprite.material = material;
+            ++result.reloaded;
+        } else {
+            sprite.material.reset();
+            ++result.unavailable;
+        }
+    });
+    return result;
 }
 } // namespace Engine

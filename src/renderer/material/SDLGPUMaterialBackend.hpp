@@ -26,6 +26,7 @@ public:
         SDL_Texture* source,
         const MaterialRenderContext& context
     ) override;
+    void discard_unused() override;
 
 private:
     struct CachedState {

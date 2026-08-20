@@ -9,6 +9,9 @@
 
 namespace Engine {
 
+class AssetDatabase;
+struct MaterialAssetRefreshResult;
+
 enum class ScenePlayState {
     Edit,
     Play,
@@ -51,6 +54,7 @@ public:
     void update(float delta_time);
     void render(Renderer2D& renderer);
     void configure_view(RenderViewKind view, const RenderViewConfiguration& configuration);
+    [[nodiscard]] MaterialAssetRefreshResult refresh_material_assets(const AssetDatabase& database);
 
     Scene* get_active_scene() const;
     [[nodiscard]] std::shared_ptr<Scene> get_active_scene_shared_ptr() const;

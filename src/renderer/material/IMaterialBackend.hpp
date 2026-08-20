@@ -32,6 +32,10 @@ public:
         SDL_Texture* source,
         const MaterialRenderContext& context
     ) = 0;
+
+    // Releases cached states whose material instances are no longer referenced
+    // by scenes after an asset reload.
+    virtual void discard_unused() {}
 };
 
 } // namespace Engine

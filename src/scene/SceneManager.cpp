@@ -1,5 +1,7 @@
 #include "SceneManager.hpp"
 #include "SceneSerializer.hpp"
+#include "../renderer/material/MaterialAsset.hpp"
+#include "../core/AssetDatabase.hpp"
 #include "../core/Log.hpp"
 #include "../core/Time.hpp"
 #include "../ecs/TransformSystem.hpp"
@@ -11,6 +13,19 @@ namespace Engine {
 namespace {
     const char* SCENE_STATE_PRIMARY = "build/.scene_state";
     const char* SCENE_STATE_FALLBACK = ".scene_state";
+}
+
+MaterialAssetRefreshResult SceneManager::refresh_material_assets(const AssetDatabase& database) {
+    MaterialAssetRefreshResult result;
+    const auto refresh = [&result, &database](const std::shared_ptr<Scene>& scene) {
+        if (!scene) return;
+        const auto refreshed = MaterialAsset::refresh_assigned(scene->get_entity_manager(), database);
+        result.reloaded += refreshed.reloaded;
+        result.unavailable += refreshed.unavailable;
+    };
+    for (const auto& scene : m_scenes) refresh(scene);
+    refresh(m_transient_scene);
+    return result;
 }
 
 void SceneManager::save_state() {

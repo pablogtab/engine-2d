@@ -10,11 +10,17 @@
 namespace Engine {
 class AssetDatabase;
 class Material;
+class EntityManager;
 
 struct MaterialAssetDescription {
     std::string name;
     AssetHandle shader_handle{};
     std::vector<std::vector<std::byte>> uniforms;
+};
+
+struct MaterialAssetRefreshResult {
+    std::size_t reloaded{0};
+    std::size_t unavailable{0};
 };
 
 class MaterialAsset {
@@ -28,6 +34,9 @@ public:
         const MaterialAssetDescription& description,
         AssetDatabase& database,
         std::string* error = nullptr
+    );
+    [[nodiscard]] static MaterialAssetRefreshResult refresh_assigned(
+        EntityManager& entities, const AssetDatabase& database
     );
 };
 } // namespace Engine

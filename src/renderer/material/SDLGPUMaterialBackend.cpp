@@ -135,6 +135,15 @@ void SDLGPUMaterialBackend::unbind() {
     }
 }
 
+void SDLGPUMaterialBackend::discard_unused() {
+    for (auto it = m_states.begin(); it != m_states.end();) {
+        if (it->first.use_count() != 1) { ++it; continue; }
+        if (it->second.render_state) SDL_DestroyGPURenderState(it->second.render_state);
+        if (it->second.shader && m_device) SDL_ReleaseGPUShader(m_device, it->second.shader);
+        it = m_states.erase(it);
+    }
+}
+
 bool SDLGPUMaterialBackend::draw_fullscreen(
     const Material& material,
     SDL_Texture* source,

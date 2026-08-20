@@ -211,7 +211,8 @@ These systems form the current baseline and should be extended rather than rewri
 - [ ] Resolve handles to runtime resources through the asset system.
 - [ ] Add explicit missing, loading, failed, and ready states with safe fallback assets.
 - [ ] Add metadata and import settings for filtering, pixels per unit, pivot, compression, and platform overrides.
-- [ ] Add dependency tracking and dependency-safe reload.
+- [x] Add material dependency tracking and dependency-safe reload.
+  - [x] Track material-to-shader-to-source dependencies and propagate missing-source state safely.
 - [x] Add drag-and-drop from Asset Browser to Viewport and Hierarchy.
 
 ### Materials and Shaders as Assets

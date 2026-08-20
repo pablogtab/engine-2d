@@ -592,6 +592,27 @@ void test_material_assets_load_by_handle() {
     assert(edited && edited->name() == "Edited Material");
     assert(edited->uniform_bytes(0).size() == 4);
 
+    EntityManager entities;
+    const EntityID entity = entities.create_entity();
+    SpriteComponent sprite;
+    sprite.material_handle = material->handle;
+    sprite.material = edited;
+    entities.add_component<SpriteComponent>(entity, sprite);
+    const auto initial_refresh = MaterialAsset::refresh_assigned(entities, database);
+    assert(initial_refresh.reloaded == 1 && entities.get_component<SpriteComponent>(entity).material);
+
+    fs::remove(root / "assets/shaders/Test.msl", ignored);
+    [[maybe_unused]] const auto missing_scan = database.rescan();
+    const auto unavailable_refresh = MaterialAsset::refresh_assigned(entities, database);
+    assert(unavailable_refresh.unavailable == 1);
+    assert(!entities.get_component<SpriteComponent>(entity).material);
+    assert(entities.get_component<SpriteComponent>(entity).material_handle == material->handle);
+
+    assert(FileSystem::write_text((root / "assets/shaders/Test.msl").string(), "fragment float4 main0() { return float4(1); }\n"));
+    [[maybe_unused]] const auto restored_scan = database.rescan();
+    const auto restored_refresh = MaterialAsset::refresh_assigned(entities, database);
+    assert(restored_refresh.reloaded == 1 && entities.get_component<SpriteComponent>(entity).material);
+
     fs::remove_all(root, ignored);
 }
 

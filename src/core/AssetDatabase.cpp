@@ -24,8 +24,14 @@ AssetType type_from_name(const std::string& name) {
     if (name == "post_process_profile") return AssetType::PostProcessProfile; if (name == "data") return AssetType::Data;
     return AssetType::Unknown;
 }
-AssetStatus status_from_name(const std::string& value) { return value == "missing" ? AssetStatus::MissingSource : AssetStatus::Ready; }
-const char* status_name(AssetStatus value) { return value == AssetStatus::MissingSource ? "missing" : "ready"; }
+AssetStatus status_from_name(const std::string& value) {
+    if (value == "missing") return AssetStatus::MissingSource;
+    return value == "missing_dependency" ? AssetStatus::MissingDependency : AssetStatus::Ready;
+}
+const char* status_name(AssetStatus value) {
+    if (value == AssetStatus::MissingSource) return "missing";
+    return value == AssetStatus::MissingDependency ? "missing_dependency" : "ready";
+}
 } // namespace
 
 std::string AssetHandle::to_string() const { std::ostringstream s; s << std::hex << std::nouppercase << std::setfill('0') << std::setw(16) << value; return s.str(); }
@@ -67,14 +73,16 @@ AssetScanResult AssetDatabase::scan(const fs::path& assets_root) {
     }
     for (auto& record : m_records) {
         if (!seen.contains(record.source_path)) record.status = AssetStatus::MissingSource;
-        if (record.status == AssetStatus::Ready) ++result.ready;
     }
+    rebuild_dependencies();
+    for (const auto& record : m_records) if (record.status == AssetStatus::Ready) ++result.ready;
     if (!save_database()) ++result.invalid;
+    notify_assets_changed();
     ENGINE_LOG_INFO("[ASSET DB] Scan complete: {} ready, {} imported, {} invalid{}", result.ready, result.imported, result.invalid, loaded ? "" : " (new DB)");
     return result;
 }
 AssetScanResult AssetDatabase::rescan() { return scan(m_scanned_root); }
-void AssetDatabase::clear() { m_records.clear(); m_by_handle.clear(); m_by_path.clear(); }
+void AssetDatabase::clear() { m_records.clear(); m_by_handle.clear(); m_by_path.clear(); m_dependencies.clear(); m_dependents.clear(); }
 
 std::optional<AssetHandle> AssetDatabase::import_asset(const fs::path& source_path) {
     std::error_code error; const auto file = resolve_source_path(source_path);
@@ -83,11 +91,17 @@ std::optional<AssetHandle> AssetDatabase::import_asset(const fs::path& source_pa
     const auto found = m_by_path.find(*path);
     if (found != m_by_path.end()) {
         m_records[found->second].status = AssetStatus::Ready;
+        m_records[found->second].type = type_for_path(file);
+        rebuild_dependencies();
         if (!save_database()) return std::nullopt;
+        notify_assets_changed();
         return m_records[found->second].handle;
     }
     AssetRecord record{generate_handle(), *path, type_for_path(file), AssetStatus::Ready};
-    if (!register_record(record) || !save_database()) return std::nullopt;
+    if (!register_record(record)) return std::nullopt;
+    rebuild_dependencies();
+    if (!save_database()) return std::nullopt;
+    notify_assets_changed();
     return record.handle;
 }
 
@@ -95,17 +109,25 @@ bool AssetDatabase::move_asset(const fs::path& source, const fs::path& destinati
     const auto from = to_project_relative(source), to = to_project_relative(destination);
     if (!from || !to || m_by_path.contains(*to)) return false;
     const auto found = m_by_path.find(*from); if (found == m_by_path.end()) return false;
-    m_records[found->second].source_path = *to; m_records[found->second].status = AssetStatus::Ready; rebuild_indexes(); return save_database();
+    m_records[found->second].source_path = *to; m_records[found->second].status = AssetStatus::Ready; rebuild_indexes(); rebuild_dependencies();
+    if (!save_database()) return false;
+    notify_assets_changed();
+    return true;
 }
 bool AssetDatabase::remove_asset(const fs::path& source) {
     const auto path = to_project_relative(source); if (!path) return false;
     const auto found = m_by_path.find(*path); if (found == m_by_path.end()) return false;
-    m_records[found->second].status = AssetStatus::MissingSource; return save_database();
+    m_records[found->second].status = AssetStatus::MissingSource; rebuild_dependencies();
+    if (!save_database()) return false;
+    notify_assets_changed();
+    return true;
 }
 
 const AssetRecord* AssetDatabase::find(AssetHandle handle) const { const auto i = m_by_handle.find(handle.value); return i == m_by_handle.end() ? nullptr : &m_records[i->second]; }
 const AssetRecord* AssetDatabase::find_by_path(const fs::path& path) const { const auto relative = to_project_relative(path); if (!relative) return nullptr; const auto i = m_by_path.find(*relative); return i == m_by_path.end() ? nullptr : &m_records[i->second]; }
 std::string AssetDatabase::resolve(AssetHandle handle) const { const auto* record = find(handle); return !record || record->status != AssetStatus::Ready ? "" : (m_project_root / record->source_path).lexically_normal().string(); }
+const std::vector<AssetHandle>& AssetDatabase::dependencies(AssetHandle handle) const { static const std::vector<AssetHandle> empty; const auto found = m_dependencies.find(handle.value); return found == m_dependencies.end() ? empty : found->second; }
+const std::vector<AssetHandle>& AssetDatabase::dependents(AssetHandle handle) const { static const std::vector<AssetHandle> empty; const auto found = m_dependents.find(handle.value); return found == m_dependents.end() ? empty : found->second; }
 
 AssetType AssetDatabase::type_for_path(const fs::path& path) {
     std::string ext = path.extension().string(); std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
@@ -122,6 +144,47 @@ const char* AssetDatabase::type_name(AssetType type) { switch (type) { case Asse
 std::optional<std::string> AssetDatabase::to_project_relative(const fs::path& path) const { const auto relative = resolve_source_path(path).lexically_relative(m_project_root); if (relative.empty() || relative == "." || relative.begin()->string() == "..") return std::nullopt; return normalize_path(relative); }
 fs::path AssetDatabase::resolve_source_path(const fs::path& path) const { fs::path result = FileSystem::resolve_path(path.string()); if (result.is_relative()) result = m_project_root / result; return fs::absolute(result).lexically_normal(); }
 bool AssetDatabase::register_record(AssetRecord record) { if (!record.handle.is_valid() || record.source_path.empty() || m_by_handle.contains(record.handle.value) || m_by_path.contains(record.source_path)) return false; const auto i=m_records.size(); m_records.push_back(std::move(record)); m_by_handle.emplace(m_records.back().handle.value,i); m_by_path.emplace(m_records.back().source_path,i); return true; }
+
+void AssetDatabase::rebuild_dependencies() {
+    m_dependencies.clear();
+    m_dependents.clear();
+    for (const auto& record : m_records) {
+        if (record.status == AssetStatus::MissingSource) continue;
+        const auto json = nlohmann::json::parse(FileSystem::read_text((m_project_root / record.source_path).string()), nullptr, false);
+        if (json.is_discarded()) continue;
+        std::vector<AssetHandle> dependencies;
+        const auto append = [&dependencies](const nlohmann::json& value) {
+            if (!value.is_string()) return;
+            if (const auto handle = AssetHandle::from_string(value.get<std::string>()); handle) dependencies.push_back(*handle);
+        };
+        if (record.type == AssetType::Material) append(json.value("shader_handle", nlohmann::json{}));
+        if (record.type == AssetType::Shader && json.contains("variants") && json["variants"].is_array()) {
+            for (const auto& variant : json["variants"]) if (variant.is_object()) append(variant.value("source_handle", nlohmann::json{}));
+        }
+        if (!dependencies.empty()) {
+            m_dependencies.emplace(record.handle.value, dependencies);
+            for (const auto dependency : dependencies) m_dependents[dependency.value].push_back(record.handle);
+        }
+    }
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto& record : m_records) {
+            if (record.status != AssetStatus::Ready) continue;
+            const auto found = m_dependencies.find(record.handle.value);
+            if (found == m_dependencies.end()) continue;
+            const bool missing = std::any_of(found->second.begin(), found->second.end(), [this](AssetHandle dependency) {
+                const AssetRecord* record = find(dependency);
+                return !record || record->status != AssetStatus::Ready;
+            });
+            if (missing) { record.status = AssetStatus::MissingDependency; changed = true; }
+        }
+    }
+}
+
+void AssetDatabase::notify_assets_changed() {
+    if (m_on_assets_changed) m_on_assets_changed();
+}
 
 bool AssetDatabase::load_database() {
     clear(); const auto text = FileSystem::read_text(database_path().string()); if (text.empty()) return false;

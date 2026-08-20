@@ -2,6 +2,7 @@
 
 #include "AssetHandle.hpp"
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -24,6 +25,7 @@ enum class AssetType {
 enum class AssetStatus {
     Ready,
     MissingSource,
+    MissingDependency,
     InvalidMetadata,
     DuplicateHandle
 };
@@ -58,7 +60,10 @@ public:
     [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;
     [[nodiscard]] const AssetRecord* find_by_path(const std::filesystem::path& source_path) const;
     [[nodiscard]] std::string resolve(AssetHandle handle) const;
+    [[nodiscard]] const std::vector<AssetHandle>& dependencies(AssetHandle handle) const;
+    [[nodiscard]] const std::vector<AssetHandle>& dependents(AssetHandle handle) const;
     [[nodiscard]] const std::vector<AssetRecord>& records() const { return m_records; }
+    void set_on_assets_changed(std::function<void()> callback) { m_on_assets_changed = std::move(callback); }
 
     [[nodiscard]] const std::filesystem::path& project_root() const { return m_project_root; }
     [[nodiscard]] std::filesystem::path database_path() const;
@@ -73,12 +78,17 @@ private:
     [[nodiscard]] bool save_database() const;
     [[nodiscard]] AssetHandle generate_handle() const;
     void rebuild_indexes();
+    void rebuild_dependencies();
+    void notify_assets_changed();
 
     std::filesystem::path m_project_root;
     std::filesystem::path m_scanned_root{"assets"};
     std::vector<AssetRecord> m_records;
     std::unordered_map<std::uint64_t, std::size_t> m_by_handle;
     std::unordered_map<std::string, std::size_t> m_by_path;
+    std::unordered_map<std::uint64_t, std::vector<AssetHandle>> m_dependencies;
+    std::unordered_map<std::uint64_t, std::vector<AssetHandle>> m_dependents;
+    std::function<void()> m_on_assets_changed;
 };
 
 } // namespace Engine

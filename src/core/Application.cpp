@@ -22,6 +22,7 @@
 #include "../scene/SceneSerializer.hpp"
 #include "../ecs/TransformSystem.hpp"
 #include "../renderer/material/SDLGPUMaterialBackend.hpp"
+#include "../renderer/material/MaterialAsset.hpp"
 #include <algorithm>
 
 namespace Engine {
@@ -72,6 +73,13 @@ Application::Application(const std::string& name, int width, int height, bool st
     m_display_manager->set_apply_enabled(!start_with_editor);
     m_editor_layer->set_scene_manager(&m_scene_manager);
     m_scene_manager.set_renderer(m_window->get_sdl_renderer());
+    AssetDatabase::get().set_on_assets_changed([this]() {
+        const auto refreshed = m_scene_manager.refresh_material_assets(AssetDatabase::get());
+        if (m_renderer && m_renderer->get_material_backend()) m_renderer->get_material_backend()->discard_unused();
+        if (refreshed.reloaded || refreshed.unavailable) {
+            ENGINE_LOG_INFO("[ASSETS] Refreshed {} materials, {} unavailable", refreshed.reloaded, refreshed.unavailable);
+        }
+    });
 
     m_window->set_close_request_callback([this]() {
         if (m_editor_layer && m_editor_layer->is_visible()) {
