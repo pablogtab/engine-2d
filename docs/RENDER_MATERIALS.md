@@ -69,18 +69,27 @@ The isolated post-processing demo contains the first real shared GPU material:
   material, while preserving its fullscreen vignette, bloom and film grain.
 
 The canonical source is `assets/shaders/night_vision.frag.hlsl`. The checked-in
-MSL variant makes the vertical slice executable on Metal today. Full Windows
-and Linux coverage still requires generating and packaging the corresponding
-DXIL and SPIR-V variants with the offline shader compiler.
+MSL variant makes the vertical slice executable on Metal today. The pinned
+SDL_shadercross build toolchain compiles and structurally validates matching
+MSL, SPIR-V, and DXIL artifacts with:
+
+```sh
+cmake --build build --target validate_compiled_shaders
+```
+
+The toolchain is deliberately separate from the normal engine build. It is
+downloaded and built only by that target, or a developer can point
+`ENGINE_SHADERCROSS_EXECUTABLE` to a prebuilt `shadercross` executable. The
+generated files live under `build/shader_assets`; packaging them into each
+platform artifact is the next export-pipeline step.
 
 ## Asset pipeline boundary
 
 Shader compilation is deliberately not performed at runtime. Production builds
 must compile one source shader into the platform variants above and package
-only the required variants. SDL_shadercross is the intended compiler, but it
-must be integrated as a build tool before shader assets are exposed in the
-editor. Missing or unsupported variants are reported as errors and never
-silently interpreted as another binary format.
+only the required variants. SDL_shadercross is a pinned build tool, not a
+runtime dependency. Missing or unsupported variants are reported as errors and
+never silently interpreted as another binary format.
 
 The current slice supports the primary sprite texture and up to four fragment
 uniform slots. Additional textures and reflected parameter metadata belong in

@@ -11,6 +11,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(SDL3 3.4 REQUIRED)
 find_package(glm REQUIRED)
 
+include(cmake/ShaderCompilation.cmake)
+
 # Source files
 set(SOURCES
     src/audio/AudioEngine.cpp

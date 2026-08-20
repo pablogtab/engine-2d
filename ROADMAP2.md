@@ -221,7 +221,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Select, load, and atomically save `.postprocess` assets from Post-Processing Tuner.
 - [x] Resolve spatial post-process volumes through `PostProcessProfile` asset handles with a safe base-profile fallback.
 - [x] Recreate global post-process presets as `.postprocess` assets and select them from the Tuner.
-- [ ] Add an offline shader compilation/validation pipeline for Metal, Vulkan, and Direct3D variants.
+- [x] Add an offline shader compilation/validation pipeline for Metal, Vulkan, and Direct3D variants (pinned SDL_shadercross target generates and structurally validates MSL, SPIR-V, and DXIL build artifacts).
 - [x] Report unavailable shader variants before runtime (the Material editor shows current-renderer support and Sprite Inspector blocks incompatible assignments).
 - [x] Add material parameter editing, serialization, duplication, and missing-shader diagnostics in Asset Browser.
 
