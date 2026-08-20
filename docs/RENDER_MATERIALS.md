@@ -103,6 +103,11 @@ cmake --build build --target package_macos_app
 This produces `build/dist/Engine2D.app`. It places assets and project settings
 under `Contents/Resources`, copies non-system dynamic libraries to
 `Contents/Frameworks`, rewrites their load paths, and ad-hoc signs the bundle.
+Verify the complete bundle contract with:
+
+```sh
+cmake --build build --target verify_macos_app
+```
 
 ## Asset pipeline boundary
 

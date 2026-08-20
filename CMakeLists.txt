@@ -185,6 +185,15 @@ if(APPLE)
         COMMENT "Packaging the standalone runtime as a self-contained macOS app"
         VERBATIM
     )
+
+    add_custom_target(verify_macos_app
+        COMMAND "${CMAKE_COMMAND}"
+            "-DENGINE_APP_DIR=${CMAKE_BINARY_DIR}/dist/Engine2D.app"
+            -P "${CMAKE_SOURCE_DIR}/cmake/VerifyMacOSApp.cmake"
+        DEPENDS package_macos_app
+        COMMENT "Verifying the packaged macOS standalone app"
+        VERBATIM
+    )
 endif()
 
 add_test(NAME RuntimeBoundaryTests
