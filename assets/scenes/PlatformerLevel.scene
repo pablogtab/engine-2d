@@ -23,7 +23,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     56.0,
                     56.0
@@ -98,7 +98,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     1400.0,
                     40.0
@@ -173,7 +173,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     140.0,
                     24.0
@@ -248,7 +248,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     180.0,
                     22.0
@@ -323,7 +323,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     180.0,
                     24.0
@@ -398,7 +398,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     180.0,
                     30.0
@@ -473,7 +473,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     28.0,
                     28.0
@@ -548,7 +548,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     28.0,
                     28.0
@@ -623,7 +623,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     28.0,
                     28.0

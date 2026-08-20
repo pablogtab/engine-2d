@@ -505,6 +505,34 @@ void test_prefab_links_persist_asset_handles() {
     fs::remove_all(root, ignored);
 }
 
+void test_sprite_textures_persist_asset_handles() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_sprite_asset_handles";
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+    fs::create_directories(root / "assets/textures");
+    assert(FileSystem::write_text((root / "assets/textures/Icon.png").string(), "not decoded in this registry test"));
+
+    AssetDatabase database(root);
+    [[maybe_unused]] const AssetScanResult scan = database.scan(root / "assets");
+    const std::uint32_t pixel = 0xffffffff;
+    Texture texture(nullptr, 1, 1, &pixel);
+    texture.set_filepath("assets/textures/Icon.png");
+
+    EntityManager em;
+    const EntityID source = em.create_entity();
+    em.add_component<TransformComponent>(source, TransformComponent{});
+    em.add_component<SpriteComponent>(source, SpriteComponent{&texture});
+    ComponentSerializationContext context{.asset_database = &database};
+    nlohmann::json serialized;
+    std::string error;
+    assert(default_component_registry().serialize_entity(em, source, serialized, context, error));
+    assert(serialized["sprite"].contains("texture_handle"));
+    assert(!serialized["sprite"].contains("texture"));
+
+    fs::remove_all(root, ignored);
+}
+
 template<std::size_t... Indices>
 void request_overflow_component_ids(std::index_sequence<Indices...>) {
     (static_cast<void>(get_component_type_id<OverflowComponent<Indices>>()), ...);
@@ -536,6 +564,7 @@ int main() {
     test_missing_required_component_is_rejected();
     test_builtin_components_round_trip_through_registry();
     test_prefab_links_persist_asset_handles();
+    test_sprite_textures_persist_asset_handles();
     test_finalization_runs_after_entity_references_exist();
     test_animation_lifecycle_clears_runtime_playback();
     test_component_type_limit_has_explicit_diagnostic();

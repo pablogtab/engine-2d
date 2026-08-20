@@ -103,7 +103,7 @@
                     96.0,
                     96.0
                 ],
-                "texture": "assets/textures/knight_sheet.png",
+                "texture_handle": "8e84233ff6f447b0",
                 "use_src_rect": true,
                 "visible": true
             },

@@ -205,6 +205,7 @@ These systems form the current baseline and should be extended rather than rewri
 
 - [x] Introduce stable `AssetHandle` identities and project-relative source paths (`AssetDatabase`, atomic `.meta` sidecars, project-root resolver, duplicate-handle rejection).
 - [x] Persist prefab links and prefab-variant bases as `AssetHandle`; resolve their runtime paths only through `AssetDatabase` (initial format, with no legacy migration path).
+- [x] Persist Sprite texture references as `AssetHandle`; resolve ready textures through `AssetDatabase` and fall back safely when unavailable.
 - [ ] Make components serialize asset handles instead of runtime pointers.
 - [ ] Resolve handles to runtime resources through the asset system.
 - [ ] Add explicit missing, loading, failed, and ready states with safe fallback assets.

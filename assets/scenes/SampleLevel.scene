@@ -23,7 +23,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     64.0,
                     64.0
@@ -98,7 +98,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     900.0,
                     36.0
@@ -173,7 +173,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     180.0,
                     24.0
@@ -248,7 +248,7 @@
                 "visible": true
             },
             "sprite": {
-                "texture": "assets/textures/player.png",
+                "texture_handle": "507a5df9eaa7428c",
                 "size": [
                     180.0,
                     24.0

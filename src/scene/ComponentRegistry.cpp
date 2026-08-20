@@ -1,5 +1,6 @@
 #include "ComponentRegistry.hpp"
 #include "BuiltinComponentRegistrations.hpp"
+#include "../core/AssetDatabase.hpp"
 #include "../core/AssetManager.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
@@ -388,9 +389,8 @@ ComponentRegistry& default_component_registry() {
             .schema_version = 1,
             .required = false,
             .removable = true,
-            .serialize = [](const SpriteComponent& sprite, const ComponentSerializationContext&) {
+            .serialize = [](const SpriteComponent& sprite, const ComponentSerializationContext& context) {
                 nlohmann::json value{
-                    {"texture", sprite.texture ? sprite.texture->get_filepath() : ""},
                     {"size", {sprite.size.x, sprite.size.y}},
                     {"color", {sprite.color.r, sprite.color.g, sprite.color.b, sprite.color.a}},
                     {"flip_x", sprite.flip_x},
@@ -409,6 +409,16 @@ ComponentRegistry& default_component_registry() {
                     {"outline_pulse", sprite.outline_pulse},
                     {"use_src_rect", sprite.use_src_rect}
                 };
+                if (sprite.texture && !sprite.texture->get_filepath().empty()) {
+                    if (!context.asset_database) {
+                        throw std::runtime_error("Sprite texture serialization requires an AssetDatabase");
+                    }
+                    const AssetRecord* texture = context.asset_database->find_by_path(sprite.texture->get_filepath());
+                    if (!texture || texture->status != AssetStatus::Ready || texture->type != AssetType::Texture) {
+                        throw std::runtime_error("Sprite references an unregistered texture: " + sprite.texture->get_filepath());
+                    }
+                    value["texture_handle"] = texture->handle.to_string();
+                }
                 if (sprite.use_src_rect) {
                     value["src_rect"] = {
                         sprite.src_rect.x, sprite.src_rect.y,
@@ -427,9 +437,17 @@ ComponentRegistry& default_component_registry() {
                     deserialize_error = "Sprite Renderer must be an object";
                     return false;
                 }
-                const std::string texture_path = value.at("texture").get<std::string>();
-                if (context.renderer && context.asset_manager && !texture_path.empty()) {
-                    sprite.texture = context.asset_manager->get_texture(context.renderer, texture_path);
+                if (value.contains("texture_handle")) {
+                    if (!value["texture_handle"].is_string()) {
+                        deserialize_error = "Sprite texture_handle must be a string";
+                        return false;
+                    }
+                    const auto handle = AssetHandle::from_string(value["texture_handle"].get<std::string>());
+                    const AssetRecord* texture = context.asset_database && handle ? context.asset_database->find(*handle) : nullptr;
+                    if (texture && texture->status == AssetStatus::Ready && texture->type == AssetType::Texture &&
+                        context.renderer && context.asset_manager) {
+                        sprite.texture = context.asset_manager->get_texture(context.renderer, texture->source_path);
+                    }
                 }
                 if (!sprite.texture && context.renderer && context.asset_manager) {
                     sprite.texture = context.asset_manager->get_white_texture(context.renderer);
