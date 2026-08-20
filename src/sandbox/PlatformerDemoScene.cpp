@@ -14,6 +14,7 @@
 #include "../core/SaveSystem.hpp"
 #include "../core/PlayerPrefs.hpp"
 #include "../core/BinarySerializer.hpp"
+#include "../core/AssetDatabase.hpp"
 #include <SDL3/SDL.h>
 #include <cmath>
 
@@ -105,7 +106,7 @@ void PlatformerDemoScene::on_attach() {
         "Crystal Cavern",
         glm::vec2(-620.0f, -160.0f),
         glm::vec2(280.0f, 260.0f),
-        Engine::PostProcessProfile::PresetUnderwater(),
+        Engine::AssetHandle{0x6cf2c88d90447631ULL},
         150.0f
     ));
     // 2. High-Altitude Celestial Sanctuary (Upper floating platforms with 160px feathering)
@@ -113,7 +114,7 @@ void PlatformerDemoScene::on_attach() {
         "Celestial Sanctuary",
         glm::vec2(0.0f, 320.0f),
         glm::vec2(640.0f, 220.0f),
-        Engine::PostProcessProfile::PresetDreamyBloom(),
+        Engine::AssetHandle{0x94b64c0acdb8a2e7ULL},
         160.0f
     ));
 
@@ -999,7 +1000,7 @@ void PlatformerDemoScene::on_update(float delta_time) {
             s_last_active_vol = "";
             s_last_logged_weight = 0.0f;
         }
-        m_current_profile = m_volume_manager.evaluate(eval_pos, m_base_profile);
+        m_current_profile = m_volume_manager.evaluate(eval_pos, m_base_profile, Engine::AssetDatabase::get());
     } else {
         s_last_active_vol = "";
         s_last_logged_weight = -1.0f;

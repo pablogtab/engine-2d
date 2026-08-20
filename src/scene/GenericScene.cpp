@@ -8,6 +8,8 @@
 #include "../ecs/RenderSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
 #include "../renderer/IEntityRenderFilter.hpp"
+#include "../renderer/postprocess/PostProcessPasses.hpp"
+#include "../core/AssetDatabase.hpp"
 #include <algorithm>
 
 namespace Engine {
@@ -60,6 +62,42 @@ void GenericScene::on_attach() {
 void GenericScene::on_detach() {
     ENGINE_LOG_INFO("[SCENE] Detached generic scene: '{}'", get_name());
     Engine::PhysicsSystem::clear();
+    m_post_process_pipeline.destroy_targets();
+    m_post_process_initialized = false;
+}
+
+bool GenericScene::set_post_process_profile_handle(AssetHandle handle, const AssetDatabase& database) {
+    if (!handle.is_valid()) {
+        m_post_process_profile_handle = {};
+        m_post_process_enabled = false;
+        return true;
+    }
+    const auto profile = PostProcessProfile::load_asset(handle, database);
+    if (!profile) return false;
+    m_post_process_profile_handle = handle;
+    m_post_process_profile = *profile;
+    m_post_process_enabled = true;
+    if (m_post_process_initialized) m_post_process_profile.apply_to_pipeline(m_post_process_pipeline);
+    return true;
+}
+
+void GenericScene::initialize_post_process(Renderer2D& renderer) {
+    if (!m_post_process_enabled || m_post_process_initialized) return;
+    const glm::vec2 viewport = m_is_editing ? m_editor_camera.get_viewport_size() : m_camera.get_viewport_size();
+    m_post_process_pipeline.init(
+        renderer.get_sdl_renderer(),
+        std::max(1, static_cast<int>(viewport.x)),
+        std::max(1, static_cast<int>(viewport.y))
+    );
+    m_post_process_pipeline.add_pass(std::make_shared<VignettePass>());
+    m_post_process_pipeline.add_pass(std::make_shared<ChromaticAberrationPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<BloomPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<GaussianBlurPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<ColorGradingPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<FilmGrainPass>());
+    m_post_process_pipeline.add_pass(std::make_shared<ScanlinesCRTPass>());
+    m_post_process_profile.apply_to_pipeline(m_post_process_pipeline);
+    m_post_process_initialized = true;
 }
 
 void GenericScene::pan_editor_camera(const glm::vec2& delta_pixels) {
@@ -232,6 +270,8 @@ void GenericScene::synchronize_game_camera(float delta_time, bool reset_controll
 
 void GenericScene::on_render(Renderer2D& renderer) {
     Camera2D& active_cam = m_is_editing ? m_editor_camera : m_camera;
+    initialize_post_process(renderer);
+    renderer.set_post_process_pipeline(m_post_process_enabled ? &m_post_process_pipeline : nullptr);
     renderer.begin_scene(active_cam);
 
     // Centralized rendering for Sprites, Tilemaps, and Outlines
@@ -239,12 +279,16 @@ void GenericScene::on_render(Renderer2D& renderer) {
     RenderSystem::render(m_entity_manager, renderer, filter);
 
     renderer.end_scene();
+    renderer.set_post_process_pipeline(nullptr);
 }
 
 void GenericScene::on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) {
     Camera2D& camera = view == RenderViewKind::Editor ? m_editor_camera : m_camera;
     camera.set_viewport_size(static_cast<float>(configuration.output_width), static_cast<float>(configuration.output_height));
     camera.set_reference_size(static_cast<float>(configuration.reference_width), static_cast<float>(configuration.reference_height));
+    if (m_post_process_initialized) {
+        m_post_process_pipeline.resize(configuration.output_width, configuration.output_height);
+    }
 }
 
 } // namespace Engine

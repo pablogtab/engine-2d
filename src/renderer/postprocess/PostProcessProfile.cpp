@@ -4,7 +4,6 @@
 #include "../../core/Log.hpp"
 #include "../../core/FileSystem.hpp"
 #include "../../core/AssetDatabase.hpp"
-#include "../../core/FileSystem.hpp"
 #include <fstream>
 #include <filesystem>
 #include <sstream>

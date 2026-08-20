@@ -89,6 +89,10 @@ void PostProcessTunerPanel::on_gui() {
         return;
     }
 
+    if (scene->supports_post_process_profile_assets()) {
+        m_selected_profile_handle = scene->get_post_process_profile_handle();
+    }
+
     ImGui::TextColored(ImVec4(0.4f, 0.75f, 1.0f, 1.0f), "%s", profile->name.c_str());
     ImGui::TextDisabled("Base profile. Runtime volumes blend over these values.");
     AssetDatabase& database = AssetDatabase::get();
@@ -102,7 +106,11 @@ void PostProcessTunerPanel::on_gui() {
             if (record.type != AssetType::PostProcessProfile || record.status != AssetStatus::Ready) continue;
             const bool selected = record.handle == m_selected_profile_handle;
             if (ImGui::Selectable(record.source_path.c_str(), selected)) {
-                if (const auto loaded = PostProcessProfile::load_asset(record.handle, database)) {
+                if (scene->supports_post_process_profile_assets()) {
+                    if (scene->set_post_process_profile_handle(record.handle, database)) {
+                        m_selected_profile_handle = record.handle;
+                    }
+                } else if (const auto loaded = PostProcessProfile::load_asset(record.handle, database)) {
                     apply_immediate(profile, pipeline, *loaded);
                     m_selected_profile_handle = record.handle;
                 }
@@ -116,16 +124,7 @@ void PostProcessTunerPanel::on_gui() {
     }
     ImGui::Separator();
 
-    if (ImGui::Button("Default")) apply_immediate(profile, pipeline, PostProcessProfile::PresetDefault());
-    ImGui::SameLine();
-    if (ImGui::Button("Cinematic")) apply_immediate(profile, pipeline, PostProcessProfile::PresetCinematic());
-    ImGui::SameLine();
-    if (ImGui::Button("Retro CRT")) apply_immediate(profile, pipeline, PostProcessProfile::PresetRetroCRT());
-    if (ImGui::Button("Underwater")) apply_immediate(profile, pipeline, PostProcessProfile::PresetUnderwater());
-    ImGui::SameLine();
-    if (ImGui::Button("Night Vision")) apply_immediate(profile, pipeline, PostProcessProfile::PresetNightVision());
-    ImGui::SameLine();
-    if (ImGui::Button("Dreamy")) apply_immediate(profile, pipeline, PostProcessProfile::PresetDreamyBloom());
+    ImGui::TextDisabled("Select a reusable .postprocess asset above.");
 
     if (ImGui::CollapsingHeader("Effect Reference", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::TextDisabled("Pixel-based effects are authored at this resolution.");

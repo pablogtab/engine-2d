@@ -31,6 +31,48 @@
       "type": "prefab"
     },
     {
+      "handle": "6cf2c88d90447631",
+      "path": "assets/postprocess/CrystalCavern.postprocess",
+      "status": "ready",
+      "type": "post_process_profile"
+    },
+    {
+      "handle": "94b64c0acdb8a2e7",
+      "path": "assets/postprocess/CelestialSanctuary.postprocess",
+      "status": "ready",
+      "type": "post_process_profile"
+    },
+    {
+      "handle": "a13d4e5f6a7b8c91",
+      "path": "assets/postprocess/Default.postprocess",
+      "status": "ready",
+      "type": "post_process_profile"
+    },
+    {
+      "handle": "b24e5f6a7b8c9d02",
+      "path": "assets/postprocess/Cinematic.postprocess",
+      "status": "ready",
+      "type": "post_process_profile"
+    },
+    {
+      "handle": "c35f6a7b8c9d0e13",
+      "path": "assets/postprocess/RetroCRT.postprocess",
+      "status": "ready",
+      "type": "post_process_profile"
+    },
+    {
+      "handle": "d46a7b8c9d0e1f24",
+      "path": "assets/postprocess/NightVision.postprocess",
+      "status": "ready",
+      "type": "post_process_profile"
+    },
+    {
+      "handle": "e57b8c9d0e1f2a35",
+      "path": "assets/postprocess/DreamyBloom.postprocess",
+      "status": "ready",
+      "type": "post_process_profile"
+    },
+    {
       "handle": "36969535f79f5074",
       "path": "assets/prefabs/Player_Knight.prefab",
       "status": "ready",

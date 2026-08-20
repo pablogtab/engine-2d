@@ -4,6 +4,8 @@
 #include "Camera2D.hpp"
 #include "CameraController2D.hpp"
 #include "../renderer/Renderer2D.hpp"
+#include "../renderer/postprocess/PostProcessPipeline.hpp"
+#include "../renderer/postprocess/PostProcessProfile.hpp"
 #include <vector>
 
 namespace Engine {
@@ -21,6 +23,11 @@ public:
     void on_update(float delta_time) override;
     void on_render(Renderer2D& renderer) override;
     void on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) override;
+    [[nodiscard]] PostProcessPipeline* get_post_process_pipeline() override { return m_post_process_enabled ? &m_post_process_pipeline : nullptr; }
+    [[nodiscard]] PostProcessProfile* get_editable_post_process_profile() override { return m_post_process_enabled ? &m_post_process_profile : nullptr; }
+    [[nodiscard]] bool supports_post_process_profile_assets() const override { return true; }
+    [[nodiscard]] AssetHandle get_post_process_profile_handle() const override { return m_post_process_profile_handle; }
+    bool set_post_process_profile_handle(AssetHandle handle, const AssetDatabase& database) override;
 
     // Camera Access
     [[nodiscard]] Camera2D& get_camera() { return m_camera; }
@@ -53,6 +60,7 @@ public:
 
 private:
     void synchronize_game_camera(float delta_time, bool reset_controller);
+    void initialize_post_process(Renderer2D& renderer);
 
     Camera2D m_camera;
     Camera2D m_editor_camera;
@@ -63,6 +71,11 @@ private:
     bool m_show_debug_colliders{false};
     bool m_is_editing{true};
     std::vector<EntityID> m_pending_coin_collections;
+    PostProcessPipeline m_post_process_pipeline;
+    PostProcessProfile m_post_process_profile;
+    AssetHandle m_post_process_profile_handle{};
+    bool m_post_process_enabled{false};
+    bool m_post_process_initialized{false};
 };
 
 } // namespace Engine

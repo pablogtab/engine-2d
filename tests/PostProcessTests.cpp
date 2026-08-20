@@ -2,6 +2,7 @@
 #include "renderer/postprocess/PostProcessPipeline.hpp"
 #include "renderer/postprocess/PostProcessPasses.hpp"
 #include "renderer/postprocess/PostProcessProfile.hpp"
+#include "renderer/postprocess/PostProcessVolume.hpp"
 #include "renderer/SpriteSortKey.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "renderer/material/FragmentShader.hpp"
@@ -405,6 +406,31 @@ void test_profile_assets_round_trip_by_handle() {
     fs::remove_all(root, ignored);
 }
 
+void test_post_process_volumes_resolve_profile_handles() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_postprocess_volume_asset_test";
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+    fs::create_directories(root / "assets/postprocess");
+    Engine::AssetDatabase database(root);
+    Engine::PostProcessProfile authored = Engine::PostProcessProfile::PresetUnderwater();
+    const fs::path path = root / "assets/postprocess/underwater.postprocess";
+    assert(authored.save_asset(path.string(), database));
+    const auto* record = database.find_by_path("assets/postprocess/underwater.postprocess");
+    assert(record);
+
+    Engine::PostProcessVolumeManager volumes;
+    volumes.add_volume(Engine::PostProcessVolume("Water", {0.0f, 0.0f}, {10.0f, 10.0f}, record->handle));
+    const Engine::PostProcessProfile base = Engine::PostProcessProfile::PresetDefault();
+    const Engine::PostProcessProfile resolved = volumes.evaluate({0.0f, 0.0f}, base, database);
+    assert(resolved.name == "Underwater");
+
+    volumes.clear();
+    volumes.add_volume(Engine::PostProcessVolume("Missing", {0.0f, 0.0f}, {10.0f, 10.0f}, Engine::AssetHandle{1}));
+    assert(volumes.evaluate({0.0f, 0.0f}, base, database).name == "Default");
+    fs::remove_all(root, ignored);
+}
+
 } // namespace
 
 int main() {
@@ -420,6 +446,7 @@ int main() {
     test_pipeline_processes_the_standalone_clear_color();
     test_world_is_processed_before_screen_space_hud_is_composited();
     test_profile_assets_round_trip_by_handle();
+    test_post_process_volumes_resolve_profile_handles();
     std::cout << "PostProcessTests passed\n";
     return 0;
 }

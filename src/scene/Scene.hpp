@@ -3,12 +3,14 @@
 #include "../renderer/RenderView.hpp"
 #include "../ecs/EntityManager.hpp"
 #include "../events/EventDispatcher.hpp"
+#include "../core/AssetHandle.hpp"
 
 namespace Engine {
 
 class Renderer2D;
 class PostProcessPipeline;
 struct PostProcessProfile;
+class AssetDatabase;
 
 class Scene {
 public:
@@ -22,6 +24,9 @@ public:
 
     [[nodiscard]] virtual PostProcessPipeline* get_post_process_pipeline() { return nullptr; }
     [[nodiscard]] virtual PostProcessProfile* get_editable_post_process_profile() { return nullptr; }
+    [[nodiscard]] virtual bool supports_post_process_profile_assets() const { return false; }
+    [[nodiscard]] virtual AssetHandle get_post_process_profile_handle() const { return {}; }
+    virtual bool set_post_process_profile_handle(AssetHandle, const AssetDatabase&) { return false; }
 
     virtual void set_is_editing(bool is_editing) {}
     [[nodiscard]] virtual bool is_editing() const { return true; }

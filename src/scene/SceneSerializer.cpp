@@ -34,6 +34,9 @@ std::string SceneSerializer::serialize_to_string() {
     root["scene_name"] = m_scene->get_name();
     root["version"] = SceneSchema::CURRENT_VERSION;
     root["component_versions"] = SceneSchema::component_versions(registry);
+    if (const AssetHandle profile_handle = m_scene->get_post_process_profile_handle(); profile_handle.is_valid()) {
+        root["post_process_profile_handle"] = profile_handle.to_string();
+    }
 
     json entities_array = json::array();
     EntityManager& em = m_scene->get_entity_manager();
@@ -113,6 +116,19 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
             !SceneSchema::validate_structure(root, registry, schema_error)) {
             ENGINE_LOG_ERROR("[SERIALIZER] Scene schema rejected: {}", schema_error);
             return false;
+        }
+        if (m_scene->supports_post_process_profile_assets() && root.contains("post_process_profile_handle")) {
+            if (!root["post_process_profile_handle"].is_string()) {
+                ENGINE_LOG_ERROR("[SERIALIZER] Scene post_process_profile_handle must be a string");
+                return false;
+            }
+            const auto profile_handle = AssetHandle::from_string(root["post_process_profile_handle"].get<std::string>());
+            if (!profile_handle || !m_scene->set_post_process_profile_handle(*profile_handle, AssetDatabase::get())) {
+                ENGINE_LOG_ERROR("[SERIALIZER] Scene references an invalid post-process profile asset");
+                return false;
+            }
+        } else if (m_scene->supports_post_process_profile_assets()) {
+            static_cast<void>(m_scene->set_post_process_profile_handle({}, AssetDatabase::get()));
         }
 
         EntityManager candidate;

@@ -1,0 +1,55 @@
+{
+  "bloom": {
+    "enabled": true,
+    "intensity": 0.44999998807907104,
+    "radius": 5.0
+  },
+  "blur": {
+    "enabled": false,
+    "radius": 0.0
+  },
+  "chromatic": {
+    "enabled": true,
+    "offset": 0.0
+  },
+  "color_grading": {
+    "enabled": true,
+    "shadow_tint": [
+      255,
+      200,
+      220,
+      12
+    ],
+    "tint": [
+      255,
+      248,
+      250,
+      255
+    ]
+  },
+  "crt": {
+    "enabled": false,
+    "flicker": 0.019999999552965164,
+    "scanline_intensity": 0.0,
+    "scanline_spacing": 4.0
+  },
+  "effect_reference": {
+    "height": 720,
+    "width": 1280
+  },
+  "film_grain": {
+    "enabled": false,
+    "intensity": 0.0
+  },
+  "name": "Celestial Sanctuary",
+  "vignette": {
+    "color": [
+      255,
+      230,
+      240,
+      255
+    ],
+    "enabled": true,
+    "intensity": 0.25
+  }
+}

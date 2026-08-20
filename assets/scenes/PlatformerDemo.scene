@@ -1028,6 +1028,7 @@
             }
         }
     ],
+    "post_process_profile_handle": "6cf2c88d90447631",
     "scene_name": "PlatformerDemo",
     "version": 2
 }

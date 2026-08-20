@@ -1,0 +1,11 @@
+{
+  "name": "Crystal Cavern",
+  "effect_reference": { "width": 1280, "height": 720 },
+  "vignette": { "enabled": true, "intensity": 0.42, "color": [5, 30, 55, 255] },
+  "chromatic": { "enabled": true, "offset": 0.8 },
+  "bloom": { "enabled": true, "intensity": 0.35, "radius": 4.0 },
+  "blur": { "enabled": true, "radius": 0.7 },
+  "color_grading": { "enabled": true, "tint": [200, 235, 255, 255], "shadow_tint": [0, 35, 70, 25] },
+  "film_grain": { "enabled": false, "intensity": 0.0 },
+  "crt": { "enabled": false, "scanline_intensity": 0.0, "scanline_spacing": 4.0, "flicker": 0.02 }
+}
