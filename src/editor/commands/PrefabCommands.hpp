@@ -76,6 +76,7 @@ private:
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     EntityID m_root_entity{0};
     PrefabLinkComponent m_stored_link;
+    std::vector<std::pair<EntityID, PrefabLinkComponent>> m_removed_child_links;
     std::string m_description{"Unpack Prefab"};
     bool m_valid{true};
 };
@@ -224,6 +225,9 @@ private:
     std::string m_base_prefab_path;
     PrefabLinkComponent m_previous_link;
     bool m_had_previous_link{false};
+    bool m_variant_file_existed{false};
+    std::string m_previous_variant_file_content;
+    std::string m_created_variant_file_content;
     SDL_Renderer* m_renderer{nullptr};
     std::string m_description{"Create Prefab Variant"};
     bool m_valid{true};
@@ -231,6 +235,4 @@ private:
 };
 
 } // namespace Engine
-
-
 

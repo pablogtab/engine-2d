@@ -26,10 +26,11 @@ public:
         const ComponentRegistry* registry = nullptr
     );
 
-    // Helper to get master component JSON from prefab asset for the root entity.
+    // Helper to get master component JSON for an entity's stable prefab local ID.
     [[nodiscard]] static nlohmann::json get_master_component_json(
         const std::string& prefab_asset_path,
-        const std::string& component_key
+        const std::string& component_key,
+        EntityID source_local_id = 1
     );
 
     // Compares two component JSON objects, handling root transform exceptions (e.g. ignoring root position).

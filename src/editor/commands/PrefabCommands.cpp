@@ -99,6 +99,13 @@ bool InstantiatePrefabCommand::execute() {
                 link.prefab_asset_path = m_prefab_filepath;
                 link.base_prefab_path = result.base_prefab_path;
             }
+            for (const auto& [source_local_id, instance_entity] : result.local_to_runtime) {
+                if (instance_entity == m_root_entity || m_em->has_component<PrefabLinkComponent>(instance_entity)) continue;
+                m_em->add_component<PrefabLinkComponent>(
+                    instance_entity,
+                    PrefabLinkComponent{m_prefab_filepath, result.base_prefab_path, source_local_id, false}
+                );
+            }
         }
 
 
@@ -258,8 +265,28 @@ UnpackPrefabCommand::UnpackPrefabCommand(
 
 bool UnpackPrefabCommand::execute() {
     if (!m_valid || !m_em || !m_em->is_alive(m_root_entity)) return false;
+    if (m_removed_child_links.empty()) {
+        std::vector<EntityID> pending{m_root_entity};
+        while (!pending.empty()) {
+            const EntityID current = pending.back();
+            pending.pop_back();
+            if (m_em->has_component<HierarchyComponent>(current)) {
+                for (const EntityID child : m_em->get_component<HierarchyComponent>(current).children) pending.push_back(child);
+            }
+            if (current == m_root_entity || !m_em->has_component<PrefabLinkComponent>(current)) continue;
+            const auto& link = m_em->get_component<PrefabLinkComponent>(current);
+            if (!link.is_root_instance && link.prefab_asset_path == m_stored_link.prefab_asset_path) {
+                m_removed_child_links.emplace_back(current, link);
+            }
+        }
+    }
     if (m_em->has_component<PrefabLinkComponent>(m_root_entity)) {
         m_em->remove_component<PrefabLinkComponent>(m_root_entity);
+    }
+    for (const auto& [entity, link] : m_removed_child_links) {
+        if (m_em->is_alive(entity) && m_em->has_component<PrefabLinkComponent>(entity)) {
+            m_em->remove_component<PrefabLinkComponent>(entity);
+        }
     }
     return true;
 }
@@ -268,6 +295,11 @@ bool UnpackPrefabCommand::undo() {
     if (!m_valid || !m_em || !m_em->is_alive(m_root_entity)) return false;
     if (!m_em->has_component<PrefabLinkComponent>(m_root_entity)) {
         m_em->add_component<PrefabLinkComponent>(m_root_entity, m_stored_link);
+    }
+    for (const auto& [entity, link] : m_removed_child_links) {
+        if (m_em->is_alive(entity) && !m_em->has_component<PrefabLinkComponent>(entity)) {
+            m_em->add_component<PrefabLinkComponent>(entity, link);
+        }
     }
     return true;
 }
@@ -449,7 +481,17 @@ bool RevertPrefabCommand::execute() {
 
         // Attach PrefabLinkComponent to the new root
         if (!m_em->has_component<PrefabLinkComponent>(m_new_root_entity)) {
-            m_em->add_component<PrefabLinkComponent>(m_new_root_entity, PrefabLinkComponent{m_prefab_filepath});
+            m_em->add_component<PrefabLinkComponent>(
+                m_new_root_entity,
+                PrefabLinkComponent{m_prefab_filepath, result.base_prefab_path}
+            );
+        }
+        for (const auto& [source_local_id, instance_entity] : result.local_to_runtime) {
+            if (instance_entity == m_new_root_entity || m_em->has_component<PrefabLinkComponent>(instance_entity)) continue;
+            m_em->add_component<PrefabLinkComponent>(
+                instance_entity,
+                PrefabLinkComponent{m_prefab_filepath, result.base_prefab_path, source_local_id, false}
+            );
         }
 
         // Capture after snapshots for Redo cycles
@@ -570,7 +612,7 @@ bool ApplyPrefabCommand::execute() {
             return false;
         }
 
-        if (!FileSystem::write_text_atomically(m_prefab_filepath, m_new_file_content)) {
+        if (!PrefabSerializer::write_resolved_to_file(m_prefab_filepath, m_new_file_content)) {
             ENGINE_LOG_ERROR("[PREFAB] ApplyPrefabCommand failed writing '{}' atomically", m_prefab_filepath);
             return false;
         }
@@ -579,19 +621,19 @@ bool ApplyPrefabCommand::execute() {
         m_first_execute = false;
 
         // Propagate to other scene instances linking to the same prefab asset
-        PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, m_root_entity, m_renderer);
+        PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, m_root_entity, m_renderer, m_previous_file_content);
         return true;
     }
 
     // Redo: rewrite captured new JSON text
-    if (!FileSystem::write_text_atomically(m_prefab_filepath, m_new_file_content)) {
+    if (!PrefabSerializer::write_resolved_to_file(m_prefab_filepath, m_new_file_content)) {
         ENGINE_LOG_ERROR("[PREFAB] ApplyPrefabCommand redo failed writing '{}'", m_prefab_filepath);
         return false;
     }
     ENGINE_LOG_INFO("[PREFAB] Redone applying overrides to '{}'", m_prefab_filepath);
 
     // Propagate redone asset to all instances
-    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer);
+    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer, m_previous_file_content);
     return true;
 }
 
@@ -605,7 +647,7 @@ bool ApplyPrefabCommand::undo() {
     ENGINE_LOG_INFO("[PREFAB] Undone applying overrides, restored '{}'", m_prefab_filepath);
 
     // Propagate restored asset to all instances
-    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer);
+    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer, m_new_file_content);
     return true;
 }
 
@@ -800,21 +842,21 @@ bool ApplyComponentPrefabCommand::execute() {
             return false;
         }
 
-        if (!FileSystem::write_text_atomically(m_prefab_filepath, m_new_file_content)) {
+        if (!PrefabSerializer::write_resolved_to_file(m_prefab_filepath, m_new_file_content)) {
             ENGINE_LOG_ERROR("[PREFAB] ApplyComponentPrefabCommand failed writing '{}'", m_prefab_filepath);
             return false;
         }
 
         m_first_execute = false;
-        PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, m_root_entity, m_renderer);
+        PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, m_root_entity, m_renderer, m_previous_file_content);
         return true;
     }
 
     // Redo
-    if (!FileSystem::write_text_atomically(m_prefab_filepath, m_new_file_content)) {
+    if (!PrefabSerializer::write_resolved_to_file(m_prefab_filepath, m_new_file_content)) {
         return false;
     }
-    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer);
+    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer, m_previous_file_content);
     return true;
 }
 
@@ -824,7 +866,7 @@ bool ApplyComponentPrefabCommand::undo() {
     if (!FileSystem::write_text_atomically(m_prefab_filepath, m_previous_file_content)) {
         return false;
     }
-    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer);
+    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer, m_new_file_content);
     return true;
 }
 
@@ -866,6 +908,16 @@ CreatePrefabVariantCommand::CreatePrefabVariantCommand(
         return;
     }
 
+    m_variant_file_existed = FileSystem::exists(m_variant_filepath);
+    if (m_variant_file_existed) {
+        m_previous_variant_file_content = FileSystem::read_text(m_variant_filepath);
+        if (m_previous_variant_file_content.empty()) {
+            ENGINE_LOG_ERROR("[PREFAB] CreatePrefabVariantCommand: cannot snapshot existing variant file '{}'", m_variant_filepath);
+            m_valid = false;
+            return;
+        }
+    }
+
 
     m_description = "Create Prefab Variant: " + m_variant_filepath;
 }
@@ -878,7 +930,15 @@ bool CreatePrefabVariantCommand::execute() {
             ENGINE_LOG_ERROR("[PREFAB] CreatePrefabVariantCommand failed saving variant to '{}'", m_variant_filepath);
             return false;
         }
+        m_created_variant_file_content = FileSystem::read_text(m_variant_filepath);
+        if (m_created_variant_file_content.empty()) {
+            ENGINE_LOG_ERROR("[PREFAB] CreatePrefabVariantCommand: cannot snapshot created variant file '{}'", m_variant_filepath);
+            return false;
+        }
         m_first_execute = false;
+    } else if (!FileSystem::write_text_atomically(m_variant_filepath, m_created_variant_file_content)) {
+        ENGINE_LOG_ERROR("[PREFAB] CreatePrefabVariantCommand redo failed restoring '{}'", m_variant_filepath);
+        return false;
     }
 
     auto& link = m_em->get_component<PrefabLinkComponent>(m_root_entity);
@@ -889,6 +949,20 @@ bool CreatePrefabVariantCommand::execute() {
 
 bool CreatePrefabVariantCommand::undo() {
     if (!m_valid || !m_em || !m_em->is_alive(m_root_entity)) return false;
+
+    if (m_variant_file_existed) {
+        if (!FileSystem::write_text_atomically(m_variant_filepath, m_previous_variant_file_content)) {
+            ENGINE_LOG_ERROR("[PREFAB] CreatePrefabVariantCommand undo failed restoring '{}'", m_variant_filepath);
+            return false;
+        }
+    } else {
+        std::error_code error;
+        std::filesystem::remove(m_variant_filepath, error);
+        if (error) {
+            ENGINE_LOG_ERROR("[PREFAB] CreatePrefabVariantCommand undo failed removing '{}': {}", m_variant_filepath, error.message());
+            return false;
+        }
+    }
 
     if (m_had_previous_link) {
         if (!m_em->has_component<PrefabLinkComponent>(m_root_entity)) {
@@ -903,5 +977,3 @@ bool CreatePrefabVariantCommand::undo() {
 }
 
 } // namespace Engine
-
-

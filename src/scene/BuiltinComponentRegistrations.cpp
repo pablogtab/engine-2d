@@ -125,6 +125,8 @@ void register_prefab_link(ComponentRegistry& registry) {
             if (!link.base_prefab_path.empty()) {
                 j["base_prefab_path"] = link.base_prefab_path;
             }
+            j["source_local_id"] = link.source_local_id;
+            j["is_root_instance"] = link.is_root_instance;
             return j;
         },
         .deserialize = [](PrefabLinkComponent& link, const Json& value, const ComponentSerializationContext&, std::string& error) {
@@ -134,6 +136,8 @@ void register_prefab_link(ComponentRegistry& registry) {
             }
             link.prefab_asset_path = value.value("asset_path", "");
             link.base_prefab_path = value.value("base_prefab_path", "");
+            link.source_local_id = value.value("source_local_id", EntityID{1});
+            link.is_root_instance = value.value("is_root_instance", true);
             return true;
         }
     });

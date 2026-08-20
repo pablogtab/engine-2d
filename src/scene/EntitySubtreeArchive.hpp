@@ -16,6 +16,7 @@ struct SubtreeInstantiationResult {
     bool success{false};
     EntityID root_entity{0};
     std::vector<EntityID> created_entities;
+    std::unordered_map<EntityID, EntityID> local_to_runtime;
     std::string base_prefab_path;
     std::string error_message;
 };

@@ -120,6 +120,8 @@ bool PrefabStageController::save() {
         return false;
     }
 
+    const std::string previous_prefab_json = FileSystem::read_text(m_prefab_path);
+
     // Write atomically via FileSystem
     if (!FileSystem::write_text_atomically(m_prefab_path, json_text)) {
         ENGINE_LOG_ERROR("[PREFAB STAGE] Failed writing prefab JSON atomically to '{}'", m_prefab_path);
@@ -138,7 +140,8 @@ bool PrefabStageController::save() {
                     scene->get_entity_manager(),
                     m_prefab_path,
                     0,
-                    m_renderer
+                    m_renderer,
+                    previous_prefab_json
                 );
             }
         }

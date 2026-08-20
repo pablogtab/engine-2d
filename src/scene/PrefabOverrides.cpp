@@ -8,7 +8,8 @@ namespace Engine {
 
 nlohmann::json PrefabOverrides::get_master_component_json(
     const std::string& prefab_asset_path,
-    const std::string& component_key
+    const std::string& component_key,
+    EntityID source_local_id
 ) {
     if (prefab_asset_path.empty()) return nullptr;
 
@@ -21,12 +22,12 @@ nlohmann::json PrefabOverrides::get_master_component_json(
             return nullptr;
         }
 
-        // Find root entity in master JSON (first entity or id == 1)
         const auto& entities = data["entities"];
-        const auto it = std::find_if(entities.begin(), entities.end(), [](const nlohmann::json& e) {
-            return e.value("id", 0) == 1;
+        const auto it = std::find_if(entities.begin(), entities.end(), [source_local_id](const nlohmann::json& e) {
+            return e.value("id", 0) == source_local_id;
         });
-        const nlohmann::json& root_obj = (it != entities.end()) ? *it : entities[0];
+        if (it == entities.end()) return nullptr;
+        const nlohmann::json& root_obj = *it;
 
         if (root_obj.contains(component_key)) {
             return root_obj[component_key];
@@ -86,7 +87,7 @@ bool PrefabOverrides::is_component_overridden(
     }
 
     const auto& link = em.get_component<PrefabLinkComponent>(entity);
-    nlohmann::json master_json = get_master_component_json(link.prefab_asset_path, component_key);
+    nlohmann::json master_json = get_master_component_json(link.prefab_asset_path, component_key, link.source_local_id);
 
     const ComponentRegistry& reg = registry ? *registry : default_component_registry();
     const ComponentDescriptor* desc = reg.find_by_key(component_key);
@@ -99,7 +100,7 @@ bool PrefabOverrides::is_component_overridden(
     };
 
     nlohmann::json live_json = desc->has(em, entity) ? desc->serialize(em, entity, ctx) : nlohmann::json(nullptr);
-    return json_differs(component_key, live_json, master_json, true);
+    return json_differs(component_key, live_json, master_json, link.is_root_instance);
 }
 
 std::vector<std::string> PrefabOverrides::get_overridden_components(
@@ -122,10 +123,10 @@ std::vector<std::string> PrefabOverrides::get_overridden_components(
         nlohmann::json data = nlohmann::json::parse(json_text);
         if (data.contains("entities") && data["entities"].is_array() && !data["entities"].empty()) {
             const auto& entities = data["entities"];
-            const auto it = std::find_if(entities.begin(), entities.end(), [](const nlohmann::json& e) {
-                return e.value("id", 0) == 1;
+            const auto it = std::find_if(entities.begin(), entities.end(), [&link](const nlohmann::json& e) {
+                return e.value("id", 0) == link.source_local_id;
             });
-            root_obj = (it != entities.end()) ? *it : entities[0];
+            if (it != entities.end()) root_obj = *it;
         }
     } catch (const std::exception& e) {
         ENGINE_LOG_WARN("[PREFAB] Error parsing master prefab '{}': {}", link.prefab_asset_path, e.what());
@@ -148,7 +149,7 @@ std::vector<std::string> PrefabOverrides::get_overridden_components(
         nlohmann::json live_json = desc.has(em, entity) ? desc.serialize(em, entity, ctx) : nlohmann::json(nullptr);
         nlohmann::json master_json = root_obj.contains(key) ? root_obj[key] : nlohmann::json(nullptr);
 
-        if (json_differs(key, live_json, master_json, true)) {
+        if (json_differs(key, live_json, master_json, link.is_root_instance)) {
             overridden_keys.push_back(key);
         }
     }

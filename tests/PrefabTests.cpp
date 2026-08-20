@@ -614,19 +614,23 @@ void test_prefab_link_component_and_unpack_revert_commands() {
     assert(em.has_component<PrefabLinkComponent>(inst_root));
     assert(em.get_component<PrefabLinkComponent>(inst_root).prefab_asset_path == prefab_file);
 
-    // Child must NOT have PrefabLinkComponent (root only)
+    // Each prefab source entity stores its stable local ID for granular
+    // override detection; only the root is an instance root.
     assert(em.has_component<HierarchyComponent>(inst_root));
     const auto& children = em.get_component<HierarchyComponent>(inst_root).children;
     assert(children.size() == 1);
     EntityID inst_child = children.front();
-    assert(!em.has_component<PrefabLinkComponent>(inst_child));
+    assert(em.has_component<PrefabLinkComponent>(inst_child));
+    const PrefabLinkComponent child_source_link = em.get_component<PrefabLinkComponent>(inst_child);
+    assert(!child_source_link.is_root_instance);
+    assert(child_source_link.source_local_id == 2);
 
     // Verify parentage
     assert(em.get_component<HierarchyComponent>(inst_root).parent == scene_parent);
 
     // 4. Test Nested Prefab Link preservation during Unpack
     // Attach a separate PrefabLinkComponent to child to simulate nested prefab instance
-    em.add_component<PrefabLinkComponent>(inst_child, PrefabLinkComponent{"assets/prefabs/dagger.prefab"});
+    em.get_component<PrefabLinkComponent>(inst_child) = PrefabLinkComponent{"assets/prefabs/dagger.prefab"};
 
     auto unpack_cmd = std::make_unique<UnpackPrefabCommand>(&em, selection, inst_root, &state_store);
     assert(unpack_cmd->is_valid());
@@ -649,8 +653,8 @@ void test_prefab_link_component_and_unpack_revert_commands() {
     // Undo again so root has PrefabLinkComponent for Revert test
     history.undo();
     assert(em.has_component<PrefabLinkComponent>(inst_root));
-    // Remove the fake child link
-    em.remove_component<PrefabLinkComponent>(inst_child);
+    // Restore source metadata after the nested-prefab simulation.
+    em.get_component<PrefabLinkComponent>(inst_child) = child_source_link;
 
     // 5. Test RevertPrefabCommand
     // Modify instance: rename tag, add a new custom child
@@ -952,7 +956,7 @@ void test_prefab_live_propagation_on_apply() {
     // but retained its own position at (500, 600)!
     std::vector<EntityID> coin_roots;
     em.for_each<PrefabLinkComponent>([&](EntityID id, const PrefabLinkComponent& link) {
-        if (link.prefab_asset_path == prefab_file) {
+        if (link.is_root_instance && link.prefab_asset_path == prefab_file) {
             coin_roots.push_back(id);
         }
     });
@@ -960,6 +964,7 @@ void test_prefab_live_propagation_on_apply() {
 
     // Find the second instance (which has position 500, 600)
     EntityID other_inst = (coin_roots[0] == root1) ? coin_roots[1] : coin_roots[0];
+    assert(other_inst == root2); // propagation must retain clean instance IDs
     assert(em.is_alive(other_inst));
     assert(approx_vec3(em.get_component<TransformComponent>(other_inst).world_position, glm::vec3(500.0f, 600.0f, 0.0f)));
     assert(em.has_component<HierarchyComponent>(other_inst));
@@ -977,6 +982,56 @@ void test_prefab_live_propagation_on_apply() {
 
     std::filesystem::remove(prefab_file);
     std::cout << "test_prefab_live_propagation_on_apply passed." << std::endl;
+}
+
+void test_prefab_propagation_preserves_overridden_instances() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+    ComponentSerializationContext ctx;
+
+    const std::string prefab_file = "assets/prefabs/prop_override_preservation_test.prefab";
+    std::filesystem::remove(prefab_file);
+    EntityID source = em.create_entity();
+    em.add_component<TagComponent>(source, TagComponent{"BaseCoin"});
+    em.add_component<TransformComponent>(source, TransformComponent{});
+    assert(PrefabSerializer::save_to_file(em, source, prefab_file));
+    em.destroy_entity(source);
+
+    auto instantiate = [&](float x) {
+        auto command = std::make_unique<InstantiatePrefabCommand>(
+            &em, selection, prefab_file, false, TransformComponent{glm::vec3(x, 0.0f, 0.0f)}, 0, nullptr, &state_store
+        );
+        history.execute_command(std::move(command));
+        return selection->get_primary();
+    };
+    const EntityID edited_instance = instantiate(10.0f);
+    const EntityID overridden_instance = instantiate(20.0f);
+    assert(edited_instance != 0 && overridden_instance != 0);
+
+    // Simulate a scene-local override on the second instance.
+    em.get_component<TagComponent>(overridden_instance).tag = "CoinOverride";
+
+    EntityID new_child = em.create_entity();
+    em.add_component<TagComponent>(new_child, TagComponent{"AddedToAsset"});
+    em.add_component<TransformComponent>(new_child, TransformComponent{});
+    assert(em.set_parent(new_child, edited_instance).succeeded());
+    TransformSystem::update(em);
+
+    auto apply = std::make_unique<ApplyPrefabCommand>(&em, edited_instance, nullptr, &state_store);
+    assert(apply->is_valid());
+    history.execute_command(std::move(apply));
+
+    // The overridden instance is deliberately not recreated: IDs, local edits,
+    // and hierarchy remain stable until fine-grained propagation exists.
+    assert(em.is_alive(overridden_instance));
+    assert(em.get_component<TagComponent>(overridden_instance).tag == "CoinOverride");
+    assert(!em.has_component<HierarchyComponent>(overridden_instance)
+        || em.get_component<HierarchyComponent>(overridden_instance).children.empty());
+
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_prefab_propagation_preserves_overridden_instances passed." << std::endl;
 }
 
 void test_prefab_duplication_preserves_link() {
@@ -1280,6 +1335,8 @@ void test_nested_prefab_cycle_rejection() {
 void test_prefab_variant_creation_and_command_undo_redo() {
     std::string base_file = "temp_base_enemy.prefab";
     std::string variant_file = "temp_variant_enemy.prefab";
+    std::filesystem::remove(base_file);
+    std::filesystem::remove(variant_file);
 
     // 1. Create Base Prefab
     EntityManager em;
@@ -1293,6 +1350,9 @@ void test_prefab_variant_creation_and_command_undo_redo() {
 
     // 2. Instantiate base prefab into scene
     em.add_component<PrefabLinkComponent>(base_entity, PrefabLinkComponent{base_file});
+    // This becomes the variant-local override. A later base update must still
+    // reach the variant without replacing this color.
+    em.get_component<SpriteComponent>(base_entity).color = SDL_Color{0, 255, 0, 255};
 
     // 3. Create Variant Command
     EditorCommandHistory history;
@@ -1318,6 +1378,7 @@ void test_prefab_variant_creation_and_command_undo_redo() {
     const auto& reverted_link = em.get_component<PrefabLinkComponent>(base_entity);
     assert(!reverted_link.is_variant());
     assert(reverted_link.prefab_asset_path == base_file);
+    assert(!FileSystem::exists(variant_file));
 
     // 5. Test Redo
     assert(history.can_redo());
@@ -1326,6 +1387,26 @@ void test_prefab_variant_creation_and_command_undo_redo() {
     assert(redone_link.is_variant());
     assert(redone_link.prefab_asset_path == variant_file);
     assert(redone_link.base_prefab_path == base_file);
+    assert(FileSystem::exists(variant_file));
+
+    // A variant is not a copied prefab: untouched properties must inherit a
+    // base-asset update while its own changed property remains overridden.
+    em.get_component<TagComponent>(base_entity).tag = "BaseEnemyUpdated";
+    em.get_component<SpriteComponent>(base_entity).color = SDL_Color{255, 0, 0, 255};
+    assert(PrefabSerializer::save_to_file(em, base_entity, base_file));
+    EntityManager inheritance_em;
+    ComponentSerializationContext inheritance_ctx;
+    auto inheritance_result = EntitySubtreeArchive::instantiate_from_json(
+        inheritance_em,
+        PrefabSerializer::read_json_from_file(variant_file),
+        std::nullopt,
+        0,
+        inheritance_ctx
+    );
+    assert(inheritance_result.success);
+    assert(inheritance_em.get_component<TagComponent>(inheritance_result.root_entity).tag == "BaseEnemyUpdated");
+    const auto inherited_color = inheritance_em.get_component<SpriteComponent>(inheritance_result.root_entity).color;
+    assert(inherited_color.r == 0 && inherited_color.g == 255 && inherited_color.b == 0);
 
     // 6. Test Undo then create variant again (file already exists on disk)
     history.undo();
@@ -1366,6 +1447,7 @@ int main() {
     test_revert_prefab_physics_and_atomic_rollback();
     test_apply_prefab_command_and_undo_redo();
     test_prefab_live_propagation_on_apply();
+    test_prefab_propagation_preserves_overridden_instances();
     test_prefab_duplication_preserves_link();
     test_prefab_multi_selection_batch_unpack();
     test_prefab_property_overrides_detection();
@@ -1376,5 +1458,3 @@ int main() {
     std::cout << "=== All Prefab System Tests Passed! ===" << std::endl;
     return 0;
 }
-
-

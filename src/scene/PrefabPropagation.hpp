@@ -19,7 +19,8 @@ public:
         EntityManager& em,
         const std::string& prefab_asset_path,
         EntityID skip_entity = 0,
-        SDL_Renderer* renderer = nullptr
+        SDL_Renderer* renderer = nullptr,
+        const std::string& baseline_prefab_json = ""
     );
 };
 

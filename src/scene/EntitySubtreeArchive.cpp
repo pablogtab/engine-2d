@@ -10,6 +10,15 @@
 
 namespace Engine {
 
+namespace {
+
+std::string normalize_prefab_path(const std::string& path) {
+    if (path.empty()) return {};
+    return std::filesystem::path(path).lexically_normal().generic_string();
+}
+
+} // namespace
+
 std::string EntitySubtreeArchive::capture_to_json(
     const EntityManager& em,
     EntityID root_entity,
@@ -75,6 +84,12 @@ std::string EntitySubtreeArchive::capture_to_json(
     if (temp_em.has_component<PrefabLinkComponent>(root_local_id)) {
         temp_em.remove_component<PrefabLinkComponent>(root_local_id);
     }
+    for (const auto& [runtime_id, local_id] : runtime_to_local) {
+        if (local_id == root_local_id || !temp_em.has_component<PrefabLinkComponent>(local_id)) continue;
+        if (!temp_em.get_component<PrefabLinkComponent>(local_id).is_root_instance) {
+            temp_em.remove_component<PrefabLinkComponent>(local_id);
+        }
+    }
 
     // 4. Serialize each entity from local scratch EntityManager
 
@@ -136,18 +151,20 @@ bool EntitySubtreeArchive::has_prefab_nesting_cycle(
     const std::string& candidate_child_prefab_path
 ) {
     if (parent_prefab_path.empty() || candidate_child_prefab_path.empty()) return false;
-    if (parent_prefab_path == candidate_child_prefab_path) return true;
+    const std::string normalized_parent = normalize_prefab_path(parent_prefab_path);
+    const std::string normalized_candidate = normalize_prefab_path(candidate_child_prefab_path);
+    if (normalized_parent == normalized_candidate) return true;
 
     std::unordered_set<std::string> visited;
     std::queue<std::string> queue;
-    queue.push(candidate_child_prefab_path);
-    visited.insert(candidate_child_prefab_path);
+    queue.push(normalized_candidate);
+    visited.insert(normalized_candidate);
 
     while (!queue.empty()) {
         std::string current_path = queue.front();
         queue.pop();
 
-        if (current_path == parent_prefab_path) return true;
+        if (current_path == normalized_parent) return true;
 
         std::string json_text = FileSystem::read_text(current_path);
         if (!json_text.empty()) {
@@ -155,8 +172,8 @@ bool EntitySubtreeArchive::has_prefab_nesting_cycle(
                 nlohmann::json root = nlohmann::json::parse(json_text);
                 // Check base_prefab_path (for variants)
                 if (root.contains("base_prefab_path") && root["base_prefab_path"].is_string()) {
-                    std::string base = root["base_prefab_path"].get<std::string>();
-                    if (base == parent_prefab_path) return true;
+                    std::string base = normalize_prefab_path(root["base_prefab_path"].get<std::string>());
+                    if (base == normalized_parent) return true;
                     if (!base.empty() && visited.insert(base).second) {
                         queue.push(base);
                     }
@@ -166,8 +183,8 @@ bool EntitySubtreeArchive::has_prefab_nesting_cycle(
                 if (root.contains("entities") && root["entities"].is_array()) {
                     for (const auto& ent : root["entities"]) {
                         if (ent.is_object() && ent.contains("prefab_link") && ent["prefab_link"].is_object()) {
-                            std::string link_path = ent["prefab_link"].value("asset_path", "");
-                            if (link_path == parent_prefab_path) return true;
+                            std::string link_path = normalize_prefab_path(ent["prefab_link"].value("asset_path", ""));
+                            if (link_path == normalized_parent) return true;
                             if (!link_path.empty() && visited.insert(link_path).second) {
                                 queue.push(link_path);
                             }
@@ -398,6 +415,7 @@ SubtreeInstantiationResult EntitySubtreeArchive::instantiate_from_json(
         .success = true,
         .root_entity = runtime_root,
         .created_entities = std::move(created_entities),
+        .local_to_runtime = std::move(local_to_runtime),
         .base_prefab_path = std::move(base_prefab_path),
         .error_message = ""
     };
