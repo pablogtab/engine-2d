@@ -127,7 +127,28 @@ set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/box2d)
 
-add_executable(Engine2D ${SOURCES})
+set(ENGINE_RUNTIME_SOURCES ${SOURCES})
+list(REMOVE_ITEM ENGINE_RUNTIME_SOURCES src/core/Application.cpp src/main.cpp)
+list(FILTER ENGINE_RUNTIME_SOURCES EXCLUDE REGEX "^src/editor/")
+list(FILTER ENGINE_RUNTIME_SOURCES EXCLUDE REGEX "^src/sandbox/")
+list(FILTER ENGINE_RUNTIME_SOURCES EXCLUDE REGEX "^vendor/imgui/")
+
+set(ENGINE_EDITOR_SOURCES ${SOURCES})
+list(FILTER ENGINE_EDITOR_SOURCES INCLUDE REGEX "^(src/editor/|src/sandbox/|vendor/imgui/)")
+
+add_library(EngineRuntime STATIC ${ENGINE_RUNTIME_SOURCES})
+target_include_directories(EngineRuntime PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(EngineRuntime PUBLIC SDL3::SDL3 glm::glm box2d)
+
+add_executable(Engine2D src/main.cpp src/core/Application.cpp ${ENGINE_EDITOR_SOURCES})
+target_compile_definitions(Engine2D PRIVATE ENGINE_WITH_EDITOR=1)
+
+add_executable(Engine2DStandalone src/runtime/StandaloneMain.cpp src/core/Application.cpp)
+target_compile_definitions(Engine2DStandalone PRIVATE ENGINE_WITH_EDITOR=0)
 
 if(APPLE)
     set(ENGINE_RUNTIME_SHADER_FORMAT "msl")
@@ -144,13 +165,19 @@ add_custom_target(stage_runtime_assets
     COMMAND "${CMAKE_COMMAND}"
         "-DENGINE_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
         "-DENGINE_STAGE_DIR=${CMAKE_BINARY_DIR}/runtime"
-        "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2D>"
+        "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"
         "-DENGINE_SHADER_VARIANT=${ENGINE_SHADER_OUTPUT_DIR}/night_vision.frag.${ENGINE_RUNTIME_SHADER_EXTENSION}"
         "-DENGINE_SHADER_FORMAT=${ENGINE_RUNTIME_SHADER_FORMAT}"
         -P "${CMAKE_SOURCE_DIR}/cmake/StageRuntimeAssets.cmake"
-    DEPENDS Engine2D compile_shaders
+    DEPENDS Engine2DStandalone compile_shaders
     COMMENT "Staging runtime assets with the platform shader variant"
     VERBATIM
+)
+
+add_test(NAME RuntimeBoundaryTests
+    COMMAND "${CMAKE_COMMAND}"
+        "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"
+        -P "${CMAKE_SOURCE_DIR}/cmake/VerifyRuntimeBoundary.cmake"
 )
 
 add_executable(Camera2DTests
@@ -566,10 +593,15 @@ target_include_directories(Engine2D PRIVATE
 )
 
 target_link_libraries(Engine2D PRIVATE
-    SDL3::SDL3
-    glm::glm
-    box2d
+    EngineRuntime
 )
+
+target_include_directories(Engine2DStandalone PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(Engine2DStandalone PRIVATE EngineRuntime)
 
 # Lucide is an editor-only visual dependency. Keep it next to the editor
 # executable instead of copying it into game assets or standalone packages.

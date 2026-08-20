@@ -87,11 +87,11 @@ root with the platform-specific variant using:
 cmake --build build --target stage_runtime_assets
 ```
 
-The target copies `assets/`, `ProjectSettings/`, the executable and its editor
-assets into `build/runtime/`. It keeps the stable source handle and replaces
-its file with MSL on macOS, DXIL on Windows, or SPIR-V on Linux; the staged
-descriptor declares that corresponding format. Native library bundling and
-code-signing remain separate standalone-export tasks.
+The target copies `assets/`, `ProjectSettings/`, and the standalone executable
+into `build/runtime/`. It keeps the stable source handle and replaces its file
+with MSL on macOS, DXIL on Windows, or SPIR-V on Linux; the staged descriptor
+declares that corresponding format. Native library bundling and code-signing
+remain separate standalone-export tasks.
 
 ## Asset pipeline boundary
 

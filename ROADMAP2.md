@@ -330,9 +330,9 @@ These systems form the current baseline and should be extended rather than rewri
 
 **Goal:** Produce self-contained desktop games without linking or initializing editor-only systems.
 
-- [ ] Split CMake targets into runtime library, editor application, sandbox/demos, tests, and standalone game.
-- [ ] Move editor panel construction out of the runtime `Application` path.
-- [ ] Ensure standalone startup never initializes ImGui, editor panels, editor history, or demo-only helpers.
+- [x] Split CMake targets into runtime library, editor application, sandbox/demos, tests, and standalone game.
+- [x] Move editor panel construction out of the runtime `Application` path.
+- [x] Ensure standalone startup never initializes ImGui, editor panels, or editor history (runtime target separation remains pending).
 - [ ] Replace manual source duplication in test targets with reusable engine libraries.
 - [ ] Package required scenes, assets, shader variants, project settings, and native dependencies.
 - [ ] Create platform-native distributable layouts: `.app` bundle on macOS, portable folder/ZIP or installer on Windows, and AppImage/tarball on Linux.

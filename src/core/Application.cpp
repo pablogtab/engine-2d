@@ -4,6 +4,7 @@
 #include "Time.hpp"
 #include "SDLDisplayBackend.hpp"
 #include "../audio/AudioEngine.hpp"
+#if ENGINE_WITH_EDITOR
 #include "../editor/EditorLayer.hpp"
 #include "../editor/EditorSelection.hpp"
 #include "../editor/commands/EditorCommandHistory.hpp"
@@ -18,6 +19,7 @@
 #include "../editor/panels/ShortcutsPreferencesPanel.hpp"
 #include "../editor/panels/TilemapPalettePanel.hpp"
 #include "../editor/panels/SpriteAnimationStudioPanel.hpp"
+#endif
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "../ecs/TransformSystem.hpp"
@@ -65,13 +67,7 @@ Application::Application(const std::string& name, int width, int height, bool st
         }
     }
 
-    // Initialize Editor Layer & Modular Panels
-    m_editor_layer = std::make_unique<EditorLayer>();
-    m_editor_layer->init(m_window->get_sdl_window(), m_window->get_sdl_renderer());
-    m_editor_layer->set_window_wrapper(m_window.get());
-    m_editor_layer->set_visible(start_with_editor);
     m_display_manager->set_apply_enabled(!start_with_editor);
-    m_editor_layer->set_scene_manager(&m_scene_manager);
     m_scene_manager.set_renderer(m_window->get_sdl_renderer());
     AssetDatabase::get().set_on_assets_changed([this]() {
         const auto refreshed = m_scene_manager.refresh_material_assets(AssetDatabase::get());
@@ -82,24 +78,34 @@ Application::Application(const std::string& name, int width, int height, bool st
     });
 
     m_window->set_close_request_callback([this]() {
+#if ENGINE_WITH_EDITOR
         if (m_editor_layer && m_editor_layer->is_visible()) {
             return m_editor_layer->request_exit();
         }
+#endif
         return true;
     });
 
-    auto selection = std::make_shared<EditorSelection>();
-    auto command_history = std::make_shared<EditorCommandHistory>();
+#if ENGINE_WITH_EDITOR
+    if (start_with_editor) {
+        m_editor_layer = std::make_unique<EditorLayer>();
+        m_editor_layer->init(m_window->get_sdl_window(), m_window->get_sdl_renderer());
+        m_editor_layer->set_window_wrapper(m_window.get());
+        m_editor_layer->set_visible(true);
+        m_editor_layer->set_scene_manager(&m_scene_manager);
 
-    m_editor_layer->set_command_history(command_history);
-    m_scene_manager.set_on_authoring_state_invalidated([this]() {
-        if (m_editor_layer) {
-            auto history = m_editor_layer->get_command_history();
-            if (history) {
-                history->clear_history_preserving_dirty_state();
+        auto selection = std::make_shared<EditorSelection>();
+        auto command_history = std::make_shared<EditorCommandHistory>();
+
+        m_editor_layer->set_command_history(command_history);
+        m_scene_manager.set_on_authoring_state_invalidated([this]() {
+            if (m_editor_layer) {
+                auto history = m_editor_layer->get_command_history();
+                if (history) {
+                    history->clear_history_preserving_dirty_state();
+                }
             }
-        }
-    });
+        });
 
     auto viewport_panel = std::make_shared<ViewportPanel>(
         m_window->get_sdl_renderer(),
@@ -223,22 +229,35 @@ Application::Application(const std::string& name, int width, int height, bool st
     m_editor_layer->register_panel(palette_panel);
     m_editor_layer->register_panel(anim_studio_panel);
 
-    // Connect Log stream to in-game ConsolePanel
-    Log::set_callback([console_panel](const std::string& timestamp, const std::string& level, const std::string& message) {
-        console_panel->add_log(timestamp, level, message);
-    });
+        // Connect Log stream to in-game ConsolePanel
+        Log::set_callback([console_panel](const std::string& timestamp, const std::string& level, const std::string& message) {
+            console_panel->add_log(timestamp, level, message);
+        });
+    }
+#else
+    (void)start_with_editor;
+    ENGINE_LOG_INFO("[RUNTIME] Starting without editor services");
+#endif
 
     // Event routing: Pass events through EditorLayer and Input Manager (isolated via Viewport focus)
     m_window->set_event_callback([this](const SDL_Event& event) {
+#if ENGINE_WITH_EDITOR
         if (this->m_editor_layer) {
             this->m_editor_layer->process_event(event);
         }
+#endif
         Input::process_event(event);
     });
 
     m_display_manager->set_change_callback([this](const DisplayState& state) {
         this->on_resize(state.pixel_width, state.pixel_height);
-        this->apply_display_mode(this->m_editor_layer && this->m_editor_layer->is_visible());
+        this->apply_display_mode(
+#if ENGINE_WITH_EDITOR
+            this->m_editor_layer && this->m_editor_layer->is_visible()
+#else
+            false
+#endif
+        );
         this->on_display_changed(state);
     });
     m_window->set_display_change_callback([this]() {
@@ -254,6 +273,7 @@ Application::~Application() {
 void Application::apply_display_mode(bool editor_visible) {
     m_display_manager->set_apply_enabled(!editor_visible);
     const auto& game_view = m_project_settings.display();
+#if ENGINE_WITH_EDITOR
     if (editor_visible) {
         m_window->disable_logical_presentation();
         auto* viewport = m_editor_layer ? m_editor_layer->get_viewport_panel() : nullptr;
@@ -264,6 +284,9 @@ void Application::apply_display_mode(bool editor_visible) {
         }
         return;
     }
+#else
+    (void)editor_visible;
+#endif
     const RenderViewKind view = m_scene_manager.is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
     m_window->set_logical_presentation(game_view.reference_width, game_view.reference_height, game_view.presentation);
     if (game_view.presentation == PresentationMode::Responsive) {
@@ -288,11 +311,20 @@ void Application::run() {
     int pixel_w = display_state.pixel_width;
     int pixel_h = display_state.pixel_height;
     on_resize(pixel_w, pixel_h);
-    apply_display_mode(m_editor_layer && m_editor_layer->is_visible());
+    apply_display_mode(
+#if ENGINE_WITH_EDITOR
+        m_editor_layer && m_editor_layer->is_visible()
+#else
+        false
+#endif
+    );
 
     uint64_t last_counter = SDL_GetPerformanceCounter();
     uint64_t frequency = SDL_GetPerformanceFrequency();
-    bool last_editor_visible = m_editor_layer ? m_editor_layer->is_visible() : false;
+    bool last_editor_visible = false;
+#if ENGINE_WITH_EDITOR
+    last_editor_visible = m_editor_layer ? m_editor_layer->is_visible() : false;
+#endif
 
     while (m_running && !m_window->is_should_close()) {
         uint64_t current_counter = SDL_GetPerformanceCounter();
@@ -308,6 +340,7 @@ void Application::run() {
         m_window->poll_events();
 
         // Handle Editor visibility change (F1 key toggle)
+#if ENGINE_WITH_EDITOR
         if (m_editor_layer) {
             bool is_vis = m_editor_layer->is_visible();
             if (is_vis != last_editor_visible) {
@@ -315,15 +348,21 @@ void Application::run() {
                 apply_display_mode(is_vis);
             }
         }
+#endif
 
         // 2. Begin Editor Frame (DockSpace & MenuBar)
+#if ENGINE_WITH_EDITOR
         if (m_editor_layer) {
             m_editor_layer->begin_frame();
             m_editor_layer->render_dockspace();
         }
+#endif
 
         // Handle TAB / Shift+TAB for cycling demo scenes when in game mode or not typing in an ImGui input field
-        bool is_imgui_typing = m_editor_layer && m_editor_layer->is_visible() && m_editor_layer->want_text_input();
+        bool is_imgui_typing = false;
+#if ENGINE_WITH_EDITOR
+        is_imgui_typing = m_editor_layer && m_editor_layer->is_visible() && m_editor_layer->want_text_input();
+#endif
         if (!is_imgui_typing && Input::is_key_just_pressed(SDL_SCANCODE_TAB)) {
             if (Input::is_key_pressed(SDL_SCANCODE_LSHIFT) || Input::is_key_pressed(SDL_SCANCODE_RSHIFT)) {
                 m_scene_manager.previous_scene();
@@ -333,6 +372,7 @@ void Application::run() {
         }
 
         // Configure Input isolation based on Viewport focus/hover state
+#if ENGINE_WITH_EDITOR
         if (m_editor_layer && m_editor_layer->is_visible()) {
             auto* vp = m_editor_layer->get_viewport_panel();
             if (vp) {
@@ -349,15 +389,20 @@ void Application::run() {
         } else {
             Input::set_game_input_enabled(true);
         }
+#else
+        Input::set_game_input_enabled(true);
+#endif
 
         // 3. Update Application logic & active Scene (scaled delta time)
         bool is_playing = true;
+#if ENGINE_WITH_EDITOR
         if (m_editor_layer && m_editor_layer->is_visible()) {
             auto* vp = m_editor_layer->get_viewport_panel();
             if (vp) {
                 is_playing = (vp->get_play_state() == EditorPlayState::Play);
             }
         }
+#endif
 
         on_update(dt);
         if (is_playing) {
@@ -371,6 +416,7 @@ void Application::run() {
         }
 
         // 4. Render Game Scene into Viewport Render Target (if editor is active) or to window
+#if ENGINE_WITH_EDITOR
         ViewportPanel* vp = m_editor_layer ? m_editor_layer->get_viewport_panel() : nullptr;
         if (vp && m_editor_layer->is_visible()) {
             vp->begin_render();
@@ -389,19 +435,30 @@ void Application::run() {
             on_render();
             m_scene_manager.render(*m_renderer);
         }
+#else
+        m_renderer->set_custom_render_target(nullptr);
+        m_renderer->set_scene_clear_color(SDL_Color{24, 28, 36, 255});
+        m_window->clear(24, 28, 36, 255);
+        on_render();
+        m_scene_manager.render(*m_renderer);
+#endif
 
         // 5. Render Editor Panels & Finalize ImGui Draw Data
+#if ENGINE_WITH_EDITOR
         if (m_editor_layer) {
             m_editor_layer->render_panels(raw_delta_time);
             m_editor_layer->end_frame(m_window->get_sdl_renderer());
         }
+#endif
 
         m_window->present();
     }
 
+#if ENGINE_WITH_EDITOR
     if (m_editor_layer) {
         m_editor_layer->shutdown();
     }
+#endif
 
     on_shutdown();
     AudioEngine::shutdown();

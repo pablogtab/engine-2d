@@ -10,7 +10,13 @@
 #include "scene/SceneManager.hpp"
 #include <memory>
 
+#ifndef ENGINE_WITH_EDITOR
+    #define ENGINE_WITH_EDITOR 1
+#endif
+
 namespace Engine {
+
+class EditorLayer;
 
 class Application {
 public:
@@ -33,7 +39,13 @@ public:
     const DisplayManager& get_display() const { return *m_display_manager; }
     const ProjectSettings& get_project_settings() const { return m_project_settings; }
     Renderer2D* get_renderer() { return m_renderer.get(); }
-    class EditorLayer* get_editor_layer() { return m_editor_layer.get(); }
+    EditorLayer* get_editor_layer() {
+#if ENGINE_WITH_EDITOR
+        return m_editor_layer.get();
+#else
+        return nullptr;
+#endif
+    }
 
 protected:
     virtual void on_init() {}
@@ -49,7 +61,9 @@ private:
     std::unique_ptr<Window> m_window;
     std::unique_ptr<DisplayManager> m_display_manager;
     std::unique_ptr<Renderer2D> m_renderer;
-    std::unique_ptr<class EditorLayer> m_editor_layer;
+#if ENGINE_WITH_EDITOR
+    std::unique_ptr<EditorLayer> m_editor_layer;
+#endif
     SceneManager m_scene_manager;
     ThreadPool m_thread_pool;
     ProjectSettings m_project_settings;

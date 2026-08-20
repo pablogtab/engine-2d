@@ -18,11 +18,6 @@ file(COPY "${ENGINE_SOURCE_DIR}/ProjectSettings" DESTINATION "${ENGINE_STAGE_DIR
 get_filename_component(executable_name "${ENGINE_EXECUTABLE}" NAME)
 file(COPY_FILE "${ENGINE_EXECUTABLE}" "${ENGINE_STAGE_DIR}/${executable_name}" ONLY_IF_DIFFERENT)
 
-get_filename_component(executable_directory "${ENGINE_EXECUTABLE}" DIRECTORY)
-if(EXISTS "${executable_directory}/editor_assets")
-    file(COPY "${executable_directory}/editor_assets" DESTINATION "${ENGINE_STAGE_DIR}")
-endif()
-
 set(staged_shader "${ENGINE_STAGE_DIR}/assets/shaders/night_vision.frag.msl")
 file(COPY_FILE "${ENGINE_SHADER_VARIANT}" "${staged_shader}" ONLY_IF_DIFFERENT)
 
