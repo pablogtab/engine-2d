@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../core/AssetHandle.hpp"
 #include "../EcsTypes.hpp"
 #include <glm/glm.hpp>
 #include <cmath>

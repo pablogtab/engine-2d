@@ -116,7 +116,8 @@ Application::Application(const std::string& name, int width, int height, bool st
     auto console_panel = std::make_shared<ConsolePanel>();
     auto stats_panel = std::make_shared<StatsPanel>();
     stats_panel->is_open = false; // Closed by default at startup (accessible via Panels menu)
-    auto asset_browser = std::make_shared<AssetBrowserPanel>("assets");
+    auto asset_browser = std::make_shared<AssetBrowserPanel>(&get_asset_database(), "assets");
+    asset_browser->set_command_history(command_history);
     auto postprocess_panel = std::make_shared<PostProcessTunerPanel>(&m_scene_manager, command_history);
     postprocess_panel->is_open = false; // Closed by default at startup (accessible via View / Windows menu)
 

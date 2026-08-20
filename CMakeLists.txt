@@ -97,6 +97,7 @@ set(SOURCES
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EditorEntityStateCommands.cpp
+    src/editor/commands/AssetFileCommands.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp
     src/editor/commands/PrefabCommands.cpp
@@ -219,6 +220,21 @@ target_include_directories(EditorCommandHistoryTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 add_test(NAME EditorCommandHistoryTests COMMAND EditorCommandHistoryTests)
+
+add_executable(AssetFileCommandTests
+    tests/AssetFileCommandTests.cpp
+    src/core/AssetDatabase.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+    src/editor/commands/AssetFileCommands.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+)
+target_include_directories(AssetFileCommandTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(AssetFileCommandTests PRIVATE SDL3::SDL3)
+add_test(NAME AssetFileCommandTests COMMAND AssetFileCommandTests)
 
 add_executable(InspectorCommandTests
     tests/InspectorCommandTests.cpp

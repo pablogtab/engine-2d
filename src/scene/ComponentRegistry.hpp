@@ -18,6 +18,7 @@ struct SDL_Renderer;
 namespace Engine {
 
 class AssetManager;
+class AssetDatabase;
 
 class ComponentSnapshotSet {
 public:
@@ -53,6 +54,9 @@ private:
 struct ComponentSerializationContext {
     SDL_Renderer* renderer{nullptr};
     AssetManager* asset_manager{nullptr};
+    // Optional dependency supplied by scene/prefab boundaries. Components must
+    // remain plain data and never reach for the application-wide database.
+    AssetDatabase* asset_database{nullptr};
 };
 
 enum class ComponentFinalizeReason {

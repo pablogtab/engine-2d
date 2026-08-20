@@ -1,20 +1,25 @@
 #include "AssetBrowserPanel.hpp"
+#include "../../core/AssetDatabase.hpp"
 #include "../../core/Log.hpp"
 #include "../../core/FileSystem.hpp"
+#include "../commands/AssetFileCommands.hpp"
+#include "../commands/EditorCommandHistory.hpp"
 #include <imgui.h>
 #include <algorithm>
 
 namespace Engine {
 
-AssetBrowserPanel::AssetBrowserPanel(std::string root_path)
-    : m_root_path(std::move(root_path)), m_current_path(m_root_path) {
+AssetBrowserPanel::AssetBrowserPanel(AssetDatabase* asset_database, std::string root_path)
+    : m_root_path(std::move(root_path)), m_current_path(m_root_path), m_asset_database(asset_database) {
     if (!std::filesystem::exists(m_root_path)) {
         std::filesystem::create_directories(m_root_path);
     }
 }
 
 void AssetBrowserPanel::refresh() {
-    // Filesystem query automatically fetches on frame
+    if (m_asset_database) {
+        [[maybe_unused]] const AssetScanResult scan_result = m_asset_database->scan(m_root_path);
+    }
 }
 
 void AssetBrowserPanel::on_gui() {
@@ -66,6 +71,9 @@ void AssetBrowserPanel::on_gui() {
                     std::string filename = path.filename().string();
                     bool is_dir = directory_entry.is_directory();
                     std::string extension = path.extension().string();
+
+                    // Metadata is engine bookkeeping, never user-facing content.
+                    if (!is_dir && extension == ".meta") continue;
 
                     ImGui::TableNextColumn();
                     ImGui::PushID(filename.c_str());
@@ -153,7 +161,11 @@ void AssetBrowserPanel::on_gui() {
                             }
                         }
                         if (ImGui::MenuItem("Delete")) {
-                            std::filesystem::remove_all(path);
+                            if (!is_dir && m_command_history && m_asset_database) {
+                                m_command_history->execute_command(
+                                    std::make_unique<DeleteAssetCommand>(m_asset_database, path)
+                                );
+                            }
                         }
                         ImGui::EndPopup();
                     }
@@ -202,9 +214,16 @@ void AssetBrowserPanel::on_gui() {
                 if (!sname.empty()) {
                     if (sname.find(".scene") == std::string::npos) sname += ".scene";
                     std::filesystem::path new_file = m_current_path / sname;
-                    FileSystem::write_text(new_file.string(), "{\n  \"scene_name\": \"" + std::string(m_new_scene_name_buf) + "\",\n  \"version\": 1,\n  \"entities\": []\n}\n");
-                    ENGINE_LOG_INFO("[ASSET BROWSER] Created new scene file: '{}'", new_file.string());
-                    if (m_on_load_scene) {
+                    const std::string scene_json = "{\n  \"scene_name\": \"" + std::string(m_new_scene_name_buf) + "\",\n  \"version\": 1,\n  \"entities\": []\n}\n";
+                    if (m_command_history && m_asset_database) {
+                        m_command_history->execute_command(
+                            std::make_unique<CreateAssetCommand>(m_asset_database, new_file, scene_json)
+                        );
+                    }
+                    if (std::filesystem::exists(new_file)) {
+                        ENGINE_LOG_INFO("[ASSET BROWSER] Created new scene file: '{}'", new_file.string());
+                    }
+                    if (std::filesystem::exists(new_file) && m_on_load_scene) {
                         m_on_load_scene(new_file.string());
                     }
                 }

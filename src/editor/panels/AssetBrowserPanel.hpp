@@ -4,12 +4,16 @@
 #include <string>
 #include <filesystem>
 #include <functional>
+#include <memory>
 
 namespace Engine {
 
+class AssetDatabase;
+class EditorCommandHistory;
+
 class AssetBrowserPanel : public EditorPanel {
 public:
-    explicit AssetBrowserPanel(std::string root_path = "assets");
+    explicit AssetBrowserPanel(AssetDatabase* asset_database, std::string root_path = "assets");
     ~AssetBrowserPanel() override = default;
 
     void on_gui() override;
@@ -21,6 +25,9 @@ public:
     void set_on_open_prefab_callback(std::function<void(const std::string&)> cb) {
         m_on_open_prefab = std::move(cb);
     }
+    void set_command_history(std::shared_ptr<EditorCommandHistory> command_history) {
+        m_command_history = std::move(command_history);
+    }
 
     void refresh();
 
@@ -28,6 +35,8 @@ private:
     std::string m_name{"Asset Browser"};
     std::filesystem::path m_root_path;
     std::filesystem::path m_current_path;
+    AssetDatabase* m_asset_database{nullptr};
+    std::shared_ptr<EditorCommandHistory> m_command_history;
     std::function<void(const std::string&)> m_on_load_scene;
     std::function<void(const std::string&)> m_on_open_prefab;
     std::string m_selected_file{""};
