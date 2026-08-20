@@ -35,6 +35,7 @@ set(SOURCES
     src/renderer/Animation2D.cpp
     src/renderer/Font.cpp
     src/renderer/material/FragmentShader.cpp
+    src/renderer/material/MaterialAsset.cpp
     src/renderer/material/SDLGPUMaterialBackend.cpp
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
@@ -177,6 +178,8 @@ add_test(NAME DisplayPersistenceTests COMMAND DisplayPersistenceTests)
 
 add_executable(PostProcessTests
     tests/PostProcessTests.cpp
+    src/core/AssetDatabase.cpp
+    src/core/FileSystem.cpp
     src/core/Log.cpp
     src/core/ThreadPool.cpp
     src/editor/commands/EditorCommandHistory.cpp
@@ -248,6 +251,8 @@ add_executable(InspectorCommandTests
     src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EntityCommands.cpp
     src/renderer/Texture.cpp
+    src/renderer/material/FragmentShader.cpp
+    src/renderer/material/MaterialAsset.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
@@ -311,6 +316,8 @@ add_executable(HierarchyCommandTests
     src/editor/commands/EditorEntityStateCommands.cpp
     src/editor/state/EditorEntityStateStore.cpp
     src/renderer/Texture.cpp
+    src/renderer/material/FragmentShader.cpp
+    src/renderer/material/MaterialAsset.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
@@ -357,6 +364,8 @@ add_executable(SceneSerializerTests
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/renderer/Texture.cpp
+    src/renderer/material/FragmentShader.cpp
+    src/renderer/material/MaterialAsset.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
@@ -386,6 +395,8 @@ add_executable(ComponentRegistryTests
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/renderer/Texture.cpp
+    src/renderer/material/FragmentShader.cpp
+    src/renderer/material/MaterialAsset.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
@@ -409,6 +420,8 @@ add_executable(SceneMigrationTests
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/renderer/Texture.cpp
+    src/renderer/material/FragmentShader.cpp
+    src/renderer/material/MaterialAsset.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
@@ -432,6 +445,8 @@ add_executable(PrefabTests
     src/ecs/EntityManager.cpp
     src/ecs/CameraSystem.cpp
     src/renderer/Texture.cpp
+    src/renderer/material/FragmentShader.cpp
+    src/renderer/material/MaterialAsset.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
@@ -471,6 +486,8 @@ add_executable(PrefabStageControllerTests
     src/ecs/EntityManager.cpp
     src/ecs/CameraSystem.cpp
     src/renderer/Texture.cpp
+    src/renderer/material/FragmentShader.cpp
+    src/renderer/material/MaterialAsset.cpp
     src/renderer/Renderer2D.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/renderer/Animation2D.cpp

@@ -2,10 +2,12 @@
 #include "../../core/AssetDatabase.hpp"
 #include "../../core/Log.hpp"
 #include "../../core/FileSystem.hpp"
+#include "../../renderer/postprocess/PostProcessProfile.hpp"
 #include "../commands/AssetFileCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include <imgui.h>
 #include <algorithm>
+#include <nlohmann/json.hpp>
 
 namespace Engine {
 
@@ -91,6 +93,12 @@ void AssetBrowserPanel::on_gui() {
                     } else if (extension == ".prefab") {
                         tag = "[PREFAB]";
                         tag_col = ImVec4(0.85f, 0.45f, 0.95f, 1.0f);
+                    } else if (extension == ".material") {
+                        tag = "[MATERIAL]";
+                        tag_col = ImVec4(0.95f, 0.60f, 0.25f, 1.0f);
+                    } else if (extension == ".postprocess") {
+                        tag = "[POST FX]";
+                        tag_col = ImVec4(0.35f, 0.85f, 0.85f, 1.0f);
                     } else if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp") {
                         tag = "[IMAGE]";
                         tag_col = ImVec4(0.40f, 0.75f, 1.00f, 1.0f);
@@ -184,6 +192,12 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::MenuItem("+ New Scene")) {
                 m_show_new_scene_popup = true;
             }
+            if (ImGui::MenuItem("+ New Material")) {
+                m_show_new_material_popup = true;
+            }
+            if (ImGui::MenuItem("+ New Post-Process Profile")) {
+                m_show_new_post_process_popup = true;
+            }
             if (ImGui::MenuItem("+ New Folder")) {
                 std::filesystem::create_directory(m_current_path / "NewFolder");
             }
@@ -202,6 +216,14 @@ void AssetBrowserPanel::on_gui() {
         if (m_show_new_scene_popup) {
             ImGui::OpenPopup("Create New Scene");
             m_show_new_scene_popup = false;
+        }
+        if (m_show_new_material_popup) {
+            ImGui::OpenPopup("Create New Material");
+            m_show_new_material_popup = false;
+        }
+        if (m_show_new_post_process_popup) {
+            ImGui::OpenPopup("Create New Post-Process Profile");
+            m_show_new_post_process_popup = false;
         }
 
         if (ImGui::BeginPopupModal("Create New Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -233,6 +255,50 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::Button("Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
+            ImGui::EndPopup();
+        }
+        if (ImGui::BeginPopupModal("Create New Material", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("Enter Material Name:");
+            ImGui::InputText("##materialname", m_new_material_name_buf, sizeof(m_new_material_name_buf));
+            ImGui::Spacing();
+            if (ImGui::Button("Create", ImVec2(120, 0))) {
+                const std::string name = m_new_material_name_buf;
+                if (!name.empty() && m_command_history && m_asset_database) {
+                    const auto shader = std::find_if(m_asset_database->records().begin(), m_asset_database->records().end(), [](const AssetRecord& record) {
+                        return record.type == AssetType::Shader && record.status == AssetStatus::Ready &&
+                            std::filesystem::path(record.source_path).extension() == ".msl";
+                    });
+                    if (shader != m_asset_database->records().end()) {
+                        const auto file = m_current_path / (name + ".material");
+                        const nlohmann::json material_json{{"name", name}, {"shader_handle", shader->handle.to_string()}, {"uniforms", nlohmann::json::array()}};
+                        m_command_history->execute_command(std::make_unique<CreateAssetCommand>(m_asset_database, file, material_json.dump(2) + "\n"));
+                    } else {
+                        ENGINE_LOG_WARN("[ASSET BROWSER] Cannot create material: no ready MSL shader asset is available.");
+                    }
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        if (ImGui::BeginPopupModal("Create New Post-Process Profile", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("Enter Profile Name:");
+            ImGui::InputText("##postprocessname", m_new_post_process_name_buf, sizeof(m_new_post_process_name_buf));
+            ImGui::Spacing();
+            if (ImGui::Button("Create", ImVec2(120, 0))) {
+                const std::string name = m_new_post_process_name_buf;
+                if (!name.empty() && m_command_history && m_asset_database) {
+                    auto profile = PostProcessProfile::PresetDefault();
+                    profile.name = name;
+                    m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
+                        m_asset_database, m_current_path / (name + ".postprocess"), profile.to_json()
+                    ));
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
     }

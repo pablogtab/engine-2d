@@ -41,7 +41,11 @@ private:
     std::function<void(const std::string&)> m_on_open_prefab;
     std::string m_selected_file{""};
     char m_new_scene_name_buf[128]{"NewScene"};
+    char m_new_material_name_buf[128]{"NewMaterial"};
+    char m_new_post_process_name_buf[128]{"NewPostProcessProfile"};
     bool m_show_new_scene_popup{false};
+    bool m_show_new_material_popup{false};
+    bool m_show_new_post_process_popup{false};
     float m_thumbnail_size{72.0f};
     float m_padding{14.0f};
 };

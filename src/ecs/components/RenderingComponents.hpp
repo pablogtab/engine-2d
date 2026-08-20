@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../EcsTypes.hpp"
+#include "../../core/AssetHandle.hpp"
 #include "../../renderer/RenderView.hpp"
 #include "../../renderer/Texture.hpp"
 #include <SDL3/SDL.h>
@@ -20,6 +21,7 @@ struct SpriteComponent {
     bool visible{true};
     glm::vec2 size{64.0f, 64.0f};
     std::shared_ptr<const Material> material;
+    AssetHandle material_handle{};
 
     bool has_outline{false};
     SDL_Color outline_color{255, 215, 0, 255};

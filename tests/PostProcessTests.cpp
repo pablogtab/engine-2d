@@ -12,6 +12,7 @@
 #include "scene/Camera2D.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/commands/PostProcessProfileCommands.hpp"
+#include "core/AssetDatabase.hpp"
 #include <cassert>
 #include <cmath>
 #include <filesystem>
@@ -385,6 +386,24 @@ void test_world_is_processed_before_screen_space_hud_is_composited() {
     SDL_DestroySurface(surface);
 }
 
+void test_profile_assets_round_trip_by_handle() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_postprocess_asset_test";
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+    fs::create_directories(root / "assets/postprocess");
+    Engine::AssetDatabase database(root);
+    Engine::PostProcessProfile source = Engine::PostProcessProfile::PresetRetroCRT();
+    source.name = "AssetProfile";
+    const fs::path path = root / "assets/postprocess/retro.postprocess";
+    assert(source.save_asset(path.string(), database));
+    const auto* record = database.find_by_path("assets/postprocess/retro.postprocess");
+    assert(record && record->type == Engine::AssetType::PostProcessProfile);
+    const auto loaded = Engine::PostProcessProfile::load_asset(record->handle, database);
+    assert(loaded && loaded->name == "AssetProfile");
+    fs::remove_all(root, ignored);
+}
+
 } // namespace
 
 int main() {
@@ -399,6 +418,7 @@ int main() {
     test_pipeline_processes_the_existing_camera_backdrop();
     test_pipeline_processes_the_standalone_clear_color();
     test_world_is_processed_before_screen_space_hud_is_composited();
+    test_profile_assets_round_trip_by_handle();
     std::cout << "PostProcessTests passed\n";
     return 0;
 }

@@ -20,7 +20,8 @@ std::string normalize_path(const fs::path& path) { return path.lexically_normal(
 AssetType type_from_name(const std::string& name) {
     if (name == "scene") return AssetType::Scene; if (name == "prefab") return AssetType::Prefab;
     if (name == "texture") return AssetType::Texture; if (name == "audio") return AssetType::Audio;
-    if (name == "shader") return AssetType::Shader; if (name == "data") return AssetType::Data;
+    if (name == "shader") return AssetType::Shader; if (name == "material") return AssetType::Material;
+    if (name == "post_process_profile") return AssetType::PostProcessProfile; if (name == "data") return AssetType::Data;
     return AssetType::Unknown;
 }
 AssetStatus status_from_name(const std::string& value) { return value == "missing" ? AssetStatus::MissingSource : AssetStatus::Ready; }
@@ -112,9 +113,11 @@ AssetType AssetDatabase::type_for_path(const fs::path& path) {
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") return AssetType::Texture;
     if (ext == ".wav" || ext == ".mp3" || ext == ".ogg" || ext == ".flac") return AssetType::Audio;
     if (ext == ".hlsl" || ext == ".msl" || ext == ".glsl" || ext == ".frag" || ext == ".vert") return AssetType::Shader;
+    if (ext == ".material") return AssetType::Material;
+    if (ext == ".postprocess") return AssetType::PostProcessProfile;
     return ext == ".json" ? AssetType::Data : AssetType::Unknown;
 }
-const char* AssetDatabase::type_name(AssetType type) { switch (type) { case AssetType::Scene:return "scene"; case AssetType::Prefab:return "prefab"; case AssetType::Texture:return "texture"; case AssetType::Audio:return "audio"; case AssetType::Shader:return "shader"; case AssetType::Data:return "data"; default:return "unknown"; } }
+const char* AssetDatabase::type_name(AssetType type) { switch (type) { case AssetType::Scene:return "scene"; case AssetType::Prefab:return "prefab"; case AssetType::Texture:return "texture"; case AssetType::Audio:return "audio"; case AssetType::Shader:return "shader"; case AssetType::Material:return "material"; case AssetType::PostProcessProfile:return "post_process_profile"; case AssetType::Data:return "data"; default:return "unknown"; } }
 
 std::optional<std::string> AssetDatabase::to_project_relative(const fs::path& path) const { const auto relative = resolve_source_path(path).lexically_relative(m_project_root); if (relative.empty() || relative == "." || relative.begin()->string() == "..") return std::nullopt; return normalize_path(relative); }
 fs::path AssetDatabase::resolve_source_path(const fs::path& path) const { fs::path result = FileSystem::resolve_path(path.string()); if (result.is_relative()) result = m_project_root / result; return fs::absolute(result).lexically_normal(); }

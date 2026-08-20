@@ -5,6 +5,7 @@
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
 #include "../renderer/Texture.hpp"
+#include "../renderer/material/MaterialAsset.hpp"
 #include <algorithm>
 #include <exception>
 #include <limits>
@@ -419,6 +420,7 @@ ComponentRegistry& default_component_registry() {
                     }
                     value["texture_handle"] = texture->handle.to_string();
                 }
+                if (sprite.material_handle.is_valid()) value["material_handle"] = sprite.material_handle.to_string();
                 if (sprite.use_src_rect) {
                     value["src_rect"] = {
                         sprite.src_rect.x, sprite.src_rect.y,
@@ -447,6 +449,16 @@ ComponentRegistry& default_component_registry() {
                     if (texture && texture->status == AssetStatus::Ready && texture->type == AssetType::Texture &&
                         context.renderer && context.asset_manager) {
                         sprite.texture = context.asset_manager->get_texture(context.renderer, texture->source_path);
+                    }
+                }
+                sprite.material.reset();
+                sprite.material_handle = {};
+                if (value.contains("material_handle")) {
+                    if (!value["material_handle"].is_string()) { deserialize_error = "Sprite material_handle must be a string"; return false; }
+                    const auto handle = AssetHandle::from_string(value["material_handle"].get<std::string>());
+                    if (handle && context.asset_database) {
+                        sprite.material = MaterialAsset::load(*handle, *context.asset_database);
+                        if (sprite.material) sprite.material_handle = *handle;
                     }
                 }
                 if (!sprite.texture && context.renderer && context.asset_manager) {

@@ -256,6 +256,7 @@ void test_instantiate_prefab_command_undo_redo_without_disk_dependency() {
     EditorCommandHistory history;
 
     // Create a temporary prefab file
+    std::filesystem::create_directories("assets/prefabs");
     std::string temp_prefab = "assets/prefabs/temp_test_item.prefab";
     EntityManager src_em;
     EntityID root = src_em.create_entity();

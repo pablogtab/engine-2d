@@ -5,9 +5,11 @@
 #include "../commands/EntityCommands.hpp"
 #include "../commands/PrefabCommands.hpp"
 #include "../../core/AssetManager.hpp"
+#include "../../core/AssetDatabase.hpp"
 #include "../../ecs/EntityManager.hpp"
 #include "../../renderer/Texture.hpp"
 #include "../../renderer/material/Material.hpp"
+#include "../../renderer/material/MaterialAsset.hpp"
 #include "../../scene/PrefabOverrides.hpp"
 
 #include <algorithm>
@@ -29,6 +31,7 @@ bool sprite_states_equal(const SpriteComponent& lhs, const SpriteComponent& rhs)
         lhs.use_src_rect == rhs.use_src_rect &&
         lhs.visible == rhs.visible &&
         lhs.size.x == rhs.size.x && lhs.size.y == rhs.size.y &&
+        lhs.material_handle == rhs.material_handle &&
         lhs.material == rhs.material &&
         lhs.has_outline == rhs.has_outline &&
         lhs.outline_color.r == rhs.outline_color.r &&
@@ -42,26 +45,49 @@ bool sprite_states_equal(const SpriteComponent& lhs, const SpriteComponent& rhs)
         lhs.order_in_layer == rhs.order_in_layer;
 }
 
+bool draw_material_value(SpriteComponent& sprite) {
+    InspectorWidgets::begin_property_row("Material");
+    AssetDatabase& database = AssetDatabase::get();
+    const AssetRecord* selected = sprite.material_handle.is_valid() ? database.find(sprite.material_handle) : nullptr;
+    const char* preview = selected ? selected->source_path.c_str() : "None";
+    bool changed = false;
+    if (ImGui::BeginCombo("##material", preview)) {
+        if (ImGui::Selectable("None", !sprite.material_handle.is_valid())) {
+            sprite.material_handle = {};
+            sprite.material.reset();
+            changed = true;
+        }
+        for (const AssetRecord& record : database.records()) {
+            if (record.type != AssetType::Material || record.status != AssetStatus::Ready) continue;
+            const bool is_selected = sprite.material_handle == record.handle;
+            if (ImGui::Selectable(record.source_path.c_str(), is_selected)) {
+                sprite.material_handle = record.handle;
+                sprite.material = MaterialAsset::load(record.handle, database);
+                changed = true;
+            }
+            if (is_selected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Material asset identity is stored as an asset handle.");
+    }
+    return changed;
+}
+
 void draw_material_value(const SelectedComponentStates<SpriteComponent>& states) {
     InspectorWidgets::begin_property_row("Material");
-    const bool mixed = selected_values_mixed<SpriteComponent, std::shared_ptr<const Material>>(
-        states, [](const SpriteComponent& sprite) { return sprite.material; }
+    const bool mixed = selected_values_mixed<SpriteComponent, AssetHandle>(
+        states, [](const SpriteComponent& sprite) { return sprite.material_handle; }
     );
     if (mixed) {
         ImGui::TextDisabled("Multiple values");
-    } else if (states.front().second.material) {
-        ImGui::TextUnformatted(states.front().second.material->name().c_str());
+    } else if (states.front().second.material_handle.is_valid()) {
+        const AssetRecord* record = AssetDatabase::get().find(states.front().second.material_handle);
+        ImGui::TextUnformatted(record ? record->source_path.c_str() : "Missing material");
     } else {
         ImGui::TextDisabled("None");
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Read-only until materials have stable asset identities.");
-    }
-}
-
-void draw_material_value(const SpriteComponent& sprite) {
-    SelectedComponentStates<SpriteComponent> state{{0, sprite}};
-    draw_material_value(state);
 }
 
 } // namespace
@@ -215,7 +241,11 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
     }
     track_edit(em, entity, opacity_before, "Sprite.Opacity", "Edit Sprite Opacity", context);
 
-    draw_material_value(sprite);
+    const SpriteComponent material_before = sprite;
+    begin_property_interaction("Sprite.Material");
+    const bool material_changed = draw_material_value(sprite);
+    capture_property_interaction();
+    track_edit(em, entity, material_before, "Sprite.Material", "Change Sprite Material", context, material_changed);
 
     const SpriteComponent outline_enabled_before = sprite;
     property_bool("Outline", &sprite.has_outline);

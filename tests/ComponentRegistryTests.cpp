@@ -4,6 +4,8 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
+#include "renderer/material/MaterialAsset.hpp"
+#include "renderer/material/Material.hpp"
 #include "ecs/EntityManager.hpp"
 #include "scene/ComponentRegistry.hpp"
 #include "editor/inspector/EditorComponentRegistry.hpp"
@@ -533,6 +535,35 @@ void test_sprite_textures_persist_asset_handles() {
     fs::remove_all(root, ignored);
 }
 
+void test_material_assets_load_by_handle() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_material_asset_handles";
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+    fs::create_directories(root / "assets/shaders");
+    fs::create_directories(root / "assets/materials");
+    assert(FileSystem::write_text((root / "assets/shaders/Test.msl").string(), "fragment float4 main0() { return float4(1); }\n"));
+
+    AssetDatabase database(root);
+    [[maybe_unused]] const AssetScanResult shader_scan = database.scan(root / "assets");
+    const AssetRecord* shader = database.find_by_path("assets/shaders/Test.msl");
+    assert(shader && shader->type == AssetType::Shader);
+    const nlohmann::json material_json{
+        {"name", "Test Material"},
+        {"shader_handle", shader->handle.to_string()},
+        {"uniforms", nlohmann::json::array({nlohmann::json::array({1, 2, 3, 4})})}
+    };
+    assert(FileSystem::write_text((root / "assets/materials/Test.material").string(), material_json.dump()));
+    assert(database.import_asset(root / "assets/materials/Test.material"));
+    const AssetRecord* material = database.find_by_path("assets/materials/Test.material");
+    assert(material && material->type == AssetType::Material);
+    const auto loaded = MaterialAsset::load(material->handle, database);
+    assert(loaded && loaded->name() == "Test Material");
+    assert(loaded->uniform_bytes(0).size() == 4);
+
+    fs::remove_all(root, ignored);
+}
+
 template<std::size_t... Indices>
 void request_overflow_component_ids(std::index_sequence<Indices...>) {
     (static_cast<void>(get_component_type_id<OverflowComponent<Indices>>()), ...);
@@ -565,6 +596,7 @@ int main() {
     test_builtin_components_round_trip_through_registry();
     test_prefab_links_persist_asset_handles();
     test_sprite_textures_persist_asset_handles();
+    test_material_assets_load_by_handle();
     test_finalization_runs_after_entity_references_exist();
     test_animation_lifecycle_clears_runtime_playback();
     test_component_type_limit_has_explicit_diagnostic();

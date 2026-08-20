@@ -2,7 +2,10 @@
 #include "PostProcessPipeline.hpp"
 #include "PostProcessPasses.hpp"
 #include "../../core/Log.hpp"
+#include "../../core/AssetDatabase.hpp"
+#include "../../core/FileSystem.hpp"
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 #include <algorithm>
 #include <cmath>
@@ -346,6 +349,20 @@ bool PostProcessProfile::load_from_file(const std::string& filepath) {
     std::ostringstream ss;
     ss << in.rdbuf();
     return from_json(ss.str());
+}
+
+bool PostProcessProfile::save_asset(const std::string& filepath, AssetDatabase& database) const {
+    if (std::filesystem::path(filepath).extension() != ".postprocess" || !save_to_file(filepath)) return false;
+    const auto handle = database.import_asset(filepath);
+    return handle.has_value() && database.find(*handle)->type == AssetType::PostProcessProfile;
+}
+
+std::optional<PostProcessProfile> PostProcessProfile::load_asset(AssetHandle handle, const AssetDatabase& database) {
+    const AssetRecord* record = database.find(handle);
+    if (!record || record->status != AssetStatus::Ready || record->type != AssetType::PostProcessProfile) return std::nullopt;
+    PostProcessProfile profile;
+    if (!profile.load_from_file(database.resolve(handle))) return std::nullopt;
+    return profile;
 }
 
 } // namespace Engine

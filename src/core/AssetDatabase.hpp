@@ -16,6 +16,8 @@ enum class AssetType {
     Texture,
     Audio,
     Shader,
+    Material,
+    PostProcessProfile,
     Data
 };
 

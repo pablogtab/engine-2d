@@ -2,10 +2,13 @@
 
 #include <SDL3/SDL.h>
 #include <string>
+#include <optional>
 
 namespace Engine {
 
 class PostProcessPipeline;
+class AssetDatabase;
+struct AssetHandle;
 
 // ---------------------------------------------------------------------------
 // PostProcessProfile
@@ -70,6 +73,8 @@ struct PostProcessProfile {
     bool from_json(const std::string& json_str);
     bool save_to_file(const std::string& filepath) const;
     bool load_from_file(const std::string& filepath);
+    [[nodiscard]] bool save_asset(const std::string& filepath, AssetDatabase& database) const;
+    [[nodiscard]] static std::optional<PostProcessProfile> load_asset(AssetHandle handle, const AssetDatabase& database);
 };
 
 } // namespace Engine

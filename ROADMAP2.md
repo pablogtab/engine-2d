@@ -114,7 +114,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Expose pivot, Z-depth, flip, visibility, sorting layer, and order in layer.
 - [x] Render texture previews in the Sprite Inspector.
 - [x] Expose Sprite outline controls through the common property grid and persist their authored state.
-- [ ] Expose material assignment after materials have stable asset identities and a project asset registry.
+- [x] Expose material assignment through registered `AssetHandle` identities in the Sprite Inspector.
 - [ ] Make every visual property fully reversible.
 
 **Completion criteria:** Every Inspector and Hierarchy content mutation is reversible, continuous gestures create one command, preview state is not serialized as authoring data, and no Inspector-owned runtime resources leak.
@@ -206,6 +206,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Introduce stable `AssetHandle` identities and project-relative source paths (`AssetDatabase`, atomic `.meta` sidecars, project-root resolver, duplicate-handle rejection).
 - [x] Persist prefab links and prefab-variant bases as `AssetHandle`; resolve their runtime paths only through `AssetDatabase` (initial format, with no legacy migration path).
 - [x] Persist Sprite texture references as `AssetHandle`; resolve ready textures through `AssetDatabase` and fall back safely when unavailable.
+- [x] Persist Sprite material references as `AssetHandle`; load validated `.material` assets through `AssetDatabase` and fall back safely when unavailable.
 - [ ] Make components serialize asset handles instead of runtime pointers.
 - [ ] Resolve handles to runtime resources through the asset system.
 - [ ] Add explicit missing, loading, failed, and ready states with safe fallback assets.
@@ -215,7 +216,7 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Materials and Shaders as Assets
 
-- [ ] Register materials, shader variants, textures, and post-process profiles as project assets.
+- [x] Register materials and post-process profiles as project assets; create initial `.material` and `.postprocess` files from Asset Browser.
 - [ ] Add an offline shader compilation/validation pipeline for Metal, Vulkan, and Direct3D variants.
 - [ ] Report unavailable shader variants before runtime.
 - [ ] Add material parameter inspection, serialization, duplication, and missing-shader diagnostics.
