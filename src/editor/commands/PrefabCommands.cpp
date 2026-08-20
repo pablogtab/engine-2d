@@ -4,7 +4,9 @@
 #include "../../core/FileSystem.hpp"
 #include "../../core/Log.hpp"
 #include "../../ecs/TransformSystem.hpp"
+#include "../../scene/PrefabPropagation.hpp"
 #include <filesystem>
+
 
 namespace Engine {
 
@@ -568,6 +570,9 @@ bool ApplyPrefabCommand::execute() {
 
         ENGINE_LOG_INFO("[PREFAB] Successfully applied overrides to '{}'", m_prefab_filepath);
         m_first_execute = false;
+
+        // Propagate to other scene instances linking to the same prefab asset
+        PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, m_root_entity, m_renderer);
         return true;
     }
 
@@ -577,17 +582,23 @@ bool ApplyPrefabCommand::execute() {
         return false;
     }
     ENGINE_LOG_INFO("[PREFAB] Redone applying overrides to '{}'", m_prefab_filepath);
+
+    // Propagate redone asset to all instances
+    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer);
     return true;
 }
 
 bool ApplyPrefabCommand::undo() {
-    if (!m_valid) return false;
+    if (!m_valid || !m_em) return false;
 
     if (!FileSystem::write_text_atomically(m_prefab_filepath, m_previous_file_content)) {
         ENGINE_LOG_ERROR("[PREFAB] ApplyPrefabCommand undo failed restoring '{}'", m_prefab_filepath);
         return false;
     }
     ENGINE_LOG_INFO("[PREFAB] Undone applying overrides, restored '{}'", m_prefab_filepath);
+
+    // Propagate restored asset to all instances
+    PrefabPropagation::propagate_to_instances(*m_em, m_prefab_filepath, 0, m_renderer);
     return true;
 }
 

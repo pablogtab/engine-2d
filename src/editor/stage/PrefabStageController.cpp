@@ -1,6 +1,7 @@
 #include "PrefabStageController.hpp"
 #include "../../scene/PrefabSerializer.hpp"
 #include "../../scene/EntitySubtreeArchive.hpp"
+#include "../../scene/PrefabPropagation.hpp"
 #include "../../scene/ComponentRegistry.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../core/FileSystem.hpp"
@@ -10,6 +11,7 @@
 #include "../state/EditorEntityStateStore.hpp"
 #include "../EditorSelection.hpp"
 #include <filesystem>
+
 
 
 namespace Engine {
@@ -128,10 +130,24 @@ bool PrefabStageController::save() {
         m_command_history->mark_saved();
     }
 
+    // Propagate updated master prefab to authoring scenes
+    if (m_scene_manager) {
+        for (const auto& scene : m_scene_manager->get_scenes()) {
+            if (scene) {
+                PrefabPropagation::propagate_to_instances(
+                    scene->get_entity_manager(),
+                    m_prefab_path,
+                    0,
+                    m_renderer
+                );
+            }
+        }
+    }
 
     ENGINE_LOG_INFO("[PREFAB STAGE] Saved prefab '{}' atomically.", m_prefab_path);
     return true;
 }
+
 
 bool PrefabStageController::request_close(std::function<void()> on_need_confirm) {
     if (!m_active) return true;

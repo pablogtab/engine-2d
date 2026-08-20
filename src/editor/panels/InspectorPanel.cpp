@@ -214,6 +214,64 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
         ImGui::Separator();
     }
 
+    std::vector<EntityID> prefab_instances;
+    for (EntityID entity : entities) {
+        if (em.has_component<PrefabLinkComponent>(entity)) {
+            prefab_instances.push_back(entity);
+        }
+    }
+    if (!prefab_instances.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.16f, 0.22f, 0.90f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
+        if (ImGui::BeginChild("##multi_prefab_card", ImVec2(0.0f, 62.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar)) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.75f, 1.0f, 1.0f));
+            ImGui::Text("%s", editor_icon_label(EditorIcon::Component, "Prefab Instances").c_str());
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::TextDisabled("(%zu of %zu selected)", prefab_instances.size(), entities.size());
+
+            ImGui::Spacing();
+            if (ImGui::Button("Unpack Selected", ImVec2(130.0f, 22.0f))) {
+                for (EntityID p_ent : prefab_instances) {
+                    if (m_command_history) {
+                        m_command_history->execute_command(std::make_unique<UnpackPrefabCommand>(
+                            &em, m_selection, p_ent, m_entity_state_store.get()
+                        ));
+                    } else {
+                        UnpackPrefabCommand cmd(&em, m_selection, p_ent, m_entity_state_store.get());
+                        cmd.execute();
+                    }
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Unpack all selected prefab instances into standard scene entities");
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Revert Selected", ImVec2(130.0f, 22.0f))) {
+                for (EntityID p_ent : prefab_instances) {
+                    if (m_command_history) {
+                        m_command_history->execute_command(std::make_unique<RevertPrefabCommand>(
+                            &em, m_selection, p_ent, m_renderer, m_entity_state_store.get()
+                        ));
+                    } else {
+                        RevertPrefabCommand cmd(&em, m_selection, p_ent, m_renderer, m_entity_state_store.get());
+                        cmd.execute();
+                    }
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Revert all selected prefab instances to their master asset definitions");
+            }
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+        ImGui::Spacing();
+        ImGui::Separator();
+    }
+
+
     if (all_have_transform) {
         const bool locked = any_editor_locked || std::any_of(entities.begin(), entities.end(), [&](EntityID entity) {
             return em.has_component<TilemapGeneratedColliderComponent>(entity);

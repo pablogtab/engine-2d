@@ -1,6 +1,8 @@
 #include "scene/EntitySubtreeArchive.hpp"
 #include "scene/PrefabSerializer.hpp"
+#include "scene/PrefabPropagation.hpp"
 #include "editor/commands/PrefabCommands.hpp"
+#include "editor/commands/EntityCommands.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/EditorSelection.hpp"
 #include "editor/state/EditorEntityStateStore.hpp"
@@ -11,6 +13,7 @@
 #include "ecs/components/PhysicsComponents.hpp"
 #include "tilemap/Tilemap.hpp"
 #include "core/FileSystem.hpp"
+
 #include <cassert>
 #include <cmath>
 #include <filesystem>
@@ -898,6 +901,180 @@ void test_apply_prefab_command_and_undo_redo() {
     std::cout << "test_apply_prefab_command_and_undo_redo passed." << std::endl;
 }
 
+void test_prefab_live_propagation_on_apply() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+    ComponentSerializationContext ctx;
+
+    // 1. Create a baseline prefab
+    EntityID initial_root = em.create_entity();
+    em.add_component<TagComponent>(initial_root, TagComponent{"Prop_Coin"});
+    em.add_component<TransformComponent>(initial_root, TransformComponent{glm::vec3(0.0f)});
+    TransformSystem::update(em);
+
+    const std::string prefab_file = "assets/prefabs/prop_coin_test.prefab";
+    std::string base_json = EntitySubtreeArchive::capture_to_json(em, initial_root, ctx);
+    em.destroy_entity(initial_root);
+    assert(FileSystem::write_text_atomically(prefab_file, base_json));
+
+    // 2. Instantiate 2 separate instances in scene at different positions
+    auto inst1 = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, prefab_file, false, TransformComponent{glm::vec3(100.0f, 200.0f, 0.0f)}, 0, nullptr, &state_store
+    );
+    history.execute_command(std::move(inst1));
+    EntityID root1 = selection->get_primary();
+    assert(root1 != 0);
+
+    auto inst2 = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, prefab_file, false, TransformComponent{glm::vec3(500.0f, 600.0f, 0.0f)}, 0, nullptr, &state_store
+    );
+    history.execute_command(std::move(inst2));
+    EntityID root2 = selection->get_primary();
+    assert(root2 != 0);
+    assert(root1 != root2);
+
+    // 3. Modify instance 1 (add a Sparkle child) and apply to asset
+    EntityID sparkle = em.create_entity();
+    em.add_component<TagComponent>(sparkle, TagComponent{"Sparkle"});
+    em.add_component<TransformComponent>(sparkle, TransformComponent{glm::vec3(5.0f, 5.0f, 0.0f)});
+    static_cast<void>(em.set_parent(sparkle, root1));
+    TransformSystem::update(em);
+
+    auto apply_cmd = std::make_unique<ApplyPrefabCommand>(&em, root1, nullptr, &state_store);
+    assert(apply_cmd->is_valid());
+    history.execute_command(std::move(apply_cmd));
+
+    // 4. Verify instance 2 was automatically updated live with the Sparkle child,
+    // but retained its own position at (500, 600)!
+    std::vector<EntityID> coin_roots;
+    em.for_each<PrefabLinkComponent>([&](EntityID id, const PrefabLinkComponent& link) {
+        if (link.prefab_asset_path == prefab_file) {
+            coin_roots.push_back(id);
+        }
+    });
+    assert(coin_roots.size() == 2);
+
+    // Find the second instance (which has position 500, 600)
+    EntityID other_inst = (coin_roots[0] == root1) ? coin_roots[1] : coin_roots[0];
+    assert(em.is_alive(other_inst));
+    assert(approx_vec3(em.get_component<TransformComponent>(other_inst).world_position, glm::vec3(500.0f, 600.0f, 0.0f)));
+    assert(em.has_component<HierarchyComponent>(other_inst));
+    assert(em.get_component<HierarchyComponent>(other_inst).children.size() == 1);
+    EntityID child_of_other = em.get_component<HierarchyComponent>(other_inst).children.front();
+    assert(em.get_component<TagComponent>(child_of_other).tag == "Sparkle");
+
+    // 5. Test Undo: restores both instances to having 0 children
+    history.undo();
+    for (EntityID id : coin_roots) {
+        if (em.is_alive(id) && em.has_component<HierarchyComponent>(id)) {
+            assert(em.get_component<HierarchyComponent>(id).children.empty());
+        }
+    }
+
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_prefab_live_propagation_on_apply passed." << std::endl;
+}
+
+void test_prefab_duplication_preserves_link() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+    ComponentSerializationContext ctx;
+
+    EntityID initial_root = em.create_entity();
+    em.add_component<TagComponent>(initial_root, TagComponent{"Turret"});
+    em.add_component<TransformComponent>(initial_root, TransformComponent{glm::vec3(50.0f, 50.0f, 0.0f)});
+    TransformSystem::update(em);
+
+    const std::string prefab_file = "assets/prefabs/turret_dup_test.prefab";
+    std::string base_json = EntitySubtreeArchive::capture_to_json(em, initial_root, ctx);
+    em.destroy_entity(initial_root);
+    assert(FileSystem::write_text_atomically(prefab_file, base_json));
+
+    auto inst = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, prefab_file, false, std::nullopt, 0, nullptr, &state_store
+    );
+    history.execute_command(std::move(inst));
+    EntityID original = selection->get_primary();
+    assert(original != 0);
+    assert(em.has_component<PrefabLinkComponent>(original));
+
+    // Duplicate the instance
+    auto dup_cmd = std::make_unique<DuplicateEntitiesCommand>(
+        &em, selection, std::vector<EntityID>{original}, &state_store
+    );
+    assert(dup_cmd->is_valid());
+    history.execute_command(std::move(dup_cmd));
+
+    EntityID clone = selection->get_primary();
+    assert(clone != 0);
+    assert(clone != original);
+    assert(em.has_component<PrefabLinkComponent>(clone));
+    assert(em.get_component<PrefabLinkComponent>(clone).prefab_asset_path == prefab_file);
+
+    // Unpack clone only; original should still have link
+    auto unpack_clone = std::make_unique<UnpackPrefabCommand>(&em, selection, clone, &state_store);
+    assert(unpack_clone->is_valid());
+    history.execute_command(std::move(unpack_clone));
+
+    assert(!em.has_component<PrefabLinkComponent>(clone));
+    assert(em.has_component<PrefabLinkComponent>(original));
+
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_prefab_duplication_preserves_link passed." << std::endl;
+}
+
+void test_prefab_multi_selection_batch_unpack() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+    ComponentSerializationContext ctx;
+
+    EntityID initial_root = em.create_entity();
+    em.add_component<TagComponent>(initial_root, TagComponent{"Bush"});
+    em.add_component<TransformComponent>(initial_root, TransformComponent{glm::vec3(0.0f)});
+    TransformSystem::update(em);
+
+    const std::string prefab_file = "assets/prefabs/bush_multi_test.prefab";
+    std::string base_json = EntitySubtreeArchive::capture_to_json(em, initial_root, ctx);
+    em.destroy_entity(initial_root);
+    assert(FileSystem::write_text_atomically(prefab_file, base_json));
+
+    auto inst1 = std::make_unique<InstantiatePrefabCommand>(&em, selection, prefab_file, false, std::nullopt, 0, nullptr, &state_store);
+    history.execute_command(std::move(inst1));
+    EntityID b1 = selection->get_primary();
+
+    auto inst2 = std::make_unique<InstantiatePrefabCommand>(&em, selection, prefab_file, false, std::nullopt, 0, nullptr, &state_store);
+    history.execute_command(std::move(inst2));
+    EntityID b2 = selection->get_primary();
+
+    assert(em.has_component<PrefabLinkComponent>(b1));
+    assert(em.has_component<PrefabLinkComponent>(b2));
+
+    // Batch unpack
+    std::vector<EntityID> batch{b1, b2};
+    for (EntityID id : batch) {
+        auto unpack_cmd = std::make_unique<UnpackPrefabCommand>(&em, selection, id, &state_store);
+        history.execute_command(std::move(unpack_cmd));
+    }
+
+    assert(!em.has_component<PrefabLinkComponent>(b1));
+    assert(!em.has_component<PrefabLinkComponent>(b2));
+
+    // Undo both unpacks
+    history.undo();
+    history.undo();
+    assert(em.has_component<PrefabLinkComponent>(b1));
+    assert(em.has_component<PrefabLinkComponent>(b2));
+
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_prefab_multi_selection_batch_unpack passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Prefab System Tests ===" << std::endl;
     test_prefab_serialization_and_deserialization_round_trip();
@@ -913,6 +1090,9 @@ int main() {
     test_prefab_link_component_and_unpack_revert_commands();
     test_revert_prefab_physics_and_atomic_rollback();
     test_apply_prefab_command_and_undo_redo();
+    test_prefab_live_propagation_on_apply();
+    test_prefab_duplication_preserves_link();
+    test_prefab_multi_selection_batch_unpack();
     std::cout << "=== All Prefab System Tests Passed! ===" << std::endl;
     return 0;
 }
