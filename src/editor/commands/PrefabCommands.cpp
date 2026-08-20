@@ -493,4 +493,102 @@ bool RevertPrefabCommand::undo() {
     return true;
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// ApplyPrefabCommand
+// ──────────────────────────────────────────────────────────────────────────────
+ApplyPrefabCommand::ApplyPrefabCommand(
+    EntityManager* em,
+    EntityID root_entity,
+    SDL_Renderer* renderer,
+    const EditorEntityStateStore* state_store
+) : m_em(em),
+    m_root_entity(root_entity),
+    m_renderer(renderer) {
+    if (!m_em || !m_em->is_alive(m_root_entity)) {
+        m_valid = false;
+        return;
+    }
+    if (state_store && state_store->is_locked(m_root_entity)) {
+        ENGINE_LOG_WARN("[PREFAB] Cannot apply locked prefab instance #{}", m_root_entity);
+        m_valid = false;
+        return;
+    }
+    if (!m_em->has_component<PrefabLinkComponent>(m_root_entity)) {
+        ENGINE_LOG_WARN("[PREFAB] Entity #{} does not have a PrefabLinkComponent", m_root_entity);
+        m_valid = false;
+        return;
+    }
+
+    m_prefab_filepath = m_em->get_component<PrefabLinkComponent>(m_root_entity).prefab_asset_path;
+    if (m_prefab_filepath.empty()) {
+        ENGINE_LOG_ERROR("[PREFAB] ApplyPrefabCommand: empty prefab asset path on entity #{}", m_root_entity);
+        m_valid = false;
+        return;
+    }
+
+    m_previous_file_content = PrefabSerializer::read_json_from_file(m_prefab_filepath);
+    std::filesystem::path p(m_prefab_filepath);
+    std::string stem = p.stem().string();
+    if (!stem.empty()) {
+        m_description = "Apply Prefab '" + stem + "'";
+    }
+    m_valid = true;
+}
+
+bool ApplyPrefabCommand::execute() {
+    if (!m_valid || !m_em) return false;
+
+    if (m_first_execute) {
+        if (!m_em->is_alive(m_root_entity)) return false;
+
+        ComponentSerializationContext context{
+            .renderer = m_renderer,
+            .asset_manager = &AssetManager::get()
+        };
+        m_new_file_content = EntitySubtreeArchive::capture_to_json(*m_em, m_root_entity, context);
+        if (m_new_file_content.empty()) {
+            ENGINE_LOG_ERROR("[PREFAB] ApplyPrefabCommand failed capturing subtree for entity #{}", m_root_entity);
+            return false;
+        }
+
+        try {
+            std::filesystem::path p(m_prefab_filepath);
+            if (p.has_parent_path()) {
+                std::filesystem::create_directories(p.parent_path());
+            }
+        } catch (const std::exception& e) {
+            ENGINE_LOG_ERROR("[PREFAB] ApplyPrefabCommand failed creating directory for '{}': {}", m_prefab_filepath, e.what());
+            return false;
+        }
+
+        if (!FileSystem::write_text_atomically(m_prefab_filepath, m_new_file_content)) {
+            ENGINE_LOG_ERROR("[PREFAB] ApplyPrefabCommand failed writing '{}' atomically", m_prefab_filepath);
+            return false;
+        }
+
+        ENGINE_LOG_INFO("[PREFAB] Successfully applied overrides to '{}'", m_prefab_filepath);
+        m_first_execute = false;
+        return true;
+    }
+
+    // Redo: rewrite captured new JSON text
+    if (!FileSystem::write_text_atomically(m_prefab_filepath, m_new_file_content)) {
+        ENGINE_LOG_ERROR("[PREFAB] ApplyPrefabCommand redo failed writing '{}'", m_prefab_filepath);
+        return false;
+    }
+    ENGINE_LOG_INFO("[PREFAB] Redone applying overrides to '{}'", m_prefab_filepath);
+    return true;
+}
+
+bool ApplyPrefabCommand::undo() {
+    if (!m_valid) return false;
+
+    if (!FileSystem::write_text_atomically(m_prefab_filepath, m_previous_file_content)) {
+        ENGINE_LOG_ERROR("[PREFAB] ApplyPrefabCommand undo failed restoring '{}'", m_prefab_filepath);
+        return false;
+    }
+    ENGINE_LOG_INFO("[PREFAB] Undone applying overrides, restored '{}'", m_prefab_filepath);
+    return true;
+}
+
 } // namespace Engine

@@ -66,7 +66,14 @@ std::string EntitySubtreeArchive::capture_to_json(
         reg.remap_entity_references(temp_em, local_id, runtime_to_local);
     }
 
+    // Ensure root entity in the exported prefab asset does not contain a circular PrefabLinkComponent
+    const EntityID root_local_id = runtime_to_local[root_entity];
+    if (temp_em.has_component<PrefabLinkComponent>(root_local_id)) {
+        temp_em.remove_component<PrefabLinkComponent>(root_local_id);
+    }
+
     // 4. Serialize each entity from local scratch EntityManager
+
     nlohmann::json root_json;
     root_json["prefab_version"] = CURRENT_PREFAB_VERSION;
     root_json["root_local_id"] = 1;

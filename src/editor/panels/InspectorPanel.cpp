@@ -414,7 +414,23 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Restores asset contents from disk while keeping current scene placement and parent");
             }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Apply to Asset", ImVec2(105.0f, 22.0f))) {
+                if (m_command_history) {
+                    m_command_history->execute_command(std::make_unique<ApplyPrefabCommand>(
+                        &em, entity, m_renderer, m_entity_state_store.get()
+                    ));
+                } else {
+                    ApplyPrefabCommand cmd(&em, entity, m_renderer, m_entity_state_store.get());
+                    cmd.execute();
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Writes this instance's current modifications back to the prefab asset file on disk");
+            }
         }
+
         ImGui::EndChild();
         ImGui::PopStyleVar();
         ImGui::PopStyleColor();

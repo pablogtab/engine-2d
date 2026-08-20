@@ -562,11 +562,14 @@ void test_prefab_link_component_and_unpack_revert_commands() {
     EntityID test_link_entity = em.create_entity();
     em.add_component<TransformComponent>(test_link_entity, TransformComponent{});
     em.add_component<PrefabLinkComponent>(test_link_entity, PrefabLinkComponent{"assets/prefabs/Hero.prefab"});
-    std::string scene_json = EntitySubtreeArchive::capture_to_json(em, test_link_entity, ctx);
-    assert(!scene_json.empty());
-    assert(scene_json.find("prefab_link") != std::string::npos);
-    assert(scene_json.find("assets/prefabs/Hero.prefab") != std::string::npos);
+    nlohmann::json entity_json;
+    std::string err;
+    assert(default_component_registry().serialize_entity(em, test_link_entity, entity_json, ctx, err));
+    assert(entity_json.contains("prefab_link"));
+    assert(entity_json["prefab_link"]["asset_path"] == "assets/prefabs/Hero.prefab");
     em.destroy_entity(test_link_entity);
+
+
 
 
     // 2. Create a 2-entity prefab on disk
@@ -817,6 +820,84 @@ void test_revert_prefab_physics_and_atomic_rollback() {
     std::cout << "test_revert_prefab_physics_and_atomic_rollback passed." << std::endl;
 }
 
+void test_apply_prefab_command_and_undo_redo() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    auto selection = std::make_shared<EditorSelection>();
+    EditorCommandHistory history;
+    ComponentSerializationContext ctx;
+
+    // 1. Create a baseline 1-entity prefab on disk
+    EntityID initial_root = em.create_entity();
+    em.add_component<TagComponent>(initial_root, TagComponent{"Warrior_Base"});
+    em.add_component<TransformComponent>(initial_root, TransformComponent{glm::vec3(0.0f)});
+    TransformSystem::update(em);
+
+    std::string base_json = EntitySubtreeArchive::capture_to_json(em, initial_root, ctx);
+    em.destroy_entity(initial_root);
+
+    const std::string prefab_file = "assets/prefabs/warrior_apply_test.prefab";
+    assert(FileSystem::write_text_atomically(prefab_file, base_json));
+
+    // 2. Instantiate in scene
+    auto inst_cmd = std::make_unique<InstantiatePrefabCommand>(
+        &em, selection, prefab_file, false, std::nullopt, 0, nullptr, &state_store
+    );
+    assert(inst_cmd->is_valid());
+    history.execute_command(std::move(inst_cmd));
+
+    EntityID inst_root = selection->get_primary();
+    assert(inst_root != 0);
+    assert(em.has_component<PrefabLinkComponent>(inst_root));
+
+    // 3. Modify instance in scene: change tag, add child entity
+    em.get_component<TagComponent>(inst_root).tag = "Warrior_Upgraded";
+    EntityID shield_child = em.create_entity();
+    em.add_component<TagComponent>(shield_child, TagComponent{"Shield_Item"});
+    em.add_component<TransformComponent>(shield_child, TransformComponent{glm::vec3(12.0f, 0.0f, 0.0f)});
+    static_cast<void>(em.set_parent(shield_child, inst_root));
+    TransformSystem::update(em);
+
+    // 4. Execute ApplyPrefabCommand
+    auto apply_cmd = std::make_unique<ApplyPrefabCommand>(&em, inst_root, nullptr, &state_store);
+    assert(apply_cmd->is_valid());
+    history.execute_command(std::move(apply_cmd));
+
+    // Check that disk file was updated with new structure and stripped prefab_link
+    std::string updated_disk_json = PrefabSerializer::read_json_from_file(prefab_file);
+    assert(!updated_disk_json.empty());
+    assert(updated_disk_json.find("Warrior_Upgraded") != std::string::npos);
+    assert(updated_disk_json.find("Shield_Item") != std::string::npos);
+    assert(updated_disk_json.find("prefab_link") == std::string::npos); // Strip self-link
+
+    // 5. Test Undo (restores previous disk file)
+    history.undo();
+    std::string undone_disk_json = PrefabSerializer::read_json_from_file(prefab_file);
+    assert(undone_disk_json.find("Warrior_Base") != std::string::npos);
+    assert(undone_disk_json.find("Shield_Item") == std::string::npos);
+
+    // 6. Test Redo (re-applies updated disk file)
+    history.redo();
+    std::string redone_disk_json = PrefabSerializer::read_json_from_file(prefab_file);
+    assert(redone_disk_json.find("Warrior_Upgraded") != std::string::npos);
+    assert(redone_disk_json.find("Shield_Item") != std::string::npos);
+
+    // 7. Error handling: locked entity
+    state_store.set_locked(inst_root, true);
+    auto apply_locked = std::make_unique<ApplyPrefabCommand>(&em, inst_root, nullptr, &state_store);
+    assert(!apply_locked->is_valid());
+    state_store.set_locked(inst_root, false);
+
+    // Error handling: entity without PrefabLinkComponent
+    EntityID plain_e = em.create_entity();
+    auto apply_plain = std::make_unique<ApplyPrefabCommand>(&em, plain_e, nullptr, &state_store);
+    assert(!apply_plain->is_valid());
+    em.destroy_entity(plain_e);
+
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_apply_prefab_command_and_undo_redo passed." << std::endl;
+}
+
 int main() {
     std::cout << "=== Running Prefab System Tests ===" << std::endl;
     test_prefab_serialization_and_deserialization_round_trip();
@@ -831,6 +912,7 @@ int main() {
     test_instantiate_prefab_drag_drop_scenarios();
     test_prefab_link_component_and_unpack_revert_commands();
     test_revert_prefab_physics_and_atomic_rollback();
+    test_apply_prefab_command_and_undo_redo();
     std::cout << "=== All Prefab System Tests Passed! ===" << std::endl;
     return 0;
 }

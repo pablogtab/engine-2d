@@ -115,4 +115,31 @@ private:
     std::unordered_set<EntityID> m_previous_selection;
 };
 
+class ApplyPrefabCommand : public IEditorCommand {
+public:
+    ApplyPrefabCommand(
+        EntityManager* em,
+        EntityID root_entity,
+        SDL_Renderer* renderer = nullptr,
+        const EditorEntityStateStore* state_store = nullptr
+    );
+
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
+    [[nodiscard]] const std::string& get_prefab_filepath() const { return m_prefab_filepath; }
+
+private:
+    EntityManager* m_em{nullptr};
+    EntityID m_root_entity{0};
+    std::string m_prefab_filepath;
+    std::string m_previous_file_content;
+    std::string m_new_file_content;
+    SDL_Renderer* m_renderer{nullptr};
+    std::string m_description{"Apply to Prefab Asset"};
+    bool m_valid{true};
+    bool m_first_execute{true};
+};
+
 } // namespace Engine
