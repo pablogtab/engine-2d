@@ -31,6 +31,7 @@ Application::Application(const std::string& name, int width, int height, bool st
     Log::init("engine.log");
     ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{})", name, width, height);
     m_project_settings.load();
+    [[maybe_unused]] const AssetScanResult asset_scan = AssetDatabase::get().scan("assets");
 
     Input::init();
     AudioEngine::init();

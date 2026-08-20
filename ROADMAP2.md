@@ -203,7 +203,7 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Asset Database
 
-- [ ] Introduce stable `AssetHandle` identities and project-relative source paths.
+- [x] Introduce stable `AssetHandle` identities and project-relative source paths (`AssetDatabase`, atomic `.meta` sidecars, project-root resolver, duplicate-handle rejection).
 - [ ] Make components serialize asset handles instead of runtime pointers.
 - [ ] Resolve handles to runtime resources through the asset system.
 - [ ] Add explicit missing, loading, failed, and ready states with safe fallback assets.
@@ -392,7 +392,8 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 4 — Asset and Prefab Suites
 
-- [ ] `AssetDatabaseTests` — stable handles, path moves, duplicate metadata, missing assets, dependency graphs, reload, and deterministic discovery.
+- [x] `AssetDatabaseTests` — stable handles, project-relative resolution, duplicate metadata rejection, deterministic discovery, and atomic metadata generation.
+- [ ] Extend `AssetDatabaseTests` — path moves, missing assets, dependency graphs, reload, and failure recovery.
 - [ ] `AssetImportTests` — texture settings, platform overrides, metadata changes, failed imports, reimport, and cache invalidation.
 - [ ] `ShaderAssetTests` — variant discovery, backend selection, offline validation, uniform layouts, unsupported formats, and actionable diagnostics.
 - [ ] `MaterialAssetTests` — parameter serialization, defaults, duplication, missing shaders, dependency reload, and sprite/fullscreen compatibility.
@@ -470,5 +471,5 @@ These items are useful but should not interrupt the architecture work above unle
    - Extend multi-selection property transactions to `SpriteComponent` (tint, size, flip X/Y, sorting layer, outline) and `CameraComponent` (zoom, projection, clear color, follow target, bounds).
 2. **Scene Hierarchy Search and Component Filtering (Phase 3)**:
    - Quick search bar with type filters (`:sprite`, `:collider`, `:camera`, `:locked`, `:hidden`), match highlighting, and auto-expanding matched branches.
-3. **Prefab System Foundation (Phase 4)**:
-   - Save entity subtrees to `.prefab` asset files and instantiate via drag & drop from Content Browser.
+3. **Prefab Handle Migration (Phase 4)**:
+   - Serialize prefab links and base-variant references with `AssetHandle`; resolve paths only through `AssetDatabase`.

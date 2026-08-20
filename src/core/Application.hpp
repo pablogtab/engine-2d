@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Window.hpp"
+#include "AssetDatabase.hpp"
 #include "AssetManager.hpp"
 #include "ThreadPool.hpp"
 #include "ProjectSettings.hpp"
@@ -24,6 +25,7 @@ public:
     void run();
 
     SceneManager& get_scene_manager() { return m_scene_manager; }
+    AssetDatabase& get_asset_database() { return AssetDatabase::get(); }
     AssetManager& get_asset_manager() { return AssetManager::get(); }
     ThreadPool& get_thread_pool() { return m_thread_pool; }
     Window& get_window() { return *m_window; }

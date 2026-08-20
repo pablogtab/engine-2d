@@ -15,6 +15,7 @@ find_package(glm REQUIRED)
 set(SOURCES
     src/audio/AudioEngine.cpp
     src/core/Application.cpp
+    src/core/AssetDatabase.cpp
     src/core/AssetManager.cpp
     src/core/BinarySerializer.cpp
     src/core/DisplayManager.cpp
@@ -142,6 +143,19 @@ target_include_directories(DisplayManagerTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 add_test(NAME DisplayManagerTests COMMAND DisplayManagerTests)
+
+add_executable(AssetDatabaseTests
+    tests/AssetDatabaseTests.cpp
+    src/core/AssetDatabase.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+)
+target_include_directories(AssetDatabaseTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(AssetDatabaseTests PRIVATE SDL3::SDL3)
+add_test(NAME AssetDatabaseTests COMMAND AssetDatabaseTests)
 
 add_executable(DisplayPersistenceTests
     tests/DisplayPersistenceTests.cpp
