@@ -19,3 +19,4 @@ vscode*/
 # OS specific files
 .DS_Store
 Thumbs.db
+imgui.ini
