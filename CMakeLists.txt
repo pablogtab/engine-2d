@@ -652,6 +652,46 @@ target_include_directories(PrefabStageControllerTests PRIVATE
 target_link_libraries(PrefabStageControllerTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME PrefabStageControllerTests COMMAND PrefabStageControllerTests)
 
+function(engine_use_runtime_for_test target)
+    get_target_property(test_sources ${target} SOURCES)
+    foreach(runtime_source IN LISTS ENGINE_RUNTIME_SOURCES)
+        list(REMOVE_ITEM test_sources "${runtime_source}")
+    endforeach()
+    set_property(TARGET ${target} PROPERTY SOURCES "${test_sources}")
+
+    get_target_property(test_libraries ${target} LINK_LIBRARIES)
+    if(test_libraries STREQUAL "test_libraries-NOTFOUND")
+        set(test_libraries)
+    endif()
+    list(REMOVE_ITEM test_libraries SDL3::SDL3 glm::glm box2d)
+    set_property(TARGET ${target} PROPERTY LINK_LIBRARIES "${test_libraries}")
+    target_link_libraries(${target} PRIVATE EngineRuntime)
+endfunction()
+
+foreach(runtime_test
+    Camera2DTests
+    DisplayManagerTests
+    AssetDatabaseTests
+    DisplayPersistenceTests
+    PostProcessTests
+    EditorPropertyTransactionTests
+    EditorCommandHistoryTests
+    AssetFileCommandTests
+    InspectorCommandTests
+    AnimationSystemTests
+    EntityManagerTests
+    EditorEntityStateStoreTests
+    HierarchyCommandTests
+    ViewportVisibilityTests
+    SceneSerializerTests
+    ComponentRegistryTests
+    SceneMigrationTests
+    PrefabTests
+    PrefabStageControllerTests
+)
+    engine_use_runtime_for_test(${runtime_test})
+endforeach()
+
 
 target_include_directories(Engine2D PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/src

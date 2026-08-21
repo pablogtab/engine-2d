@@ -333,7 +333,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Split CMake targets into runtime library, editor application, sandbox/demos, tests, and standalone game.
 - [x] Move editor panel construction out of the runtime `Application` path.
 - [x] Ensure standalone startup never initializes ImGui, editor panels, or editor history.
-- [ ] Replace manual source duplication in test targets with reusable engine libraries.
+- [x] Replace runtime source duplication in test targets with the reusable `EngineRuntime` library.
 - [x] Package required scenes, assets, shader variants, project settings, and native dependencies for the macOS standalone bundle.
 - [ ] Create platform-native distributable layouts: `.app` bundle on macOS, portable folder/ZIP or installer on Windows, and AppImage/tarball on Linux.
 - [x] On macOS, copy non-system `.dylib` dependencies into `Engine2D.app/Contents/Frameworks`, rewrite their load paths with `install_name_tool`, and codesign the finished bundle. The exported app must not depend on Homebrew paths such as `/opt/homebrew/opt/...`.
