@@ -337,7 +337,9 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Package required scenes, assets, shader variants, project settings, and native dependencies for the macOS standalone bundle.
 - [ ] Create platform-native distributable layouts: `.app` bundle on macOS, portable folder/ZIP or installer on Windows, and AppImage/tarball on Linux.
 - [x] On macOS, copy non-system `.dylib` dependencies into `Engine2D.app/Contents/Frameworks`, rewrite their load paths with `install_name_tool`, and codesign the finished bundle. The exported app must not depend on Homebrew paths such as `/opt/homebrew/opt/...`.
-- [ ] On Windows, bundle required DLLs next to the executable; on Linux, bundle or document compatible shared-library requirements without relying on development-machine paths.
+- [x] Add a Windows portable-folder packaging target that collects non-system runtime DLLs and validate it on Windows.
+- [x] Add a macOS-to-Windows x64 MinGW cross-build toolchain backed by local vcpkg dependencies and validate its output on Windows.
+- [ ] On Linux, bundle or document compatible shared-library requirements without relying on development-machine paths.
 - [ ] Build universal macOS releases (arm64 and x86_64) when third-party dependencies support both architectures.
 - [x] Add export configuration validation and actionable build logs for macOS.
 - [ ] Implement standalone builds for macOS, Windows, and Linux.

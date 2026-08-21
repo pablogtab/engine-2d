@@ -194,6 +194,34 @@ if(APPLE)
         COMMENT "Verifying the packaged macOS standalone app"
         VERBATIM
     )
+elseif(WIN32)
+    get_filename_component(ENGINE_WINDOWS_COMPILER_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=libgcc_s_seh-1.dll
+        OUTPUT_VARIABLE ENGINE_WINDOWS_LIBGCC_PATH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+    get_filename_component(ENGINE_WINDOWS_RUNTIME_LIB_DIR "${ENGINE_WINDOWS_LIBGCC_PATH}" DIRECTORY)
+    get_filename_component(ENGINE_WINDOWS_RUNTIME_ROOT "${ENGINE_WINDOWS_RUNTIME_LIB_DIR}/.." ABSOLUTE)
+    string(JOIN "|" ENGINE_WINDOWS_DLL_SEARCH_PATHS
+        "${ENGINE_WINDOWS_VCPKG_INSTALLED_DIR}/bin"
+        "${ENGINE_WINDOWS_COMPILER_BIN_DIR}"
+        "${ENGINE_WINDOWS_RUNTIME_LIB_DIR}"
+        "${ENGINE_WINDOWS_RUNTIME_ROOT}/bin"
+    )
+    add_custom_target(package_windows_portable
+        COMMAND "${CMAKE_COMMAND}"
+            "-DENGINE_STAGE_DIR=${CMAKE_BINARY_DIR}/runtime"
+            "-DENGINE_OUTPUT_DIR=${CMAKE_BINARY_DIR}/dist/Engine2D"
+            "-DENGINE_EXECUTABLE_NAME=$<TARGET_FILE_NAME:Engine2DStandalone>"
+            "-DENGINE_OBJDUMP_EXECUTABLE=${CMAKE_OBJDUMP}"
+            "-DENGINE_DLL_SEARCH_PATHS=${ENGINE_WINDOWS_DLL_SEARCH_PATHS}"
+            -P "${CMAKE_SOURCE_DIR}/cmake/PackageWindowsPortable.cmake"
+        DEPENDS stage_runtime_assets
+        COMMENT "Packaging the standalone runtime as a portable Windows folder"
+        VERBATIM
+    )
 endif()
 
 add_test(NAME RuntimeBoundaryTests

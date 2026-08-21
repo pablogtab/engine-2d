@@ -1,6 +1,7 @@
 # Build directories & compilation caches
 build/
 build_*/
+build-*/
 bin/
 dist/
 .cache/

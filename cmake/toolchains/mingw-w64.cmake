@@ -1,0 +1,28 @@
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR x86_64)
+
+set(CMAKE_C_COMPILER x86_64-w64-mingw32-gcc)
+set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)
+set(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+
+get_filename_component(ENGINE_SOURCE_DIR_FROM_TOOLCHAIN "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(ENGINE_WINDOWS_VCPKG_ROOT
+    "${ENGINE_SOURCE_DIR_FROM_TOOLCHAIN}/build/toolchains/vcpkg"
+    CACHE PATH "Local vcpkg checkout used for the Windows cross-build")
+set(ENGINE_WINDOWS_VCPKG_INSTALLED_DIR
+    "${ENGINE_WINDOWS_VCPKG_ROOT}/installed/x64-mingw-dynamic"
+    CACHE PATH "Windows x64 dependency prefix produced by vcpkg")
+
+if(NOT EXISTS "${ENGINE_WINDOWS_VCPKG_INSTALLED_DIR}/share/sdl3/SDL3Config.cmake")
+    message(FATAL_ERROR
+        "Windows SDL3 dependency is missing. Install it with:\n"
+        "  VCPKG_ROOT=${ENGINE_WINDOWS_VCPKG_ROOT} vcpkg install sdl3:x64-mingw-dynamic glm:x64-mingw-dynamic")
+endif()
+
+list(PREPEND CMAKE_PREFIX_PATH "${ENGINE_WINDOWS_VCPKG_INSTALLED_DIR}")
+list(PREPEND CMAKE_FIND_ROOT_PATH "${ENGINE_WINDOWS_VCPKG_INSTALLED_DIR}")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)

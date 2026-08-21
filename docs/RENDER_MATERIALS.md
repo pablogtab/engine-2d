@@ -109,6 +109,29 @@ Verify the complete bundle contract with:
 cmake --build build --target verify_macos_app
 ```
 
+On Windows, create the portable folder and its runtime DLL set with:
+
+```powershell
+cmake --build build --target package_windows_portable
+```
+
+The output is `build/dist/Engine2D/`. It includes the staged runtime files and
+all non-system DLL dependencies discovered from the PE import table.
+
+From macOS, cross-compile the Windows x64 build after installing the local
+cross dependencies once:
+
+```sh
+VCPKG_ROOT="$PWD/build/toolchains/vcpkg" vcpkg install \
+  sdl3:x64-mingw-dynamic glm:x64-mingw-dynamic
+cmake -S . -B build-windows \
+  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64.cmake
+cmake --build build-windows --target package_windows_portable
+```
+
+The MinGW toolchain emits an x64 Windows executable. Validate every new
+release artifact on Windows (or Wine) before distribution.
+
 ## Asset pipeline boundary
 
 Shader compilation is deliberately not performed at runtime. Production builds
