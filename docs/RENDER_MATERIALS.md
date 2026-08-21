@@ -118,6 +118,15 @@ cmake --build build --target package_windows_portable
 The output is `build/dist/Engine2D/`. It includes the staged runtime files and
 all non-system DLL dependencies discovered from the PE import table.
 
+Validate the portable folder and create a distributable ZIP with:
+
+```powershell
+cmake --build build --target verify_windows_portable
+cmake --build build --target package_windows_zip
+```
+
+The archive is `build/dist/Engine2D-windows-x64.zip`.
+
 From macOS, cross-compile the Windows x64 build after installing the local
 cross dependencies once:
 

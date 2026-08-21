@@ -338,6 +338,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [ ] Create platform-native distributable layouts: `.app` bundle on macOS, portable folder/ZIP or installer on Windows, and AppImage/tarball on Linux.
 - [x] On macOS, copy non-system `.dylib` dependencies into `Engine2D.app/Contents/Frameworks`, rewrite their load paths with `install_name_tool`, and codesign the finished bundle. The exported app must not depend on Homebrew paths such as `/opt/homebrew/opt/...`.
 - [x] Add a Windows portable-folder packaging target that collects non-system runtime DLLs and validate it on Windows.
+- [x] Add verification and ZIP packaging targets for the Windows x64 portable export.
 - [x] Add a macOS-to-Windows x64 MinGW cross-build toolchain backed by local vcpkg dependencies and validate its output on Windows.
 - [ ] On Linux, bundle or document compatible shared-library requirements without relying on development-machine paths.
 - [ ] Build universal macOS releases (arm64 and x86_64) when third-party dependencies support both architectures.

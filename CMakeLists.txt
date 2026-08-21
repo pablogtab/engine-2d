@@ -222,6 +222,24 @@ elseif(WIN32)
         COMMENT "Packaging the standalone runtime as a portable Windows folder"
         VERBATIM
     )
+    add_custom_target(verify_windows_portable
+        COMMAND "${CMAKE_COMMAND}"
+            "-DENGINE_OUTPUT_DIR=${CMAKE_BINARY_DIR}/dist/Engine2D"
+            "-DENGINE_OBJDUMP_EXECUTABLE=${CMAKE_OBJDUMP}"
+            -P "${CMAKE_SOURCE_DIR}/cmake/VerifyWindowsPortable.cmake"
+        DEPENDS package_windows_portable
+        COMMENT "Verifying the portable Windows runtime folder"
+        VERBATIM
+    )
+    add_custom_target(package_windows_zip
+        COMMAND "${CMAKE_COMMAND}" -E tar cfv
+            "${CMAKE_BINARY_DIR}/dist/Engine2D-windows-x64.zip"
+            --format=zip Engine2D
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/dist"
+        DEPENDS verify_windows_portable
+        COMMENT "Creating the distributable Windows x64 ZIP"
+        VERBATIM
+    )
 endif()
 
 add_test(NAME RuntimeBoundaryTests
