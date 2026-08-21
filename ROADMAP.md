@@ -253,6 +253,8 @@ These systems form the current baseline and should be extended rather than rewri
 **Goal:** Extend the current renderer rather than replace it, while making ordering and intermediate surfaces explicit.
 
 - [ ] Define render stages for scene geometry, local effect surfaces, lighting, global post-processing, Canvas/UI, and final presentation.
+  - [x] Establish the explicit `SceneGeometry -> GlobalPostProcess -> CanvasUI -> Presentation` contract in `Renderer2D`, including per-stage frame metrics.
+  - [ ] Add local-effect and lighting stages once their managed intermediate surfaces exist.
 - [ ] Introduce render layers shared by sprites, tilemaps, particles, lights, and cameras.
 - [ ] Support entity- or layer-scoped multipass effects through managed intermediate surfaces.
 - [ ] Keep simple single-pass sprite materials on the direct fast path.

@@ -13,7 +13,7 @@
 namespace Engine {
 
 Renderer2D::Renderer2D(SDL_Renderer* renderer)
-    : m_sdl_renderer(renderer) {
+    : m_sdl_renderer(renderer), m_render_target_pool(renderer) {
     reserve_capacity(10000);
 }
 
@@ -24,12 +24,27 @@ void Renderer2D::reserve_capacity(size_t max_sprites) {
     m_index_buffer.reserve(max_sprites * 6);
 }
 
+SDL_Texture* Renderer2D::execute_local_effect(
+    ILocalEffectPass& pass, SDL_Texture* source, int width, int height
+) {
+    if (!pass.is_enabled() || !source || width <= 0 || height <= 0) return nullptr;
+    SDL_Texture* destination = acquire_local_effect_surface(width, height);
+    if (!destination) return nullptr;
+    const LocalEffectContext context{m_sdl_renderer, source, destination, width, height};
+    if (!pass.apply(context)) {
+        release_local_effect_surface(destination);
+        return nullptr;
+    }
+    return destination;
+}
+
 void Renderer2D::begin_scene(const Camera2D& camera) {
     m_active_camera = &camera;
     m_sprite_queue.clear();
     m_draw_calls = 0;
     m_rendered_sprites = 0;
     m_culled_sprites = 0;
+    m_frame_metrics = {};
 
     if (m_custom_render_target) {
         SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
@@ -421,8 +436,10 @@ void Renderer2D::end_scene() {
     SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &material_output_width, &material_output_height);
     const MaterialRenderContext material_context{material_output_width, material_output_height};
 
-    auto flush_range = [&](size_t start_idx, size_t end_idx) {
+    auto flush_range = [&](RenderStage stage, size_t start_idx, size_t end_idx) {
         if (start_idx >= end_idx) return;
+        auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(stage)];
+        const auto stage_begin = std::chrono::high_resolution_clock::now();
         size_t batch_start = start_idx;
         Texture* current_texture = m_sprite_queue[start_idx].texture;
         auto current_material = m_sprite_queue[start_idx].material;
@@ -446,6 +463,8 @@ void Renderer2D::end_scene() {
                     );
                     m_draw_calls++;
                     m_rendered_sprites += batch_count;
+                    metrics.draw_calls++;
+                    metrics.sprites += batch_count;
                     if (material_bound) m_material_backend->unbind();
                 }
                 batch_start = i;
@@ -453,14 +472,20 @@ void Renderer2D::end_scene() {
                 current_material = std::move(material);
             }
         }
+        metrics.cpu_milliseconds += std::chrono::duration<float, std::milli>(
+            std::chrono::high_resolution_clock::now() - stage_begin
+        ).count();
     };
 
     // A. Flush World-Space geometry into Capture Target (under Post-Processing)
-    flush_range(0, screen_space_start);
+    flush_range(RenderStage::SceneGeometry, 0, screen_space_start);
 
     // B. Execute Post-Processing Shader Chain on World Space and output to custom render target (or backbuffer)
     if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
+        const auto post_process_begin = std::chrono::high_resolution_clock::now();
         m_post_process_pipeline->end_capture_and_process(m_custom_render_target);
+        m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::GlobalPostProcess)].cpu_milliseconds =
+            std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - post_process_begin).count();
     }
     m_post_process_pipeline = nullptr; // Reset per-frame
 
@@ -468,7 +493,7 @@ void Renderer2D::end_scene() {
     if (m_custom_render_target) {
         SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
     }
-    flush_range(screen_space_start, sprite_count);
+    flush_range(RenderStage::CanvasUI, screen_space_start, sprite_count);
 
     auto t3 = std::chrono::high_resolution_clock::now();
 

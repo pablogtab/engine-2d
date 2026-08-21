@@ -5,6 +5,7 @@
 #include "renderer/postprocess/PostProcessVolume.hpp"
 #include "renderer/SpriteSortKey.hpp"
 #include "renderer/Renderer2D.hpp"
+#include "renderer/RenderTargetPool.hpp"
 #include "renderer/material/FragmentShader.hpp"
 #include "renderer/material/IMaterialBackend.hpp"
 #include "renderer/material/Material.hpp"
@@ -48,6 +49,21 @@ public:
     int unbind_count{0};
     int fullscreen_count{0};
     const Engine::Material* last_material{nullptr};
+};
+
+class RecordingLocalEffectPass final : public Engine::ILocalEffectPass {
+public:
+    [[nodiscard]] const char* name() const override { return "Recording"; }
+    [[nodiscard]] bool is_enabled() const override { return enabled; }
+    bool apply(const Engine::LocalEffectContext& context) override {
+        ++apply_count;
+        last_context = context;
+        return succeed;
+    }
+    bool enabled{true};
+    bool succeed{true};
+    int apply_count{0};
+    Engine::LocalEffectContext last_context{};
 };
 
 void test_night_vision_shader_assets_match_runtime_contract() {
@@ -359,6 +375,17 @@ void test_world_is_processed_before_screen_space_hud_is_composited() {
         glm::vec2(0.5f, 0.5f)
     );
     renderer.end_scene();
+    const auto& metrics = renderer.get_frame_metrics();
+    assert(metrics.stage(Engine::RenderStage::SceneGeometry).sprites == 1);
+    assert(metrics.stage(Engine::RenderStage::CanvasUI).sprites == 1);
+    assert(metrics.stage(Engine::RenderStage::SceneGeometry).draw_calls == 1);
+    assert(metrics.stage(Engine::RenderStage::CanvasUI).draw_calls == 1);
+    assert(metrics.stage(Engine::RenderStage::GlobalPostProcess).cpu_milliseconds >= 0.0f);
+
+    renderer.begin_scene(camera);
+    renderer.end_scene();
+    assert(renderer.get_frame_metrics().stage(Engine::RenderStage::SceneGeometry).sprites == 0);
+    assert(renderer.get_frame_metrics().stage(Engine::RenderStage::CanvasUI).sprites == 0);
     SDL_RenderPresent(sdl_renderer);
 
     Uint8 world_r = 0;
@@ -431,6 +458,63 @@ void test_post_process_volumes_resolve_profile_handles() {
     fs::remove_all(root, ignored);
 }
 
+void test_render_target_pool_reuses_matching_surfaces() {
+    SDL_Surface* surface = SDL_CreateSurface(32, 32, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(renderer);
+    {
+        Engine::RenderTargetPool pool(renderer);
+        SDL_Texture* first = pool.acquire(16, 16);
+        assert(first && pool.metrics().allocated_targets == 1 && pool.metrics().leased_targets == 1);
+        pool.release(first);
+        SDL_Texture* reused = pool.acquire(16, 16);
+        assert(reused == first && pool.metrics().allocated_targets == 1);
+        pool.release(reused);
+        pool.clear();
+        assert(pool.metrics().allocated_targets == 0 && pool.metrics().allocated_bytes == 0);
+    }
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroySurface(surface);
+}
+
+void test_renderer_owns_local_effect_surfaces() {
+    SDL_Surface* surface = SDL_CreateSurface(32, 32, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Engine::Renderer2D renderer(sdl_renderer);
+        SDL_Texture* local = renderer.acquire_local_effect_surface(16, 16);
+        assert(local && renderer.get_render_target_pool_metrics().leased_targets == 1);
+        renderer.release_local_effect_surface(local);
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
+void test_renderer_executes_local_effects_with_pooled_targets() {
+    SDL_Surface* surface = SDL_CreateSurface(32, 32, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Engine::Renderer2D renderer(sdl_renderer);
+        std::unique_ptr<Engine::Texture> source(Engine::Texture::create_solid(sdl_renderer, 8, 8, 255, 255, 255, 255));
+        assert(source);
+        RecordingLocalEffectPass effect;
+        SDL_Texture* output = renderer.execute_local_effect(effect, source->get_sdl_texture(), 8, 8);
+        assert(output && effect.apply_count == 1 && effect.last_context.destination == output);
+        renderer.release_local_effect_surface(output);
+        effect.succeed = false;
+        assert(!renderer.execute_local_effect(effect, source->get_sdl_texture(), 8, 8));
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
@@ -447,6 +531,9 @@ int main() {
     test_world_is_processed_before_screen_space_hud_is_composited();
     test_profile_assets_round_trip_by_handle();
     test_post_process_volumes_resolve_profile_handles();
+    test_render_target_pool_reuses_matching_surfaces();
+    test_renderer_owns_local_effect_surfaces();
+    test_renderer_executes_local_effects_with_pooled_targets();
     std::cout << "PostProcessTests passed\n";
     return 0;
 }

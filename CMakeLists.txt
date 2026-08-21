@@ -42,6 +42,7 @@ set(SOURCES
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp
+    src/renderer/RenderTargetPool.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/renderer/SpriteSheet.cpp
     src/renderer/Texture.cpp

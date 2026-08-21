@@ -1,8 +1,11 @@
 #pragma once
 
 #include "Texture.hpp"
+#include "RenderTargetPool.hpp"
+#include "LocalEffectPass.hpp"
 #include "../scene/Camera2D.hpp"
 #include <glm/glm.hpp>
+#include <array>
 #include <vector>
 #include <memory>
 #include <SDL3/SDL.h>
@@ -14,6 +17,27 @@ class PostProcessPipeline;
 class Font;
 class Material;
 class IMaterialBackend;
+
+enum class RenderStage : std::size_t {
+    SceneGeometry,
+    GlobalPostProcess,
+    CanvasUI,
+    Presentation,
+    Count
+};
+
+struct RenderStageMetrics {
+    std::size_t draw_calls{0};
+    std::size_t sprites{0};
+    float cpu_milliseconds{0.0f};
+};
+
+struct RenderFrameMetrics {
+    std::array<RenderStageMetrics, static_cast<std::size_t>(RenderStage::Count)> stages{};
+    [[nodiscard]] const RenderStageMetrics& stage(RenderStage value) const {
+        return stages[static_cast<std::size_t>(value)];
+    }
+};
 
 struct SpriteCommand {
     Texture* texture{nullptr};
@@ -54,6 +78,17 @@ public:
     }
     SDL_Texture* get_custom_render_target() const { return m_custom_render_target; }
     void set_scene_clear_color(SDL_Color color) { m_scene_clear_color = color; }
+    // Local effects borrow intermediate surfaces from the renderer; callers
+    // must return them before the end of their render pass.
+    [[nodiscard]] SDL_Texture* acquire_local_effect_surface(int width, int height) {
+        return m_render_target_pool.acquire(width, height);
+    }
+    void release_local_effect_surface(SDL_Texture* target) { m_render_target_pool.release(target); }
+    // Returns a leased pooled destination. The caller releases it after its
+    // consuming stage has completed.
+    [[nodiscard]] SDL_Texture* execute_local_effect(
+        ILocalEffectPass& pass, SDL_Texture* source, int width, int height
+    );
 
     void reserve_capacity(size_t max_sprites);
     void begin_scene(const Camera2D& camera);
@@ -108,6 +143,8 @@ public:
     size_t get_draw_call_count() const { return m_draw_calls; }
     size_t get_rendered_sprite_count() const { return m_rendered_sprites; }
     size_t get_culled_sprite_count() const { return m_culled_sprites; }
+    [[nodiscard]] const RenderFrameMetrics& get_frame_metrics() const { return m_frame_metrics; }
+    [[nodiscard]] const RenderTargetPoolMetrics& get_render_target_pool_metrics() const { return m_render_target_pool.metrics(); }
     const Camera2D* get_active_camera() const { return m_active_camera; }
     SDL_Renderer* get_sdl_renderer() const { return m_sdl_renderer; }
 
@@ -120,6 +157,7 @@ private:
     PostProcessPipeline* m_post_process_pipeline{nullptr};
     std::shared_ptr<IMaterialBackend> m_material_backend;
     SDL_Texture* m_custom_render_target{nullptr};
+    RenderTargetPool m_render_target_pool;
     const Camera2D* m_active_camera{nullptr};
     std::vector<SpriteCommand> m_sprite_queue;
     std::vector<SpriteCommand> m_sort_temp_buffer;
@@ -129,6 +167,7 @@ private:
     size_t m_draw_calls{0};
     size_t m_rendered_sprites{0};
     size_t m_culled_sprites{0};
+    RenderFrameMetrics m_frame_metrics{};
     bool m_low_latency_mode{true};
 };
 

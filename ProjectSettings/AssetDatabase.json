@@ -2,171 +2,409 @@
   "assets": [
     {
       "handle": "180fac6bfc4947a2",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/.DS_Store",
       "status": "ready",
       "type": "unknown"
     },
     {
       "handle": "fedc3053e67a4a8f",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/audio/theme.wav",
       "status": "ready",
       "type": "audio"
     },
     {
       "handle": "c3817f695d2ddbb1",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/prefabs/Coins.prefab",
       "status": "ready",
       "type": "prefab"
     },
     {
       "handle": "970975f9481c9850",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/prefabs/Collectible_Coin_1.prefab",
       "status": "ready",
       "type": "prefab"
     },
     {
       "handle": "5b415e7f7b576167",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/prefabs/Collectible_Coin_1_Variant.prefab",
       "status": "missing",
       "type": "prefab"
     },
     {
       "handle": "6cf2c88d90447631",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/postprocess/CrystalCavern.postprocess",
       "status": "ready",
       "type": "post_process_profile"
     },
     {
       "handle": "94b64c0acdb8a2e7",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/postprocess/CelestialSanctuary.postprocess",
       "status": "ready",
       "type": "post_process_profile"
     },
     {
       "handle": "a13d4e5f6a7b8c91",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/postprocess/Default.postprocess",
       "status": "ready",
       "type": "post_process_profile"
     },
     {
       "handle": "b24e5f6a7b8c9d02",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/postprocess/Cinematic.postprocess",
       "status": "ready",
       "type": "post_process_profile"
     },
     {
       "handle": "c35f6a7b8c9d0e13",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/postprocess/RetroCRT.postprocess",
       "status": "ready",
       "type": "post_process_profile"
     },
     {
       "handle": "d46a7b8c9d0e1f24",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/postprocess/NightVision.postprocess",
       "status": "ready",
       "type": "post_process_profile"
     },
     {
       "handle": "e57b8c9d0e1f2a35",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/postprocess/DreamyBloom.postprocess",
       "status": "ready",
       "type": "post_process_profile"
     },
     {
       "handle": "36969535f79f5074",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/prefabs/Player_Knight.prefab",
       "status": "ready",
       "type": "prefab"
     },
     {
       "handle": "d84fc86b59efd7ef",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/scenes/2D Platformer & Collision Layer Matrix.scene",
       "status": "ready",
       "type": "scene"
     },
     {
       "handle": "0f2289f5eed11a72",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/scenes/NewLevel.scene",
       "status": "ready",
       "type": "scene"
     },
     {
       "handle": "a0fe361f48120edc",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/scenes/PlatformerDemo.scene",
       "status": "ready",
       "type": "scene"
     },
     {
       "handle": "af83fedbdd9a2907",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/scenes/PlatformerLevel.scene",
       "status": "ready",
       "type": "scene"
     },
     {
       "handle": "9a171b1652fe8a86",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/scenes/SampleLevel.scene",
       "status": "ready",
       "type": "scene"
     },
     {
       "handle": "6795fafb54837f0b",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/shaders/night_vision.frag.hlsl",
       "status": "ready",
       "type": "unknown"
     },
     {
       "handle": "7215eb4de35c643b",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/shaders/night_vision.frag.msl",
       "status": "ready",
       "type": "unknown"
     },
     {
       "handle": "5ea4a637c713ed89",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/shaders/NightVision.shader",
       "status": "ready",
       "type": "shader"
     },
     {
       "handle": "438f769b97bf56b5",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/textures/.DS_Store",
       "status": "ready",
       "type": "unknown"
     },
     {
       "handle": "8e84233ff6f447b0",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/textures/knight_sheet.png",
       "status": "ready",
       "type": "texture"
     },
     {
       "handle": "507a5df9eaa7428c",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/textures/player.png",
       "status": "ready",
       "type": "texture"
     },
     {
       "handle": "f9f7148e69473a8a",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/textures/tilesets/terrain_tileset.png",
       "status": "ready",
       "type": "texture"
     },
     {
       "handle": "dbd2385da3441a11",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/shaders/TstMaterial.material",
       "status": "ready",
       "type": "material"
     },
     {
       "handle": "abd59e02595c829e",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/shaders/TstMaterial_Copy.material",
       "status": "missing",
       "type": "material"
     },
     {
       "handle": "ef1036d8c6ce483f",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
       "path": "assets/NewPostProcessProfile.postprocess",
       "status": "missing",
       "type": "post_process_profile"
+    },
+    {
+      "handle": "0d4547ecdaee1554",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
+      "path": "assets/scenes/New Scene.scene",
+      "status": "ready",
+      "type": "scene"
     }
   ],
   "version": 1
