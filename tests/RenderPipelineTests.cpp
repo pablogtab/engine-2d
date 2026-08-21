@@ -224,12 +224,78 @@ void test_pipeline_resize_recreates_intermediate_surfaces() {
     SDL_DestroySurface(surface);
 }
 
+void test_internal_world_resolution_keeps_camera_and_canvas_native() {
+    constexpr int width = 64;
+    constexpr int height = 32;
+    SDL_Surface* surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Engine::Renderer2D renderer(sdl_renderer);
+        renderer.set_scene_clear_color({0, 0, 0, 255});
+        renderer.set_render_resolution(0.5f);
+        Engine::Camera2D camera(static_cast<float>(width), static_cast<float>(height));
+        const glm::vec2 original_viewport = camera.get_viewport_size();
+        const glm::vec2 original_reference = camera.get_reference_size();
+        std::unique_ptr<Engine::Texture> white(
+            Engine::Texture::create_solid(sdl_renderer, 4, 4, 255, 255, 255, 255)
+        );
+        std::vector<std::string> order;
+        Engine::PostProcessPipeline pipeline;
+        pipeline.init(sdl_renderer, width, height, width, height);
+        pipeline.add_pass(std::make_shared<OrderedGlobalPass>(order));
+        renderer.set_post_process_pipeline(&pipeline);
+
+        renderer.begin_scene(camera);
+        renderer.submit_sprite(
+            white.get(), {-16.0f, 0.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+            {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}
+        );
+        renderer.submit_screen_sprite(
+            white.get(), {48.0f, 16.0f}, {4.0f, 4.0f}, 0.0f,
+            {255, 0, 0, 255}, nullptr, {0.5f, 0.5f}, 1.0f,
+            false, false, nullptr, false
+        );
+        renderer.end_scene();
+
+        const auto& metrics = renderer.get_frame_metrics();
+        assert(metrics.output_width == width && metrics.output_height == height);
+        assert(metrics.internal_width == width / 2 && metrics.internal_height == height / 2);
+        assert(metrics.render_scale == 0.5f);
+        assert(metrics.stage(Engine::RenderStage::Presentation).draw_calls == 1);
+        assert(metrics.stage(Engine::RenderStage::GlobalPostProcess).draw_calls == 2);
+        assert(metrics.stage(Engine::RenderStage::CanvasUI).sprites == 1);
+        assert(pipeline.get_width() == width / 2 && pipeline.get_height() == height / 2);
+        assert(order == std::vector<std::string>{"global"});
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+        assert(camera.get_viewport_size() == original_viewport);
+        assert(camera.get_reference_size() == original_reference);
+
+        assert(SDL_RenderPresent(sdl_renderer));
+        Uint8 red = 0;
+        Uint8 green = 0;
+        Uint8 blue = 0;
+        Uint8 alpha = 0;
+        read_pixel(surface, 16, 16, red, green, blue, alpha);
+        assert(red >= 126 && red <= 130 && green == 255 && blue >= 126 && blue <= 130 && alpha == 255);
+        read_pixel(surface, 48, 16, red, green, blue, alpha);
+        assert(red == 255 && green == 0 && blue == 0 && alpha == 255);
+        read_pixel(surface, 44, 16, red, green, blue, alpha);
+        assert(red == 0 && green == 0 && blue == 0 && alpha == 255);
+        pipeline.destroy_targets();
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
     test_entity_layer_global_and_hud_order();
     test_fast_path_and_frame_state_reset();
     test_pipeline_resize_recreates_intermediate_surfaces();
+    test_internal_world_resolution_keeps_camera_and_canvas_native();
     std::cout << "RenderPipelineTests passed\n";
     return 0;
 }

@@ -29,6 +29,7 @@
 namespace Engine {
 
 using EditorPlayState = ScenePlayState;
+class Renderer2D;
 
 struct ViewportGridSettings {
     bool visible{true};
@@ -65,6 +66,7 @@ public:
     [[nodiscard]] const glm::vec2& get_viewport_mouse_pos() const { return m_viewport_mouse_pos; }
 
     void set_scene_manager(SceneManager* sm) { m_scene_manager = sm; }
+    void set_engine_renderer(Renderer2D* renderer) { m_engine_renderer = renderer; }
     void set_selection(std::shared_ptr<EditorSelection> sel) { m_selection = sel; }
     [[nodiscard]] std::shared_ptr<EditorSelection> get_selection() const { return m_selection; }
 
@@ -121,6 +123,7 @@ private:
     PrefabStageController* m_prefab_stage{nullptr};
     std::string m_name{"Scene Viewport"};
     SDL_Renderer* m_renderer{nullptr};
+    Renderer2D* m_engine_renderer{nullptr};
     SceneManager* m_scene_manager{nullptr};
     ProjectSettings* m_project_settings{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};

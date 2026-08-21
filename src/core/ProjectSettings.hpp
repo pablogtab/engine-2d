@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../renderer/RenderView.hpp"
+#include "../renderer/RenderResolution.hpp"
 #include "Display.hpp"
 #include <string>
 
@@ -30,6 +31,7 @@ struct ProjectDisplaySettings {
     float default_refresh_rate{0.0f};
     bool default_vsync{true};
     OrientationPolicy orientation_policy{OrientationPolicy::Auto};
+    RenderResolutionSettings render_resolution;
 
     [[nodiscard]] float aspect_ratio() const {
         return static_cast<float>(reference_width) / static_cast<float>(reference_height);

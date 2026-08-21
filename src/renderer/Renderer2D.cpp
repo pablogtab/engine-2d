@@ -9,6 +9,7 @@
 #include "core/SIMD.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -18,6 +19,18 @@ namespace Engine {
 Renderer2D::Renderer2D(SDL_Renderer* renderer)
     : m_sdl_renderer(renderer), m_render_target_pool(renderer) {
     reserve_capacity(10000);
+}
+
+void Renderer2D::set_render_resolution(
+    float scale,
+    RenderScaleMode mode,
+    float target_fps,
+    float measured_fps
+) {
+    m_requested_render_scale = std::clamp(scale, 0.5f, 1.0f);
+    m_render_scale_mode = mode;
+    m_resolution_target_fps = std::max(target_fps, 0.0f);
+    m_resolution_measured_fps = std::max(measured_fps, 0.0f);
 }
 
 void Renderer2D::reserve_capacity(size_t max_sprites) {
@@ -159,6 +172,7 @@ void Renderer2D::execute_lighting_stage(
                 layer,
                 width,
                 height,
+                m_world_raster_scale,
                 previously_composited_layers
             })) {
             ++metrics.draw_calls;
@@ -180,15 +194,68 @@ void Renderer2D::begin_scene(const Camera2D& camera) {
     m_screen_submission_order = 0;
     m_lighting_composited_layers.clear();
 
-    if (m_custom_render_target) {
-        SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
+    SDL_Texture* const output_target = m_custom_render_target;
+    if (m_sdl_renderer) SDL_SetRenderTarget(m_sdl_renderer, output_target);
+
+    int output_width = 1;
+    int output_height = 1;
+    if (output_target) {
+        float width = 1.0f;
+        float height = 1.0f;
+        SDL_GetTextureSize(output_target, &width, &height);
+        output_width = std::max(1, static_cast<int>(std::round(width)));
+        output_height = std::max(1, static_cast<int>(std::round(height)));
+    } else if (m_sdl_renderer) {
+        SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &output_width, &output_height);
+        output_width = std::max(output_width, 1);
+        output_height = std::max(output_height, 1);
+    }
+
+    int internal_width = std::max(1, static_cast<int>(std::round(output_width * m_requested_render_scale)));
+    int internal_height = std::max(1, static_cast<int>(std::round(output_height * m_requested_render_scale)));
+    m_frame_world_target = output_target;
+    m_frame_world_target_leased = false;
+    if ((internal_width != output_width || internal_height != output_height) && m_sdl_renderer) {
+        m_frame_world_target = m_render_target_pool.acquire(internal_width, internal_height);
+        m_frame_world_target_leased = m_frame_world_target != nullptr;
+        if (!m_frame_world_target) {
+            m_frame_world_target = output_target;
+            internal_width = output_width;
+            internal_height = output_height;
+        }
+    }
+
+    m_world_raster_scale = {
+        static_cast<float>(internal_width) / static_cast<float>(output_width),
+        static_cast<float>(internal_height) / static_cast<float>(output_height)
+    };
+    m_frame_metrics.output_width = output_width;
+    m_frame_metrics.output_height = output_height;
+    m_frame_metrics.internal_width = internal_width;
+    m_frame_metrics.internal_height = internal_height;
+    m_frame_metrics.render_scale = std::min(m_world_raster_scale.x, m_world_raster_scale.y);
+    m_frame_metrics.dynamic_resolution = m_render_scale_mode == RenderScaleMode::Dynamic;
+    m_frame_metrics.target_fps = m_resolution_target_fps;
+    m_frame_metrics.measured_fps = m_resolution_measured_fps;
+
+    if (m_frame_world_target_leased) {
+        SDL_SetRenderTarget(m_sdl_renderer, m_frame_world_target);
+        SDL_SetRenderDrawColor(
+            m_sdl_renderer,
+            m_scene_clear_color.r,
+            m_scene_clear_color.g,
+            m_scene_clear_color.b,
+            m_scene_clear_color.a
+        );
+        SDL_RenderClear(m_sdl_renderer);
     }
 
     if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
         // The editor clears its Viewport render target before scene rendering.
         // Include that backdrop in the capture so full-screen passes affect the
         // entire camera frame, not only geometry drawn after begin_scene().
-        m_post_process_pipeline->begin_capture(m_custom_render_target, m_scene_clear_color);
+        m_post_process_pipeline->resize(internal_width, internal_height);
+        m_post_process_pipeline->begin_capture(m_frame_world_target, m_scene_clear_color);
     }
 }
 
@@ -574,6 +641,8 @@ void Renderer2D::end_scene() {
             screen_pos = m_active_camera->world_to_screen(cmd.position);
             float z_scale = m_active_camera->get_z_scale(cmd.position.z) * m_active_camera->get_effective_zoom();
             scaled_size = cmd.size * z_scale;
+            screen_pos *= m_world_raster_scale;
+            scaled_size *= m_world_raster_scale;
         }
 
         float min_x = -cmd.pivot.x * scaled_size.x;
@@ -650,13 +719,12 @@ void Renderer2D::end_scene() {
     // 4. Find separation point between World-Space and Screen-Space (Sorted via Bit 63)
     const size_t screen_space_start = world_space_count;
 
-    int material_output_width = 1;
-    int material_output_height = 1;
-    SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &material_output_width, &material_output_height);
-    const MaterialRenderContext material_context{material_output_width, material_output_height};
-
     auto flush_range = [&](RenderStage stage, size_t start_idx, size_t end_idx) {
         if (start_idx >= end_idx) return;
+        int material_output_width = 1;
+        int material_output_height = 1;
+        SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &material_output_width, &material_output_height);
+        const MaterialRenderContext material_context{material_output_width, material_output_height};
         auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(stage)];
         const auto stage_begin = std::chrono::high_resolution_clock::now();
         size_t batch_start = start_idx;
@@ -820,7 +888,7 @@ void Renderer2D::end_scene() {
     if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
         const auto post_process_begin = std::chrono::high_resolution_clock::now();
         const std::size_t active_passes = m_post_process_pipeline->get_active_pass_count();
-        m_post_process_pipeline->end_capture_and_process(m_custom_render_target);
+        m_post_process_pipeline->end_capture_and_process(m_frame_world_target);
         auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::GlobalPostProcess)];
         // One logical draw per pass plus the final processed-frame composite.
         metrics.draw_calls = active_passes + 1;
@@ -830,11 +898,24 @@ void Renderer2D::end_scene() {
     }
     m_post_process_pipeline = nullptr; // Reset per-frame
 
-    // C. Flush Screen-Space HUD / UI directly on top of the processed image (Crisp & Unaffected)
-    if (m_custom_render_target) {
-        SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
+    // C. Upscale the internally rendered world once, then draw Canvas/UI in
+    // native output coordinates so layout, text, and safe areas stay stable.
+    const auto presentation_begin = std::chrono::high_resolution_clock::now();
+    SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
+    if (m_frame_world_target_leased) {
+        SDL_RenderTexture(m_sdl_renderer, m_frame_world_target, nullptr, nullptr);
+        auto& presentation = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::Presentation)];
+        ++presentation.draw_calls;
+        presentation.cpu_milliseconds += std::chrono::duration<float, std::milli>(
+            std::chrono::high_resolution_clock::now() - presentation_begin
+        ).count();
     }
     flush_range(RenderStage::CanvasUI, screen_space_start, sprite_count);
+    if (m_frame_world_target_leased) {
+        m_render_target_pool.release(m_frame_world_target);
+    }
+    m_frame_world_target = nullptr;
+    m_frame_world_target_leased = false;
 
     auto t3 = std::chrono::high_resolution_clock::now();
 
@@ -856,8 +937,8 @@ bool Renderer2D::present() {
     const auto stage_begin = std::chrono::high_resolution_clock::now();
     const bool presented = SDL_RenderPresent(m_sdl_renderer);
     auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::Presentation)];
-    metrics.draw_calls = presented ? 1 : 0;
-    metrics.cpu_milliseconds = std::chrono::duration<float, std::milli>(
+    if (presented) ++metrics.draw_calls;
+    metrics.cpu_milliseconds += std::chrono::duration<float, std::milli>(
         std::chrono::high_resolution_clock::now() - stage_begin
     ).count();
     return presented;

@@ -16,6 +16,7 @@
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
 #include "../../core/AssetManager.hpp"
+#include "../../renderer/Renderer2D.hpp"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
@@ -862,10 +863,50 @@ void ViewportPanel::on_gui() {
             }
 
             ImGui::SameLine();
-            ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 250.0f);
-            ImGui::TextColored(ImVec4(0.55f, 0.60f, 0.70f, 1.0f), "Mode: %s | FPS: %.0f",
-                (play_state == ScenePlayState::Edit ? "EDIT" : (play_state == ScenePlayState::Play ? "PLAY" : "PAUSED")),
-                ImGui::GetIO().Framerate);
+            char status[160];
+            if (play_state != ScenePlayState::Edit && m_engine_renderer) {
+                const RenderFrameMetrics& metrics = m_engine_renderer->get_frame_metrics();
+                std::snprintf(
+                    status,
+                    sizeof(status),
+                    "%s | %.0f FPS | %s%.0f%% | %dx%d",
+                    play_state == ScenePlayState::Play ? "PLAY" : "PAUSED",
+                    ImGui::GetIO().Framerate,
+                    metrics.dynamic_resolution ? "DYN " : "",
+                    metrics.render_scale * 100.0f,
+                    metrics.internal_width,
+                    metrics.internal_height
+                );
+            } else {
+                std::snprintf(status, sizeof(status), "EDIT | %.0f FPS", ImGui::GetIO().Framerate);
+            }
+            const float status_width = ImGui::CalcTextSize(status).x;
+            ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - status_width - 18.0f));
+            ImGui::TextColored(ImVec4(0.55f, 0.60f, 0.70f, 1.0f), "%s", status);
+            if (ImGui::IsItemHovered() && play_state != ScenePlayState::Edit && m_engine_renderer) {
+                const RenderFrameMetrics& metrics = m_engine_renderer->get_frame_metrics();
+                if (metrics.dynamic_resolution) {
+                    ImGui::SetTooltip(
+                        "World pipeline: %dx%d\nNative Canvas/output: %dx%d\nRender scale: %.0f%%\nMeasured: %.1f FPS\nDynamic target: %.0f FPS",
+                        metrics.internal_width,
+                        metrics.internal_height,
+                        metrics.output_width,
+                        metrics.output_height,
+                        metrics.render_scale * 100.0f,
+                        metrics.measured_fps,
+                        metrics.target_fps
+                    );
+                } else {
+                    ImGui::SetTooltip(
+                        "World pipeline: %dx%d\nNative Canvas/output: %dx%d\nRender scale: %.0f%%",
+                        metrics.internal_width,
+                        metrics.internal_height,
+                        metrics.output_width,
+                        metrics.output_height,
+                        metrics.render_scale * 100.0f
+                    );
+                }
+            }
         }
 
 

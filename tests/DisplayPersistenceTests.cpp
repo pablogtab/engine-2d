@@ -96,7 +96,12 @@ int main() {
     "default_window_height": 768,
     "default_refresh_rate": 75.0,
     "default_vsync": false,
-    "orientation_policy": "portrait"
+    "orientation_policy": "portrait",
+    "render_scale_mode": "dynamic",
+    "fixed_render_scale": 0.75,
+    "dynamic_min_render_scale": 0.6,
+    "dynamic_max_render_scale": 0.9,
+    "dynamic_target_fps": 90.0
   }
 })");
     write_file(prefs_path, R"({"display.window_mode":"windowed","display.width":900})");
@@ -110,6 +115,13 @@ int main() {
     require(
         project_settings.display().orientation_policy == Engine::OrientationPolicy::Portrait,
         "orientation policy is loaded"
+    );
+    require(
+        project_settings.display().render_resolution.mode == Engine::RenderScaleMode::Dynamic &&
+        project_settings.display().render_resolution.dynamic_min_scale == 0.6f &&
+        project_settings.display().render_resolution.dynamic_max_scale == 0.9f &&
+        project_settings.display().render_resolution.dynamic_target_fps == 90.0f,
+        "render resolution policy is loaded"
     );
     require(
         std::string(Engine::orientation_policy_sdl_hint(
@@ -140,6 +152,8 @@ int main() {
     changed.default_window_mode = Engine::WindowMode::ExclusiveFullscreen;
     changed.default_refresh_rate = 120.0f;
     changed.orientation_policy = Engine::OrientationPolicy::LandscapeRight;
+    changed.render_resolution.mode = Engine::RenderScaleMode::Fixed;
+    changed.render_resolution.fixed_scale = 0.5f;
     project_settings.set_display(changed);
     const std::string saved = read_file(project_path);
     require(saved.find("\"display\"") != std::string::npos, "project settings use the display section");
@@ -148,6 +162,11 @@ int main() {
     require(
         saved.find("\"orientation_policy\": \"landscape_right\"") != std::string::npos,
         "orientation policy is serialized"
+    );
+    require(
+        saved.find("\"render_scale_mode\": \"fixed\"") != std::string::npos &&
+        saved.find("\"fixed_render_scale\": 0.5") != std::string::npos,
+        "render resolution policy is serialized"
     );
 
     std::filesystem::remove_all(directory);

@@ -75,6 +75,7 @@ Application::Application(const std::string& name, int width, int height, bool st
     Log::init("engine.log");
     ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{})", name, width, height);
     m_project_settings.load();
+    m_dynamic_resolution.configure(m_project_settings.display().render_resolution);
     [[maybe_unused]] const AssetScanResult asset_scan = AssetDatabase::get().scan("assets");
 
     Input::init();
@@ -159,6 +160,7 @@ Application::Application(const std::string& name, int width, int height, bool st
         command_history,
         &m_project_settings
     );
+    viewport_panel->set_engine_renderer(m_renderer.get());
     const auto& game_view = m_project_settings.display();
     const SafeAreaInsets editor_safe_area = map_safe_area_to_reference(
         m_display_manager->current_state(), game_view
@@ -480,11 +482,13 @@ void Application::run() {
 
         // 3. Update Application logic & active Scene (scaled delta time)
         bool is_playing = true;
+        bool game_view_active = true;
 #if ENGINE_WITH_EDITOR
         if (m_editor_layer && m_editor_layer->is_visible()) {
             auto* vp = m_editor_layer->get_viewport_panel();
             if (vp) {
                 is_playing = (vp->get_play_state() == EditorPlayState::Play);
+                game_view_active = vp->get_play_state() != EditorPlayState::Edit;
             }
         }
 #endif
@@ -498,6 +502,23 @@ void Application::run() {
             if (active_scene) {
                 TransformSystem::update(active_scene->get_entity_manager());
             }
+        }
+
+        m_dynamic_resolution.configure(m_project_settings.display().render_resolution);
+        if (game_view_active) {
+            const float scale = m_dynamic_resolution.update(raw_delta_time);
+            const auto& resolution = m_dynamic_resolution.settings();
+            const float measured_fps = resolution.mode == RenderScaleMode::Dynamic
+                ? m_dynamic_resolution.smoothed_fps()
+                : (raw_delta_time > 0.0f ? 1.0f / raw_delta_time : 0.0f);
+            m_renderer->set_render_resolution(
+                scale,
+                resolution.mode,
+                resolution.mode == RenderScaleMode::Dynamic ? resolution.dynamic_target_fps : 0.0f,
+                measured_fps
+            );
+        } else {
+            m_renderer->set_render_resolution(1.0f, RenderScaleMode::Fixed);
         }
 
         // 4. Render Game Scene into Viewport Render Target (if editor is active) or to window

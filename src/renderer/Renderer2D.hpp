@@ -2,6 +2,7 @@
 
 #include "Texture.hpp"
 #include "RenderTargetPool.hpp"
+#include "RenderResolution.hpp"
 #include "LocalEffectPass.hpp"
 #include "LightingPass.hpp"
 #include "RenderLayer.hpp"
@@ -42,6 +43,14 @@ struct RenderStageMetrics {
 
 struct RenderFrameMetrics {
     std::array<RenderStageMetrics, static_cast<std::size_t>(RenderStage::Count)> stages{};
+    int output_width{0};
+    int output_height{0};
+    int internal_width{0};
+    int internal_height{0};
+    float render_scale{1.0f};
+    float measured_fps{0.0f};
+    float target_fps{0.0f};
+    bool dynamic_resolution{false};
     [[nodiscard]] const RenderStageMetrics& stage(RenderStage value) const {
         return stages[static_cast<std::size_t>(value)];
     }
@@ -76,6 +85,12 @@ public:
     void set_thread_pool(ThreadPool* thread_pool) { m_thread_pool = thread_pool; }
     void set_low_latency_mode(bool low_latency) { m_low_latency_mode = low_latency; }
     bool is_low_latency_mode() const { return m_low_latency_mode; }
+    void set_render_resolution(
+        float scale,
+        RenderScaleMode mode = RenderScaleMode::Fixed,
+        float target_fps = 0.0f,
+        float measured_fps = 0.0f
+    );
 
     void set_post_process_pipeline(PostProcessPipeline* pipeline) { m_post_process_pipeline = pipeline; }
     PostProcessPipeline* get_post_process_pipeline() const { return m_post_process_pipeline; }
@@ -198,6 +213,8 @@ private:
     std::unordered_map<AssetHandle, std::vector<std::shared_ptr<ILocalEffectPass>>> m_entity_effect_profiles;
     std::shared_ptr<IMaterialBackend> m_material_backend;
     SDL_Texture* m_custom_render_target{nullptr};
+    SDL_Texture* m_frame_world_target{nullptr};
+    bool m_frame_world_target_leased{false};
     RenderTargetPool m_render_target_pool;
     const Camera2D* m_active_camera{nullptr};
     std::vector<SpriteCommand> m_sprite_queue;
@@ -210,6 +227,11 @@ private:
     size_t m_culled_sprites{0};
     RenderFrameMetrics m_frame_metrics{};
     std::uint32_t m_screen_submission_order{0};
+    glm::vec2 m_world_raster_scale{1.0f, 1.0f};
+    float m_requested_render_scale{1.0f};
+    float m_resolution_target_fps{0.0f};
+    float m_resolution_measured_fps{0.0f};
+    RenderScaleMode m_render_scale_mode{RenderScaleMode::Fixed};
     bool m_low_latency_mode{true};
 };
 

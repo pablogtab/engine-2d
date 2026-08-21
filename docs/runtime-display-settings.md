@@ -98,8 +98,22 @@ Engine::PlayerPrefs::save();
 
 In windowed mode, width and height are logical window coordinates. Inspect
 `DisplayState::pixel_width`, `pixel_height`, and `dpi_scale` for the actual render
-surface. Internal render resolution and render scale are separate systems and are
-not part of this API yet.
+surface. Internal render resolution is a separate project policy under
+`ProjectDisplaySettings::render_resolution`; it is not a physical display change
+and therefore is not applied through `DisplayManager`.
+
+Fixed mode provides 50%, 75%, and 100% project presets. Dynamic mode starts at its
+configured maximum and adjusts in bounded 5% steps using sustained frame timing,
+hysteresis, and cooldowns around the target FPS. Invalid timings and debugger-sized
+hitches do not trigger a quality change.
+
+The scale applies only to `SceneGeometry`, `LocalEffects`, `Lighting`, and
+`GlobalPostProcess`. The processed world is upscaled once, after which `CanvasUI`
+is rendered at the native output size. Camera composition, Canvas coordinates,
+safe-area insets, input geometry, and device-preview dimensions do not change with
+render scale. In the editor the policy is active in Play and Pause; Edit stays at
+100% for authoring clarity. Game View shows the current internal resolution and
+scale, with native output and dynamic target details in its status tooltip.
 
 ## Mobile behavior
 

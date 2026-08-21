@@ -109,6 +109,13 @@ bool ProjectSettings::load(const std::string& filepath) {
     m_display.orientation_policy = orientation_policy_from_string(
         display.value("orientation_policy", std::string{"auto"})
     );
+    m_display.render_resolution = normalize_render_resolution_settings({
+        render_scale_mode_from_string(display.value("render_scale_mode", std::string{"fixed"})),
+        display.value("fixed_render_scale", 1.0f),
+        display.value("dynamic_min_render_scale", 0.5f),
+        display.value("dynamic_max_render_scale", 1.0f),
+        display.value("dynamic_target_fps", 60.0f)
+    });
     ENGINE_LOG_INFO(
         "[PROJECT SETTINGS] Authoring reference: {}x{} ({})",
         m_display.reference_width,
@@ -129,7 +136,12 @@ bool ProjectSettings::save() const {
         {"default_window_height", m_display.default_window_height},
         {"default_refresh_rate", m_display.default_refresh_rate},
         {"default_vsync", m_display.default_vsync},
-        {"orientation_policy", orientation_policy_to_string(m_display.orientation_policy)}
+        {"orientation_policy", orientation_policy_to_string(m_display.orientation_policy)},
+        {"render_scale_mode", render_scale_mode_to_string(m_display.render_resolution.mode)},
+        {"fixed_render_scale", m_display.render_resolution.fixed_scale},
+        {"dynamic_min_render_scale", m_display.render_resolution.dynamic_min_scale},
+        {"dynamic_max_render_scale", m_display.render_resolution.dynamic_max_scale},
+        {"dynamic_target_fps", m_display.render_resolution.dynamic_target_fps}
     };
     return FileSystem::write_text(m_filepath, root.dump(2) + "\n");
 }
@@ -141,6 +153,7 @@ void ProjectSettings::set_display(const ProjectDisplaySettings& settings) {
     m_display.default_window_width = std::clamp(settings.default_window_width, 320, 16384);
     m_display.default_window_height = std::clamp(settings.default_window_height, 240, 16384);
     m_display.default_refresh_rate = std::max(settings.default_refresh_rate, 0.0f);
+    m_display.render_resolution = normalize_render_resolution_settings(settings.render_resolution);
     save();
 }
 

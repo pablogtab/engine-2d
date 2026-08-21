@@ -47,6 +47,7 @@ set(SOURCES
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp
+    src/renderer/RenderResolution.cpp
     src/renderer/Lighting2DSystem.cpp
     src/renderer/RenderEffectSystem.cpp
     src/renderer/RenderLayerEffectProfile.cpp
@@ -310,6 +311,15 @@ target_include_directories(Camera2DTests PRIVATE
 )
 target_link_libraries(Camera2DTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME Camera2DTests COMMAND Camera2DTests)
+
+add_executable(RenderResolutionTests
+    tests/RenderResolutionTests.cpp
+    src/renderer/RenderResolution.cpp
+)
+target_include_directories(RenderResolutionTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME RenderResolutionTests COMMAND RenderResolutionTests)
 
 add_executable(DisplayManagerTests
     tests/DisplayManagerTests.cpp
@@ -849,6 +859,7 @@ endfunction()
 
 foreach(runtime_test
     Camera2DTests
+    RenderResolutionTests
     DisplayManagerTests
     AssetDatabaseTests
     DisplayPersistenceTests

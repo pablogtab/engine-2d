@@ -21,6 +21,19 @@ SceneGeometry -> LocalEffects -> Lighting -> GlobalPostProcess -> CanvasUI -> Pr
 - `Presentation` maps the composed source to the physical output.
 - `RenderStageMetrics` must continue to describe each stage independently.
 
+Render scale is a raster-quality decision inside `Renderer2D`, not a render-view
+resize. `SceneGeometry`, `LocalEffects`, `Lighting`, and `GlobalPostProcess` use the
+scaled internal world target. `Renderer2D` then composites that target into the
+native destination before `CanvasUI`; final display submission remains in
+`Presentation`. World vertices and lighting convert native camera screen coordinates
+through the per-frame raster scale. They must not mutate the active camera viewport,
+reference size, projection mode, or zoom.
+
+`CanvasUI` always uses the native destination. Its layout, safe area, text raster,
+input geometry, and device-preview contract therefore remain independent from the
+internal world resolution. `RenderFrameMetrics` reports native and internal sizes,
+the effective scale, and dynamic-resolution status in addition to per-stage metrics.
+
 `Renderer2D` owns stage ordering, batching, and transient render targets. Components
 and systems submit intent; they must not create a parallel scene-specific pipeline.
 
@@ -130,3 +143,5 @@ Changes to this area should update the smallest relevant focused suite:
 - `DisplayManagerTests`: display-state propagation and notifications.
 - `RenderPipelineTests`, `PostProcessTests`, or `GPURenderSmokeTests`: stage order,
   target lifetime, and backend integration.
+- `RenderResolutionTests`: fixed/dynamic policy normalization, bounds, timing
+  response, hysteresis, and hitch rejection.

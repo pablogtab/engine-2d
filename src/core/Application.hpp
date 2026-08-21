@@ -67,6 +67,7 @@ private:
     SceneManager m_scene_manager;
     ThreadPool m_thread_pool;
     ProjectSettings m_project_settings;
+    DynamicResolutionController m_dynamic_resolution;
     bool m_running{true};
 };
 

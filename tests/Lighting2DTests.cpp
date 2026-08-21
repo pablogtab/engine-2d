@@ -167,6 +167,9 @@ public:
         ++calls;
         layer = context.render_layer;
         camera = context.camera;
+        width = context.width;
+        height = context.height;
+        raster_scale = context.raster_scale;
         previous_layers_history.push_back(context.previously_composited_layers);
         return true;
     }
@@ -175,6 +178,9 @@ public:
     int calls{0};
     RenderLayer layer{0};
     const Camera2D* camera{nullptr};
+    int width{0};
+    int height{0};
+    glm::vec2 raster_scale{1.0f};
     std::vector<RenderLayerMask> previous_layers_history;
 };
 
@@ -185,6 +191,7 @@ void test_renderer_routes_lighting_only_to_affected_layers() {
     assert(sdl_renderer);
     {
         Renderer2D renderer(sdl_renderer);
+        renderer.set_render_resolution(0.5f);
         Camera2D camera(48.0f, 48.0f);
         std::unique_ptr<Texture> white(Texture::create_solid(sdl_renderer, 4, 4, 255, 255, 255, 255));
         auto pass = std::make_shared<LayerRecordingPass>();
@@ -202,6 +209,8 @@ void test_renderer_routes_lighting_only_to_affected_layers() {
         assert(pass->calls == 1);
         assert(pass->layer == 2);
         assert(pass->camera == &camera);
+        assert(pass->width == 24 && pass->height == 24);
+        assert(pass->raster_scale == glm::vec2(0.5f));
         assert(renderer.get_frame_metrics().stage(RenderStage::Lighting).draw_calls == 1);
         assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
 

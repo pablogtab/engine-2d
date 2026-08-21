@@ -4,6 +4,7 @@
 #include "../commands/ProjectSettingsCommands.hpp"
 #include "../../scene/SceneManager.hpp"
 #include <algorithm>
+#include <cmath>
 #include <imgui.h>
 #include <utility>
 
@@ -29,8 +30,12 @@ void ProjectSettingsPanel::apply_changes() {
         m_settings,
         before,
         after,
-        [scene_manager = m_scene_manager](const ProjectDisplaySettings& value) {
-            if (scene_manager) {
+        [scene_manager = m_scene_manager, before, after](const ProjectDisplaySettings& value) {
+            const bool view_contract_changed =
+                before.reference_width != after.reference_width ||
+                before.reference_height != after.reference_height ||
+                before.presentation != after.presentation;
+            if (scene_manager && view_contract_changed) {
                 scene_manager->configure_view(RenderViewKind::Game, {
                     value.reference_width, value.reference_height,
                     value.reference_width, value.reference_height
@@ -113,6 +118,52 @@ void ProjectSettingsPanel::on_gui() {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip(
                     "Applied before SDL starts on iOS and Android. Restart the runtime after changing it."
+                );
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextUnformatted("Rendering resolution");
+            ImGui::TextDisabled("World, lighting, and post-processing only. Canvas UI remains native.");
+
+            int scale_mode = static_cast<int>(m_pending.render_resolution.mode);
+            ImGui::SetNextItemWidth(150.0f);
+            if (ImGui::Combo("Scale mode", &scale_mode, "Fixed\0Dynamic\0")) {
+                m_pending.render_resolution.mode = static_cast<RenderScaleMode>(scale_mode);
+            }
+
+            if (m_pending.render_resolution.mode == RenderScaleMode::Fixed) {
+                const float current_scale = m_pending.render_resolution.fixed_scale;
+                int preset = current_scale < 0.625f ? 0 : (current_scale < 0.875f ? 1 : 2);
+                ImGui::SetNextItemWidth(150.0f);
+                if (ImGui::Combo("Render scale", &preset, "50%\0" "75%\0" "100%\0")) {
+                    constexpr float scales[]{0.5f, 0.75f, 1.0f};
+                    m_pending.render_resolution.fixed_scale = scales[preset];
+                }
+            } else {
+                int minimum = static_cast<int>(std::round(
+                    m_pending.render_resolution.dynamic_min_scale * 100.0f
+                ));
+                int maximum = static_cast<int>(std::round(
+                    m_pending.render_resolution.dynamic_max_scale * 100.0f
+                ));
+                int target = static_cast<int>(std::round(
+                    m_pending.render_resolution.dynamic_target_fps
+                ));
+                ImGui::SetNextItemWidth(180.0f);
+                if (ImGui::SliderInt("Minimum scale", &minimum, 50, 100, "%d%%")) {
+                    m_pending.render_resolution.dynamic_min_scale = minimum / 100.0f;
+                }
+                ImGui::SetNextItemWidth(180.0f);
+                if (ImGui::SliderInt("Maximum scale", &maximum, 50, 100, "%d%%")) {
+                    m_pending.render_resolution.dynamic_max_scale = maximum / 100.0f;
+                }
+                ImGui::SetNextItemWidth(150.0f);
+                if (ImGui::InputInt("Target FPS", &target, 0)) {
+                    m_pending.render_resolution.dynamic_target_fps = static_cast<float>(target);
+                }
+                m_pending.render_resolution = normalize_render_resolution_settings(
+                    m_pending.render_resolution
                 );
             }
 

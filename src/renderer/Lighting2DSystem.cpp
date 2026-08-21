@@ -391,10 +391,12 @@ bool Lighting2DPass::apply(const LightingContext& context) {
         SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
         SDL_RenderClear(context.renderer);
 
-        const glm::vec2 center = context.camera->world_to_screen(glm::vec3(instance.world_position, 0.0f));
+        const glm::vec2 center = context.camera->world_to_screen(
+            glm::vec3(instance.world_position, 0.0f)
+        ) * context.raster_scale;
         const glm::vec2 edge = context.camera->world_to_screen(
             glm::vec3(instance.world_position + glm::vec2(light.radius, 0.0f), 0.0f)
-        );
+        ) * context.raster_scale;
         const float screen_radius = glm::length(edge - center);
         draw_point_gradient(context.renderer, center, screen_radius, light);
 
@@ -408,7 +410,9 @@ bool Lighting2DPass::apply(const LightingContext& context) {
                 std::vector<glm::vec2> screen_triangles;
                 screen_triangles.reserve(world_triangles.size());
                 for (const glm::vec2& point : world_triangles) {
-                    screen_triangles.push_back(context.camera->world_to_screen(glm::vec3(point, 0.0f)));
+                    screen_triangles.push_back(
+                        context.camera->world_to_screen(glm::vec3(point, 0.0f)) * context.raster_scale
+                    );
                 }
                 draw_triangle_list(context.renderer, screen_triangles);
             }
