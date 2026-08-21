@@ -241,8 +241,4 @@ void Window::clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     SDL_RenderClear(m_renderer);
 }
 
-void Window::present() {
-    SDL_RenderPresent(m_renderer);
-}
-
 } // namespace Engine

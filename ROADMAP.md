@@ -56,7 +56,7 @@ These systems form the current baseline and should be extended rather than rewri
 
 - [x] Global post-processing pipeline with reusable profiles.
 - [x] GPU material abstraction shared by sprites and fullscreen passes.
-- [ ] Validate the Night Vision GPU material on Metal sprites and fullscreen output (MSL entry point corrected; hardware smoke test pending).
+- [x] Validate the Night Vision GPU material on Metal sprites and fullscreen output with deterministic hardware pixel probes.
 - [x] Backend-neutral shader variants with an SDL GPU material backend.
 - [x] Regression tests for post-process state, history, material uniforms, and source/destination routing.
 
@@ -256,11 +256,10 @@ These systems form the current baseline and should be extended rather than rewri
   - [x] Establish the explicit `SceneGeometry -> LocalEffects -> Lighting -> GlobalPostProcess -> CanvasUI -> Presentation` contract in `Renderer2D`, including per-stage frame metrics.
   - [x] Add the pooled local-effects stage with ordered pass chaining and automatic intermediate-surface release.
   - [x] Add the lighting stage with reusable compositing passes before global post-processing.
-- [ ] Introduce render layers shared by sprites, tilemaps, particles, lights, and cameras.
+- [x] Introduce render layers shared by existing renderables and cameras.
   - [x] Add common layer identities and camera masks for sprites, tilemaps, and particles.
   - [x] Make render layers stable composition groups while preserving authored order within each layer.
   - [x] Expose authored layer and camera-mask controls in the Inspector.
-  - [ ] Apply the render-layer contract to Light components when they exist.
 - [x] Support entity- or layer-scoped multipass effects through managed intermediate surfaces.
   - [x] Add reusable `.layereffect` recipes with ordered material passes plus scene-owned layer assignments, cached runtime resolution, authoring, and undo/redo.
   - [x] Add entity-scoped multipass isolation and authoring through a serializable `RenderEffectComponent`, reusable profile assets, pooled composition surfaces, missing-asset diagnostics, and undo/redo.
@@ -284,6 +283,7 @@ These systems form the current baseline and should be extended rather than rewri
 ### Lighting
 
 - [ ] Implement ambient and point lights with color, radius, intensity, and blend mode.
+- [ ] Apply shared render-layer identities and camera masks to Light components.
 - [ ] Add Light components, Inspector drawers, viewport gizmos, serialization, undo/redo, and validation.
 - [ ] Implement 2D shadow casters from colliders and static geometry.
 
@@ -428,8 +428,9 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 - [x] `RenderPipelineTests` — entity/layer/global/HUD ordering, layer filtering, intermediate-surface lifetime, pooling, resize, state reset, and direct fast-path selection.
 - [x] `LocalEffectsTests` — per-entity and per-layer isolation, multipass ordering and failure cleanup, transformed sprites, alpha composition, and pool reuse.
-- [ ] `RenderMetricsTests` — draw calls, material switches, pass timings, surface memory, and stable counter reset per frame.
-- [ ] `GPURenderSmokeTests` — deterministic image or pixel probes for supported Metal, Vulkan, and Direct3D backends where CI hardware permits.
+- [x] `RenderMetricsTests` — draw calls, material switches, pass timings, surface memory, pool reuse, and stable counter reset per frame.
+- [x] `GPURenderSmokeTests` — hardware-labeled native shader execution with deterministic sprite and fullscreen pixel probes; skip unsupported devices without failing headless CI.
+  - [x] Validate Metal locally and validate staged MSL, DXIL, and SPIR-V descriptor formats, entry points, and asset paths headlessly.
 
 ### Phase 6 — Runtime Authoring Suites
 
@@ -460,7 +461,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [ ] Every bug fix receives a regression test at the lowest practical layer.
 - [ ] Every new serializable component receives registry, round-trip, snapshot, validation, and command tests.
 - [ ] Every new platform backend receives a fake-backend contract suite plus real-platform smoke validation.
-- [ ] CTest remains headless and deterministic by default; hardware-dependent suites are labeled separately.
+- [x] CTest remains headless and deterministic by default; hardware-dependent suites are opt-in and labeled separately.
 - [ ] CI runs formatting/static checks, build, unit tests, integration tests, and the applicable platform smoke tests.
 - [ ] Test fixtures never write into project scenes, project settings, `PlayerPrefs`, or editor layout state unless isolation is the behavior under test.
 

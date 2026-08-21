@@ -803,9 +803,14 @@ void Renderer2D::end_scene() {
     if (m_post_process_pipeline &&
         (m_post_process_pipeline->get_active_pass_count() > 0 || get_active_lighting_pass_count() > 0)) {
         const auto post_process_begin = std::chrono::high_resolution_clock::now();
+        const std::size_t active_passes = m_post_process_pipeline->get_active_pass_count();
         m_post_process_pipeline->end_capture_and_process(m_custom_render_target);
-        m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::GlobalPostProcess)].cpu_milliseconds =
-            std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - post_process_begin).count();
+        auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::GlobalPostProcess)];
+        // One logical draw per pass plus the final processed-frame composite.
+        metrics.draw_calls = active_passes + 1;
+        metrics.cpu_milliseconds = std::chrono::duration<float, std::milli>(
+            std::chrono::high_resolution_clock::now() - post_process_begin
+        ).count();
     }
     m_post_process_pipeline = nullptr; // Reset per-frame
 
@@ -830,6 +835,18 @@ void Renderer2D::end_scene() {
         ENGINE_LOG_INFO("[PIPELINE PROFILE] Sort: {} ms | Vertices (Parallel): {} ms | GPU Submit: {} ms",
                         sort_ms, vert_ms, gpu_ms);
     }
+}
+
+bool Renderer2D::present() {
+    if (!m_sdl_renderer) return false;
+    const auto stage_begin = std::chrono::high_resolution_clock::now();
+    const bool presented = SDL_RenderPresent(m_sdl_renderer);
+    auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::Presentation)];
+    metrics.draw_calls = presented ? 1 : 0;
+    metrics.cpu_milliseconds = std::chrono::duration<float, std::milli>(
+        std::chrono::high_resolution_clock::now() - stage_begin
+    ).count();
+    return presented;
 }
 
 } // namespace Engine

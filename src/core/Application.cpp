@@ -468,7 +468,7 @@ void Application::run() {
         }
 #endif
 
-        m_window->present();
+        m_renderer->present();
     }
 
 #if ENGINE_WITH_EDITOR

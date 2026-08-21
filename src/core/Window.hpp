@@ -20,7 +20,6 @@ public:
     void force_close() { m_should_close = true; }
     void poll_events();
     void clear(uint8_t r = 20, uint8_t g = 24, uint8_t b = 32, uint8_t a = 255);
-    void present();
     void set_logical_presentation(int reference_width, int reference_height, PresentationMode mode);
     void disable_logical_presentation();
 

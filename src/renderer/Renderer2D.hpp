@@ -168,6 +168,7 @@ public:
     );
     void submit_sprites_batch(const SpriteCommand* commands, size_t count);
     void end_scene();
+    bool present();
 
     size_t get_draw_call_count() const { return m_draw_calls; }
     size_t get_rendered_sprite_count() const { return m_rendered_sprites; }

@@ -1,4 +1,4 @@
-foreach(required ENGINE_SOURCE_DIR ENGINE_STAGE_DIR ENGINE_EXECUTABLE ENGINE_SHADER_VARIANT ENGINE_SHADER_FORMAT)
+foreach(required ENGINE_SOURCE_DIR ENGINE_STAGE_DIR ENGINE_EXECUTABLE ENGINE_SHADER_VARIANT ENGINE_SHADER_FORMAT ENGINE_SHADER_ENTRY_POINT)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "${required} is required")
     endif()
@@ -30,6 +30,7 @@ file(COPY_FILE "${ENGINE_SHADER_VARIANT}" "${staged_shader}" ONLY_IF_DIFFERENT)
 set(descriptor_path "${ENGINE_STAGE_DIR}/assets/shaders/NightVision.shader")
 file(READ "${descriptor_path}" descriptor_json)
 string(JSON descriptor_json SET "${descriptor_json}" variants 0 format "\"${ENGINE_SHADER_FORMAT}\"")
+string(JSON descriptor_json SET "${descriptor_json}" variants 0 entry_point "\"${ENGINE_SHADER_ENTRY_POINT}\"")
 file(WRITE "${descriptor_path}" "${descriptor_json}\n")
 
 set(database_path "${ENGINE_STAGE_DIR}/ProjectSettings/AssetDatabase.json")

@@ -67,6 +67,8 @@ The isolated post-processing demo contains the first real shared GPU material:
 - `7` applies the NightVision color grade only to the center sprite.
 - `8` replaces the original profile's color-grading pass with that identical
   material, while preserving its fullscreen vignette, bloom and film grain.
+- `9` composes the reusable profile at entity and layer scope before global
+  post-processing, then draws the HUD without post-processing.
 
 The canonical source is `assets/shaders/night_vision.frag.hlsl`. The checked-in
 MSL variant makes the vertical slice executable on Metal today. The pinned
@@ -86,6 +88,19 @@ root with the platform-specific variant using:
 ```sh
 cmake --build build --target stage_runtime_assets
 ```
+
+Run the native GPU pixel probes only on machines with graphics hardware:
+
+```sh
+cmake -S . -B build -DENGINE_ENABLE_HARDWARE_TESTS=ON
+cmake --build build --target GPURenderSmokeTests
+ctest --test-dir build -L hardware --output-on-failure
+```
+
+Hardware tests are disabled by default. Unsupported renderers or missing
+native shader variants report a CTest skip instead of failing the headless
+suite. Non-Apple hardware builds generate the SPIR-V and DXIL variants before
+building the smoke executable.
 
 The target copies `assets/`, `ProjectSettings/`, and the standalone executable
 into `build/runtime/`. It keeps the stable source handle and replaces its file

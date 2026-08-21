@@ -3,6 +3,11 @@ project(Engine2D VERSION 0.1.0 LANGUAGES CXX)
 
 enable_testing()
 
+option(ENGINE_ENABLE_HARDWARE_TESTS
+    "Register GPU tests that require a native graphics device"
+    OFF
+)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -161,12 +166,15 @@ target_compile_definitions(Engine2DStandalone PRIVATE ENGINE_WITH_EDITOR=0)
 if(APPLE)
     set(ENGINE_RUNTIME_SHADER_FORMAT "msl")
     set(ENGINE_RUNTIME_SHADER_EXTENSION "msl")
+    set(ENGINE_RUNTIME_SHADER_ENTRY_POINT "main0")
 elseif(WIN32)
     set(ENGINE_RUNTIME_SHADER_FORMAT "dxil")
     set(ENGINE_RUNTIME_SHADER_EXTENSION "dxil")
+    set(ENGINE_RUNTIME_SHADER_ENTRY_POINT "main")
 else()
     set(ENGINE_RUNTIME_SHADER_FORMAT "spirv")
     set(ENGINE_RUNTIME_SHADER_EXTENSION "spv")
+    set(ENGINE_RUNTIME_SHADER_ENTRY_POINT "main")
 endif()
 
 add_custom_target(stage_runtime_assets
@@ -176,6 +184,7 @@ add_custom_target(stage_runtime_assets
         "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"
         "-DENGINE_SHADER_VARIANT=${ENGINE_SHADER_OUTPUT_DIR}/night_vision.frag.${ENGINE_RUNTIME_SHADER_EXTENSION}"
         "-DENGINE_SHADER_FORMAT=${ENGINE_RUNTIME_SHADER_FORMAT}"
+        "-DENGINE_SHADER_ENTRY_POINT=${ENGINE_RUNTIME_SHADER_ENTRY_POINT}"
         -P "${CMAKE_SOURCE_DIR}/cmake/StageRuntimeAssets.cmake"
     DEPENDS Engine2DStandalone compile_shaders
     COMMENT "Staging runtime assets with the platform shader variant"
@@ -389,6 +398,44 @@ target_include_directories(LocalEffectsTests PRIVATE
 )
 target_link_libraries(LocalEffectsTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME LocalEffectsTests COMMAND LocalEffectsTests)
+
+add_executable(RenderMetricsTests tests/RenderMetricsTests.cpp)
+target_include_directories(RenderMetricsTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(RenderMetricsTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME RenderMetricsTests COMMAND RenderMetricsTests)
+
+add_executable(GPURenderSmokeTests tests/GPURenderSmokeTests.cpp)
+target_include_directories(GPURenderSmokeTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_compile_definitions(GPURenderSmokeTests PRIVATE
+    ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    ENGINE_SHADER_OUTPUT_DIR="${ENGINE_SHADER_OUTPUT_DIR}"
+)
+target_link_libraries(GPURenderSmokeTests PRIVATE SDL3::SDL3 glm::glm)
+if(ENGINE_ENABLE_HARDWARE_TESTS)
+    if(NOT APPLE)
+        add_dependencies(GPURenderSmokeTests compile_shaders)
+    endif()
+    add_test(NAME GPURenderSmokeTests COMMAND GPURenderSmokeTests)
+    set_tests_properties(GPURenderSmokeTests PROPERTIES
+        LABELS "gpu;hardware"
+        SKIP_RETURN_CODE 77
+        TIMEOUT 30
+    )
+endif()
+
+add_test(
+    NAME RuntimeShaderStagingTests
+    COMMAND ${CMAKE_COMMAND}
+        "-DENGINE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+        "-DENGINE_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/test-output"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/RuntimeShaderStagingTests.cmake"
+)
 
 add_executable(EditorPropertyTransactionTests
     tests/EditorPropertyTransactionTests.cpp
@@ -765,6 +812,8 @@ foreach(runtime_test
     PostProcessTests
     RenderPipelineTests
     LocalEffectsTests
+    RenderMetricsTests
+    GPURenderSmokeTests
     EditorPropertyTransactionTests
     EditorCommandHistoryTests
     AssetFileCommandTests
