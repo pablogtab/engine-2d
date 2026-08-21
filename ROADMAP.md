@@ -479,9 +479,10 @@ These items are useful but should not interrupt the architecture work above unle
 
 ## Next Concrete Increments
 
-1. **Inspector Multi-Selection Completion (Phase 3)**:
-   - [x] Extend multi-selection property transactions to `SpriteComponent` (tint, size, flip X/Y, sorting layer, outline) and `CameraComponent` (zoom, projection, clear color, follow target, bounds).
-2. **Scene Hierarchy Search and Component Filtering (Phase 3)**:
-   - [x] Quick search bar with type filters (`:sprite`, `:collider`, `:camera`, `:locked`, `:hidden`), match highlighting, and auto-expanding matched branches.
-3. **Prefab Handle References (Phase 4)**:
-   - [x] Serialize prefab links and base-variant references with `AssetHandle`; resolve paths only through `AssetDatabase`.
+1. **Scene Validator Foundations (Phase 3)**:
+   - Introduce a pure validation result model for missing assets, invalid colliders/tilemaps, absent or duplicate primary cameras, and hierarchy errors. It must not mutate authored scene state.
+   - Add deterministic tests for each diagnostic and for valid scenes.
+2. **Diagnostics Panel and Navigation (Phase 3)**:
+   - Present grouped validation results, select the related entity or asset, and refresh after scene edits without changing authored content.
+3. **Reversible Safe Fixes (Phase 3)**:
+   - Add command-backed fixes only where the correction is unambiguous; every authored mutation must support Undo/Redo.
