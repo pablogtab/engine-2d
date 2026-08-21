@@ -182,7 +182,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Add Save All and recent scenes.
 - [x] Keep loaded scenes in viewport tabs so switching preserves each scene session without a save prompt.
 - [x] Warn before loading, switching, closing, or entering destructive workflows with unsaved changes, featuring transactional discard rollback.
-- [ ] Add configurable autosave and crash/interruption recovery.
+- [x] Add configurable autosave and crash/interruption recovery.
 - [x] Keep editor layout, snapping, guides, and view preferences separate from scene content.
 
 ### Validation and Diagnostics
@@ -400,7 +400,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [x] `ViewportVisibilityTests` — ancestor propagation, picking rejection, rendering filtering, and gizmo exclusion.
 - [x] `HierarchyCommandTests` — duplicate, group, ungroup, reparent, reorder, multi-drag, lock rejection, cycle prevention, local/world preservation, undo, and redo.
 - [ ] `SceneLifecycleTests` — dirty state, save, Save As, Save All, switch/close prompts, Play snapshot restoration, and stale-history prevention.
-- [ ] `AutosaveRecoveryTests` — interval policy, atomic autosave, crash recovery, conflict handling, and cleanup after successful save.
+- [x] `AutosaveRecoveryTests` — atomic autosave discovery, crash recovery records, external-source conflict detection, and cleanup after successful save. Interval preference behavior is exercised through the editor integration build.
 - [ ] `SceneValidatorTests` — missing assets, invalid colliders/tilemaps, camera rules, hierarchy errors, diagnostics navigation, and reversible fixes.
 
 ### Phase 4 — Asset and Prefab Suites
@@ -494,4 +494,4 @@ These items are useful but should not interrupt the architecture work above unle
 4. **Autosave and Recovery Foundations (Phase 3)**:
    - [x] Write dirty scene snapshots atomically outside authored scene files and discover them on the next editor launch.
    - [x] Require an explicit Recover or Discard choice; recovered content remains dirty until normally saved or discarded.
-   - [ ] Expose the interval and recovery storage policy in Editor Preferences, then add conflict handling for source files changed outside the editor.
+   - [x] Expose the interval and recovery storage policy in Editor Preferences, then add conflict handling for source files changed outside the editor.

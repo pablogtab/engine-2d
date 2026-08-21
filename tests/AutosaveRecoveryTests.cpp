@@ -1,4 +1,5 @@
 #include "editor/state/AutosaveRecovery.hpp"
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <fstream>
@@ -21,12 +22,24 @@ int main() {
     assert(records.front().scene_name == "Test");
     assert(records.front().snapshot_json == "{\"version\": 3}");
 
+    const fs::path source_path = root / "source.scene";
+    std::ofstream(source_path) << "changed externally";
+    assert(recovery.write_snapshot("source", source_path.string(), "Source", "{\"version\": 3}"));
+    std::ofstream(source_path) << "new external content";
+    const auto conflicted = recovery.discover();
+    const auto source = std::find_if(conflicted.begin(), conflicted.end(), [](const Engine::AutosaveRecord& record) {
+        return record.identity == "source";
+    });
+    assert(source != conflicted.end() && source->source_conflicted);
+
     const fs::path malformed = root / "malformed.autosave";
     std::ofstream(malformed) << "not json";
-    assert(recovery.discover().size() == 1);
+    assert(recovery.discover().size() == 2);
 
     assert(recovery.remove("assets/scenes/Test.scene"));
+    assert(recovery.remove("source"));
     assert(recovery.discover().empty());
+    fs::remove(source_path, error);
     fs::remove_all(root, error);
     return 0;
 }

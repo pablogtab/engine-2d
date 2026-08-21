@@ -22,6 +22,10 @@ std::string stable_key(const std::string& value) {
     stream << std::hex << std::setfill('0') << std::setw(16) << hash;
     return stream.str();
 }
+
+std::string fingerprint(const std::string& value) {
+    return stable_key(value);
+}
 } // namespace
 
 AutosaveRecovery::AutosaveRecovery(std::string directory) : m_directory(std::move(directory)) {}
@@ -32,8 +36,12 @@ bool AutosaveRecovery::write_snapshot(const std::string& identity, const std::st
         ENGINE_LOG_WARN("[AUTOSAVE] Refusing incomplete recovery snapshot");
         return false;
     }
+    const std::string source_content = source_path.empty() ? "" : FileSystem::read_text(source_path);
+    const bool source_exists = !source_path.empty() && std::filesystem::exists(source_path);
     const nlohmann::json record{{"version", AUTOSAVE_VERSION}, {"identity", identity},
-        {"source_path", source_path}, {"scene_name", scene_name}, {"snapshot_json", snapshot_json}};
+        {"source_path", source_path}, {"source_exists", source_exists},
+        {"source_fingerprint", source_exists ? fingerprint(source_content) : ""},
+        {"scene_name", scene_name}, {"snapshot_json", snapshot_json}};
     return FileSystem::write_text_atomically(path_for_identity(identity), record.dump());
 }
 
@@ -57,8 +65,14 @@ std::vector<AutosaveRecord> AutosaveRecovery::discover() const {
                 .source_path = json.value("source_path", ""),
                 .scene_name = json["scene_name"].get<std::string>(),
                 .snapshot_json = json["snapshot_json"].get<std::string>(),
-                .recovery_path = entry.path().string()
+                .recovery_path = entry.path().string(),
+                .source_conflicted = false
             };
+            if (!record.source_path.empty() && json.value("source_exists", false)) {
+                const std::string current = FileSystem::read_text(record.source_path);
+                record.source_conflicted = !std::filesystem::exists(record.source_path) ||
+                    fingerprint(current) != json.value("source_fingerprint", "");
+            }
             if (!record.identity.empty() && !record.scene_name.empty() && !record.snapshot_json.empty()) records.push_back(std::move(record));
         } catch (const std::exception& exception) {
             ENGINE_LOG_WARN("[AUTOSAVE] Ignoring unreadable recovery snapshot '{}': {}", entry.path().string(), exception.what());

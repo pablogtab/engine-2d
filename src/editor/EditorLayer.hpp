@@ -9,6 +9,7 @@
 #include <string>
 #include <unordered_map>
 #include <functional>
+#include <utility>
 
 namespace Engine {
 
@@ -26,6 +27,7 @@ struct EditorSceneSession {
     std::string file_path;
     std::string initial_snapshot_json;
     std::string autosave_identity;
+    bool recovery_source_conflicted{false};
 };
 
 enum class PendingActionType {
@@ -115,6 +117,8 @@ private:
     void update_autosaves(float delta_time);
     void render_recovery_modal();
     void recover_autosave(const AutosaveRecord& record);
+    void load_autosave_preferences();
+    void save_autosave_preferences() const;
     void record_recent_scene(const std::string& path);
     void open_scene_tab(const Scene* scene);
     [[nodiscard]] bool has_loaded_scene_path(const std::string& path, std::size_t& index);
@@ -141,8 +145,11 @@ private:
     bool m_show_save_as_popup{false};
     bool m_show_unsaved_changes_modal{false};
     bool m_show_prefab_stage_exit_modal{false};
+    bool m_show_autosave_preferences{false};
     bool m_recovery_scan_complete{false};
     float m_autosave_elapsed{0.0f};
+    int m_autosave_interval_seconds{60};
+    char m_autosave_directory[256]{"Library/Autosaves"};
     PendingDestructiveAction m_pending_action;
     char m_save_as_buf[128]{"NewLevel.scene"};
 

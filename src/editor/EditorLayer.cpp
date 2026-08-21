@@ -10,6 +10,7 @@
 #include "tools/EditorIcons.hpp"
 #include "stage/PrefabStageController.hpp"
 #include "../core/Log.hpp"
+#include "../core/FileSystem.hpp"
 #include "../core/Window.hpp"
 #include "../scene/SceneManager.hpp"
 #include "../scene/Scene.hpp"
@@ -29,6 +30,8 @@
 #include <filesystem>
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <nlohmann/json.hpp>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -40,7 +43,9 @@ namespace Engine {
 namespace {
 
 constexpr const char* RECENT_SCENES_PATH = "config/editor_recent_scenes.json";
-constexpr float AUTOSAVE_INTERVAL_SECONDS = 60.0f;
+constexpr const char* AUTOSAVE_PREFERENCES_PATH = "config/editor_autosave.json";
+constexpr int MIN_AUTOSAVE_INTERVAL_SECONDS = 15;
+constexpr int MAX_AUTOSAVE_INTERVAL_SECONDS = 3600;
 
 } // namespace
 
@@ -59,6 +64,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
     m_window = window;
     m_renderer = renderer;
     static_cast<void>(m_recent_scenes.load(RECENT_SCENES_PATH));
+    load_autosave_preferences();
     if (m_recent_scenes.remove_missing_files()) {
         static_cast<void>(m_recent_scenes.save(RECENT_SCENES_PATH));
     }
@@ -285,6 +291,35 @@ void EditorLayer::shutdown() {
 
     m_initialized = false;
     ENGINE_LOG_INFO("[EDITOR] Dear ImGui shutdown cleanly.");
+}
+
+void EditorLayer::load_autosave_preferences() {
+    if (!std::filesystem::exists(AUTOSAVE_PREFERENCES_PATH)) return;
+    try {
+        const nlohmann::json preferences = nlohmann::json::parse(FileSystem::read_text(AUTOSAVE_PREFERENCES_PATH));
+        m_autosave_interval_seconds = std::clamp(
+            preferences.value("interval_seconds", m_autosave_interval_seconds),
+            MIN_AUTOSAVE_INTERVAL_SECONDS,
+            MAX_AUTOSAVE_INTERVAL_SECONDS
+        );
+        const std::string directory = preferences.value("directory", std::string{m_autosave_directory});
+        if (!directory.empty() && directory.size() < sizeof(m_autosave_directory)) {
+            std::snprintf(m_autosave_directory, sizeof(m_autosave_directory), "%s", directory.c_str());
+            m_autosave_recovery.set_directory(directory);
+        }
+    } catch (const std::exception& exception) {
+        ENGINE_LOG_WARN("[AUTOSAVE] Ignoring invalid editor preferences: {}", exception.what());
+    }
+}
+
+void EditorLayer::save_autosave_preferences() const {
+    const nlohmann::json preferences{
+        {"interval_seconds", m_autosave_interval_seconds},
+        {"directory", m_autosave_directory}
+    };
+    if (!FileSystem::write_text_atomically(AUTOSAVE_PREFERENCES_PATH, preferences.dump(2))) {
+        ENGINE_LOG_ERROR("[AUTOSAVE] Failed saving editor preferences");
+    }
 }
 
 void EditorLayer::process_event(const SDL_Event& event) {
@@ -591,6 +626,11 @@ void EditorLayer::create_new_scene(const std::string& name) {
 
 bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const std::string& custom_path) {
     if (!scene) return false;
+    if (session.recovery_source_conflicted && custom_path.empty()) {
+        ENGINE_LOG_WARN("[AUTOSAVE] Recovered scene '{}' must use Save As because its source changed externally", scene->get_name());
+        m_show_save_as_popup = true;
+        return false;
+    }
 
     std::string path = custom_path;
     if (path.empty()) {
@@ -610,6 +650,7 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
 
     session.file_path = path;
     session.initial_snapshot_json.clear();
+    session.recovery_source_conflicted = false;
     if (session.command_history) session.command_history->mark_saved();
     static_cast<void>(m_autosave_recovery.remove(session.autosave_identity));
     session.autosave_identity = std::filesystem::path(path).lexically_normal().generic_string();
@@ -850,6 +891,34 @@ void EditorLayer::render_dockspace() {
         ImGui::EndPopup();
     }
 
+    if (m_show_autosave_preferences) {
+        ImGui::OpenPopup("Autosave Preferences");
+        m_show_autosave_preferences = false;
+    }
+    if (ImGui::BeginPopupModal("Autosave Preferences", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Editor-only recovery settings");
+        ImGui::TextDisabled("They are not stored in scenes or runtime player preferences.");
+        ImGui::Spacing();
+        ImGui::SetNextItemWidth(140.0f);
+        ImGui::InputInt("Interval (seconds)", &m_autosave_interval_seconds);
+        m_autosave_interval_seconds = std::clamp(
+            m_autosave_interval_seconds, MIN_AUTOSAVE_INTERVAL_SECONDS, MAX_AUTOSAVE_INTERVAL_SECONDS
+        );
+        ImGui::InputText("Recovery folder", m_autosave_directory, sizeof(m_autosave_directory));
+        ImGui::Spacing();
+        if (ImGui::Button("Apply", ImVec2(110.0f, 0.0f))) {
+            if (m_autosave_directory[0] != '\0') {
+                m_autosave_recovery.set_directory(m_autosave_directory);
+                m_autosave_elapsed = 0.0f;
+                save_autosave_preferences();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Close", ImVec2(110.0f, 0.0f))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
     // Modal popup: Unsaved Changes Confirmation
     if (m_show_unsaved_changes_modal) {
         ImGui::OpenPopup("Unsaved Changes");
@@ -981,6 +1050,11 @@ void EditorLayer::render_main_menu_bar() {
                 if (m_command_history) {
                     m_command_history->clear_history_preserving_dirty_state();
                 }
+            }
+
+            ImGui::Separator();
+            if (ImGui::MenuItem("Autosave Preferences...")) {
+                m_show_autosave_preferences = true;
             }
 
             ImGui::Separator();
@@ -1221,7 +1295,7 @@ void EditorLayer::render_panels(float delta_time) {
 void EditorLayer::update_autosaves(float delta_time) {
     if (!m_scene_manager || delta_time <= 0.0f) return;
     m_autosave_elapsed += delta_time;
-    if (m_autosave_elapsed < AUTOSAVE_INTERVAL_SECONDS) return;
+    if (m_autosave_elapsed < static_cast<float>(m_autosave_interval_seconds)) return;
     m_autosave_elapsed = 0.0f;
 
     for (const auto& scene : m_scene_manager->get_scenes()) {
@@ -1245,7 +1319,9 @@ void EditorLayer::render_recovery_modal() {
 
     const AutosaveRecord& record = m_pending_recoveries.front();
     ImGui::Text("An autosaved scene was found for '%s'.", record.scene_name.c_str());
-    if (!record.source_path.empty()) {
+    if (record.source_conflicted) {
+        ImGui::TextWrapped("The source scene changed outside the editor. Recovery will require Save As, so it cannot overwrite that file.");
+    } else if (!record.source_path.empty()) {
         ImGui::TextWrapped("Recover the unsaved changes over: %s", record.source_path.c_str());
     } else {
         ImGui::TextWrapped("Recover the unsaved changes as a new scene.");
@@ -1279,10 +1355,11 @@ void EditorLayer::recover_autosave(const AutosaveRecord& record) {
     auto& session = get_or_create_session(recovered_scene.get(), record.scene_name);
     session.command_history->reset_clean_baseline(0);
     session.command_history->mark_recovered();
-    session.file_path = record.source_path;
+    session.file_path = record.source_conflicted ? "" : record.source_path;
     session.initial_snapshot_json.clear();
     session.autosave_identity = record.identity;
-    if (!record.source_path.empty()) record_recent_scene(record.source_path);
+    session.recovery_source_conflicted = record.source_conflicted;
+    if (!record.source_conflicted && !record.source_path.empty()) record_recent_scene(record.source_path);
 
     const auto& scenes = m_scene_manager->get_scenes();
     const auto recovered = std::find_if(scenes.begin(), scenes.end(), [&recovered_scene](const std::shared_ptr<Scene>& scene) {

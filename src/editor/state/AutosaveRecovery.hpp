@@ -11,6 +11,7 @@ struct AutosaveRecord {
     std::string scene_name;
     std::string snapshot_json;
     std::string recovery_path;
+    bool source_conflicted{false};
 };
 
 class AutosaveRecovery {
@@ -21,6 +22,8 @@ public:
         const std::string& scene_name, const std::string& snapshot_json) const;
     [[nodiscard]] std::vector<AutosaveRecord> discover() const;
     [[nodiscard]] bool remove(const std::string& identity) const;
+    void set_directory(std::string directory) { m_directory = std::move(directory); }
+    [[nodiscard]] const std::string& directory() const { return m_directory; }
 
 private:
     [[nodiscard]] std::string path_for_identity(const std::string& identity) const;
