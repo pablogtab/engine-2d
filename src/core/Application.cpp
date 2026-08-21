@@ -13,6 +13,7 @@
 #include "../editor/panels/InspectorPanel.hpp"
 #include "../editor/panels/ConsolePanel.hpp"
 #include "../editor/panels/StatsPanel.hpp"
+#include "../editor/panels/SceneDiagnosticsPanel.hpp"
 #include "../editor/panels/AssetBrowserPanel.hpp"
 #include "../editor/panels/PostProcessTunerPanel.hpp"
 #include "../editor/panels/ProjectSettingsPanel.hpp"
@@ -130,6 +131,10 @@ Application::Application(const std::string& name, int width, int height, bool st
     auto console_panel = std::make_shared<ConsolePanel>();
     auto stats_panel = std::make_shared<StatsPanel>();
     stats_panel->is_open = false; // Closed by default at startup (accessible via Panels menu)
+    auto diagnostics_panel = std::make_shared<SceneDiagnosticsPanel>(
+        &m_scene_manager, &get_asset_database(), selection
+    );
+    diagnostics_panel->is_open = false;
     auto asset_browser = std::make_shared<AssetBrowserPanel>(&get_asset_database(), "assets");
     asset_browser->set_renderer(m_window->get_sdl_renderer());
     asset_browser->set_command_history(command_history);
@@ -223,6 +228,7 @@ Application::Application(const std::string& name, int width, int height, bool st
     m_editor_layer->register_panel(console_panel);
     m_editor_layer->register_panel(asset_browser);
     m_editor_layer->register_panel(stats_panel);
+    m_editor_layer->register_panel(diagnostics_panel);
     m_editor_layer->register_panel(postprocess_panel);
     m_editor_layer->register_panel(project_settings_panel);
     m_editor_layer->register_panel(shortcuts_panel);

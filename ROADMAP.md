@@ -484,6 +484,7 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Add deterministic tests for each diagnostic and for valid scenes.
    - [x] Extend the model with missing assets and invalid collider/tilemap diagnostics.
 2. **Diagnostics Panel and Navigation (Phase 3)**:
-   - Present grouped validation results, select the related entity or asset, and refresh after scene edits without changing authored content.
+   - [x] Present grouped validation results, select the related entity, and refresh after scene edits without changing authored content.
+   - [ ] Add asset navigation for diagnostics without an entity target.
 3. **Reversible Safe Fixes (Phase 3)**:
    - Add command-backed fixes only where the correction is unambiguous; every authored mutation must support Undo/Redo.

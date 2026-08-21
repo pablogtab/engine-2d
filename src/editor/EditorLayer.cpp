@@ -18,6 +18,7 @@
 #include "panels/ViewportPanel.hpp"
 #include "panels/SceneHierarchyPanel.hpp"
 #include "panels/InspectorPanel.hpp"
+#include "panels/SceneDiagnosticsPanel.hpp"
 #include "panels/SpriteAnimationStudioPanel.hpp"
 #include "panels/PostProcessTunerPanel.hpp"
 #include "panels/ProjectSettingsPanel.hpp"
@@ -343,6 +344,8 @@ void EditorLayer::update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch
             p->set_command_history(ch);
             p->set_entity_state_store(store);
             if (sel) p->set_selection(sel);
+        } else if (auto p = std::dynamic_pointer_cast<SceneDiagnosticsPanel>(panel)) {
+            if (sel) p->set_selection(sel);
         } else if (auto p = std::dynamic_pointer_cast<SpriteAnimationStudioPanel>(panel)) {
             p->set_command_history(ch);
         } else if (auto p = std::dynamic_pointer_cast<PostProcessTunerPanel>(panel)) {
@@ -515,6 +518,7 @@ void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
     ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left_id);
     ImGui::DockBuilderDockWindow("Engine & Metrics", dock_right_id);
     ImGui::DockBuilderDockWindow("Entity Inspector", dock_right_id);
+    ImGui::DockBuilderDockWindow("Scene Diagnostics", dock_right_id);
     ImGui::DockBuilderDockWindow("Asset Browser", dock_down_id);
     ImGui::DockBuilderDockWindow("Console & Logs", dock_down_id);
 

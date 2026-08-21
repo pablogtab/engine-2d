@@ -53,6 +53,7 @@ set(SOURCES
     src/scene/GenericScene.cpp
     src/scene/SceneSchema.cpp
     src/scene/SceneSerializer.cpp
+    src/scene/SceneValidator.cpp
     src/scene/EntitySubtreeArchive.cpp
     src/scene/PrefabSerializer.cpp
     src/scene/PrefabPropagation.cpp
@@ -71,6 +72,7 @@ set(SOURCES
     src/editor/panels/InspectorPanel.cpp
     src/editor/panels/ConsolePanel.cpp
     src/editor/panels/StatsPanel.cpp
+    src/editor/panels/SceneDiagnosticsPanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp
     src/editor/panels/PostProcessTunerPanel.cpp
     src/editor/panels/ProjectSettingsPanel.cpp
