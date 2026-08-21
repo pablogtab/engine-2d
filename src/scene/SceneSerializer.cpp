@@ -37,6 +37,16 @@ std::string SceneSerializer::serialize_to_string() {
     if (const AssetHandle profile_handle = m_scene->get_post_process_profile_handle(); profile_handle.is_valid()) {
         root["post_process_profile_handle"] = profile_handle.to_string();
     }
+    if (m_scene->supports_render_layer_effects()) {
+        root["render_layer_effect_assignments"] = json::array();
+        for (const auto& assignment : m_scene->get_render_layer_effect_assignments()) {
+            root["render_layer_effect_assignments"].push_back({
+                {"profile_handle", assignment.profile_handle.to_string()},
+                {"render_layer", assignment.render_layer},
+                {"enabled", assignment.enabled}
+            });
+        }
+    }
 
     json entities_array = json::array();
     EntityManager& em = m_scene->get_entity_manager();
@@ -129,6 +139,29 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
             }
         } else if (m_scene->supports_post_process_profile_assets()) {
             static_cast<void>(m_scene->set_post_process_profile_handle({}, AssetDatabase::get()));
+        }
+        if (m_scene->supports_render_layer_effects()) {
+            std::vector<RenderLayerEffectAssignment> assignments;
+            if (root.contains("render_layer_effect_assignments")) {
+                if (!root["render_layer_effect_assignments"].is_array()) {
+                    ENGINE_LOG_ERROR("[SERIALIZER] Scene render_layer_effect_assignments must be an array");
+                    return false;
+                }
+                for (const auto& value : root["render_layer_effect_assignments"]) {
+                    if (!value.is_object() || !value.contains("profile_handle") ||
+                        !value["profile_handle"].is_string() || !value.contains("render_layer") ||
+                        !value["render_layer"].is_number_unsigned() ||
+                        (value.contains("enabled") && !value["enabled"].is_boolean())) return false;
+                    const auto handle = AssetHandle::from_string(value["profile_handle"].get<std::string>());
+                    const unsigned layer = value["render_layer"].get<unsigned>();
+                    if (!handle || layer > 31) return false;
+                    assignments.push_back({*handle, static_cast<RenderLayer>(layer), value.value("enabled", true)});
+                }
+            }
+            if (!m_scene->set_render_layer_effect_assignments(std::move(assignments), AssetDatabase::get())) {
+                ENGINE_LOG_ERROR("[SERIALIZER] Scene references invalid render-layer effect assignments");
+                return false;
+            }
         }
 
         EntityManager candidate;

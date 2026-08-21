@@ -19,6 +19,7 @@ enum class AssetType {
     Shader,
     Material,
     PostProcessProfile,
+    RenderLayerEffectProfile,
     Data
 };
 

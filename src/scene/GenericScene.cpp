@@ -81,6 +81,35 @@ bool GenericScene::set_post_process_profile_handle(AssetHandle handle, const Ass
     return true;
 }
 
+bool GenericScene::set_render_layer_effect_assignments(
+    std::vector<RenderLayerEffectAssignment> assignments, const AssetDatabase& database
+) {
+    std::vector<RenderLayerEffectProfile> profiles;
+    profiles.reserve(assignments.size());
+    std::array<bool, 32> occupied{};
+    for (const auto& assignment : assignments) {
+        if (assignment.render_layer > 31 || occupied[assignment.render_layer]) return false;
+        const auto profile = RenderLayerEffectProfile::load_asset(assignment.profile_handle, database);
+        if (!profile) return false;
+        occupied[assignment.render_layer] = true;
+        profiles.push_back(*profile);
+    }
+    m_render_layer_effect_assignments = std::move(assignments);
+    m_render_layer_effect_profiles = std::move(profiles);
+    m_render_layer_effects_dirty = true;
+    return true;
+}
+
+bool GenericScene::refresh_render_layer_effects(const AssetDatabase& database) {
+    const auto authored_assignments = m_render_layer_effect_assignments;
+    if (set_render_layer_effect_assignments(authored_assignments, database)) return true;
+    m_render_layer_effect_profiles.clear();
+    for (auto& passes : m_render_layer_effect_runtime_passes) passes.clear();
+    m_render_layer_effect_backend.reset();
+    m_render_layer_effects_dirty = false;
+    return false;
+}
+
 void GenericScene::initialize_post_process(Renderer2D& renderer) {
     if (!m_post_process_enabled || m_post_process_initialized) return;
     const glm::vec2 viewport = m_is_editing ? m_editor_camera.get_viewport_size() : m_camera.get_viewport_size();
@@ -291,6 +320,32 @@ void GenericScene::on_render(Renderer2D& renderer) {
     Camera2D& active_cam = m_is_editing ? m_editor_camera : m_camera;
     initialize_post_process(renderer);
     renderer.set_post_process_pipeline(m_post_process_enabled ? &m_post_process_pipeline : nullptr);
+    const auto& material_backend = renderer.get_material_backend();
+    if (m_render_layer_effects_dirty || material_backend != m_render_layer_effect_backend) {
+        for (auto& passes : m_render_layer_effect_runtime_passes) passes.clear();
+        for (std::size_t index = 0; index < m_render_layer_effect_profiles.size(); ++index) {
+            const auto& assignment = m_render_layer_effect_assignments[index];
+            if (!assignment.enabled) continue;
+            const auto& profile = m_render_layer_effect_profiles[index];
+            std::string error;
+            auto passes = profile.build_runtime_passes(AssetDatabase::get(), material_backend, &error);
+            const bool has_enabled_pass = std::any_of(profile.passes.begin(), profile.passes.end(), [](const auto& pass) {
+                return pass.enabled;
+            });
+            if (has_enabled_pass && passes.empty()) {
+                ENGINE_LOG_WARN("[LAYER EFFECT] Profile '{}' unavailable: {}", profile.name, error);
+                continue;
+            }
+            m_render_layer_effect_runtime_passes[assignment.render_layer] = std::move(passes);
+        }
+        m_render_layer_effect_backend = material_backend;
+        m_render_layer_effects_dirty = false;
+    }
+    for (RenderLayer layer = 0; layer < m_render_layer_effect_runtime_passes.size(); ++layer) {
+        if (!m_render_layer_effect_runtime_passes[layer].empty()) {
+            renderer.set_render_layer_effects(layer, m_render_layer_effect_runtime_passes[layer]);
+        }
+    }
     renderer.begin_scene(active_cam);
 
     // Centralized rendering for Sprites, Tilemaps, and Outlines

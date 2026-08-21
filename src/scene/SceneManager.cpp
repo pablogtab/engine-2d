@@ -1,6 +1,7 @@
 #include "SceneManager.hpp"
 #include "SceneSerializer.hpp"
 #include "../renderer/material/MaterialAsset.hpp"
+#include "../renderer/Renderer2D.hpp"
 #include "../core/AssetDatabase.hpp"
 #include "../core/Log.hpp"
 #include "../core/Time.hpp"
@@ -22,6 +23,9 @@ MaterialAssetRefreshResult SceneManager::refresh_material_assets(const AssetData
         const auto refreshed = MaterialAsset::refresh_assigned(scene->get_entity_manager(), database);
         result.reloaded += refreshed.reloaded;
         result.unavailable += refreshed.unavailable;
+        if (scene->supports_render_layer_effects()) {
+            static_cast<void>(scene->refresh_render_layer_effects(database));
+        }
     };
     for (const auto& scene : m_scenes) refresh(scene);
     refresh(m_transient_scene);
@@ -201,6 +205,7 @@ void SceneManager::update(float delta_time) {
 }
 
 void SceneManager::render(Renderer2D& renderer) {
+    renderer.clear_all_render_layer_effects();
     Scene* active = get_active_scene();
     if (active) {
         active->on_render(renderer);

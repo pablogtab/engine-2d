@@ -4,7 +4,9 @@
 #include "../ecs/EntityManager.hpp"
 #include "../events/EventDispatcher.hpp"
 #include "../core/AssetHandle.hpp"
+#include "../renderer/RenderLayerEffectProfile.hpp"
 #include <SDL3/SDL.h>
+#include <vector>
 
 namespace Engine {
 
@@ -30,6 +32,13 @@ public:
     [[nodiscard]] virtual bool supports_post_process_profile_assets() const { return false; }
     [[nodiscard]] virtual AssetHandle get_post_process_profile_handle() const { return {}; }
     virtual bool set_post_process_profile_handle(AssetHandle, const AssetDatabase&) { return false; }
+    [[nodiscard]] virtual bool supports_render_layer_effects() const { return false; }
+    [[nodiscard]] virtual const std::vector<RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const {
+        static const std::vector<RenderLayerEffectAssignment> empty;
+        return empty;
+    }
+    virtual bool set_render_layer_effect_assignments(std::vector<RenderLayerEffectAssignment>, const AssetDatabase&) { return false; }
+    virtual bool refresh_render_layer_effects(const AssetDatabase&) { return false; }
 
     virtual void set_is_editing(bool is_editing) {}
     [[nodiscard]] virtual bool is_editing() const { return true; }

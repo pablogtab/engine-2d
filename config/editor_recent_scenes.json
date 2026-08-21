@@ -1,10 +1,6 @@
 {
   "recent_scenes": [
-    "assets/scenes/PlatformerDemo.scene",
-    "assets/scenes/New Scene.scene",
-    "assets/scenes/PlatformerLevel.scene",
-    "assets/scenes/2D Platformer & Collision Layer Matrix.scene",
-    "assets/scenes/NewLevel.scene",
-    "assets/scenes/SampleLevel.scene"
+    "assets/scenes/TestScene.scene",
+    "assets/scenes/PlatformerDemo.scene"
   ]
 }

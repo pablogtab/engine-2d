@@ -193,7 +193,7 @@
         "platform_overrides": {}
       },
       "path": "assets/scenes/2D Platformer & Collision Layer Matrix.scene",
-      "status": "ready",
+      "status": "missing",
       "type": "scene"
     },
     {
@@ -207,7 +207,7 @@
         "platform_overrides": {}
       },
       "path": "assets/scenes/NewLevel.scene",
-      "status": "ready",
+      "status": "missing",
       "type": "scene"
     },
     {
@@ -235,7 +235,7 @@
         "platform_overrides": {}
       },
       "path": "assets/scenes/PlatformerLevel.scene",
-      "status": "ready",
+      "status": "missing",
       "type": "scene"
     },
     {
@@ -249,7 +249,7 @@
         "platform_overrides": {}
       },
       "path": "assets/scenes/SampleLevel.scene",
-      "status": "ready",
+      "status": "missing",
       "type": "scene"
     },
     {
@@ -403,6 +403,34 @@
         "platform_overrides": {}
       },
       "path": "assets/scenes/New Scene.scene",
+      "status": "missing",
+      "type": "scene"
+    },
+    {
+      "handle": "bf695f890eea01bd",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
+      "path": "assets/shaders/ManualNightVision.layereffect",
+      "status": "ready",
+      "type": "render_layer_effect_profile"
+    },
+    {
+      "handle": "633fc18b430396c7",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
+      "path": "assets/scenes/TestScene.scene",
       "status": "ready",
       "type": "scene"
     }

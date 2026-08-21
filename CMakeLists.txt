@@ -42,6 +42,7 @@ set(SOURCES
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp
+    src/renderer/RenderLayerEffectProfile.cpp
     src/renderer/RenderTargetPool.cpp
     src/renderer/SpriteAnimationSystem.cpp
     src/renderer/SpriteSheet.cpp
@@ -349,9 +350,12 @@ add_executable(PostProcessTests
     src/core/ThreadPool.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
+    src/ecs/EntityManager.cpp
     src/renderer/Font.cpp
     src/renderer/material/FragmentShader.cpp
+    src/renderer/material/MaterialAsset.cpp
     src/renderer/Renderer2D.cpp
+    src/renderer/RenderLayerEffectProfile.cpp
     src/renderer/Texture.cpp
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp

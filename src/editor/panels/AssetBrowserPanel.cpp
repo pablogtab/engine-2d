@@ -3,11 +3,13 @@
 #include "../../core/Log.hpp"
 #include "../../core/FileSystem.hpp"
 #include "../../renderer/postprocess/PostProcessProfile.hpp"
+#include "../../renderer/RenderLayerEffectProfile.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
 #include "../../renderer/material/SDLGPUMaterialBackend.hpp"
 #include "../../renderer/material/ShaderAsset.hpp"
 #include "../commands/AssetFileCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
+#include "../commands/PostProcessProfileCommands.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <cctype>
@@ -158,6 +160,9 @@ void AssetBrowserPanel::on_gui() {
                     } else if (extension == ".postprocess") {
                         tag = "[POST FX]";
                         tag_col = ImVec4(0.35f, 0.85f, 0.85f, 1.0f);
+                    } else if (extension == ".layereffect") {
+                        tag = "[LAYER FX]";
+                        tag_col = ImVec4(0.55f, 0.80f, 1.00f, 1.0f);
                     } else if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp") {
                         tag = "[IMAGE]";
                         tag_col = ImVec4(0.40f, 0.75f, 1.00f, 1.0f);
@@ -235,6 +240,22 @@ void AssetBrowserPanel::on_gui() {
                             } else {
                                 ENGINE_LOG_WARN("[ASSET BROWSER] Cannot edit material '{}': {}", path.string(), error);
                             }
+                        } else if (extension == ".layereffect" && m_asset_database) {
+                            const AssetRecord* record = m_asset_database->find_by_path(path);
+                            std::string error;
+                            const auto profile = record
+                                ? RenderLayerEffectProfile::load_asset_for_authoring(record->handle, *m_asset_database, &error)
+                                : std::nullopt;
+                            if (profile) {
+                                m_edit_layer_effect_handle = record->handle;
+                                m_edit_layer_effect_original = *profile;
+                                m_edit_layer_effect_draft = *profile;
+                                std::snprintf(m_edit_layer_effect_name_buf, sizeof(m_edit_layer_effect_name_buf), "%s", profile->name.c_str());
+                                m_edit_layer_effect_error.clear();
+                                m_show_edit_layer_effect_popup = true;
+                            } else {
+                                ENGINE_LOG_WARN("[ASSET BROWSER] Cannot edit layer effect '{}': {}", path.string(), error);
+                            }
                         }
                     }
 
@@ -294,6 +315,9 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::MenuItem("+ New Post-Process Profile")) {
                 m_show_new_post_process_popup = true;
             }
+            if (ImGui::MenuItem("+ New Render Layer Effect")) {
+                m_show_new_layer_effect_popup = true;
+            }
             if (ImGui::MenuItem("+ New Folder")) {
                 std::filesystem::create_directory(m_current_path / "NewFolder");
             }
@@ -321,9 +345,17 @@ void AssetBrowserPanel::on_gui() {
             ImGui::OpenPopup("Create New Post-Process Profile");
             m_show_new_post_process_popup = false;
         }
+        if (m_show_new_layer_effect_popup) {
+            ImGui::OpenPopup("Create New Render Layer Effect");
+            m_show_new_layer_effect_popup = false;
+        }
         if (m_show_edit_material_popup) {
             ImGui::OpenPopup("Edit Material");
             m_show_edit_material_popup = false;
+        }
+        if (m_show_edit_layer_effect_popup) {
+            ImGui::OpenPopup("Edit Render Layer Effect");
+            m_show_edit_layer_effect_popup = false;
         }
 
         if (ImGui::BeginPopupModal("Create New Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -402,6 +434,113 @@ void AssetBrowserPanel::on_gui() {
                     ));
                 }
                 ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        if (ImGui::BeginPopupModal("Create New Render Layer Effect", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("Enter Profile Name:");
+            ImGui::InputText("##layereffectname", m_new_layer_effect_name_buf, sizeof(m_new_layer_effect_name_buf));
+            const AssetRecord* first_material = m_asset_database && m_new_layer_effect_material_handle.is_valid()
+                ? m_asset_database->find(m_new_layer_effect_material_handle) : nullptr;
+            if (ImGui::BeginCombo("First Material", first_material ? first_material->source_path.c_str() : "None")) {
+                if (ImGui::Selectable("None", !m_new_layer_effect_material_handle.is_valid())) {
+                    m_new_layer_effect_material_handle = {};
+                }
+                if (m_asset_database) {
+                    for (const AssetRecord& record : m_asset_database->records()) {
+                        if (record.type != AssetType::Material || record.status != AssetStatus::Ready) continue;
+                        if (ImGui::Selectable(record.source_path.c_str(), record.handle == m_new_layer_effect_material_handle)) {
+                            m_new_layer_effect_material_handle = record.handle;
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::Spacing();
+            if (ImGui::Button("Create", ImVec2(120, 0))) {
+                const std::string name = m_new_layer_effect_name_buf;
+                if (!name.empty() && m_command_history && m_asset_database) {
+                    RenderLayerEffectProfile profile;
+                    profile.name = name;
+                    if (m_new_layer_effect_material_handle.is_valid()) {
+                        profile.passes.push_back({m_new_layer_effect_material_handle, true});
+                    }
+                    m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
+                        m_asset_database, m_current_path / (name + ".layereffect"), profile.to_json()
+                    ));
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        if (ImGui::BeginPopupModal("Edit Render Layer Effect", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::InputText("Name", m_edit_layer_effect_name_buf, sizeof(m_edit_layer_effect_name_buf));
+            for (std::size_t pass_index = 0; pass_index < m_edit_layer_effect_draft.passes.size(); ++pass_index) {
+                ImGui::PushID(static_cast<int>(pass_index));
+                auto& pass = m_edit_layer_effect_draft.passes[pass_index];
+                ImGui::Checkbox("##enabled", &pass.enabled);
+                ImGui::SameLine();
+                const AssetRecord* material = m_asset_database ? m_asset_database->find(pass.material_handle) : nullptr;
+                if (ImGui::BeginCombo("Material", material ? material->source_path.c_str() : "Missing material")) {
+                    if (m_asset_database) {
+                        for (const AssetRecord& record : m_asset_database->records()) {
+                            if (record.type != AssetType::Material || record.status != AssetStatus::Ready) continue;
+                            if (ImGui::Selectable(record.source_path.c_str(), record.handle == pass.material_handle)) {
+                                pass.material_handle = record.handle;
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (pass_index > 0 && ImGui::SmallButton("Up")) {
+                    std::swap(m_edit_layer_effect_draft.passes[pass_index], m_edit_layer_effect_draft.passes[pass_index - 1]);
+                }
+                ImGui::SameLine();
+                if (pass_index + 1 < m_edit_layer_effect_draft.passes.size() && ImGui::SmallButton("Down")) {
+                    std::swap(m_edit_layer_effect_draft.passes[pass_index], m_edit_layer_effect_draft.passes[pass_index + 1]);
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) {
+                    m_edit_layer_effect_draft.passes.erase(
+                        m_edit_layer_effect_draft.passes.begin() + static_cast<std::ptrdiff_t>(pass_index)
+                    );
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::PopID();
+            }
+            if (ImGui::BeginCombo("Add Material Pass", "Select material")) {
+                if (m_asset_database) {
+                    for (const AssetRecord& record : m_asset_database->records()) {
+                        if (record.type != AssetType::Material || record.status != AssetStatus::Ready) continue;
+                        if (ImGui::Selectable(record.source_path.c_str())) {
+                            m_edit_layer_effect_draft.passes.push_back({record.handle, true});
+                        }
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (!m_edit_layer_effect_error.empty()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s", m_edit_layer_effect_error.c_str());
+            }
+            if (ImGui::Button("Save", ImVec2(120, 0)) && m_asset_database && m_command_history) {
+                m_edit_layer_effect_draft.name = m_edit_layer_effect_name_buf;
+                if (m_edit_layer_effect_draft.name.empty()) {
+                    m_edit_layer_effect_error = "Profile name cannot be empty.";
+                } else {
+                    m_command_history->execute_command(std::make_unique<ModifyRenderLayerEffectProfileCommand>(
+                        nullptr, m_asset_database, m_edit_layer_effect_handle,
+                        m_edit_layer_effect_original, m_edit_layer_effect_draft
+                    ));
+                    const auto saved = RenderLayerEffectProfile::load_asset_for_authoring(
+                        m_edit_layer_effect_handle, *m_asset_database, &m_edit_layer_effect_error
+                    );
+                    if (saved && *saved == m_edit_layer_effect_draft) ImGui::CloseCurrentPopup();
+                }
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();

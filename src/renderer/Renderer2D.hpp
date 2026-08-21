@@ -103,6 +103,7 @@ public:
     );
     void set_render_layer_effects(RenderLayer layer, std::vector<std::shared_ptr<ILocalEffectPass>> passes);
     void clear_render_layer_effects(RenderLayer layer);
+    void clear_all_render_layer_effects();
     [[nodiscard]] std::size_t get_active_render_layer_effect_count(RenderLayer layer) const;
     void add_lighting_pass(std::shared_ptr<ILightingPass> pass);
     void clear_lighting_passes();

@@ -21,7 +21,25 @@ using namespace Engine;
 class TestScene final : public Scene {
 public:
     TestScene() : Scene("HierarchySnapshotTest") {}
+    [[nodiscard]] bool supports_render_layer_effects() const override { return true; }
+    [[nodiscard]] const std::vector<RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const override { return layer_effect_assignments; }
+    bool set_render_layer_effect_assignments(std::vector<RenderLayerEffectAssignment> assignments, const AssetDatabase&) override {
+        layer_effect_assignments = std::move(assignments); return true;
+    }
+    std::vector<RenderLayerEffectAssignment> layer_effect_assignments;
 };
+
+void test_render_layer_effect_assignments_round_trip() {
+    TestScene scene;
+    scene.layer_effect_assignments = {{AssetHandle{10}, 2, true}, {AssetHandle{10}, 9, false}};
+    SceneSerializer serializer(&scene);
+    const std::string snapshot = serializer.serialize_to_string();
+    scene.layer_effect_assignments.clear();
+    assert(serializer.deserialize_from_string(snapshot));
+    assert(scene.layer_effect_assignments == std::vector<RenderLayerEffectAssignment>(
+        {{AssetHandle{10}, 2, true}, {AssetHandle{10}, 9, false}}
+    ));
+}
 
 EntityID add_preserved_entity(TestScene& scene) {
     EntityManager& em = scene.get_entity_manager();
@@ -422,6 +440,7 @@ int main() {
     std::filesystem::current_path(ENGINE_SOURCE_DIR);
     [[maybe_unused]] const AssetScanResult assets = AssetDatabase::get().scan("assets");
     test_round_trip_restores_destroyed_child_hierarchy();
+    test_render_layer_effect_assignments_round_trip();
     test_forward_parent_reference_is_order_independent();
     test_sprite_outline_authoring_round_trips();
     test_all_project_scenes_match_the_registered_schema();

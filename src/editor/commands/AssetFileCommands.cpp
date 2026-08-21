@@ -27,6 +27,10 @@ CreateAssetCommand::CreateAssetCommand(AssetDatabase* database, fs::path path, s
 bool CreateAssetCommand::execute() {
     std::error_code error;
     if (fs::exists(m_path, error)) return false;
+    if (!m_path.parent_path().empty()) {
+        fs::create_directories(m_path.parent_path(), error);
+        if (error) return false;
+    }
     if (!FileSystem::write_text_atomically(m_path.string(), m_content)) return false;
     if (!m_initialized) {
         if (!m_database || !m_database->import_asset(m_path).has_value()) {

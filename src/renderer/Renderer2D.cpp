@@ -78,6 +78,10 @@ void Renderer2D::clear_render_layer_effects(RenderLayer layer) {
     m_render_layer_effects[std::min<RenderLayer>(layer, 31)].clear();
 }
 
+void Renderer2D::clear_all_render_layer_effects() {
+    for (auto& passes : m_render_layer_effects) passes.clear();
+}
+
 std::size_t Renderer2D::get_active_render_layer_effect_count(RenderLayer layer) const {
     const auto& passes = m_render_layer_effects[std::min<RenderLayer>(layer, 31)];
     return static_cast<std::size_t>(std::count_if(passes.begin(), passes.end(), [](const auto& pass) {

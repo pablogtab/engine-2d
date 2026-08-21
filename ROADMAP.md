@@ -252,18 +252,21 @@ These systems form the current baseline and should be extended rather than rewri
 
 **Goal:** Extend the current renderer rather than replace it, while making ordering and intermediate surfaces explicit.
 
-- [ ] Define render stages for scene geometry, local effect surfaces, lighting, global post-processing, Canvas/UI, and final presentation.
+- [x] Define render stages for scene geometry, local effect surfaces, lighting, global post-processing, Canvas/UI, and final presentation.
   - [x] Establish the explicit `SceneGeometry -> LocalEffects -> Lighting -> GlobalPostProcess -> CanvasUI -> Presentation` contract in `Renderer2D`, including per-stage frame metrics.
   - [x] Add the pooled local-effects stage with ordered pass chaining and automatic intermediate-surface release.
   - [x] Add the lighting stage with reusable compositing passes before global post-processing.
 - [ ] Introduce render layers shared by sprites, tilemaps, particles, lights, and cameras.
   - [x] Add common layer identities and camera masks for sprites, tilemaps, and particles.
   - [x] Make render layers stable composition groups while preserving authored order within each layer.
-  - [ ] Expose authored layer/mask controls and apply the contract to Light components when they exist.
+  - [x] Expose authored layer and camera-mask controls in the Inspector.
+  - [ ] Apply the render-layer contract to Light components when they exist.
 - [ ] Support entity- or layer-scoped multipass effects through managed intermediate surfaces.
-- [ ] Keep simple single-pass sprite materials on the direct fast path.
-- [ ] Define clear ownership and pooling for render targets.
-- [ ] Track draw calls, material switches, pass timings, and render-target memory.
+  - [x] Add reusable `.layereffect` recipes with ordered material passes plus scene-owned layer assignments, cached runtime resolution, authoring, and undo/redo.
+  - [ ] Add entity-scoped multipass isolation and authoring.
+- [x] Keep simple single-pass sprite materials on the direct fast path.
+- [x] Define clear ownership and pooling for render targets.
+- [x] Track draw calls, material switches, pass timings, and render-target memory.
   - [x] Report per-stage draw calls, material switches, and CPU timings; expose render-target pool allocation metrics.
 - [ ] Remove obsolete renderer compatibility stubs after all callers use the current batching path.
 - [ ] Add GPU integration tests or deterministic validation scenes for pass ordering and state reset.

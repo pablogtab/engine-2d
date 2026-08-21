@@ -6,6 +6,7 @@
 #include "renderer/SpriteSortKey.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "renderer/RenderTargetPool.hpp"
+#include "renderer/RenderLayerEffectProfile.hpp"
 #include "renderer/material/FragmentShader.hpp"
 #include "renderer/material/IMaterialBackend.hpp"
 #include "renderer/material/Material.hpp"
@@ -15,6 +16,8 @@
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/commands/PostProcessProfileCommands.hpp"
 #include "core/AssetDatabase.hpp"
+#include "core/FileSystem.hpp"
+#include "scene/Scene.hpp"
 #include <cassert>
 #include <cmath>
 #include <filesystem>
@@ -106,6 +109,29 @@ public:
     bool succeed{true};
     int apply_count{0};
     Engine::LightingContext last_context{};
+};
+
+class LayerEffectTestScene final : public Engine::Scene {
+public:
+    LayerEffectTestScene() : Scene("LayerEffectTest") {}
+    [[nodiscard]] bool supports_render_layer_effects() const override { return true; }
+    [[nodiscard]] const std::vector<Engine::RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const override { return assignments; }
+    bool set_render_layer_effect_assignments(std::vector<Engine::RenderLayerEffectAssignment> next, const Engine::AssetDatabase&) override {
+        assignments = std::move(next); return true;
+    }
+    bool refresh_render_layer_effects(const Engine::AssetDatabase&) override { return true; }
+    std::vector<Engine::RenderLayerEffectAssignment> assignments;
+};
+
+class RejectingLayerEffectTestScene final : public Engine::Scene {
+public:
+    RejectingLayerEffectTestScene() : Scene("RejectingLayerEffectTest") {}
+    [[nodiscard]] bool supports_render_layer_effects() const override { return true; }
+    [[nodiscard]] const std::vector<Engine::RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const override { return assignments; }
+    bool set_render_layer_effect_assignments(std::vector<Engine::RenderLayerEffectAssignment>, const Engine::AssetDatabase&) override {
+        return false;
+    }
+    std::vector<Engine::RenderLayerEffectAssignment> assignments;
 };
 
 void test_night_vision_shader_assets_match_runtime_contract() {
@@ -675,6 +701,151 @@ void test_render_layers_are_composed_in_layer_order() {
     SDL_DestroySurface(surface);
 }
 
+void test_render_layer_effect_profile_round_trip_and_asset_dependencies() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_layer_effect_profile_test";
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+    fs::create_directories(root / "assets/shaders");
+    fs::create_directories(root / "assets/materials");
+    fs::create_directories(root / "assets/effects");
+    assert(Engine::FileSystem::write_text(
+        (root / "assets/shaders/Test.msl").string(),
+        "fragment float4 main0() { return float4(1); }\n"
+    ));
+    Engine::AssetDatabase database(root);
+    [[maybe_unused]] const auto scan = database.scan(root / "assets");
+    const auto* shader_source = database.find_by_path("assets/shaders/Test.msl");
+    assert(shader_source);
+    const std::string shader_json =
+        "{\"name\":\"Layer Effect Shader\",\"sampler_count\":1,\"uniform_buffers\":[],"
+        "\"variants\":[{\"format\":\"msl\",\"source_handle\":\"" +
+        shader_source->handle.to_string() + "\",\"entry_point\":\"main0\"}]}";
+    assert(Engine::FileSystem::write_text((root / "assets/shaders/Test.shader").string(), shader_json));
+    const auto shader_handle = database.import_asset(root / "assets/shaders/Test.shader");
+    assert(shader_handle);
+    const auto create_material = [&](const char* filename, const char* name) {
+        const std::string material_json = "{\"name\":\"" + std::string(name) +
+            "\",\"shader_handle\":\"" + shader_handle->to_string() + "\",\"uniforms\":[]}";
+        const fs::path material_path = root / "assets/materials" / filename;
+        assert(Engine::FileSystem::write_text(material_path.string(), material_json));
+        const auto handle = database.import_asset(material_path);
+        assert(handle);
+        return *handle;
+    };
+    const auto glow_material = create_material("Glow.material", "Glow");
+    const auto outline_material = create_material("Outline.material", "Outline");
+    Engine::RenderLayerEffectProfile profile;
+    profile.name = "Foreground Glow";
+    profile.passes = {{glow_material, true}, {outline_material, false}};
+    const fs::path path = root / "assets/effects/foreground.layereffect";
+    assert(profile.save_asset(path.string(), database));
+    const auto* record = database.find_by_path("assets/effects/foreground.layereffect");
+    assert(record && record->type == Engine::AssetType::RenderLayerEffectProfile &&
+           record->status == Engine::AssetStatus::Ready);
+    const auto restored = Engine::RenderLayerEffectProfile::load_asset(record->handle, database);
+    assert(restored && *restored == profile);
+    assert(database.dependencies(record->handle) ==
+           std::vector<Engine::AssetHandle>({glow_material, outline_material}));
+    std::string error;
+    const auto runtime_passes = restored->build_runtime_passes(database, nullptr, &error);
+    assert(runtime_passes.size() == 1 && error.empty());
+    Engine::RenderLayerEffectProfile malformed;
+    assert(!malformed.from_json(R"({"name":5,"passes":[]})", &error));
+    assert(!malformed.from_json(R"({"render_layer":32,"passes":[]})", &error));
+    malformed.name.clear();
+    assert(!malformed.save_asset((root / "assets/effects/invalid.layereffect").string(), database, &error));
+    fs::remove(root / "assets/materials/Outline.material", ignored);
+    [[maybe_unused]] const auto missing_dependency_scan = database.rescan();
+    assert(database.find(record->handle)->status == Engine::AssetStatus::MissingDependency);
+    assert(!Engine::RenderLayerEffectProfile::load_asset(record->handle, database));
+    const auto repairable = Engine::RenderLayerEffectProfile::load_asset_for_authoring(record->handle, database);
+    assert(repairable && *repairable == profile);
+    fs::remove_all(root, ignored);
+}
+
+void test_scene_layer_effect_assignment_is_undoable() {
+    const auto root = std::filesystem::temp_directory_path() / "engine2d_layer_effect_command_test";
+    Engine::AssetDatabase database(root);
+    LayerEffectTestScene scene;
+    scene.assignments = {{Engine::AssetHandle{1}, 4, true}};
+    Engine::EditorCommandHistory history;
+    history.execute_command(std::make_unique<Engine::SetSceneRenderLayerEffectsCommand>(
+        &scene, &database, scene.assignments,
+        std::vector<Engine::RenderLayerEffectAssignment>{{Engine::AssetHandle{2}, 5, true}, {Engine::AssetHandle{3}, 6, false}}
+    ));
+    assert(scene.assignments == std::vector<Engine::RenderLayerEffectAssignment>(
+        {{Engine::AssetHandle{2}, 5, true}, {Engine::AssetHandle{3}, 6, false}}
+    ));
+    history.undo();
+    assert(scene.assignments == std::vector<Engine::RenderLayerEffectAssignment>(
+        {{Engine::AssetHandle{1}, 4, true}}
+    ));
+    history.redo();
+    assert(scene.assignments == std::vector<Engine::RenderLayerEffectAssignment>(
+        {{Engine::AssetHandle{2}, 5, true}, {Engine::AssetHandle{3}, 6, false}}
+    ));
+}
+
+void test_layer_effect_asset_edits_are_undoable() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_layer_effect_edit_command_test";
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+    fs::create_directories(root / "assets/effects");
+    Engine::AssetDatabase database(root);
+    Engine::RenderLayerEffectProfile before;
+    before.name = "World Effects";
+    const fs::path path = root / "assets/effects/world.layereffect";
+    assert(before.save_asset(path.string(), database));
+    const auto* record = database.find_by_path("assets/effects/world.layereffect");
+    assert(record);
+    LayerEffectTestScene scene;
+    scene.assignments = {{record->handle, 2, true}};
+    auto after = before;
+    after.name = "Foreground Effects";
+    Engine::EditorCommandHistory history;
+    history.execute_command(std::make_unique<Engine::ModifyRenderLayerEffectProfileCommand>(
+        &scene, &database, record->handle, before, after
+    ));
+    auto loaded = Engine::RenderLayerEffectProfile::load_asset(record->handle, database);
+    assert(loaded && *loaded == after);
+    history.undo();
+    loaded = Engine::RenderLayerEffectProfile::load_asset(record->handle, database);
+    assert(loaded && *loaded == before);
+    history.redo();
+    loaded = Engine::RenderLayerEffectProfile::load_asset(record->handle, database);
+    assert(loaded && *loaded == after);
+    fs::remove_all(root, ignored);
+}
+
+void test_failed_layer_effect_edit_restores_asset_contents() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_layer_effect_edit_rollback_test";
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+    fs::create_directories(root / "assets/effects");
+    Engine::AssetDatabase database(root);
+    Engine::RenderLayerEffectProfile before;
+    before.name = "Stable Effects";
+    const fs::path path = root / "assets/effects/stable.layereffect";
+    assert(before.save_asset(path.string(), database));
+    const auto* record = database.find_by_path("assets/effects/stable.layereffect");
+    assert(record);
+    RejectingLayerEffectTestScene scene;
+    scene.assignments = {{record->handle, 3, true}};
+    auto rejected = before;
+    rejected.name = "Rejected Effects";
+    Engine::EditorCommandHistory history;
+    history.execute_command(std::make_unique<Engine::ModifyRenderLayerEffectProfileCommand>(
+        &scene, &database, record->handle, before, rejected
+    ));
+    assert(!history.can_undo());
+    const auto restored = Engine::RenderLayerEffectProfile::load_asset(record->handle, database);
+    assert(restored && *restored == before);
+    fs::remove_all(root, ignored);
+}
+
 } // namespace
 
 int main() {
@@ -698,6 +869,10 @@ int main() {
     test_renderer_composes_lighting_before_global_post_process();
     test_camera_render_layer_mask_filters_world_submissions();
     test_render_layers_are_composed_in_layer_order();
+    test_render_layer_effect_profile_round_trip_and_asset_dependencies();
+    test_scene_layer_effect_assignment_is_undoable();
+    test_layer_effect_asset_edits_are_undoable();
+    test_failed_layer_effect_edit_restores_asset_contents();
     std::cout << "PostProcessTests passed\n";
     return 0;
 }

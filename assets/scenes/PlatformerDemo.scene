@@ -101,6 +101,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     64.0,
                     64.0
@@ -182,6 +183,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     1600.0,
                     48.0
@@ -256,6 +258,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     160.0,
                     24.0
@@ -330,6 +333,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     200.0,
                     22.0
@@ -404,6 +408,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 1,
                 "size": [
                     220.0,
                     24.0
@@ -478,6 +483,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     200.0,
                     28.0
@@ -552,6 +558,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     64.0,
                     18.0
@@ -629,6 +636,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     28.0,
                     28.0
@@ -706,6 +714,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     28.0,
                     28.0
@@ -783,6 +792,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     28.0,
                     28.0
@@ -857,6 +867,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     120.0,
                     20.0
@@ -907,6 +918,7 @@
                 "follow_target": 1,
                 "is_primary": true,
                 "projection": "fixed_height",
+                "render_layer_mask": 4294967295,
                 "zoom": 1.0
             },
             "id": 12,
@@ -1007,6 +1019,7 @@
                 ],
                 "outline_pulse": false,
                 "outline_thickness": 2.0,
+                "render_layer": 0,
                 "size": [
                     28.0,
                     28.0
@@ -1036,6 +1049,13 @@
         }
     ],
     "post_process_profile_handle": "6cf2c88d90447631",
+    "render_layer_effect_assignments": [
+        {
+            "enabled": true,
+            "profile_handle": "bf695f890eea01bd",
+            "render_layer": 1
+        }
+    ],
     "scene_name": "PlatformerDemo",
     "version": 2
 }

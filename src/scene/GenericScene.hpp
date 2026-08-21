@@ -6,6 +6,8 @@
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/postprocess/PostProcessPipeline.hpp"
 #include "../renderer/postprocess/PostProcessProfile.hpp"
+#include "../renderer/RenderLayerEffectProfile.hpp"
+#include <array>
 #include <vector>
 
 namespace Engine {
@@ -29,6 +31,12 @@ public:
     [[nodiscard]] bool supports_post_process_profile_assets() const override { return true; }
     [[nodiscard]] AssetHandle get_post_process_profile_handle() const override { return m_post_process_profile_handle; }
     bool set_post_process_profile_handle(AssetHandle handle, const AssetDatabase& database) override;
+    [[nodiscard]] bool supports_render_layer_effects() const override { return true; }
+    [[nodiscard]] const std::vector<RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const override {
+        return m_render_layer_effect_assignments;
+    }
+    bool set_render_layer_effect_assignments(std::vector<RenderLayerEffectAssignment> assignments, const AssetDatabase& database) override;
+    bool refresh_render_layer_effects(const AssetDatabase& database) override;
 
     // Camera Access
     [[nodiscard]] Camera2D& get_camera() { return m_camera; }
@@ -75,6 +83,11 @@ private:
     PostProcessPipeline m_post_process_pipeline;
     PostProcessProfile m_post_process_profile;
     AssetHandle m_post_process_profile_handle{};
+    std::vector<RenderLayerEffectAssignment> m_render_layer_effect_assignments;
+    std::vector<RenderLayerEffectProfile> m_render_layer_effect_profiles;
+    std::array<std::vector<std::shared_ptr<ILocalEffectPass>>, 32> m_render_layer_effect_runtime_passes;
+    std::shared_ptr<IMaterialBackend> m_render_layer_effect_backend;
+    bool m_render_layer_effects_dirty{true};
     bool m_post_process_enabled{false};
     bool m_post_process_initialized{false};
 };
