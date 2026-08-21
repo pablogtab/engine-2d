@@ -6,6 +6,20 @@
 
 namespace Engine {
 
+enum class OrientationPolicy {
+    Auto,
+    Landscape,
+    Portrait,
+    LandscapeLeft,
+    LandscapeRight,
+    PortraitUpright,
+    PortraitUpsideDown
+};
+
+[[nodiscard]] const char* orientation_policy_to_string(OrientationPolicy policy);
+[[nodiscard]] OrientationPolicy orientation_policy_from_string(const std::string& value);
+[[nodiscard]] const char* orientation_policy_sdl_hint(OrientationPolicy policy);
+
 struct ProjectDisplaySettings {
     int reference_width{1280};
     int reference_height{720};
@@ -15,6 +29,7 @@ struct ProjectDisplaySettings {
     int default_window_height{720};
     float default_refresh_rate{0.0f};
     bool default_vsync{true};
+    OrientationPolicy orientation_policy{OrientationPolicy::Auto};
 
     [[nodiscard]] float aspect_ratio() const {
         return static_cast<float>(reference_width) / static_cast<float>(reference_height);

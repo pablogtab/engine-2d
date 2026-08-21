@@ -13,6 +13,7 @@
 #include "../tools/ViewportLightingOverlay.hpp"
 #include "../tools/EditorEntityVisibilityFilter.hpp"
 #include "../tools/EditorToolbox.hpp"
+#include "../tools/DevicePreview.hpp"
 #include "../tools/TilemapPaintingTool.hpp"
 #include "../panels/TilemapPalettePanel.hpp"
 #include "../stage/PrefabStageController.hpp"
@@ -143,6 +144,12 @@ private:
     ViewportGridSettings m_grid_settings;
     SafeAreaInsets m_safe_area_preview{};
     bool m_show_safe_area_overlay{true};
+    std::size_t m_device_preview_profile{0};
+    DevicePreviewOrientation m_device_preview_orientation{DevicePreviewOrientation::Portrait};
+    DevicePreviewProfile m_custom_device_preview{
+        "Custom", 390, 844, {0.0f, 47.0f, 0.0f, 34.0f}
+    };
+    SafeAreaInsets m_game_safe_area_render{};
     ViewportReferenceOverlay m_reference_overlay;
     ViewportColliderOverlay m_collider_overlay;
     ViewportLightingOverlay m_lighting_overlay;
@@ -152,8 +159,11 @@ private:
     void render_entity_context_menu(EntityManager& em, EntityID entity);
     void render_rename_entity_popup(EntityManager& em);
     void render_transform_toolbar();
+    void render_device_preview_toolbar();
     bool ensure_render_target();
     void configure_scene_view();
+    [[nodiscard]] bool has_device_preview() const;
+    [[nodiscard]] DevicePreviewProfile active_device_preview() const;
     [[nodiscard]] bool is_position_snap_active() const;
 
     // Sub-tools

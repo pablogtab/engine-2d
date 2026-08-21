@@ -7,6 +7,49 @@
 
 namespace Engine {
 
+const char* orientation_policy_to_string(OrientationPolicy policy) {
+    switch (policy) {
+        case OrientationPolicy::Landscape: return "landscape";
+        case OrientationPolicy::Portrait: return "portrait";
+        case OrientationPolicy::LandscapeLeft: return "landscape_left";
+        case OrientationPolicy::LandscapeRight: return "landscape_right";
+        case OrientationPolicy::PortraitUpright: return "portrait_upright";
+        case OrientationPolicy::PortraitUpsideDown: return "portrait_upside_down";
+        case OrientationPolicy::Auto: return "auto";
+    }
+    return "auto";
+}
+
+OrientationPolicy orientation_policy_from_string(const std::string& value) {
+    if (value == "landscape") return OrientationPolicy::Landscape;
+    if (value == "portrait") return OrientationPolicy::Portrait;
+    if (value == "landscape_left") return OrientationPolicy::LandscapeLeft;
+    if (value == "landscape_right") return OrientationPolicy::LandscapeRight;
+    if (value == "portrait_upright") return OrientationPolicy::PortraitUpright;
+    if (value == "portrait_upside_down") return OrientationPolicy::PortraitUpsideDown;
+    return OrientationPolicy::Auto;
+}
+
+const char* orientation_policy_sdl_hint(OrientationPolicy policy) {
+    switch (policy) {
+        case OrientationPolicy::Landscape:
+            return "LandscapeLeft LandscapeRight";
+        case OrientationPolicy::Portrait:
+            return "Portrait PortraitUpsideDown";
+        case OrientationPolicy::LandscapeLeft:
+            return "LandscapeLeft";
+        case OrientationPolicy::LandscapeRight:
+            return "LandscapeRight";
+        case OrientationPolicy::PortraitUpright:
+            return "Portrait";
+        case OrientationPolicy::PortraitUpsideDown:
+            return "PortraitUpsideDown";
+        case OrientationPolicy::Auto:
+            return "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown";
+    }
+    return "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown";
+}
+
 namespace {
 
 const char* presentation_to_string(PresentationMode presentation) {
@@ -63,6 +106,9 @@ bool ProjectSettings::load(const std::string& filepath) {
     m_display.default_window_height = std::clamp(display.value("default_window_height", 720), 240, 16384);
     m_display.default_refresh_rate = std::max(display.value("default_refresh_rate", 0.0f), 0.0f);
     m_display.default_vsync = display.value("default_vsync", true);
+    m_display.orientation_policy = orientation_policy_from_string(
+        display.value("orientation_policy", std::string{"auto"})
+    );
     ENGINE_LOG_INFO(
         "[PROJECT SETTINGS] Authoring reference: {}x{} ({})",
         m_display.reference_width,
@@ -82,7 +128,8 @@ bool ProjectSettings::save() const {
         {"default_window_width", m_display.default_window_width},
         {"default_window_height", m_display.default_window_height},
         {"default_refresh_rate", m_display.default_refresh_rate},
-        {"default_vsync", m_display.default_vsync}
+        {"default_vsync", m_display.default_vsync},
+        {"orientation_policy", orientation_policy_to_string(m_display.orientation_policy)}
     };
     return FileSystem::write_text(m_filepath, root.dump(2) + "\n");
 }

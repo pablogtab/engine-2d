@@ -101,6 +101,21 @@ void ProjectSettingsPanel::on_gui() {
                 ImGui::SetTooltip("Fit preserves the image, Fill crops, Stretch distorts, Responsive reprojects for the available aspect ratio.");
             }
 
+            int orientation = static_cast<int>(m_pending.orientation_policy);
+            ImGui::SetNextItemWidth(190.0f);
+            if (ImGui::Combo(
+                    "Allowed orientations",
+                    &orientation,
+                    "Auto Rotation\0Landscape\0Portrait\0Landscape Left\0Landscape Right\0Portrait Upright\0Portrait Upside Down\0"
+                )) {
+                m_pending.orientation_policy = static_cast<OrientationPolicy>(orientation);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Applied before SDL starts on iOS and Android. Restart the runtime after changing it."
+                );
+            }
+
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::TextUnformatted("Desktop defaults");

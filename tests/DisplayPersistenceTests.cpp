@@ -95,7 +95,8 @@ int main() {
     "default_window_width": 1024,
     "default_window_height": 768,
     "default_refresh_rate": 75.0,
-    "default_vsync": false
+    "default_vsync": false,
+    "orientation_policy": "portrait"
   }
 })");
     write_file(prefs_path, R"({"display.window_mode":"windowed","display.width":900})");
@@ -106,6 +107,20 @@ int main() {
     require(project_settings.display().presentation == Engine::PresentationMode::Fill, "presentation is loaded");
     require(project_settings.display().default_window_mode == Engine::WindowMode::BorderlessFullscreen, "desktop mode is loaded");
     require(!project_settings.display().default_vsync, "VSync default is loaded");
+    require(
+        project_settings.display().orientation_policy == Engine::OrientationPolicy::Portrait,
+        "orientation policy is loaded"
+    );
+    require(
+        std::string(Engine::orientation_policy_sdl_hint(
+            project_settings.display().orientation_policy
+        )) == "Portrait PortraitUpsideDown",
+        "orientation policy maps to the SDL startup hint"
+    );
+    require(
+        Engine::orientation_policy_from_string("invalid") == Engine::OrientationPolicy::Auto,
+        "unknown orientation policies use the safe automatic default"
+    );
 
     Engine::PlayerPrefs::init(prefs_path.string());
     const std::string project_before = read_file(project_path);
@@ -124,11 +139,16 @@ int main() {
     Engine::ProjectDisplaySettings changed = project_settings.display();
     changed.default_window_mode = Engine::WindowMode::ExclusiveFullscreen;
     changed.default_refresh_rate = 120.0f;
+    changed.orientation_policy = Engine::OrientationPolicy::LandscapeRight;
     project_settings.set_display(changed);
     const std::string saved = read_file(project_path);
     require(saved.find("\"display\"") != std::string::npos, "project settings use the display section");
     require(saved.find("\"game_view\"") == std::string::npos, "obsolete game_view section is not serialized");
     require(saved.find("\"exclusive\"") != std::string::npos, "desktop defaults are serialized");
+    require(
+        saved.find("\"orientation_policy\": \"landscape_right\"") != std::string::npos,
+        "orientation policy is serialized"
+    );
 
     std::filesystem::remove_all(directory);
     return EXIT_SUCCESS;

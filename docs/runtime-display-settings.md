@@ -106,5 +106,15 @@ not part of this API yet.
 On mobile, the operating system owns the physical resolution and window mode.
 Games should hide unsupported controls using `DisplayCapabilities` and consume the
 read-only size, DPI, and orientation in `DisplayState`. Surface and orientation
-changes automatically update the active `RenderView`; Canvas safe areas and render
-scale are planned as separate systems.
+changes automatically update the active `RenderView` and Canvas safe area.
+
+`ProjectDisplaySettings::orientation_policy` controls the orientations allowed by
+the exported game. The runtime maps this policy to `SDL_HINT_ORIENTATIONS` before
+SDL initialization, so changing the policy in Project Settings requires restarting
+the runtime. It does not force-rotate a desktop window.
+
+The integrated editor provides a Game View Device Preview with built-in and custom
+resolution/safe-area profiles. Preview orientation and custom profile values are
+editor-only session state: they resize the Game View render target and feed simulated
+safe-area insets through the normal runtime layout path without modifying scenes,
+prefabs, project settings, or player preferences.

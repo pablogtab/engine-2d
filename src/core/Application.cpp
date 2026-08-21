@@ -82,6 +82,10 @@ Application::Application(const std::string& name, int width, int height, bool st
 
     // 1. Create Window & SDL Renderer
     const auto& project_display = m_project_settings.display();
+    SDL_SetHint(
+        SDL_HINT_ORIENTATIONS,
+        orientation_policy_sdl_hint(project_display.orientation_policy)
+    );
     const int initial_width = start_with_editor ? width : project_display.default_window_width;
     const int initial_height = start_with_editor ? height : project_display.default_window_height;
     m_window = std::make_unique<Window>(name, initial_width, initial_height, start_with_editor);

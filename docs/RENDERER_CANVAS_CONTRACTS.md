@@ -51,6 +51,12 @@ pixel insets before storing `DisplayState`. Fixed-resolution views map those ins
 into their reference target; responsive views keep physical output coordinates.
 Safe-area data is runtime state and is never serialized into a scene or prefab.
 
+Game View Device Preview replaces the view's output dimensions and safe-area insets
+with an editor-only profile. The scene still receives them through the same
+`RenderViewConfiguration` contract as a real display change. Preview selection,
+orientation, and custom insets are never authored content. Project orientation policy
+is separate: `Application` applies it through `SDL_HINT_ORIENTATIONS` before SDL starts.
+
 ## Canvas viewport rectangles
 
 `calculate_canvas_viewport` is the shared pure contract used by rendering and input.
@@ -95,7 +101,8 @@ group around the resolved UI pivot while retaining per-glyph atlas geometry.
 
 ## Editor mutation rules
 
-Canvas frames and safe-area overlays are view-only state. Authored UI edits are not:
+Canvas frames, device profiles, preview orientation, and safe-area overlays are
+view-only state. Authored UI edits are not:
 
 - Inspector edits use `EditorPropertyTransaction`.
 - A continuous gizmo gesture creates one command on release.

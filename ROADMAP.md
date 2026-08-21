@@ -331,7 +331,8 @@ This is intentionally independent from the material workflow above. Materials re
 ### Display and Mobile Follow-Up
 
 - [ ] Add standalone render scale and dynamic resolution.
-- [ ] Add configurable orientation policies.
+- [x] Add configurable orientation policies.
+- [x] Add editor-only Game View device profiles with custom resolution, safe-area simulation, and immediate portrait/landscape rotation.
 - [ ] Handle mobile lifecycle, suspend/resume, surface recreation, rotation, and split-screen changes.
 - [ ] Add real iOS and Android targets before claiming mobile support.
 

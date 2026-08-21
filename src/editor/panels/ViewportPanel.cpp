@@ -205,20 +205,26 @@ void ViewportPanel::configure_scene_view() {
     const RenderViewKind view = m_scene_manager->is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
     if (view == RenderViewKind::Game && m_project_settings) {
         const auto& game_view = m_project_settings->display();
-        const float scale_x = static_cast<float>(m_render_width) /
-            static_cast<float>(std::max(game_view.reference_width, 1));
-        const float scale_y = static_cast<float>(m_render_height) /
-            static_cast<float>(std::max(game_view.reference_height, 1));
-        const SafeAreaInsets preview_safe_area{
-            m_safe_area_preview.left * scale_x,
-            m_safe_area_preview.top * scale_y,
-            m_safe_area_preview.right * scale_x,
-            m_safe_area_preview.bottom * scale_y
-        };
+        if (has_device_preview()) {
+            m_game_safe_area_render = scale_device_safe_area(
+                active_device_preview(), m_render_width, m_render_height
+            );
+        } else {
+            const float scale_x = static_cast<float>(m_render_width) /
+                static_cast<float>(std::max(game_view.reference_width, 1));
+            const float scale_y = static_cast<float>(m_render_height) /
+                static_cast<float>(std::max(game_view.reference_height, 1));
+            m_game_safe_area_render = {
+                m_safe_area_preview.left * scale_x,
+                m_safe_area_preview.top * scale_y,
+                m_safe_area_preview.right * scale_x,
+                m_safe_area_preview.bottom * scale_y
+            };
+        }
         m_scene_manager->configure_view(view, {
             m_render_width, m_render_height,
             game_view.reference_width, game_view.reference_height,
-            preview_safe_area
+            m_game_safe_area_render
         });
     } else {
         m_scene_manager->configure_view(view, {
@@ -228,6 +234,122 @@ void ViewportPanel::configure_scene_view() {
             m_show_safe_area_overlay
         });
     }
+}
+
+bool ViewportPanel::has_device_preview() const {
+    return m_device_preview_profile != 0;
+}
+
+DevicePreviewProfile ViewportPanel::active_device_preview() const {
+    if (m_device_preview_profile > 0 &&
+        m_device_preview_profile <= k_device_preview_profiles.size()) {
+        return orient_device_preview(
+            k_device_preview_profiles[m_device_preview_profile - 1],
+            m_device_preview_orientation
+        );
+    }
+    return orient_device_preview(m_custom_device_preview, m_device_preview_orientation);
+}
+
+void ViewportPanel::render_device_preview_toolbar() {
+    ImGui::PushID("DevicePreviewToolbar");
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Device");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(150.0f);
+
+    const std::size_t custom_index = k_device_preview_profiles.size() + 1;
+    const char* preview_name = "Free Aspect";
+    if (m_device_preview_profile > 0 &&
+        m_device_preview_profile <= k_device_preview_profiles.size()) {
+        preview_name = k_device_preview_profiles[m_device_preview_profile - 1].name.data();
+    } else if (m_device_preview_profile == custom_index) {
+        preview_name = "Custom";
+    }
+
+    if (ImGui::BeginCombo("##profile", preview_name)) {
+        if (ImGui::Selectable("Free Aspect", m_device_preview_profile == 0)) {
+            m_device_preview_profile = 0;
+        }
+        for (std::size_t index = 0; index < k_device_preview_profiles.size(); ++index) {
+            const bool selected = m_device_preview_profile == index + 1;
+            if (ImGui::Selectable(k_device_preview_profiles[index].name.data(), selected)) {
+                m_device_preview_profile = index + 1;
+            }
+        }
+        if (ImGui::Selectable("Custom", m_device_preview_profile == custom_index)) {
+            m_device_preview_profile = custom_index;
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!has_device_preview());
+    if (editor_icon_button(
+            "rotate", EditorIcon::Rotate,
+            "Rotate simulated device", false, ImVec2(24.0f, 24.0f)
+        )) {
+        m_device_preview_orientation =
+            m_device_preview_orientation == DevicePreviewOrientation::Portrait
+                ? DevicePreviewOrientation::Landscape
+                : DevicePreviewOrientation::Portrait;
+    }
+    ImGui::SameLine();
+    if (editor_icon_button(
+            "settings", EditorIcon::Settings,
+            "Device preview details", false, ImVec2(24.0f, 24.0f)
+        )) {
+        ImGui::OpenPopup("Device Preview Settings");
+    }
+    ImGui::EndDisabled();
+
+    if (has_device_preview()) {
+        const DevicePreviewProfile preview = active_device_preview();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d x %d", preview.width, preview.height);
+    }
+
+    if (ImGui::BeginPopup("Device Preview Settings")) {
+        ImGui::TextUnformatted("Device Preview");
+        ImGui::Separator();
+        const bool custom = m_device_preview_profile == custom_index;
+        ImGui::BeginDisabled(!custom);
+        int resolution[2]{m_custom_device_preview.width, m_custom_device_preview.height};
+        ImGui::SetNextItemWidth(190.0f);
+        if (ImGui::InputInt2("Resolution", resolution)) {
+            m_custom_device_preview.width = resolution[0];
+            m_custom_device_preview.height = resolution[1];
+        }
+        float insets[4]{
+            m_custom_device_preview.safe_area.left,
+            m_custom_device_preview.safe_area.top,
+            m_custom_device_preview.safe_area.right,
+            m_custom_device_preview.safe_area.bottom
+        };
+        ImGui::SetNextItemWidth(240.0f);
+        if (ImGui::InputFloat4("Safe L/T/R/B", insets, "%.0f")) {
+            m_custom_device_preview.safe_area = {
+                insets[0], insets[1], insets[2], insets[3]
+            };
+        }
+        ImGui::EndDisabled();
+        if (!custom) ImGui::TextDisabled("Select Custom to edit these values.");
+        m_custom_device_preview = sanitize_device_preview(m_custom_device_preview);
+        ImGui::Checkbox("Show safe area overlay", &m_show_safe_area_overlay);
+        const DevicePreviewProfile preview = active_device_preview();
+        ImGui::Spacing();
+        ImGui::Text(
+            "Output: %d x %d | Safe: %.0f / %.0f / %.0f / %.0f",
+            preview.width,
+            preview.height,
+            preview.safe_area.left,
+            preview.safe_area.top,
+            preview.safe_area.right,
+            preview.safe_area.bottom
+        );
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
 }
 
 ViewportPanel::~ViewportPanel() {
@@ -750,6 +872,7 @@ void ViewportPanel::on_gui() {
 
         ImGui::Spacing();
         render_transform_toolbar();
+        if (play_state != ScenePlayState::Edit) render_device_preview_toolbar();
 
         // --- 2. Canvas Image Rendering ---
         ImVec2 avail_size = ImGui::GetContentRegionAvail();
@@ -765,36 +888,48 @@ void ViewportPanel::on_gui() {
                 m_editor_view_height = std::max(1, static_cast<int>(std::round(avail_size.y * framebuffer_scale.y)));
             } else if (m_project_settings) {
                 const ProjectDisplaySettings& game_view = m_project_settings->display();
-                const glm::vec2 presentation_source = game_view.presentation == PresentationMode::Responsive
-                    ? glm::vec2(std::max(m_render_width, 1), std::max(m_render_height, 1))
-                    : glm::vec2(game_view.reference_width, game_view.reference_height);
-                const PresentationMapping mapping = calculate_presentation(
-                    presentation_source,
-                    glm::vec2(avail_size.x, avail_size.y),
-                    game_view.presentation
-                );
-                render_size = ImVec2(mapping.display_size.x, mapping.display_size.y);
-                uv_min = ImVec2(mapping.uv_min.x, mapping.uv_min.y);
-                uv_max = ImVec2(mapping.uv_max.x, mapping.uv_max.y);
-
                 const ImVec2 framebuffer_scale = ImGui::GetIO().DisplayFramebufferScale;
-                if (game_view.presentation == PresentationMode::Responsive) {
-                    const float desired_width = std::max(render_size.x * framebuffer_scale.x, 1.0f);
-                    const float desired_height = std::max(render_size.y * framebuffer_scale.y, 1.0f);
-                    const float reference_area = static_cast<float>(game_view.reference_width) * game_view.reference_height;
-                    const float desired_area = desired_width * desired_height;
-                    const float quality_scale = desired_area > reference_area
-                        ? std::sqrt(reference_area / desired_area)
-                        : 1.0f;
-                    m_game_preview_width = std::max(1, static_cast<int>(std::round(desired_width * quality_scale)));
-                    m_game_preview_height = std::max(1, static_cast<int>(std::round(desired_height * quality_scale)));
+                if (has_device_preview()) {
+                    const DevicePreviewProfile preview = active_device_preview();
+                    const PresentationMapping mapping = calculate_presentation(
+                        glm::vec2(preview.width, preview.height),
+                        glm::vec2(avail_size.x, avail_size.y),
+                        PresentationMode::Fit
+                    );
+                    render_size = ImVec2(mapping.display_size.x, mapping.display_size.y);
+                    m_game_preview_width = preview.width;
+                    m_game_preview_height = preview.height;
                 } else {
-                    const float preview_scale = std::clamp(std::max(
-                        render_size.x * framebuffer_scale.x / static_cast<float>(game_view.reference_width),
-                        render_size.y * framebuffer_scale.y / static_cast<float>(game_view.reference_height)
-                    ), 0.25f, 1.0f);
-                    m_game_preview_width = std::max(1, static_cast<int>(std::round(game_view.reference_width * preview_scale)));
-                    m_game_preview_height = std::max(1, static_cast<int>(std::round(game_view.reference_height * preview_scale)));
+                    const glm::vec2 presentation_source = game_view.presentation == PresentationMode::Responsive
+                        ? glm::vec2(std::max(m_render_width, 1), std::max(m_render_height, 1))
+                        : glm::vec2(game_view.reference_width, game_view.reference_height);
+                    const PresentationMapping mapping = calculate_presentation(
+                        presentation_source,
+                        glm::vec2(avail_size.x, avail_size.y),
+                        game_view.presentation
+                    );
+                    render_size = ImVec2(mapping.display_size.x, mapping.display_size.y);
+                    uv_min = ImVec2(mapping.uv_min.x, mapping.uv_min.y);
+                    uv_max = ImVec2(mapping.uv_max.x, mapping.uv_max.y);
+
+                    if (game_view.presentation == PresentationMode::Responsive) {
+                        const float desired_width = std::max(render_size.x * framebuffer_scale.x, 1.0f);
+                        const float desired_height = std::max(render_size.y * framebuffer_scale.y, 1.0f);
+                        const float reference_area = static_cast<float>(game_view.reference_width) * game_view.reference_height;
+                        const float desired_area = desired_width * desired_height;
+                        const float quality_scale = desired_area > reference_area
+                            ? std::sqrt(reference_area / desired_area)
+                            : 1.0f;
+                        m_game_preview_width = std::max(1, static_cast<int>(std::round(desired_width * quality_scale)));
+                        m_game_preview_height = std::max(1, static_cast<int>(std::round(desired_height * quality_scale)));
+                    } else {
+                        const float preview_scale = std::clamp(std::max(
+                            render_size.x * framebuffer_scale.x / static_cast<float>(game_view.reference_width),
+                            render_size.y * framebuffer_scale.y / static_cast<float>(game_view.reference_height)
+                        ), 0.25f, 1.0f);
+                        m_game_preview_width = std::max(1, static_cast<int>(std::round(game_view.reference_width * preview_scale)));
+                        m_game_preview_height = std::max(1, static_cast<int>(std::round(game_view.reference_height * preview_scale)));
+                    }
                 }
                 m_requested_width = m_game_preview_width;
                 m_requested_height = m_game_preview_height;
@@ -804,6 +939,37 @@ void ViewportPanel::on_gui() {
             ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + offset.x, ImGui::GetCursorPosY() + offset.y));
 
             ImGui::Image(reinterpret_cast<ImTextureID>(m_viewport_texture), render_size, uv_min, uv_max);
+
+            if (!is_editing_view && has_device_preview() && m_show_safe_area_overlay) {
+                const ImVec2 preview_min = ImGui::GetItemRectMin();
+                const ImVec2 preview_max = ImGui::GetItemRectMax();
+                const float scale_x = render_size.x /
+                    static_cast<float>(std::max(m_render_width, 1));
+                const float scale_y = render_size.y /
+                    static_cast<float>(std::max(m_render_height, 1));
+                const ImVec2 safe_min{
+                    preview_min.x + m_game_safe_area_render.left * scale_x,
+                    preview_min.y + m_game_safe_area_render.top * scale_y
+                };
+                const ImVec2 safe_max{
+                    preview_max.x - m_game_safe_area_render.right * scale_x,
+                    preview_max.y - m_game_safe_area_render.bottom * scale_y
+                };
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                draw_list->AddRect(
+                    preview_min, preview_max,
+                    IM_COL32(90, 100, 120, 230), 0.0f, 0, 1.0f
+                );
+                draw_list->AddRect(
+                    safe_min, safe_max,
+                    IM_COL32(255, 188, 74, 235), 0.0f, 0, 1.5f
+                );
+                draw_list->AddText(
+                    {safe_min.x + 5.0f, safe_min.y + 4.0f},
+                    IM_COL32(255, 188, 74, 220),
+                    "Safe Area"
+                );
+            }
 
             m_is_hovered = ImGui::IsItemHovered();
             const bool was_viewport_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);

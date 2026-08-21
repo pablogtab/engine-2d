@@ -4,6 +4,7 @@
 #include "ui/CanvasLayout.hpp"
 #include "scene/Camera2D.hpp"
 #include "editor/tools/UILayoutGizmoMath.hpp"
+#include "editor/tools/DevicePreview.hpp"
 #include "editor/inspector/UIAnchorPresets.hpp"
 
 #include <cassert>
@@ -233,6 +234,35 @@ void test_editor_canvas_previews_the_runtime_safe_area() {
     assert(viewport.physical_rect == viewport.safe_rect);
 }
 
+void test_device_preview_rotates_and_scales_safe_area() {
+    DevicePreviewProfile profile{
+        "Test Device", 390, 844, {10.0f, 47.0f, 20.0f, 34.0f}
+    };
+    const DevicePreviewProfile portrait = orient_device_preview(
+        profile, DevicePreviewOrientation::Portrait
+    );
+    assert(portrait.width == 390 && portrait.height == 844);
+    assert(portrait.safe_area == profile.safe_area);
+
+    const DevicePreviewProfile landscape = orient_device_preview(
+        profile, DevicePreviewOrientation::Landscape
+    );
+    assert(landscape.width == 844 && landscape.height == 390);
+    const SafeAreaInsets expected_landscape{34.0f, 10.0f, 47.0f, 20.0f};
+    assert(landscape.safe_area == expected_landscape);
+
+    const SafeAreaInsets scaled = scale_device_safe_area(landscape, 422, 195);
+    const SafeAreaInsets expected_scaled{17.0f, 5.0f, 23.5f, 10.0f};
+    assert(scaled == expected_scaled);
+
+    const DevicePreviewProfile invalid = sanitize_device_preview({
+        "Invalid", 10, 9000, {100.0f, -5.0f, 100.0f, 9001.0f}
+    });
+    assert(invalid.width == 64 && invalid.height == 4096);
+    const SafeAreaInsets expected_clamped{64.0f, 0.0f, 0.0f, 4096.0f};
+    assert(invalid.safe_area == expected_clamped);
+}
+
 void test_rotated_ui_layout_resolves_nested_geometry() {
     EntityManager entities;
     const EntityID canvas_entity = entities.create_entity();
@@ -395,6 +425,7 @@ int main() {
     test_fit_content_drives_the_resolved_rect_and_children();
     test_editor_canvas_stays_at_its_world_position();
     test_editor_canvas_previews_the_runtime_safe_area();
+    test_device_preview_rotates_and_scales_safe_area();
     test_rotated_ui_layout_resolves_nested_geometry();
     test_ui_drag_converts_screen_motion_to_canvas_pixels();
     test_ui_resize_handles_preserve_the_opposite_edges();
