@@ -482,7 +482,7 @@ These items are useful but should not interrupt the architecture work above unle
 1. **Scene Validator Foundations (Phase 3)**:
    - [x] Introduce a pure validation result model for absent or duplicate primary cameras and hierarchy errors. It does not mutate authored scene state.
    - [x] Add deterministic tests for each diagnostic and for valid scenes.
-   - [ ] Extend the model with missing assets and invalid collider/tilemap diagnostics.
+   - [x] Extend the model with missing assets and invalid collider/tilemap diagnostics.
 2. **Diagnostics Panel and Navigation (Phase 3)**:
    - Present grouped validation results, select the related entity or asset, and refresh after scene edits without changing authored content.
 3. **Reversible Safe Fixes (Phase 3)**:

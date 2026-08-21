@@ -2,7 +2,10 @@
 
 #include "../ecs/EntityManager.hpp"
 #include "../ecs/components/CoreComponents.hpp"
+#include "../ecs/components/PhysicsComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
+#include "../core/AssetDatabase.hpp"
+#include "../tilemap/Tilemap.hpp"
 
 #include <algorithm>
 #include <unordered_set>
@@ -31,9 +34,30 @@ bool parent_chain_has_cycle(const EntityManager& entities, EntityID entity) {
     return false;
 }
 
+bool has_ready_asset(
+    const AssetDatabase& asset_database,
+    AssetHandle handle,
+    AssetType expected_type
+) {
+    const AssetRecord* record = asset_database.find(handle);
+    return record && record->status == AssetStatus::Ready && record->type == expected_type;
+}
+
+bool has_ready_asset(
+    const AssetDatabase& asset_database,
+    const std::string& path,
+    AssetType expected_type
+) {
+    const AssetRecord* record = asset_database.find_by_path(path);
+    return record && record->status == AssetStatus::Ready && record->type == expected_type;
+}
+
 } // namespace
 
-std::vector<SceneDiagnostic> SceneValidator::validate(const EntityManager& entities) {
+std::vector<SceneDiagnostic> SceneValidator::validate(
+    const EntityManager& entities,
+    const AssetDatabase* asset_database
+) {
     std::vector<SceneDiagnostic> diagnostics;
 
     std::vector<EntityID> primary_cameras;
@@ -121,6 +145,88 @@ std::vector<SceneDiagnostic> SceneValidator::validate(const EntityManager& entit
                 entity,
                 "Hierarchy parent chain contains a cycle"
             );
+        }
+    }
+
+    for (const EntityID entity : entities.get_living_entities()) {
+        if (asset_database && entities.has_component<SpriteComponent>(entity)) {
+            const auto& sprite = entities.get_component<SpriteComponent>(entity);
+            if (sprite.texture_handle.is_valid() &&
+                !has_ready_asset(*asset_database, sprite.texture_handle, AssetType::Texture)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingTextureAsset,
+                    entity,
+                    "Sprite texture asset is missing or unavailable"
+                );
+            }
+            if (sprite.material_handle.is_valid() &&
+                !has_ready_asset(*asset_database, sprite.material_handle, AssetType::Material)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingMaterialAsset,
+                    entity,
+                    "Sprite material asset is missing or unavailable"
+                );
+            }
+        }
+
+        if (asset_database && entities.has_component<PrefabLinkComponent>(entity)) {
+            const auto& prefab = entities.get_component<PrefabLinkComponent>(entity);
+            if (!prefab.prefab_asset_path.empty() &&
+                !has_ready_asset(*asset_database, prefab.prefab_asset_path, AssetType::Prefab)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingPrefabAsset,
+                    entity,
+                    "Prefab asset is missing or unavailable"
+                );
+            }
+        }
+
+        if (entities.has_component<ColliderComponent>(entity)) {
+            const auto& collider = entities.get_component<ColliderComponent>(entity);
+            const bool invalid_shape = std::any_of(collider.shapes.begin(), collider.shapes.end(), [](const ColliderShape& shape) {
+                return (shape.type == ColliderShapeType::Box && (shape.size.x <= 0.0f || shape.size.y <= 0.0f)) ||
+                    (shape.type == ColliderShapeType::Circle && shape.radius <= 0.0f) ||
+                    (shape.type == ColliderShapeType::Polygon && shape.vertices.size() < 3);
+            });
+            if (invalid_shape) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::InvalidColliderShape,
+                    entity,
+                    "Collider contains an invalid shape"
+                );
+            }
+        }
+
+        if (entities.has_component<TilemapComponent>(entity)) {
+            const auto& tilemap = entities.get_component<TilemapComponent>(entity);
+            if (tilemap.tile_size <= 0.0f || tilemap.tile_pixel_size <= 0 ||
+                tilemap.tileset_cols <= 0 || tilemap.tileset_rows <= 0) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::InvalidTilemapDimensions,
+                    entity,
+                    "Tilemap dimensions must be positive"
+                );
+            }
+            if (asset_database && !tilemap.tileset_path.empty() &&
+                !has_ready_asset(*asset_database, tilemap.tileset_path, AssetType::Texture)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingTilemapTileset,
+                    entity,
+                    "Tilemap tileset asset is missing or unavailable"
+                );
+            }
         }
     }
 

@@ -7,6 +7,7 @@
 namespace Engine {
 
 class EntityManager;
+class AssetDatabase;
 
 enum class SceneDiagnosticSeverity {
     Warning,
@@ -19,7 +20,13 @@ enum class SceneDiagnosticCode {
     MissingHierarchyParent,
     MissingHierarchyChild,
     HierarchyLinkMismatch,
-    HierarchyCycle
+    HierarchyCycle,
+    MissingTextureAsset,
+    MissingMaterialAsset,
+    MissingPrefabAsset,
+    MissingTilemapTileset,
+    InvalidColliderShape,
+    InvalidTilemapDimensions
 };
 
 struct SceneDiagnostic {
@@ -31,7 +38,10 @@ struct SceneDiagnostic {
 
 class SceneValidator {
 public:
-    [[nodiscard]] static std::vector<SceneDiagnostic> validate(const EntityManager& entities);
+    [[nodiscard]] static std::vector<SceneDiagnostic> validate(
+        const EntityManager& entities,
+        const AssetDatabase* asset_database = nullptr
+    );
     [[nodiscard]] static bool has_errors(const std::vector<SceneDiagnostic>& diagnostics);
 };
 

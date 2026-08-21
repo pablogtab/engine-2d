@@ -1,7 +1,10 @@
 #include "ecs/EntityManager.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
+#include "ecs/components/PhysicsComponents.hpp"
+#include "core/AssetDatabase.hpp"
 #include "scene/SceneValidator.hpp"
+#include "tilemap/Tilemap.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -92,6 +95,48 @@ void test_hierarchy_cycles_are_reported() {
     assert(SceneValidator::has_errors(diagnostics));
 }
 
+void test_missing_assets_are_reported_when_a_database_is_available() {
+    EntityManager entities;
+    AssetDatabase asset_database;
+
+    const EntityID sprite_entity = entities.create_entity();
+    SpriteComponent sprite;
+    sprite.texture_handle = AssetHandle{101};
+    sprite.material_handle = AssetHandle{102};
+    entities.add_component<SpriteComponent>(sprite_entity, sprite);
+
+    const EntityID prefab_entity = entities.create_entity();
+    entities.add_component<PrefabLinkComponent>(prefab_entity, PrefabLinkComponent{"assets/prefabs/missing.prefab"});
+
+    const EntityID tilemap_entity = entities.create_entity();
+    TilemapComponent tilemap;
+    tilemap.tileset_path = "assets/textures/missing.png";
+    entities.add_component<TilemapComponent>(tilemap_entity, tilemap);
+
+    const auto diagnostics = SceneValidator::validate(entities, &asset_database);
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTextureAsset));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingMaterialAsset));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingPrefabAsset));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTilemapTileset));
+}
+
+void test_invalid_colliders_and_tilemaps_are_reported() {
+    EntityManager entities;
+
+    const EntityID collider_entity = entities.create_entity();
+    entities.add_component<ColliderComponent>(collider_entity, ColliderComponent::Box({0.0f, 10.0f}));
+
+    const EntityID tilemap_entity = entities.create_entity();
+    TilemapComponent tilemap;
+    tilemap.tile_size = 0.0f;
+    tilemap.tileset_cols = 0;
+    entities.add_component<TilemapComponent>(tilemap_entity, tilemap);
+
+    const auto diagnostics = SceneValidator::validate(entities);
+    assert(contains_code(diagnostics, SceneDiagnosticCode::InvalidColliderShape));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::InvalidTilemapDimensions));
+}
+
 } // namespace
 
 int main() {
@@ -100,6 +145,8 @@ int main() {
     test_duplicate_primary_cameras_are_errors();
     test_hierarchy_errors_are_reported_without_mutation();
     test_hierarchy_cycles_are_reported();
+    test_missing_assets_are_reported_when_a_database_is_available();
+    test_invalid_colliders_and_tilemaps_are_reported();
     std::cout << "SceneValidatorTests passed\n";
     return 0;
 }
