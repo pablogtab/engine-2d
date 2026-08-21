@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 
 namespace Engine::InspectorPropertyPolicies {
 
@@ -57,12 +58,16 @@ inline constexpr auto Zoom = bounded_float(0.02f, 0.1f, 20.0f, "%.2fx");
 inline constexpr auto FollowOffset = unbounded_float(1.0f);
 inline constexpr auto FollowSpeed = bounded_float(0.1f, 0.1f, 20.0f, "%.1f");
 inline constexpr auto Bounds = unbounded_float(10.0f);
+inline constexpr auto RenderLayerMask = bounded_int(
+    1.0f, std::numeric_limits<int>::min(), std::numeric_limits<int>::max(), "0x%08X"
+);
 } // namespace Camera
 
 namespace Sprite {
 inline constexpr auto Size = bounded_float(1.0f, 1.0f, 2048.0f);
 inline constexpr auto Opacity = bounded_float(0.5f, 0.0f, 100.0f, "%.0f%%");
 inline constexpr auto SortingOrder = bounded_int(1.0f, -32768, 32767);
+inline constexpr auto RenderLayer = bounded_int(1.0f, 0, 31);
 inline constexpr auto OutlineThickness = bounded_float(0.1f, 0.0f, 64.0f, "%.1f px");
 } // namespace Sprite
 
@@ -86,6 +91,7 @@ inline constexpr auto PixelSize = bounded_int(1.0f, 1, 4096, "%d px");
 inline constexpr auto Friction = bounded_float(0.01f, 0.0f, 1.0f, "%.2f");
 inline constexpr auto Restitution = bounded_float(0.01f, 0.0f, 1.0f, "%.2f");
 inline constexpr auto CollisionBits = bounded_int(1.0f, 0, 65535, "0x%04X");
+inline constexpr auto RenderLayer = bounded_int(1.0f, 0, 31);
 } // namespace Tilemap
 
 namespace Animation {

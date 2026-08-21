@@ -258,11 +258,13 @@ These systems form the current baseline and should be extended rather than rewri
   - [x] Add the lighting stage with reusable compositing passes before global post-processing.
 - [ ] Introduce render layers shared by sprites, tilemaps, particles, lights, and cameras.
   - [x] Add common layer identities and camera masks for sprites, tilemaps, and particles.
+  - [x] Make render layers stable composition groups while preserving authored order within each layer.
   - [ ] Expose authored layer/mask controls and apply the contract to Light components when they exist.
 - [ ] Support entity- or layer-scoped multipass effects through managed intermediate surfaces.
 - [ ] Keep simple single-pass sprite materials on the direct fast path.
 - [ ] Define clear ownership and pooling for render targets.
 - [ ] Track draw calls, material switches, pass timings, and render-target memory.
+  - [x] Report per-stage draw calls, material switches, and CPU timings; expose render-target pool allocation metrics.
 - [ ] Remove obsolete renderer compatibility stubs after all callers use the current batching path.
 - [ ] Add GPU integration tests or deterministic validation scenes for pass ordering and state reset.
 

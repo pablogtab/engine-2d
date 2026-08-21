@@ -30,7 +30,8 @@ bool authored_tilemap_equal(const TilemapComponent& lhs, const TilemapComponent&
         lhs.category_bits == rhs.category_bits &&
         lhs.mask_bits == rhs.mask_bits &&
         lhs.friction == rhs.friction &&
-        lhs.restitution == rhs.restitution;
+        lhs.restitution == rhs.restitution &&
+        lhs.render_layer == rhs.render_layer;
 }
 
 void rebuild_colliders(EntityManager& em, EntityID entity) {
@@ -154,6 +155,13 @@ void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Cont
     const TilemapComponent pixel_size_before = tilemap;
     property_int("Pixel Size", &tilemap.tile_pixel_size, InspectorPropertyPolicies::Tilemap::PixelSize);
     track(em, entity, pixel_size_before, "Tilemap.PixelSize", "Edit Tilemap Pixel Size", context);
+
+    const TilemapComponent render_layer_before = tilemap;
+    int render_layer = tilemap.render_layer;
+    if (property_int("Render Layer", &render_layer, InspectorPropertyPolicies::Tilemap::RenderLayer)) {
+        tilemap.render_layer = static_cast<RenderLayer>(render_layer);
+    }
+    track(em, entity, render_layer_before, "Tilemap.RenderLayer", "Edit Tilemap Render Layer", context);
 
     char path_buffer[512];
     std::strncpy(path_buffer, tilemap.tileset_path.c_str(), sizeof(path_buffer) - 1);

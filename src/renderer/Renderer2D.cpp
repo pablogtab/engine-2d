@@ -68,6 +68,23 @@ SDL_Texture* Renderer2D::execute_local_effect_chain(
     return applied_effect ? current : nullptr;
 }
 
+void Renderer2D::set_render_layer_effects(
+    RenderLayer layer, std::vector<std::shared_ptr<ILocalEffectPass>> passes
+) {
+    m_render_layer_effects[std::min<RenderLayer>(layer, 31)] = std::move(passes);
+}
+
+void Renderer2D::clear_render_layer_effects(RenderLayer layer) {
+    m_render_layer_effects[std::min<RenderLayer>(layer, 31)].clear();
+}
+
+std::size_t Renderer2D::get_active_render_layer_effect_count(RenderLayer layer) const {
+    const auto& passes = m_render_layer_effects[std::min<RenderLayer>(layer, 31)];
+    return static_cast<std::size_t>(std::count_if(passes.begin(), passes.end(), [](const auto& pass) {
+        return pass && pass->is_enabled();
+    }));
+}
+
 void Renderer2D::add_lighting_pass(std::shared_ptr<ILightingPass> pass) {
     if (!pass) return;
     m_lighting_passes.erase(
@@ -179,6 +196,7 @@ void Renderer2D::submit_sprite(
     std::shared_ptr<const Material> material,
     RenderLayer render_layer
 ) {
+    render_layer = std::min<RenderLayer>(render_layer, 31);
     if (m_active_camera && !m_active_camera->renders_layer(render_layer)) {
         ++m_culled_sprites;
         return;
@@ -439,6 +457,21 @@ void Renderer2D::end_scene() {
         m_sprite_queue.swap(m_sort_temp_buffer);
     }
 
+    // Render layers are composition groups: preserve the existing authored
+    // order within a layer, then make every layer contiguous for isolation.
+    // Counting placement keeps this grouping linear and stable after radix sort.
+    std::array<size_t, 32> layer_counts{};
+    for (const auto& command : m_sprite_queue) ++layer_counts[command.render_layer];
+    std::array<size_t, 32> layer_offsets{};
+    for (size_t layer = 1; layer < layer_offsets.size(); ++layer) {
+        layer_offsets[layer] = layer_offsets[layer - 1] + layer_counts[layer - 1];
+    }
+    auto write_offsets = layer_offsets;
+    for (const auto& command : m_sprite_queue) {
+        m_sort_temp_buffer[write_offsets[command.render_layer]++] = command;
+    }
+    m_sprite_queue.swap(m_sort_temp_buffer);
+
     auto t1 = std::chrono::high_resolution_clock::now();
 
     // 2. Resize output vertex & index buffers to exact required capacity
@@ -563,6 +596,7 @@ void Renderer2D::end_scene() {
                 if (batch_count > 0) {
                     const bool material_bound = current_material && m_material_backend &&
                         m_material_backend->bind(*current_material, material_context);
+                    if (material_bound) ++metrics.material_switches;
                     SDL_Texture* sdl_tex = current_texture ? current_texture->get_sdl_texture() : nullptr;
                     SDL_RenderGeometry(
                         m_sdl_renderer,
@@ -588,8 +622,50 @@ void Renderer2D::end_scene() {
         ).count();
     };
 
-    // A. Flush World-Space geometry into Capture Target (under Post-Processing)
-    flush_range(RenderStage::SceneGeometry, 0, screen_space_start);
+    // A. Flush each render-layer composition group. Effect-free layers stay on
+    // the direct path; affected layers are isolated, processed, and composited.
+    SDL_Texture* const scene_target = SDL_GetRenderTarget(m_sdl_renderer);
+    size_t layer_start = 0;
+    while (layer_start < screen_space_start) {
+        const RenderLayer layer = m_sprite_queue[layer_start].render_layer;
+        size_t layer_end = layer_start + 1;
+        while (layer_end < screen_space_start && m_sprite_queue[layer_end].render_layer == layer) ++layer_end;
+
+        if (get_active_render_layer_effect_count(layer) == 0) {
+            flush_range(RenderStage::SceneGeometry, layer_start, layer_end);
+        } else {
+            int width = 0;
+            int height = 0;
+            if (scene_target) {
+                float texture_width = 0.0f;
+                float texture_height = 0.0f;
+                SDL_GetTextureSize(scene_target, &texture_width, &texture_height);
+                width = static_cast<int>(texture_width);
+                height = static_cast<int>(texture_height);
+            } else {
+                SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &width, &height);
+            }
+            SDL_Texture* source = acquire_local_effect_surface(width, height);
+            if (!source || !SDL_SetRenderTarget(m_sdl_renderer, source)) {
+                if (source) release_local_effect_surface(source);
+                SDL_SetRenderTarget(m_sdl_renderer, scene_target);
+                flush_range(RenderStage::SceneGeometry, layer_start, layer_end);
+            } else {
+                SDL_SetRenderDrawColor(m_sdl_renderer, 0, 0, 0, 0);
+                SDL_RenderClear(m_sdl_renderer);
+                flush_range(RenderStage::SceneGeometry, layer_start, layer_end);
+                std::vector<ILocalEffectPass*> passes;
+                for (const auto& pass : m_render_layer_effects[layer]) if (pass && pass->is_enabled()) passes.push_back(pass.get());
+                SDL_Texture* output = execute_local_effect_chain(passes, source, width, height);
+                SDL_SetRenderTarget(m_sdl_renderer, scene_target);
+                SDL_RenderTexture(m_sdl_renderer, output ? output : source, nullptr, nullptr);
+                ++m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::LocalEffects)].draw_calls;
+                if (output) release_local_effect_surface(output);
+                release_local_effect_surface(source);
+            }
+        }
+        layer_start = layer_end;
+    }
 
     // B. Compose lighting over the captured scene before global processing.
     if (m_post_process_pipeline && get_active_lighting_pass_count() > 0) {

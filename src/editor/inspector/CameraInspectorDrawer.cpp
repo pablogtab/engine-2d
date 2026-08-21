@@ -119,6 +119,13 @@ void CameraInspectorDrawer::draw(
     }
     track(em, entity, projection_before, "Camera.Projection", "Change Camera Projection", context);
 
+    const CameraComponent render_layers_before = camera;
+    int render_layer_mask = static_cast<int>(camera.render_layer_mask);
+    if (property_int("Render Layer Mask", &render_layer_mask, Policies::Camera::RenderLayerMask)) {
+        camera.render_layer_mask = static_cast<RenderLayerMask>(render_layer_mask);
+    }
+    track(em, entity, render_layers_before, "Camera.RenderLayerMask", "Edit Camera Render Layer Mask", context);
+
     const auto single_target_filter = [&](EntityID candidate) {
         return candidate != entity && em.has_component<TransformComponent>(candidate);
     };

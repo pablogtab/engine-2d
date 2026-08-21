@@ -34,6 +34,7 @@ enum class RenderStage : std::size_t {
 struct RenderStageMetrics {
     std::size_t draw_calls{0};
     std::size_t sprites{0};
+    std::size_t material_switches{0};
     float cpu_milliseconds{0.0f};
 };
 
@@ -100,6 +101,9 @@ public:
     [[nodiscard]] SDL_Texture* execute_local_effect_chain(
         std::span<ILocalEffectPass* const> passes, SDL_Texture* source, int width, int height
     );
+    void set_render_layer_effects(RenderLayer layer, std::vector<std::shared_ptr<ILocalEffectPass>> passes);
+    void clear_render_layer_effects(RenderLayer layer);
+    [[nodiscard]] std::size_t get_active_render_layer_effect_count(RenderLayer layer) const;
     void add_lighting_pass(std::shared_ptr<ILightingPass> pass);
     void clear_lighting_passes();
     [[nodiscard]] std::size_t get_active_lighting_pass_count() const;
@@ -174,6 +178,7 @@ private:
     ThreadPool* m_thread_pool{nullptr};
     PostProcessPipeline* m_post_process_pipeline{nullptr};
     std::vector<std::shared_ptr<ILightingPass>> m_lighting_passes;
+    std::array<std::vector<std::shared_ptr<ILocalEffectPass>>, 32> m_render_layer_effects;
     std::shared_ptr<IMaterialBackend> m_material_backend;
     SDL_Texture* m_custom_render_target{nullptr};
     SDL_Texture* m_lighting_capture_target{nullptr};

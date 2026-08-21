@@ -43,7 +43,8 @@ bool sprite_states_equal(const SpriteComponent& lhs, const SpriteComponent& rhs)
         lhs.outline_pulse == rhs.outline_pulse &&
         lhs.flip_x == rhs.flip_x && lhs.flip_y == rhs.flip_y &&
         lhs.sorting_layer == rhs.sorting_layer &&
-        lhs.order_in_layer == rhs.order_in_layer;
+        lhs.order_in_layer == rhs.order_in_layer &&
+        lhs.render_layer == rhs.render_layer;
 }
 
 bool draw_material_value(SpriteComponent& sprite, SDL_Renderer* renderer) {
@@ -328,6 +329,13 @@ void SpriteInspectorDrawer::draw(EntityManager& em, EntityID entity, const Conte
     }
     track_edit(em, entity, order_before, "Sprite.OrderInLayer", "Edit Sprite Order in Layer", context);
 
+    const SpriteComponent render_layer_before = sprite;
+    int render_layer = sprite.render_layer;
+    if (property_int("Render Layer", &render_layer, InspectorPropertyPolicies::Sprite::RenderLayer)) {
+        sprite.render_layer = static_cast<RenderLayer>(render_layer);
+    }
+    track_edit(em, entity, render_layer_before, "Sprite.RenderLayer", "Edit Sprite Render Layer", context);
+
     begin_property_row("Flags");
     const SpriteComponent flip_x_before = sprite;
     begin_property_interaction("Sprite.FlipX");
@@ -565,6 +573,9 @@ void SpriteInspectorDrawer::draw_multiple(
     draw_int("Order in Layer", "Sprite.OrderInLayer", "Edit Selected Sprite Order in Layer",
         [](const SpriteComponent& sprite) { return static_cast<int>(sprite.order_in_layer); },
         [](SpriteComponent& sprite, int value) { sprite.order_in_layer = static_cast<std::int16_t>(value); });
+    draw_int("Render Layer", "Sprite.RenderLayer", "Edit Selected Sprite Render Layer",
+        [](const SpriteComponent& sprite) { return static_cast<int>(sprite.render_layer); },
+        [](SpriteComponent& sprite, int value) { sprite.render_layer = static_cast<RenderLayer>(std::clamp(value, 0, 31)); });
 
     auto draw_bool = [&](const char* label, const char* property, const char* description, auto getter, auto setter) {
         const auto before = capture_selected_components<SpriteComponent>(em, entities);

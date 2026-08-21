@@ -79,6 +79,20 @@ public:
     int apply_count{0};
 };
 
+class IsolatedCopyLocalEffectPass final : public Engine::ILocalEffectPass {
+public:
+    [[nodiscard]] const char* name() const override { return "IsolatedCopy"; }
+    [[nodiscard]] bool is_enabled() const override { return true; }
+    bool apply(const Engine::LocalEffectContext& context) override {
+        ++apply_count;
+        if (!SDL_SetRenderTarget(context.renderer, context.destination)) return false;
+        SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
+        SDL_RenderClear(context.renderer);
+        return SDL_RenderTexture(context.renderer, context.source, nullptr, nullptr);
+    }
+    int apply_count{0};
+};
+
 class RecordingLightingPass final : public Engine::ILightingPass {
 public:
     [[nodiscard]] const char* name() const override { return "RecordingLight"; }
@@ -169,6 +183,7 @@ void test_material_contract_is_shared_by_sprites_and_post_process() {
     assert(backend->bind_count == 1);
     assert(backend->unbind_count == 1);
     assert(backend->last_material == material.get());
+    assert(renderer.get_frame_metrics().stage(Engine::RenderStage::SceneGeometry).material_switches == 1);
 
     SDL_DestroyRenderer(sdl_renderer);
     SDL_DestroySurface(surface);
@@ -628,6 +643,38 @@ void test_camera_render_layer_mask_filters_world_submissions() {
     SDL_DestroySurface(surface);
 }
 
+void test_render_layers_are_composed_in_layer_order() {
+    SDL_Surface* surface = SDL_CreateSurface(32, 32, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Engine::Renderer2D renderer(sdl_renderer);
+        Engine::Camera2D camera(32.0f, 32.0f);
+        auto effect = std::make_shared<IsolatedCopyLocalEffectPass>();
+        renderer.set_render_layer_effects(2, {effect});
+        std::unique_ptr<Engine::Texture> white(Engine::Texture::create_solid(sdl_renderer, 4, 4, 255, 255, 255, 255));
+        assert(white);
+
+        renderer.begin_scene(camera);
+        renderer.submit_sprite(white.get(), {0.0f, 0.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+                               {255, 0, 0, 255}, nullptr, {0.5f, 0.5f}, false,
+                               false, false, 0, 0, nullptr, 2);
+        renderer.submit_sprite(white.get(), {0.0f, 0.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+                               {0, 0, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+                               false, false, 0, 0, nullptr, 1);
+        renderer.end_scene();
+        assert(effect->apply_count == 1);
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+        SDL_RenderPresent(sdl_renderer);
+        Uint8 red = 0, green = 0, blue = 0, alpha = 0;
+        assert(SDL_ReadSurfacePixel(surface, 16, 16, &red, &green, &blue, &alpha));
+        assert(red == 255 && green == 0 && blue == 0 && alpha == 255);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
@@ -650,6 +697,7 @@ int main() {
     test_renderer_chains_local_effects_and_releases_intermediates();
     test_renderer_composes_lighting_before_global_post_process();
     test_camera_render_layer_mask_filters_world_submissions();
+    test_render_layers_are_composed_in_layer_order();
     std::cout << "PostProcessTests passed\n";
     return 0;
 }
