@@ -1,11 +1,15 @@
 #include "core/Application.hpp"
+#include "core/AssetDatabase.hpp"
 #include "core/FileSystem.hpp"
 #include "core/Log.hpp"
+#include "renderer/material/ShaderAsset.hpp"
 #include "scene/GenericScene.hpp"
 #include "scene/SceneSerializer.hpp"
 #include <SDL3/SDL.h>
 #include <filesystem>
+#include <iostream>
 #include <memory>
+#include <string_view>
 
 namespace {
 
@@ -30,6 +34,28 @@ protected:
 
 } // namespace
 
+int run_runtime_smoke_test() {
+    auto& database = Engine::AssetDatabase::get();
+    const auto scan_result = database.scan("assets");
+    const auto* scene = database.find_by_path("assets/scenes/PlatformerDemo.scene");
+    const auto* shader = database.find_by_path("assets/shaders/NightVision.shader");
+    if (!scene || scene->status != Engine::AssetStatus::Ready ||
+        !shader || shader->status != Engine::AssetStatus::Ready) {
+        std::cerr << "[RUNTIME SMOKE] Required scene or shader asset is unavailable\n";
+        return 1;
+    }
+
+    std::string shader_error;
+    if (!Engine::ShaderAsset::load(shader->handle, database, &shader_error)) {
+        std::cerr << "[RUNTIME SMOKE] Failed to load packaged shader: " << shader_error << '\n';
+        return 1;
+    }
+
+    std::cout << "[RUNTIME SMOKE] Assets=" << scan_result.ready
+              << " Scene=PlatformerDemo Shader=NightVision\n";
+    return 0;
+}
+
 int main(int argc, char* argv[]) {
     // Development runs use the current project directory. An exported macOS
     // bundle keeps exactly the same project-relative layout in Resources.
@@ -46,6 +72,10 @@ int main(int argc, char* argv[]) {
     if (char* preference_path = SDL_GetPrefPath("Engine2D", "Engine2D")) {
         Engine::Log::init((std::filesystem::path(preference_path) / "engine.log").string());
         SDL_free(preference_path);
+    }
+
+    if (argc > 1 && std::string_view(argv[1]) == "--smoke-test") {
+        return run_runtime_smoke_test();
     }
 
     StandaloneApp app;

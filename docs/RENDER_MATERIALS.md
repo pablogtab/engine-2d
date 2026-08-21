@@ -109,6 +109,23 @@ Verify the complete bundle contract with:
 cmake --build build --target verify_macos_app
 ```
 
+Run the standalone executable from an isolated copy of the bundle and verify
+that it resolves the packaged scene and shader without opening a window:
+
+```sh
+cmake --build build --target smoke_macos_export
+```
+
+Create an arm64+x86_64 universal macOS bundle with:
+
+```sh
+cmake --build build --target package_macos_universal
+```
+
+The output is `build/dist/Engine2D-universal.app`. The Intel slice is built
+from the local x64-osx vcpkg dependencies, then merged with the arm64 slice
+and ad-hoc signed again.
+
 On Windows, create the portable folder and its runtime DLL set with:
 
 ```powershell

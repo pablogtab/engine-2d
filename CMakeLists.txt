@@ -194,6 +194,32 @@ if(APPLE)
         COMMENT "Verifying the packaged macOS standalone app"
         VERBATIM
     )
+    add_custom_target(smoke_macos_export
+        COMMAND "${CMAKE_COMMAND}"
+            "-DENGINE_APP_DIR=${CMAKE_BINARY_DIR}/dist/Engine2D.app"
+            "-DENGINE_SMOKE_DIR=${CMAKE_BINARY_DIR}/smoke/macos"
+            -P "${CMAKE_SOURCE_DIR}/cmake/SmokeTestMacOSExport.cmake"
+        DEPENDS verify_macos_app
+        COMMENT "Running the isolated macOS export smoke test"
+        VERBATIM
+    )
+    set(ENGINE_MACOS_X86_BUILD_DIR "${CMAKE_BINARY_DIR}/macos-x86_64" CACHE PATH
+        "Secondary build directory used for the Intel macOS slice")
+    add_custom_target(package_macos_universal
+        COMMAND "${CMAKE_COMMAND}" -S "${CMAKE_SOURCE_DIR}" -B "${ENGINE_MACOS_X86_BUILD_DIR}"
+            "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_SOURCE_DIR}/cmake/toolchains/macos-x86_64.cmake"
+            "-DENGINE_SHADERCROSS_EXECUTABLE=${engine_shadercross_command}"
+            -DCMAKE_BUILD_TYPE=Release
+        COMMAND "${CMAKE_COMMAND}" --build "${ENGINE_MACOS_X86_BUILD_DIR}" --target package_macos_app
+        COMMAND "${CMAKE_COMMAND}"
+            "-DENGINE_ARM_APP_DIR=${CMAKE_BINARY_DIR}/dist/Engine2D.app"
+            "-DENGINE_X86_APP_DIR=${ENGINE_MACOS_X86_BUILD_DIR}/dist/Engine2D.app"
+            "-DENGINE_UNIVERSAL_APP_DIR=${CMAKE_BINARY_DIR}/dist/Engine2D-universal.app"
+            -P "${CMAKE_SOURCE_DIR}/cmake/PackageUniversalMacOSApp.cmake"
+        DEPENDS package_macos_app
+        COMMENT "Packaging the standalone runtime as a universal macOS app"
+        VERBATIM
+    )
 elseif(WIN32)
     get_filename_component(ENGINE_WINDOWS_COMPILER_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
     execute_process(

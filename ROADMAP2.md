@@ -341,8 +341,9 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Add verification and ZIP packaging targets for the Windows x64 portable export.
 - [x] Add a macOS-to-Windows x64 MinGW cross-build toolchain backed by local vcpkg dependencies and validate its output on Windows.
 - [ ] On Linux, bundle or document compatible shared-library requirements without relying on development-machine paths.
-- [ ] Build universal macOS releases (arm64 and x86_64) when third-party dependencies support both architectures.
+- [x] Build an ad-hoc signed universal macOS bundle with arm64 and x86_64 executable slices.
 - [x] Add export configuration validation and actionable build logs for macOS.
+- [x] Add an isolated macOS export smoke test that executes the packaged standalone resource checks.
 - [ ] Implement standalone builds for macOS, Windows, and Linux.
 - [ ] Add clean-machine smoke tests for exported builds, including macOS machines without Homebrew/SDL installed.
 
