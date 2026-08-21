@@ -20,6 +20,7 @@
 #include "../editor/panels/ShortcutsPreferencesPanel.hpp"
 #include "../editor/panels/TilemapPalettePanel.hpp"
 #include "../editor/panels/SpriteAnimationStudioPanel.hpp"
+#include "../editor/panels/AiAssistantPanel.hpp"
 #endif
 #include "../scene/GenericScene.hpp"
 #include "../scene/SceneSerializer.hpp"
@@ -221,6 +222,15 @@ Application::Application(const std::string& name, int width, int height, bool st
     auto shortcuts_panel = std::make_shared<ShortcutsPreferencesPanel>();
     shortcuts_panel->is_open = false; // Closed by default until opened from Edit menu
     auto palette_panel = std::make_shared<TilemapPalettePanel>(m_window->get_sdl_renderer(), &m_scene_manager, selection);
+    auto ai_assistant_panel = std::make_shared<AiAssistantPanel>(
+        &m_scene_manager,
+        selection,
+        ComponentSerializationContext{
+            .renderer = m_window->get_sdl_renderer(),
+            .asset_manager = &get_asset_manager(),
+            .asset_database = &get_asset_database()
+        }
+    );
 
     asset_browser->set_on_load_scene_callback([this](const std::string& scene_path) {
         if (m_editor_layer) {
@@ -305,6 +315,7 @@ Application::Application(const std::string& name, int width, int height, bool st
     m_editor_layer->register_panel(shortcuts_panel);
     m_editor_layer->register_panel(palette_panel);
     m_editor_layer->register_panel(anim_studio_panel);
+    m_editor_layer->register_panel(ai_assistant_panel);
 
         // Connect Log stream to in-game ConsolePanel
         Log::set_callback([console_panel](const std::string& timestamp, const std::string& level, const std::string& message) {

@@ -11,6 +11,7 @@ ConsolePanel::ConsolePanel() {
 }
 
 void ConsolePanel::add_log(const std::string& timestamp, const std::string& level, const std::string& message) {
+    std::lock_guard lock(m_entries_mutex);
     if (m_entries.size() > 1000) {
         m_entries.erase(m_entries.begin(), m_entries.begin() + 100);
     }
@@ -18,6 +19,7 @@ void ConsolePanel::add_log(const std::string& timestamp, const std::string& leve
 }
 
 void ConsolePanel::clear() {
+    std::lock_guard lock(m_entries_mutex);
     m_entries.clear();
 }
 
@@ -83,7 +85,12 @@ void ConsolePanel::on_gui() {
         std::string filter_str = m_filter_buffer;
         std::transform(filter_str.begin(), filter_str.end(), filter_str.begin(), ::tolower);
 
-        for (const auto& entry : m_entries) {
+        std::vector<LogEntry> entries;
+        {
+            std::lock_guard lock(m_entries_mutex);
+            entries = m_entries;
+        }
+        for (const auto& entry : entries) {
             if (entry.level == "INFO" && !m_show_info) continue;
             if (entry.level == "WARN" && !m_show_warn) continue;
             if (entry.level == "ERROR" && !m_show_error) continue;

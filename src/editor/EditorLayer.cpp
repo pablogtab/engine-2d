@@ -23,6 +23,7 @@
 #include "panels/SpriteAnimationStudioPanel.hpp"
 #include "panels/PostProcessTunerPanel.hpp"
 #include "panels/ProjectSettingsPanel.hpp"
+#include "panels/AiAssistantPanel.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
 #include "../ecs/CameraSystem.hpp"
@@ -437,6 +438,10 @@ void EditorLayer::update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch
             p->set_command_history(ch);
         } else if (auto p = std::dynamic_pointer_cast<PostProcessTunerPanel>(panel)) {
             p->set_command_history(ch);
+        } else if (auto p = std::dynamic_pointer_cast<AiAssistantPanel>(panel)) {
+            p->set_command_history(ch);
+            p->set_entity_state_store(store);
+            if (sel) p->set_selection(sel);
         }
     }
 }
@@ -612,6 +617,7 @@ void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
     ImGui::DockBuilderDockWindow("Engine & Metrics", dock_right_id);
     ImGui::DockBuilderDockWindow("Entity Inspector", dock_right_id);
     ImGui::DockBuilderDockWindow("Scene Diagnostics", dock_right_id);
+    ImGui::DockBuilderDockWindow("AI Assistant", dock_right_id);
     ImGui::DockBuilderDockWindow("Asset Browser", dock_down_id);
     ImGui::DockBuilderDockWindow("Console & Logs", dock_down_id);
 

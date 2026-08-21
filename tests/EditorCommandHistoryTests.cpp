@@ -1,4 +1,5 @@
 #include "editor/commands/EditorCommandHistory.hpp"
+#include "editor/commands/EditorCommandGroup.hpp"
 #include <cassert>
 #include <iostream>
 #include <memory>
@@ -106,6 +107,67 @@ void test_failing_redo_retains_command_in_redo_stack() {
     assert(!history.can_undo());
     assert(history.can_redo());
     assert(history.get_redo_count() == 1);
+}
+
+void test_command_group_is_one_reversible_history_entry() {
+    int value = 0;
+    auto group = std::make_unique<EditorCommandGroup>("AI Session (2 actions)");
+    group->add_command(std::make_unique<SetIntegerCommand>(value, 0, 1, "First"));
+    group->add_command(std::make_unique<SetIntegerCommand>(value, 1, 2, "Second"));
+
+    EditorCommandHistory history;
+    assert(history.execute_command(std::move(group)));
+    assert(value == 2);
+    assert(history.get_undo_count() == 1);
+    assert(history.get_undo_description() == "AI Session (2 actions)");
+
+    history.undo();
+    assert(value == 0);
+    history.redo();
+    assert(value == 2);
+}
+
+void test_command_group_rolls_back_failed_execution() {
+    int value = 0;
+    auto group = std::make_unique<EditorCommandGroup>("Failing AI Session");
+    group->add_command(std::make_unique<SetIntegerCommand>(value, 0, 1, "First"));
+    group->add_command(std::make_unique<FailingCommand>());
+
+    EditorCommandHistory history;
+    assert(!history.execute_command(std::move(group)));
+    assert(value == 0);
+    assert(!history.can_undo());
+}
+
+void test_command_group_restores_applied_state_when_undo_fails() {
+    int value = 0;
+    auto group = std::make_unique<EditorCommandGroup>("Failing Group Undo");
+    group->add_command(std::make_unique<FailingUndoCommand>());
+    group->add_command(std::make_unique<SetIntegerCommand>(value, 0, 1, "Second"));
+
+    EditorCommandHistory history;
+    assert(history.execute_command(std::move(group)));
+    assert(value == 1);
+    history.undo();
+    assert(value == 1);
+    assert(history.get_undo_description() == "Failing Group Undo");
+    assert(!history.can_redo());
+}
+
+void test_command_group_rolls_back_partial_redo() {
+    int value = 0;
+    auto group = std::make_unique<EditorCommandGroup>("Failing Group Redo");
+    group->add_command(std::make_unique<SetIntegerCommand>(value, 0, 1, "First"));
+    group->add_command(std::make_unique<FailingRedoCommand>());
+
+    EditorCommandHistory history;
+    assert(history.execute_command(std::move(group)));
+    history.undo();
+    assert(value == 0);
+    history.redo();
+    assert(value == 0);
+    assert(!history.can_undo());
+    assert(history.get_redo_description() == "Failing Group Redo");
 }
 
 void test_new_command_invalidates_redo() {
@@ -322,6 +384,10 @@ int main() {
     test_failed_command_is_not_added_to_history();
     test_failing_undo_retains_command_in_undo_stack();
     test_failing_redo_retains_command_in_redo_stack();
+    test_command_group_is_one_reversible_history_entry();
+    test_command_group_rolls_back_failed_execution();
+    test_command_group_restores_applied_state_when_undo_fails();
+    test_command_group_rolls_back_partial_redo();
     test_new_command_invalidates_redo();
     test_bounded_history_discards_oldest_command();
     test_push_executed_and_clear();

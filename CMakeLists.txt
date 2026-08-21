@@ -15,6 +15,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Find dependencies
 find_package(SDL3 3.4 REQUIRED)
 find_package(glm REQUIRED)
+find_package(CURL QUIET)
 
 include(cmake/ShaderCompilation.cmake)
 
@@ -94,6 +95,13 @@ set(SOURCES
     src/editor/panels/ShortcutsPreferencesPanel.cpp
     src/editor/panels/TilemapPalettePanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
+    src/editor/panels/AiAssistantPanel.cpp
+    src/editor/ai/EditorAiToolRegistry.cpp
+    src/editor/ai/EditorAiAuthoring.cpp
+    src/editor/ai/CodexAppServerProvider.cpp
+    src/editor/ai/SdlCodexAppServerTransport.cpp
+    src/editor/ai/OpenAiResponsesProvider.cpp
+    src/editor/ai/CurlEditorAiHttpTransport.cpp
     src/editor/gizmos/TransformGizmo2D.cpp
     src/editor/gizmos/UILayoutGizmo.cpp
     src/editor/inspector/InspectorWidgets.cpp
@@ -122,6 +130,7 @@ set(SOURCES
     src/editor/state/AutosaveRecovery.cpp
     src/editor/state/RecentSceneList.cpp
     src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EditorCommandGroup.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EditorEntityStateCommands.cpp
     src/editor/commands/AssetFileCommands.cpp
@@ -169,7 +178,10 @@ target_include_directories(EngineRuntime PUBLIC
 target_link_libraries(EngineRuntime PUBLIC SDL3::SDL3 glm::glm box2d)
 
 add_executable(Engine2D src/main.cpp src/core/Application.cpp ${ENGINE_EDITOR_SOURCES})
-target_compile_definitions(Engine2D PRIVATE ENGINE_WITH_EDITOR=1)
+target_compile_definitions(Engine2D PRIVATE
+    ENGINE_WITH_EDITOR=1
+    ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
 
 add_executable(Engine2DStandalone src/runtime/StandaloneMain.cpp src/core/Application.cpp)
 target_compile_definitions(Engine2DStandalone PRIVATE ENGINE_WITH_EDITOR=0)
@@ -503,6 +515,7 @@ add_test(NAME EditorPropertyTransactionTests COMMAND EditorPropertyTransactionTe
 add_executable(EditorCommandHistoryTests
     tests/EditorCommandHistoryTests.cpp
     src/core/Log.cpp
+    src/editor/commands/EditorCommandGroup.cpp
     src/editor/commands/EditorCommandHistory.cpp
 )
 target_include_directories(EditorCommandHistoryTests PRIVATE
@@ -723,6 +736,61 @@ target_include_directories(ComponentRegistryTests PRIVATE
 target_link_libraries(ComponentRegistryTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME ComponentRegistryTests COMMAND ComponentRegistryTests)
 
+add_executable(EditorAiToolRegistryTests
+    tests/EditorAiToolRegistryTests.cpp
+    src/ecs/EntityManager.cpp
+    src/editor/ai/EditorAiToolRegistry.cpp
+)
+target_include_directories(EditorAiToolRegistryTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_compile_definitions(EditorAiToolRegistryTests PRIVATE
+    ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_link_libraries(EditorAiToolRegistryTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME EditorAiToolRegistryTests COMMAND EditorAiToolRegistryTests)
+
+add_executable(OpenAiResponsesProviderTests
+    tests/OpenAiResponsesProviderTests.cpp
+    src/editor/ai/OpenAiResponsesProvider.cpp
+)
+target_include_directories(OpenAiResponsesProviderTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+add_test(NAME OpenAiResponsesProviderTests COMMAND OpenAiResponsesProviderTests)
+
+add_executable(CodexAppServerProviderTests
+    tests/CodexAppServerProviderTests.cpp
+    src/editor/ai/CodexAppServerProvider.cpp
+    src/editor/ai/SdlCodexAppServerTransport.cpp
+)
+target_include_directories(CodexAppServerProviderTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(CodexAppServerProviderTests PRIVATE SDL3::SDL3)
+add_test(NAME CodexAppServerProviderTests COMMAND CodexAppServerProviderTests)
+
+add_executable(EditorAiAuthoringTests
+    tests/EditorAiAuthoringTests.cpp
+    src/core/Log.cpp
+    src/editor/ai/EditorAiAuthoring.cpp
+    src/editor/commands/EditorCommandGroup.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/EntityCommands.cpp
+    src/editor/commands/HierarchyCommands.cpp
+    src/editor/state/EditorEntityStateStore.cpp
+)
+target_include_directories(EditorAiAuthoringTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(EditorAiAuthoringTests PRIVATE SDL3::SDL3 glm::glm box2d)
+add_test(NAME EditorAiAuthoringTests COMMAND EditorAiAuthoringTests)
+
 add_executable(SceneMigrationTests
     tests/SceneMigrationTests.cpp
     src/core/AssetDatabase.cpp
@@ -885,6 +953,7 @@ foreach(runtime_test
     ViewportVisibilityTests
     SceneSerializerTests
     ComponentRegistryTests
+    EditorAiAuthoringTests
     SceneMigrationTests
     PrefabTests
     PrefabStageControllerTests
@@ -903,6 +972,13 @@ target_include_directories(Engine2D PRIVATE
 target_link_libraries(Engine2D PRIVATE
     EngineRuntime
 )
+if(CURL_FOUND)
+    target_link_libraries(Engine2D PRIVATE CURL::libcurl)
+    target_compile_definitions(Engine2D PRIVATE ENGINE_EDITOR_HAS_CURL=1)
+else()
+    target_compile_definitions(Engine2D PRIVATE ENGINE_EDITOR_HAS_CURL=0)
+    message(WARNING "libcurl was not found; OpenAI requests will be unavailable in the editor")
+endif()
 
 target_include_directories(Engine2DStandalone PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

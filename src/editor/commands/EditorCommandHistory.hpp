@@ -21,7 +21,7 @@ public:
         : m_max_history(max_history) {}
 
     // Executes a new command and pushes it to the undo stack (clears redo stack)
-    void execute_command(std::unique_ptr<IEditorCommand> command);
+    bool execute_command(std::unique_ptr<IEditorCommand> command);
 
     // Pushes a command that was already executed interactively (e.g. Gizmo drag release)
     void push_executed_command(std::unique_ptr<IEditorCommand> command);

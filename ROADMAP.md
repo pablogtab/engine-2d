@@ -402,6 +402,29 @@ This is intentionally independent from the material workflow above. Materials re
 
 ---
 
+## Phase 10 — AI-Assisted Authoring
+
+**Architecture gate:** AI integrations must use the same validated editor contracts as human-authored operations. They must not mutate ECS state, scene files, or project assets through an untracked side channel.
+
+**Goal:** Let an AI assistant inspect editor context, propose changes, and apply explicitly approved work through reversible commands.
+
+- [x] Add an editor-owned tool registry with strict read-only schemas for active-scene and selection context.
+- [x] Add an `AI Assistant` panel that previews and copies the exact structured context exposed to a future provider.
+- [x] Expose allowlisted engine architecture, renderer, display, roadmap, and completion-contract documents through read-only tools without arbitrary filesystem access.
+- [x] Load provider credentials from `OPENAI_API_KEY` without persisting or logging the secret.
+- [x] Add an OpenAI Responses API provider for Codex models with a provider-independent HTTP boundary.
+- [x] Add cancellable streaming, request status, structured errors, rate-limit feedback, and token-usage visibility.
+- [x] Add a local Codex App Server backend that uses the user's ChatGPT sign-in and keeps the engine workspace read-only without API-key billing.
+- [x] Add authoring tools incrementally, beginning with entity creation, transforms, and registered component operations.
+- [x] Validate every proposed tool call before execution and present a human-readable preview requiring explicit confirmation by default, with an opt-in safe autonomous mode using the same gates.
+- [x] Execute an approved proposal as one atomic command group with exact Undo/Redo and rollback on partial failure.
+- [x] Add correlated AI audit logs and interactive latency controls: request/tool durations, usage, bounded history, low reasoning effort, model presets, and retry budgets without logging prompts or credentials.
+- [ ] Add an optional MCP adapter over the same tool registry for external Codex clients; do not create a second mutation path.
+
+**Completion criteria:** The assistant can inspect only intentionally exposed context, cannot bypass editor validation or command history, and every approved authoring request is previewable, atomic, reversible, and covered by deterministic tests.
+
+---
+
 ## Required Test Suites by Module
 
 Tests are part of each module's completion criteria. They must be added with the behavior they protect, not postponed until the debugging or export phases. Pure logic should run headlessly in CTest; SDL, GPU, window, audio, and filesystem behavior should use injected fake backends where practical and retain a smaller real-platform smoke layer.
@@ -495,6 +518,13 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [ ] `StandaloneSmokeTests` — launch, load initial scene, input, audio initialization, display defaults, save path, and clean shutdown.
 - [ ] Export smoke coverage on macOS, Windows, and Linux, including a clean environment without source-tree assets.
 
+### Phase 10 — AI-Assisted Authoring Suites
+
+- [x] `EditorAiToolRegistryTests` — strict schemas, deterministic scene and selection context, rejected unknown tools and arguments, missing-scene handling, and read-only behavior.
+- [x] `OpenAiResponsesProviderTests` — request construction, tool-call loops, streaming, cancellation, authentication failures, rate limits, usage, and provider-independent error mapping.
+- [x] `CodexAppServerProviderTests` — initialization, subscription-backed thread/turn protocol, streaming, history injection, dynamic editor tools, enforced read-only sandbox, usage, and cancellation.
+- [x] `EditorAiAuthoringTests` — proposal validation, atomic command grouping, rollback, Undo/Redo, invalid entities/components, and stale scene-revision isolation.
+
 ### Continuous Test Gates
 
 - [ ] Every bug fix receives a regression test at the lowest practical layer.
@@ -530,6 +560,7 @@ These items are useful but should not interrupt the architecture work above unle
 7. Phase 7 — Scripting and Play Mode.
 8. Phase 8 — Debugging and Performance.
 9. Phase 9 — Runtime/Editor Separation and Export.
+10. Phase 10 — AI-Assisted Authoring.
 
 ## Next Concrete Increments
 
@@ -562,3 +593,11 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Add anchor preset previews and direct component-backed entity creation to the Hierarchy.
    - [x] Add direct resize, anchor, and pivot handles.
    - [x] Add direct rotation handles and platform safe-area preview overlays.
+8. **AI Assistant Provider Boundary (Phase 10)**:
+   - [x] Expose strict read-only scene and selection tools behind a provider-independent registry.
+   - [x] Add a closed-by-default editor panel with live structured context preview.
+   - [x] Connect the OpenAI Responses API through `OPENAI_API_KEY`, with streaming, cancellation, tool loops, errors, and visible usage state.
+   - [x] Connect Codex App Server through the local ChatGPT login with an enforced read-only engine workspace; game authoring remains behind validated editor tools.
+   - [x] Add allowlisted on-demand context for engine-wide and renderer-specific contracts.
+   - [x] Add confirmed and opt-in autonomous authoring proposals through one atomic reversible command group.
+   - [x] Cover reasoning configuration, invalid-tool retry limits, 2D/3D Transform positions, and real Codex App Server transport with deterministic tests plus an opt-in live smoke.

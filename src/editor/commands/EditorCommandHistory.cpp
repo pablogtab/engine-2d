@@ -3,17 +3,18 @@
 
 namespace Engine {
 
-void EditorCommandHistory::execute_command(std::unique_ptr<IEditorCommand> command) {
-    if (!command) return;
+bool EditorCommandHistory::execute_command(std::unique_ptr<IEditorCommand> command) {
+    if (!command) return false;
 
     std::string desc = command->get_description();
     if (!command->execute()) {
         ENGINE_LOG_WARN("[COMMAND] Execution failed, not added to history: '{}'", desc);
-        return;
+        return false;
     }
 
     push_executed_command(std::move(command));
     ENGINE_LOG_INFO("[COMMAND] Executed: '{}'", desc);
+    return true;
 }
 
 void EditorCommandHistory::push_executed_command(std::unique_ptr<IEditorCommand> command) {

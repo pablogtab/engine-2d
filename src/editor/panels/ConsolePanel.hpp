@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../EditorPanel.hpp"
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,7 @@ private:
     void execute_command(const std::string& cmd);
 
     std::string m_name{"Console & Logs"};
+    mutable std::mutex m_entries_mutex;
     std::vector<LogEntry> m_entries;
     char m_input_buffer[256]{""};
     char m_filter_buffer[64]{""};

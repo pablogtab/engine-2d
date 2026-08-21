@@ -515,6 +515,21 @@ ComponentRegistry& default_component_registry() {
                 }
                 return true;
             },
+            .finalize = [](
+                EntityManager&,
+                EntityID,
+                SpriteComponent& sprite,
+                const ComponentFinalizeContext& context,
+                std::string&
+            ) {
+                if (!sprite.texture && context.serialization.renderer &&
+                    context.serialization.asset_manager) {
+                    sprite.texture = context.serialization.asset_manager->get_white_texture(
+                        context.serialization.renderer
+                    );
+                }
+                return true;
+            },
             .validate = [](const SpriteComponent& sprite) -> std::optional<std::string> {
                 if (sprite.size.x <= 0.0f || sprite.size.y <= 0.0f) {
                     return "Size must be positive";
