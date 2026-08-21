@@ -129,50 +129,28 @@ bool draw_asset_handle(AssetHandle& handle, AssetType type, const char* label, c
 }
 
 bool draw_material_handle(
+    EntityManager& em,
     AssetHandle& handle,
     std::shared_ptr<const Material>& material,
     SDL_Renderer* renderer,
-    const char* id
+    const char* id,
+    const MaterialInspectorActions& actions
 ) {
-    InspectorWidgets::begin_property_row("Material");
-    AssetDatabase& database = AssetDatabase::get();
-    const AssetRecord* selected = handle.is_valid() ? database.find(handle) : nullptr;
-    const char* preview = selected ? selected->source_path.c_str() : "None";
-    bool changed = false;
-    if (ImGui::BeginCombo(id, preview)) {
-        if (ImGui::Selectable("None", !handle.is_valid())) {
-            handle = {};
-            material.reset();
-            changed = true;
-        }
-        for (const AssetRecord& record : database.records()) {
-            if (record.type != AssetType::Material || record.status != AssetStatus::Ready) continue;
-            const bool is_selected = record.handle == handle;
-            std::string compatibility_error;
-            const auto candidate = MaterialAsset::load(record.handle, database);
-            const bool compatible = !renderer || (candidate && SDLGPUMaterialBackend::supports(
-                renderer, candidate->shader(), &compatibility_error
-            ));
-            if (!compatible) ImGui::BeginDisabled();
-            if (ImGui::Selectable(record.source_path.c_str(), is_selected)) {
-                handle = record.handle;
-                material = candidate;
-                changed = true;
-            }
-            if (!compatible) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Unavailable: %s", compatibility_error.c_str());
-                }
-            }
-            if (is_selected) ImGui::SetItemDefaultFocus();
-        }
-        ImGui::EndCombo();
+    std::size_t reference_count = 0;
+    if (handle.is_valid()) {
+        em.for_each<SpriteComponent>([&](EntityID, const SpriteComponent& sprite) {
+            if (sprite.material_handle == handle) ++reference_count;
+        });
+        em.for_each<UITextComponent>([&](EntityID, const UITextComponent& text) {
+            if (text.material_handle == handle) ++reference_count;
+        });
+        em.for_each<UIImageComponent>([&](EntityID, const UIImageComponent& image) {
+            if (image.material_handle == handle) ++reference_count;
+        });
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Reusable material applied to this UI graphic.");
-    }
-    return changed;
+    return draw_material_asset_field(
+        "Material", id, handle, material, renderer, actions, reference_count
+    );
 }
 
 std::optional<UIRect> resolve_parent_layout_rect(EntityManager& em, EntityID entity) {
@@ -497,7 +475,8 @@ void UIInspectorDrawer::draw_text(
     EntityManager& em,
     EntityID entity,
     const ComponentTransactionContext& context,
-    SDL_Renderer* renderer
+    SDL_Renderer* renderer,
+    const MaterialInspectorActions& material_actions
 ) {
     if (!em.has_component<UITextComponent>(entity) ||
         !begin_component<UITextComponent>(em, entity, "ui_text", "Remove UI Text", context)) return;
@@ -520,7 +499,7 @@ void UIInspectorDrawer::draw_text(
 
     const UITextComponent material_before = text;
     const bool material_changed = draw_material_handle(
-        text.material_handle, text.material, renderer, "##ui_text_material"
+        em, text.material_handle, text.material, renderer, "##ui_text_material", material_actions
     );
     track(
         em, entity, material_before, "UIText.Material", "Assign UI Text Material",
@@ -628,7 +607,8 @@ void UIInspectorDrawer::draw_image(
     EntityManager& em,
     EntityID entity,
     const ComponentTransactionContext& context,
-    SDL_Renderer* renderer
+    SDL_Renderer* renderer,
+    const MaterialInspectorActions& material_actions
 ) {
     if (!em.has_component<UIImageComponent>(entity) ||
         !begin_component<UIImageComponent>(em, entity, "ui_image", "Remove UI Image", context)) return;
@@ -643,7 +623,7 @@ void UIInspectorDrawer::draw_image(
 
     const UIImageComponent material_before = image;
     const bool material_changed = draw_material_handle(
-        image.material_handle, image.material, renderer, "##ui_image_material"
+        em, image.material_handle, image.material, renderer, "##ui_image_material", material_actions
     );
     track(
         em, entity, material_before, "UIImage.Material", "Assign UI Image Material",

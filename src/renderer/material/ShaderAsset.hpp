@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <cstring>
 #include <vector>
 
 namespace Engine {
@@ -17,9 +18,26 @@ struct ShaderAssetVariant {
     std::string entry_point;
 };
 
+enum class ShaderUniformParameterType {
+    Float,
+    Vec2,
+    Vec4,
+    Color
+};
+
+struct ShaderUniformParameter {
+    std::string name;
+    ShaderUniformParameterType type{ShaderUniformParameterType::Float};
+    std::size_t offset{0};
+    std::vector<float> default_value;
+    std::optional<float> minimum;
+    std::optional<float> maximum;
+};
+
 struct ShaderUniformBufferLayout {
     std::string name;
     std::size_t size{0};
+    std::vector<ShaderUniformParameter> parameters;
 };
 
 struct ShaderAssetDescription {
@@ -62,7 +80,71 @@ public:
             }
             const std::size_t size = buffer["size"].get<std::size_t>();
             if (size == 0) { set_error(error, "Shader uniform buffer size must be positive"); return {}; }
-            description.uniform_buffers.push_back({buffer["name"].get<std::string>(), size});
+            ShaderUniformBufferLayout layout{buffer["name"].get<std::string>(), size, {}};
+            const auto parameters = buffer.value("parameters", nlohmann::json::array());
+            if (!parameters.is_array()) {
+                set_error(error, "Shader uniform parameters must be an array");
+                return {};
+            }
+            for (const auto& parameter : parameters) {
+                if (!parameter.is_object() || !parameter.contains("name") || !parameter["name"].is_string() ||
+                    !parameter.contains("type") || !parameter["type"].is_string() ||
+                    !parameter.contains("offset") || !parameter["offset"].is_number_unsigned()) {
+                    set_error(error, "Shader uniform parameter is invalid");
+                    return {};
+                }
+                const auto type = parameter_type_from_name(parameter["type"].get<std::string>());
+                if (!type) {
+                    set_error(error, "Shader uniform parameter type is unsupported");
+                    return {};
+                }
+                ShaderUniformParameter property;
+                property.name = parameter["name"].get<std::string>();
+                property.type = *type;
+                property.offset = parameter["offset"].get<std::size_t>();
+                const std::size_t component_count = parameter_component_count(*type);
+                const auto default_value = parameter.value("default", nlohmann::json::array());
+                if (property.name.empty() || property.offset + component_count * sizeof(float) > size ||
+                    !default_value.is_array() || default_value.size() != component_count) {
+                    set_error(error, "Shader uniform parameter layout is invalid");
+                    return {};
+                }
+                for (const auto& component : default_value) {
+                    if (!component.is_number()) {
+                        set_error(error, "Shader uniform parameter default is invalid");
+                        return {};
+                    }
+                    property.default_value.push_back(component.get<float>());
+                }
+                if (parameter.contains("min")) {
+                    if (!parameter["min"].is_number()) { set_error(error, "Shader parameter minimum is invalid"); return {}; }
+                    property.minimum = parameter["min"].get<float>();
+                }
+                if (parameter.contains("max")) {
+                    if (!parameter["max"].is_number()) { set_error(error, "Shader parameter maximum is invalid"); return {}; }
+                    property.maximum = parameter["max"].get<float>();
+                }
+                if (property.minimum.has_value() != property.maximum.has_value()) {
+                    set_error(error, "Shader parameter range requires both min and max");
+                    return {};
+                }
+                if (property.minimum && property.maximum && *property.minimum > *property.maximum) {
+                    set_error(error, "Shader parameter range is invalid");
+                    return {};
+                }
+                const std::size_t property_end = property.offset + component_count * sizeof(float);
+                for (const auto& existing : layout.parameters) {
+                    const std::size_t existing_end = existing.offset +
+                        parameter_component_count(existing.type) * sizeof(float);
+                    if (property.name == existing.name ||
+                        (property.offset < existing_end && existing.offset < property_end)) {
+                        set_error(error, "Shader uniform parameters overlap or have duplicate names");
+                        return {};
+                    }
+                }
+                layout.parameters.push_back(std::move(property));
+            }
+            description.uniform_buffers.push_back(std::move(layout));
         }
         for (const auto& variant : json["variants"]) {
             if (!variant.is_object() || !variant.contains("format") || !variant["format"].is_string() ||
@@ -119,6 +201,34 @@ public:
         return true;
     }
 
+    [[nodiscard]] static std::vector<std::vector<std::byte>> make_default_uniforms(
+        const ShaderAssetDescription& shader
+    ) {
+        std::vector<std::vector<std::byte>> uniforms;
+        uniforms.reserve(shader.uniform_buffers.size());
+        for (const auto& layout : shader.uniform_buffers) {
+            auto& bytes = uniforms.emplace_back(layout.size, std::byte{0});
+            for (const auto& parameter : layout.parameters) {
+                std::memcpy(
+                    bytes.data() + parameter.offset,
+                    parameter.default_value.data(),
+                    parameter.default_value.size() * sizeof(float)
+                );
+            }
+        }
+        return uniforms;
+    }
+
+    [[nodiscard]] static std::size_t parameter_component_count(ShaderUniformParameterType type) {
+        switch (type) {
+            case ShaderUniformParameterType::Float: return 1;
+            case ShaderUniformParameterType::Vec2: return 2;
+            case ShaderUniformParameterType::Vec4:
+            case ShaderUniformParameterType::Color: return 4;
+        }
+        return 0;
+    }
+
 private:
     static constexpr std::size_t MaterialUniformSlotLimit = 4;
 
@@ -129,6 +239,16 @@ private:
         if (name == "spirv") return ShaderBinaryFormat::SpirV;
         if (name == "dxil") return ShaderBinaryFormat::Dxil;
         if (name == "metallib") return ShaderBinaryFormat::MetalLibrary;
+        return {};
+    }
+
+    [[nodiscard]] static std::optional<ShaderUniformParameterType> parameter_type_from_name(
+        const std::string& name
+    ) {
+        if (name == "float") return ShaderUniformParameterType::Float;
+        if (name == "vec2") return ShaderUniformParameterType::Vec2;
+        if (name == "vec4") return ShaderUniformParameterType::Vec4;
+        if (name == "color") return ShaderUniformParameterType::Color;
         return {};
     }
 };

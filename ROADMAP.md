@@ -226,6 +226,19 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Stage runtime assets with the platform-selected Night Vision shader variant while preserving asset-handle identities.
 - [x] Report unavailable shader variants before runtime (the Material editor shows current-renderer support and Sprite Inspector blocks incompatible assignments).
 - [x] Add material parameter editing, serialization, duplication, and missing-shader diagnostics in Asset Browser.
+- [x] Add a Unity-style reusable material workflow to Sprite and UI graphics: create, assign, open, duplicate-for-this-element, shared-use indication, typed shader properties, live scene preview, and reversible asset saves.
+- [x] Store friendly material-property metadata in `.shader` descriptors while keeping runtime uniform buffers unchanged.
+
+### Future Stage — Shader Graph
+
+This is intentionally independent from the material workflow above. Materials remain usable with authored shader descriptors even if no graph editor is installed or opened.
+
+- [ ] Define a versioned `.shadergraph` asset with typed ports, node IDs, defaults, exposed properties, and editor-only layout metadata.
+- [ ] Build a pan/zoom node canvas with selection, box selection, search-to-create, links, copy/paste, comments, and command-backed Undo/Redo.
+- [ ] Validate type compatibility, required inputs, cycles, unreachable nodes, and unsupported target features before compilation.
+- [ ] Generate deterministic HLSL plus the existing `.shader` descriptor/property metadata from a graph without changing the material runtime contract.
+- [ ] Compile through the existing SDL_shadercross pipeline for Metal, Vulkan, and Direct3D; surface node-linked errors and retain the last valid artifact on failure.
+- [ ] Add an isolated preview, dependency tracking, incremental caching, graph/material diagnostics, serialization tests, and cross-backend shader smoke coverage.
 
 ### Prefabs
 

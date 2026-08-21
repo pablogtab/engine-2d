@@ -56,6 +56,18 @@ int main() {
     require(fs::exists(scene) && database.resolve(handle) == scene.string(), "undo move restores pair and handle");
     history.redo();
 
+    const std::string before_modify = read(renamed);
+    const std::string after_modify = "{\"scene_name\":\"Modified\"}\n";
+    history.execute_command(std::make_unique<Engine::ModifyAssetCommand>(
+        &database, renamed, before_modify, after_modify, "Modify Scene Asset"
+    ));
+    require(read(renamed) == after_modify, "modify writes new asset content");
+    require(database.find_by_path(renamed)->handle == handle, "modify preserves handle");
+    history.undo();
+    require(read(renamed) == before_modify, "undo modify restores previous content");
+    history.redo();
+    require(read(renamed) == after_modify, "redo modify restores new content");
+
     history.execute_command(std::make_unique<Engine::DeleteAssetCommand>(&database, renamed));
     require(!fs::exists(renamed), "delete removes source asset");
     history.undo();

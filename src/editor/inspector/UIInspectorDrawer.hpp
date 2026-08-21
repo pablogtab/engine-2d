@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ComponentInspectorTransaction.hpp"
+#include "MaterialInspectorWidget.hpp"
 
 struct SDL_Renderer;
 
@@ -14,13 +15,15 @@ public:
         EntityManager& em,
         EntityID entity,
         const ComponentTransactionContext& context,
-        SDL_Renderer* renderer = nullptr
+        SDL_Renderer* renderer = nullptr,
+        const MaterialInspectorActions& material_actions = {}
     );
     static void draw_image(
         EntityManager& em,
         EntityID entity,
         const ComponentTransactionContext& context,
-        SDL_Renderer* renderer = nullptr
+        SDL_Renderer* renderer = nullptr,
+        const MaterialInspectorActions& material_actions = {}
     );
     static void draw_button(EntityManager& em, EntityID entity, const ComponentTransactionContext& context);
 };

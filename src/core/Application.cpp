@@ -138,7 +138,26 @@ Application::Application(const std::string& name, int width, int height, bool st
     diagnostics_panel->is_open = false;
     auto asset_browser = std::make_shared<AssetBrowserPanel>(&get_asset_database(), "assets");
     asset_browser->set_renderer(m_window->get_sdl_renderer());
+    asset_browser->set_material_backend(m_renderer->get_material_backend());
     asset_browser->set_command_history(command_history);
+    asset_browser->set_on_material_preview([this](
+        AssetHandle handle, std::shared_ptr<const Material> material
+    ) {
+        static_cast<void>(m_scene_manager.preview_material_asset(handle, std::move(material)));
+    });
+    asset_browser->set_on_material_preview_reset([this]() {
+        static_cast<void>(m_scene_manager.refresh_material_assets(AssetDatabase::get()));
+    });
+    inspector_panel->set_material_asset_actions(
+        [asset_browser]() { return asset_browser->create_material_asset(); },
+        [asset_browser](AssetHandle handle) {
+            return asset_browser->duplicate_material_asset(handle);
+        },
+        [asset_browser](AssetHandle handle) { asset_browser->open_material_asset(handle); },
+        [asset_browser](AssetHandle handle) {
+            return asset_browser->preview_material_asset(handle);
+        }
+    );
     diagnostics_panel->set_on_reveal_asset([asset_browser](const std::string& asset_path) {
         asset_browser->reveal_asset_path(asset_path);
     });

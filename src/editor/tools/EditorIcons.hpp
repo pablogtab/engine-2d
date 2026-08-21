@@ -32,6 +32,9 @@ enum class EditorIcon {
     Stop,
     Zap,
     ExternalLink,
+    Material,
+    Clear,
+    Copy,
     Count
 };
 

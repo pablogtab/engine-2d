@@ -32,6 +32,21 @@ MaterialAssetRefreshResult SceneManager::refresh_material_assets(const AssetData
     return result;
 }
 
+std::size_t SceneManager::preview_material_asset(
+    AssetHandle handle,
+    std::shared_ptr<const Material> material
+) {
+    std::size_t count = 0;
+    const auto preview = [&](const std::shared_ptr<Scene>& scene) {
+        if (scene) count += MaterialAsset::preview_assigned(
+            scene->get_entity_manager(), handle, material
+        );
+    };
+    for (const auto& scene : m_scenes) preview(scene);
+    preview(m_transient_scene);
+    return count;
+}
+
 void SceneManager::save_state() {
     if (m_active_index < 0 || static_cast<size_t>(m_active_index) >= m_scenes.size()) return;
 

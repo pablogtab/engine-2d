@@ -28,6 +28,30 @@ private:
     bool m_initialized{false};
 };
 
+class ModifyAssetCommand final : public IEditorCommand {
+public:
+    ModifyAssetCommand(
+        AssetDatabase* database,
+        std::filesystem::path path,
+        std::string before,
+        std::string after,
+        std::string description = "Modify Asset"
+    );
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] EditorCommandScope get_scope() const override { return EditorCommandScope::EditorSession; }
+
+private:
+    bool apply(const std::string& content);
+
+    AssetDatabase* m_database{nullptr};
+    std::filesystem::path m_path;
+    std::string m_before;
+    std::string m_after;
+    std::string m_description;
+};
+
 class MoveAssetCommand final : public IEditorCommand {
 public:
     MoveAssetCommand(AssetDatabase* database, std::filesystem::path source, std::filesystem::path destination);

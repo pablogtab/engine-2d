@@ -59,14 +59,30 @@ bool MaterialAsset::save(
     std::string* error
 ) {
     const AssetRecord* record = database.find(handle);
-    const auto shader = ShaderAsset::read(description.shader_handle, database, error);
-    if (!record || record->status != AssetStatus::Ready || record->type != AssetType::Material ||
-        description.name.empty() || !shader ||
-        description.uniforms.size() > Material::MAX_UNIFORM_SLOTS) {
-        set_error(error, "Material asset or shader is invalid");
+    if (!record || record->status != AssetStatus::Ready || record->type != AssetType::Material) {
+        set_error(error, "Material asset is missing or invalid");
         return false;
     }
-    if (!ShaderAsset::validate_material(*shader, description.uniforms, error)) return false;
+    const auto content = serialize(description, database, error);
+    if (!content) return false;
+    if (!FileSystem::write_text_atomically(database.resolve(handle), *content)) {
+        set_error(error, "Failed writing material asset");
+        return false;
+    }
+    return database.import_asset(database.resolve(handle)).has_value();
+}
+
+std::optional<std::string> MaterialAsset::serialize(
+    const MaterialAssetDescription& description,
+    const AssetDatabase& database,
+    std::string* error
+) {
+    const auto shader = ShaderAsset::read(description.shader_handle, database, error);
+    if (description.name.empty() || !shader || description.uniforms.size() > Material::MAX_UNIFORM_SLOTS) {
+        set_error(error, "Material name or shader is invalid");
+        return {};
+    }
+    if (!ShaderAsset::validate_material(*shader, description.uniforms, error)) return {};
     nlohmann::json uniforms = nlohmann::json::array();
     for (const auto& bytes : description.uniforms) {
         nlohmann::json uniform = nlohmann::json::array();
@@ -74,26 +90,52 @@ bool MaterialAsset::save(
         uniforms.push_back(std::move(uniform));
     }
     const nlohmann::json json{{"name", description.name}, {"shader_handle", description.shader_handle.to_string()}, {"uniforms", uniforms}};
-    if (!FileSystem::write_text_atomically(database.resolve(handle), json.dump(2) + "\n")) {
-        set_error(error, "Failed writing material asset");
-        return false;
-    }
-    return database.import_asset(database.resolve(handle)).has_value();
+    return json.dump(2) + "\n";
 }
 
 std::shared_ptr<const Material> MaterialAsset::load(AssetHandle handle, const AssetDatabase& database) {
     const auto description = read(handle, database);
     if (!description) return {};
-    std::string error;
-    const auto shader_description = ShaderAsset::read(description->shader_handle, database, &error);
-    if (!shader_description || !ShaderAsset::validate_material(*shader_description, description->uniforms, &error)) return {};
-    const auto shader = ShaderAsset::load(description->shader_handle, database, &error);
+    return instantiate(*description, database);
+}
+
+std::shared_ptr<const Material> MaterialAsset::instantiate(
+    const MaterialAssetDescription& description,
+    const AssetDatabase& database,
+    std::string* error
+) {
+    const auto shader_description = ShaderAsset::read(description.shader_handle, database, error);
+    if (!shader_description || !ShaderAsset::validate_material(*shader_description, description.uniforms, error)) return {};
+    const auto shader = ShaderAsset::load(description.shader_handle, database, error);
     if (!shader) return {};
-    auto material = std::make_shared<Material>(description->name, shader);
-    for (std::size_t i = 0; i < description->uniforms.size(); ++i) {
-        material->set_uniform_bytes(i, description->uniforms[i]);
+    auto material = std::make_shared<Material>(description.name, shader);
+    for (std::size_t i = 0; i < description.uniforms.size(); ++i) {
+        material->set_uniform_bytes(i, description.uniforms[i]);
     }
     return material;
+}
+
+std::size_t MaterialAsset::preview_assigned(
+    EntityManager& entities,
+    AssetHandle handle,
+    std::shared_ptr<const Material> material
+) {
+    std::size_t count = 0;
+    const auto preview = [&](AssetHandle assigned, std::shared_ptr<const Material>& current) {
+        if (assigned != handle) return;
+        current = material;
+        ++count;
+    };
+    entities.for_each<SpriteComponent>([&](EntityID, SpriteComponent& sprite) {
+        preview(sprite.material_handle, sprite.material);
+    });
+    entities.for_each<UITextComponent>([&](EntityID, UITextComponent& text) {
+        preview(text.material_handle, text.material);
+    });
+    entities.for_each<UIImageComponent>([&](EntityID, UIImageComponent& image) {
+        preview(image.material_handle, image.material);
+    });
+    return count;
 }
 
 MaterialAssetRefreshResult MaterialAsset::refresh_assigned(EntityManager& entities, const AssetDatabase& database) {

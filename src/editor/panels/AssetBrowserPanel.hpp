@@ -3,23 +3,28 @@
 #include "../EditorPanel.hpp"
 #include "../../core/AssetHandle.hpp"
 #include "../../renderer/RenderLayerEffectProfile.hpp"
+#include "../../renderer/material/MaterialAsset.hpp"
 #include <array>
 #include <string>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 
 struct SDL_Renderer;
+struct SDL_Texture;
 
 namespace Engine {
 
 class AssetDatabase;
 class EditorCommandHistory;
+class Material;
+class IMaterialBackend;
 
 class AssetBrowserPanel : public EditorPanel {
 public:
     explicit AssetBrowserPanel(AssetDatabase* asset_database, std::string root_path = "assets");
-    ~AssetBrowserPanel() override = default;
+    ~AssetBrowserPanel() override;
 
     void on_gui() override;
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
@@ -34,19 +39,44 @@ public:
         m_command_history = std::move(command_history);
     }
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
+    void set_material_backend(std::shared_ptr<IMaterialBackend> backend) {
+        m_material_backend = std::move(backend);
+    }
 
     void refresh();
     void reveal_asset_path(const std::string& path);
+    [[nodiscard]] AssetHandle create_material_asset(std::string base_name = "NewMaterial");
+    [[nodiscard]] AssetHandle duplicate_material_asset(AssetHandle source_handle);
+    void open_material_asset(AssetHandle handle);
+    [[nodiscard]] SDL_Texture* preview_material_asset(AssetHandle handle);
+    void set_on_material_preview(
+        std::function<void(AssetHandle, std::shared_ptr<const Material>)> callback
+    ) { m_on_material_preview = std::move(callback); }
+    void set_on_material_preview_reset(std::function<void()> callback) {
+        m_on_material_preview_reset = std::move(callback);
+    }
 
 private:
+    [[nodiscard]] SDL_Texture* render_material_preview(
+        AssetHandle handle,
+        const std::shared_ptr<const Material>& material
+    );
+    bool ensure_material_preview_source();
+    void destroy_material_previews();
+
     std::string m_name{"Asset Browser"};
     std::filesystem::path m_root_path;
     std::filesystem::path m_current_path;
     AssetDatabase* m_asset_database{nullptr};
     SDL_Renderer* m_renderer{nullptr};
+    std::shared_ptr<IMaterialBackend> m_material_backend;
+    SDL_Texture* m_material_preview_source{nullptr};
+    std::unordered_map<AssetHandle, SDL_Texture*> m_material_preview_outputs;
     std::shared_ptr<EditorCommandHistory> m_command_history;
     std::function<void(const std::string&)> m_on_load_scene;
     std::function<void(const std::string&)> m_on_open_prefab;
+    std::function<void(AssetHandle, std::shared_ptr<const Material>)> m_on_material_preview;
+    std::function<void()> m_on_material_preview_reset;
     std::string m_selected_file{""};
     std::string m_revealed_reference{""};
     char m_new_scene_name_buf[128]{"NewScene"};
@@ -61,11 +91,13 @@ private:
     bool m_show_edit_layer_effect_popup{false};
     bool m_show_edit_material_popup{false};
     AssetHandle m_edit_material_handle{};
-    AssetHandle m_edit_material_shader_handle{};
+    MaterialAssetDescription m_edit_material_draft;
     char m_edit_material_name_buf[128]{};
     std::array<std::array<char, 513>, 8> m_edit_material_uniforms{};
     std::size_t m_edit_material_uniform_count{0};
     std::string m_edit_material_error;
+    bool m_edit_material_preview_active{false};
+    std::shared_ptr<const Material> m_edit_material_preview_material;
     AssetHandle m_edit_layer_effect_handle{};
     RenderLayerEffectProfile m_edit_layer_effect_original;
     RenderLayerEffectProfile m_edit_layer_effect_draft;

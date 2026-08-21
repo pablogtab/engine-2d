@@ -10,10 +10,13 @@
 #include "../commands/AssetFileCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/PostProcessProfileCommands.hpp"
+#include "../inspector/MaterialInspectorWidget.hpp"
 #include <imgui.h>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <iomanip>
 #include <sstream>
 #include <nlohmann/json.hpp>
@@ -47,6 +50,53 @@ bool parse_hex_bytes(const char* text, std::vector<std::byte>& bytes) {
     return true;
 }
 
+std::filesystem::path unique_asset_path(
+    const std::filesystem::path& directory,
+    const std::string& base_name,
+    const std::string& extension
+) {
+    std::filesystem::path path = directory / (base_name + extension);
+    unsigned suffix = 2;
+    while (std::filesystem::exists(path)) {
+        path = directory / (base_name + "_" + std::to_string(suffix++) + extension);
+    }
+    return path;
+}
+
+bool draw_uniform_parameter(
+    const ShaderUniformParameter& parameter,
+    std::vector<std::byte>& bytes
+) {
+    const std::size_t count = ShaderAsset::parameter_component_count(parameter.type);
+    if (count == 0 || parameter.offset + count * sizeof(float) > bytes.size()) return false;
+    float values[4]{};
+    std::memcpy(values, bytes.data() + parameter.offset, count * sizeof(float));
+    bool changed = false;
+    const bool has_range = parameter.minimum && parameter.maximum;
+    const float minimum = has_range ? *parameter.minimum : 0.0f;
+    const float maximum = has_range ? *parameter.maximum : 0.0f;
+    switch (parameter.type) {
+        case ShaderUniformParameterType::Float:
+            changed = has_range
+                ? ImGui::SliderFloat(parameter.name.c_str(), values, minimum, maximum)
+                : ImGui::DragFloat(parameter.name.c_str(), values, 0.01f);
+            break;
+        case ShaderUniformParameterType::Vec2:
+            changed = ImGui::DragFloat2(parameter.name.c_str(), values, 0.01f, minimum, maximum);
+            break;
+        case ShaderUniformParameterType::Vec4:
+            changed = ImGui::DragFloat4(parameter.name.c_str(), values, 0.01f, minimum, maximum);
+            break;
+        case ShaderUniformParameterType::Color:
+            changed = ImGui::ColorEdit4(parameter.name.c_str(), values);
+            break;
+    }
+    if (changed) {
+        std::memcpy(bytes.data() + parameter.offset, values, count * sizeof(float));
+    }
+    return changed;
+}
+
 } // namespace
 
 AssetBrowserPanel::AssetBrowserPanel(AssetDatabase* asset_database, std::string root_path)
@@ -54,6 +104,119 @@ AssetBrowserPanel::AssetBrowserPanel(AssetDatabase* asset_database, std::string 
     if (!std::filesystem::exists(m_root_path)) {
         std::filesystem::create_directories(m_root_path);
     }
+}
+
+AssetBrowserPanel::~AssetBrowserPanel() {
+    destroy_material_previews();
+}
+
+bool AssetBrowserPanel::ensure_material_preview_source() {
+    if (m_material_preview_source) return true;
+    if (!m_renderer) return false;
+    constexpr int preview_size = 64;
+    std::vector<std::uint8_t> pixels(preview_size * preview_size * 4, 0);
+    const float light_x = -0.45f;
+    const float light_y = -0.55f;
+    const float light_z = 0.70f;
+    for (int y = 0; y < preview_size; ++y) {
+        for (int x = 0; x < preview_size; ++x) {
+            const float nx = (static_cast<float>(x) + 0.5f) / (preview_size * 0.5f) - 1.0f;
+            const float ny = (static_cast<float>(y) + 0.5f) / (preview_size * 0.5f) - 1.0f;
+            const float radius_squared = nx * nx + ny * ny;
+            if (radius_squared > 1.0f) continue;
+            const float nz = std::sqrt(std::max(0.0f, 1.0f - radius_squared));
+            const float diffuse = std::max(0.0f, nx * light_x + ny * light_y + nz * light_z);
+            const float rim = std::pow(std::max(0.0f, 1.0f - nz), 2.0f);
+            const float specular = std::pow(std::max(0.0f, diffuse), 18.0f);
+            const float shade = std::clamp(0.18f + diffuse * 0.68f + specular * 0.32f + rim * 0.05f, 0.0f, 1.0f);
+            const float edge = std::clamp((1.0f - std::sqrt(radius_squared)) * preview_size * 0.8f, 0.0f, 1.0f);
+            const std::size_t offset = static_cast<std::size_t>((y * preview_size + x) * 4);
+            const auto channel = static_cast<std::uint8_t>(shade * 255.0f);
+            pixels[offset + 0] = channel;
+            pixels[offset + 1] = channel;
+            pixels[offset + 2] = channel;
+            pixels[offset + 3] = static_cast<std::uint8_t>(edge * 255.0f);
+        }
+    }
+    m_material_preview_source = SDL_CreateTexture(
+        m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, preview_size, preview_size
+    );
+    if (!m_material_preview_source || !SDL_UpdateTexture(
+            m_material_preview_source, nullptr, pixels.data(), preview_size * 4
+        )) {
+        destroy_material_previews();
+        return false;
+    }
+    SDL_SetTextureBlendMode(m_material_preview_source, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(m_material_preview_source, SDL_SCALEMODE_LINEAR);
+    return true;
+}
+
+SDL_Texture* AssetBrowserPanel::render_material_preview(
+    AssetHandle handle,
+    const std::shared_ptr<const Material>& material
+) {
+    if (!handle.is_valid() || !material || !m_material_backend ||
+        !m_material_backend->is_available() || !ensure_material_preview_source()) return nullptr;
+    constexpr int preview_size = 64;
+    SDL_Texture*& output = m_material_preview_outputs[handle];
+    if (!output) {
+        output = SDL_CreateTexture(
+            m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
+            preview_size, preview_size
+        );
+        if (!output) return nullptr;
+        SDL_SetTextureBlendMode(output, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureScaleMode(output, SDL_SCALEMODE_LINEAR);
+    }
+
+    SDL_Texture* previous_target = SDL_GetRenderTarget(m_renderer);
+    SDL_Rect previous_viewport{};
+    const bool had_viewport = SDL_GetRenderViewport(m_renderer, &previous_viewport);
+    float previous_scale_x = 1.0f;
+    float previous_scale_y = 1.0f;
+    static_cast<void>(SDL_GetRenderScale(m_renderer, &previous_scale_x, &previous_scale_y));
+    Uint8 previous_r = 0;
+    Uint8 previous_g = 0;
+    Uint8 previous_b = 0;
+    Uint8 previous_a = 0;
+    static_cast<void>(SDL_GetRenderDrawColor(
+        m_renderer, &previous_r, &previous_g, &previous_b, &previous_a
+    ));
+
+    if (!SDL_SetRenderTarget(m_renderer, output)) return nullptr;
+    static_cast<void>(SDL_SetRenderScale(m_renderer, 1.0f, 1.0f));
+    static_cast<void>(SDL_SetRenderViewport(m_renderer, nullptr));
+    static_cast<void>(SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 0));
+    static_cast<void>(SDL_RenderClear(m_renderer));
+    const bool rendered = m_material_backend->draw_fullscreen(
+        *material, m_material_preview_source, {preview_size, preview_size}
+    );
+
+    static_cast<void>(SDL_SetRenderTarget(m_renderer, previous_target));
+    static_cast<void>(SDL_SetRenderScale(m_renderer, previous_scale_x, previous_scale_y));
+    if (had_viewport) static_cast<void>(SDL_SetRenderViewport(m_renderer, &previous_viewport));
+    static_cast<void>(SDL_SetRenderDrawColor(
+        m_renderer, previous_r, previous_g, previous_b, previous_a
+    ));
+    return rendered ? output : nullptr;
+}
+
+SDL_Texture* AssetBrowserPanel::preview_material_asset(AssetHandle handle) {
+    if (!m_asset_database || !handle.is_valid()) return nullptr;
+    if (const auto cached = m_material_preview_outputs.find(handle);
+        cached != m_material_preview_outputs.end() && cached->second) return cached->second;
+    return render_material_preview(handle, MaterialAsset::load(handle, *m_asset_database));
+}
+
+void AssetBrowserPanel::destroy_material_previews() {
+    for (auto& [handle, texture] : m_material_preview_outputs) {
+        (void)handle;
+        if (texture) SDL_DestroyTexture(texture);
+    }
+    m_material_preview_outputs.clear();
+    if (m_material_preview_source) SDL_DestroyTexture(m_material_preview_source);
+    m_material_preview_source = nullptr;
 }
 
 void AssetBrowserPanel::refresh() {
@@ -74,6 +237,95 @@ void AssetBrowserPanel::reveal_asset_path(const std::string& path) {
     m_selected_file = target.string();
     m_revealed_reference = target.string();
     is_open = true;
+}
+
+AssetHandle AssetBrowserPanel::create_material_asset(std::string base_name) {
+    if (!m_asset_database || !m_command_history) return {};
+    const auto shader = std::find_if(
+        m_asset_database->records().begin(),
+        m_asset_database->records().end(),
+        [this](const AssetRecord& record) {
+            return record.type == AssetType::Shader && record.status == AssetStatus::Ready &&
+                ShaderAsset::read(record.handle, *m_asset_database).has_value();
+        }
+    );
+    if (shader == m_asset_database->records().end()) {
+        ENGINE_LOG_WARN("[ASSET BROWSER] Cannot create material: no ready shader asset is available.");
+        return {};
+    }
+    const auto shader_description = ShaderAsset::read(shader->handle, *m_asset_database);
+    if (!shader_description) return {};
+    const std::filesystem::path file = unique_asset_path(m_current_path, base_name, ".material");
+    MaterialAssetDescription description{
+        file.stem().string(), shader->handle, ShaderAsset::make_default_uniforms(*shader_description)
+    };
+    std::string error;
+    const auto content = MaterialAsset::serialize(description, *m_asset_database, &error);
+    if (!content) {
+        ENGINE_LOG_WARN("[ASSET BROWSER] Cannot create material: {}", error);
+        return {};
+    }
+    m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
+        m_asset_database, file, *content
+    ));
+    const AssetRecord* created = m_asset_database->find_by_path(file);
+    if (!created) return {};
+    reveal_asset_path(created->source_path);
+    return created->handle;
+}
+
+AssetHandle AssetBrowserPanel::duplicate_material_asset(AssetHandle source_handle) {
+    if (!m_asset_database || !m_command_history || !source_handle.is_valid()) return {};
+    const AssetRecord* source = m_asset_database->find(source_handle);
+    const auto description = MaterialAsset::read(source_handle, *m_asset_database);
+    if (!source || !description) return {};
+    const std::filesystem::path source_path = source->source_path;
+    const std::filesystem::path file = unique_asset_path(
+        source_path.parent_path(), source_path.stem().string() + "_Copy", ".material"
+    );
+    MaterialAssetDescription copy = *description;
+    copy.name = file.stem().string();
+    std::string error;
+    const auto content = MaterialAsset::serialize(copy, *m_asset_database, &error);
+    if (!content) {
+        ENGINE_LOG_WARN("[ASSET BROWSER] Cannot duplicate material: {}", error);
+        return {};
+    }
+    m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
+        m_asset_database, file, *content
+    ));
+    const AssetRecord* created = m_asset_database->find_by_path(file);
+    if (!created) return {};
+    reveal_asset_path(created->source_path);
+    return created->handle;
+}
+
+void AssetBrowserPanel::open_material_asset(AssetHandle handle) {
+    if (!m_asset_database || !handle.is_valid()) return;
+    const AssetRecord* material = m_asset_database->find(handle);
+    std::string error;
+    const auto description = MaterialAsset::read(handle, *m_asset_database, &error);
+    if (!material || !description) {
+        ENGINE_LOG_WARN("[ASSET BROWSER] Cannot edit material: {}", error);
+        return;
+    }
+    reveal_asset_path(material->source_path);
+    m_edit_material_handle = handle;
+    m_edit_material_draft = *description;
+    std::snprintf(
+        m_edit_material_name_buf, sizeof(m_edit_material_name_buf), "%s", description->name.c_str()
+    );
+    m_edit_material_uniform_count = description->uniforms.size();
+    for (std::size_t index = 0; index < m_edit_material_uniform_count; ++index) {
+        const std::string text = format_bytes(description->uniforms[index]);
+        std::snprintf(
+            m_edit_material_uniforms[index].data(), m_edit_material_uniforms[index].size(), "%s", text.c_str()
+        );
+    }
+    m_edit_material_error.clear();
+    m_edit_material_preview_active = false;
+    m_edit_material_preview_material = MaterialAsset::load(handle, *m_asset_database);
+    m_show_edit_material_popup = true;
 }
 
 void AssetBrowserPanel::on_gui() {
@@ -222,24 +474,7 @@ void AssetBrowserPanel::on_gui() {
                             }
                         } else if (extension == ".material" && m_asset_database) {
                             const AssetRecord* material = m_asset_database->find_by_path(path);
-                            std::string error;
-                            const auto description = material
-                                ? MaterialAsset::read(material->handle, *m_asset_database, &error)
-                                : std::nullopt;
-                            if (description) {
-                                m_edit_material_handle = material->handle;
-                                m_edit_material_shader_handle = description->shader_handle;
-                                std::snprintf(m_edit_material_name_buf, sizeof(m_edit_material_name_buf), "%s", description->name.c_str());
-                                m_edit_material_uniform_count = description->uniforms.size();
-                                for (std::size_t index = 0; index < m_edit_material_uniform_count; ++index) {
-                                    const std::string text = format_bytes(description->uniforms[index]);
-                                    std::snprintf(m_edit_material_uniforms[index].data(), m_edit_material_uniforms[index].size(), "%s", text.c_str());
-                                }
-                                m_edit_material_error.clear();
-                                m_show_edit_material_popup = true;
-                            } else {
-                                ENGINE_LOG_WARN("[ASSET BROWSER] Cannot edit material '{}': {}", path.string(), error);
-                            }
+                            if (material) open_material_asset(material->handle);
                         } else if (extension == ".layereffect" && m_asset_database) {
                             const AssetRecord* record = m_asset_database->find_by_path(path);
                             std::string error;
@@ -276,14 +511,8 @@ void AssetBrowserPanel::on_gui() {
                         }
                         if (extension == ".material" && ImGui::MenuItem("Duplicate Material") &&
                             m_command_history && m_asset_database) {
-                            std::filesystem::path copy = path.parent_path() / (path.stem().string() + "_Copy.material");
-                            unsigned suffix = 2;
-                            while (std::filesystem::exists(copy)) {
-                                copy = path.parent_path() / (path.stem().string() + "_Copy_" + std::to_string(suffix++) + ".material");
-                            }
-                            m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
-                                m_asset_database, copy, FileSystem::read_text(path.string())
-                            ));
+                            const AssetRecord* material = m_asset_database->find_by_path(path);
+                            if (material) static_cast<void>(duplicate_material_asset(material->handle));
                         }
                         if (ImGui::MenuItem("Delete")) {
                             if (!is_dir && m_command_history && m_asset_database) {
@@ -395,25 +624,7 @@ void AssetBrowserPanel::on_gui() {
             ImGui::Spacing();
             if (ImGui::Button("Create", ImVec2(120, 0))) {
                 const std::string name = m_new_material_name_buf;
-                if (!name.empty() && m_command_history && m_asset_database) {
-                    const auto shader = std::find_if(m_asset_database->records().begin(), m_asset_database->records().end(), [this](const AssetRecord& record) {
-                        return record.type == AssetType::Shader && record.status == AssetStatus::Ready &&
-                            ShaderAsset::read(record.handle, *m_asset_database).has_value();
-                    });
-                    if (shader != m_asset_database->records().end()) {
-                        const auto file = m_current_path / (name + ".material");
-                        const auto shader_description = ShaderAsset::read(shader->handle, *m_asset_database);
-                        nlohmann::json uniforms = nlohmann::json::array();
-                        for (const auto& layout : shader_description->uniform_buffers) {
-                            uniforms.push_back(nlohmann::json::array());
-                            for (std::size_t byte = 0; byte < layout.size; ++byte) uniforms.back().push_back(0);
-                        }
-                        const nlohmann::json material_json{{"name", name}, {"shader_handle", shader->handle.to_string()}, {"uniforms", uniforms}};
-                        m_command_history->execute_command(std::make_unique<CreateAssetCommand>(m_asset_database, file, material_json.dump(2) + "\n"));
-                    } else {
-                        ENGINE_LOG_WARN("[ASSET BROWSER] Cannot create material: no ready shader asset is available.");
-                    }
-                }
+                if (!name.empty()) static_cast<void>(create_material_asset(name));
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
@@ -547,23 +758,51 @@ void AssetBrowserPanel::on_gui() {
             ImGui::EndPopup();
         }
         if (ImGui::BeginPopupModal("Edit Material", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::InputText("Name", m_edit_material_name_buf, sizeof(m_edit_material_name_buf));
-            const AssetRecord* shader = m_edit_material_shader_handle.is_valid() && m_asset_database
-                ? m_asset_database->find(m_edit_material_shader_handle) : nullptr;
-            const auto shader_description = shader && m_asset_database
-                ? ShaderAsset::read(shader->handle, *m_asset_database)
-                : std::nullopt;
-            if (ImGui::BeginCombo("Shader", shader ? shader->source_path.c_str() : "Missing shader")) {
+            SDL_Texture* editor_preview = render_material_preview(
+                m_edit_material_handle, m_edit_material_preview_material
+            );
+            if (editor_preview) {
+                draw_material_preview_image(editor_preview, {46.0f, 46.0f});
+                ImGui::SameLine();
+            }
+            ImGui::BeginGroup();
+            ImGui::SetNextItemWidth(320.0f);
+            if (ImGui::InputText("Name", m_edit_material_name_buf, sizeof(m_edit_material_name_buf))) {
+                m_edit_material_draft.name = m_edit_material_name_buf;
+            }
+            const AssetRecord* current_shader = m_edit_material_draft.shader_handle.is_valid() && m_asset_database
+                ? m_asset_database->find(m_edit_material_draft.shader_handle) : nullptr;
+            bool preview_changed = false;
+            if (ImGui::BeginCombo("Shader", current_shader ? current_shader->source_path.c_str() : "Missing shader")) {
                 if (m_asset_database) {
                     for (const AssetRecord& record : m_asset_database->records()) {
                         if (record.type != AssetType::Shader || record.status != AssetStatus::Ready) continue;
-                        const bool selected = record.handle == m_edit_material_shader_handle;
-                        if (ImGui::Selectable(record.source_path.c_str(), selected)) m_edit_material_shader_handle = record.handle;
+                        const auto candidate = ShaderAsset::read(record.handle, *m_asset_database);
+                        if (!candidate) continue;
+                        const bool selected = record.handle == m_edit_material_draft.shader_handle;
+                        if (ImGui::Selectable(record.source_path.c_str(), selected)) {
+                            m_edit_material_draft.shader_handle = record.handle;
+                            m_edit_material_draft.uniforms = ShaderAsset::make_default_uniforms(*candidate);
+                            preview_changed = true;
+                            m_edit_material_uniform_count = m_edit_material_draft.uniforms.size();
+                            for (std::size_t index = 0; index < m_edit_material_uniform_count; ++index) {
+                                const std::string text = format_bytes(m_edit_material_draft.uniforms[index]);
+                                std::snprintf(
+                                    m_edit_material_uniforms[index].data(),
+                                    m_edit_material_uniforms[index].size(), "%s", text.c_str()
+                                );
+                            }
+                        }
                         if (selected) ImGui::SetItemDefaultFocus();
                     }
                 }
                 ImGui::EndCombo();
             }
+            const AssetRecord* shader = m_edit_material_draft.shader_handle.is_valid() && m_asset_database
+                ? m_asset_database->find(m_edit_material_draft.shader_handle) : nullptr;
+            const auto shader_description = shader && m_asset_database
+                ? ShaderAsset::read(shader->handle, *m_asset_database)
+                : std::nullopt;
             if (!shader || shader->status != AssetStatus::Ready || shader->type != AssetType::Shader) {
                 ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.35f, 1.0f), "Select a ready shader asset before saving.");
             } else if (!m_renderer) {
@@ -581,49 +820,94 @@ void AssetBrowserPanel::on_gui() {
                     ? "Compatible with the current renderer."
                     : compatibility_error.c_str());
             }
+            ImGui::EndGroup();
             ImGui::Separator();
-            ImGui::TextUnformatted("Uniform buffers (hex bytes):");
-            for (std::size_t index = 0; index < m_edit_material_uniform_count; ++index) {
-                ImGui::PushID(static_cast<int>(index));
-                const std::string label = shader_description && index < shader_description->uniform_buffers.size()
-                    ? shader_description->uniform_buffers[index].name + " (" +
-                        std::to_string(shader_description->uniform_buffers[index].size) + " bytes)"
-                    : "Uniform buffer";
-                ImGui::InputText(label.c_str(), m_edit_material_uniforms[index].data(), m_edit_material_uniforms[index].size());
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Remove")) {
-                    for (std::size_t next = index + 1; next < m_edit_material_uniform_count; ++next) {
-                        m_edit_material_uniforms[next - 1] = m_edit_material_uniforms[next];
+            if (shader_description) {
+                for (std::size_t index = 0; index < shader_description->uniform_buffers.size(); ++index) {
+                    const auto& layout = shader_description->uniform_buffers[index];
+                    ImGui::PushID(static_cast<int>(index));
+                    ImGui::TextDisabled("%s", layout.name.c_str());
+                    if (!layout.parameters.empty() && index < m_edit_material_draft.uniforms.size()) {
+                        for (const auto& parameter : layout.parameters) {
+                            preview_changed |= draw_uniform_parameter(
+                                parameter, m_edit_material_draft.uniforms[index]
+                            );
+                        }
+                    } else if (index < m_edit_material_uniform_count) {
+                        ImGui::TextDisabled("This shader exposes no friendly properties for this buffer.");
+                        if (ImGui::InputText(
+                                "Raw bytes", m_edit_material_uniforms[index].data(),
+                                m_edit_material_uniforms[index].size()
+                            )) {
+                            std::vector<std::byte> parsed;
+                            if (parse_hex_bytes(m_edit_material_uniforms[index].data(), parsed) &&
+                                parsed.size() == layout.size) {
+                                m_edit_material_draft.uniforms[index] = std::move(parsed);
+                                m_edit_material_error.clear();
+                                preview_changed = true;
+                            } else {
+                                m_edit_material_error = "Raw bytes must match the shader buffer size.";
+                            }
+                        }
                     }
-                    --m_edit_material_uniform_count;
                     ImGui::PopID();
-                    break;
                 }
-                ImGui::PopID();
+            } else {
+                ImGui::TextDisabled("Select a valid shader to edit its properties.");
             }
-            if (!shader_description && m_edit_material_uniform_count < m_edit_material_uniforms.size() && ImGui::Button("Add Uniform Buffer")) {
-                m_edit_material_uniforms[m_edit_material_uniform_count++].fill('\0');
+            if (preview_changed && m_asset_database) {
+                m_edit_material_draft.name = m_edit_material_name_buf;
+                std::string preview_error;
+                const auto preview = MaterialAsset::instantiate(
+                    m_edit_material_draft, *m_asset_database, &preview_error
+                );
+                if (preview) {
+                    m_edit_material_preview_material = preview;
+                    if (m_on_material_preview) m_on_material_preview(m_edit_material_handle, preview);
+                    m_edit_material_preview_active = true;
+                    m_edit_material_error.clear();
+                } else {
+                    m_edit_material_error = preview_error;
+                }
             }
             if (!m_edit_material_error.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s", m_edit_material_error.c_str());
             ImGui::Separator();
-            if (ImGui::Button("Save", ImVec2(120, 0)) && m_asset_database) {
-                MaterialAssetDescription description;
-                description.name = m_edit_material_name_buf;
-                description.shader_handle = m_edit_material_shader_handle;
-                bool valid = !description.name.empty();
-                for (std::size_t index = 0; valid && index < m_edit_material_uniform_count; ++index) {
-                    std::vector<std::byte> bytes;
-                    valid = parse_hex_bytes(m_edit_material_uniforms[index].data(), bytes);
-                    if (valid) description.uniforms.push_back(std::move(bytes));
-                }
-                if (!valid) {
-                    m_edit_material_error = "Each uniform buffer must use two-digit hexadecimal bytes.";
-                } else if (MaterialAsset::save(m_edit_material_handle, description, *m_asset_database, &m_edit_material_error)) {
-                    ImGui::CloseCurrentPopup();
+            if (ImGui::Button("Save", ImVec2(120, 0)) && m_asset_database && m_command_history) {
+                m_edit_material_draft.name = m_edit_material_name_buf;
+                const auto content = MaterialAsset::serialize(
+                    m_edit_material_draft, *m_asset_database, &m_edit_material_error
+                );
+                const AssetRecord* material = m_asset_database->find(m_edit_material_handle);
+                if (content && material) {
+                    const std::filesystem::path path = m_asset_database->resolve(m_edit_material_handle);
+                    const std::string before = FileSystem::read_text(path.string());
+                    if (before != *content) {
+                        m_command_history->execute_command(std::make_unique<ModifyAssetCommand>(
+                            m_asset_database, path, before, *content, "Edit Material"
+                        ));
+                    }
+                    if (FileSystem::read_text(path.string()) == *content) {
+                        m_edit_material_preview_active = false;
+                        m_edit_material_preview_material.reset();
+                        ImGui::CloseCurrentPopup();
+                    }
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                if (m_edit_material_preview_active && m_on_material_preview_reset) {
+                    m_on_material_preview_reset();
+                }
+                if (m_asset_database) {
+                    static_cast<void>(render_material_preview(
+                        m_edit_material_handle,
+                        MaterialAsset::load(m_edit_material_handle, *m_asset_database)
+                    ));
+                }
+                m_edit_material_preview_active = false;
+                m_edit_material_preview_material.reset();
+                ImGui::CloseCurrentPopup();
+            }
             ImGui::EndPopup();
         }
     }

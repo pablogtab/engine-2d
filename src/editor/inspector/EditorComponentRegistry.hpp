@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../tools/EditorIcons.hpp"
+#include "../../core/AssetHandle.hpp"
 #include "../../scene/ComponentRegistry.hpp"
 #include <functional>
 #include <optional>
@@ -10,6 +11,7 @@
 #include <vector>
 
 struct SDL_Renderer;
+struct SDL_Texture;
 
 namespace Engine {
 
@@ -36,6 +38,10 @@ struct EditorInspectorContext {
     AnimationPreviewState* animation_preview{nullptr};
     SpriteAnimationStudioPanel* animation_studio{nullptr};
     bool locked{false};
+    std::function<AssetHandle()> create_material;
+    std::function<AssetHandle(AssetHandle)> duplicate_material;
+    std::function<void(AssetHandle)> open_material;
+    std::function<SDL_Texture*(AssetHandle)> preview_material;
 };
 
 struct EditorComponentDescriptor {

@@ -26,8 +26,18 @@ struct MaterialAssetRefreshResult {
 class MaterialAsset {
 public:
     [[nodiscard]] static std::shared_ptr<const Material> load(AssetHandle handle, const AssetDatabase& database);
+    [[nodiscard]] static std::shared_ptr<const Material> instantiate(
+        const MaterialAssetDescription& description,
+        const AssetDatabase& database,
+        std::string* error = nullptr
+    );
     [[nodiscard]] static std::optional<MaterialAssetDescription> read(
         AssetHandle handle, const AssetDatabase& database, std::string* error = nullptr
+    );
+    [[nodiscard]] static std::optional<std::string> serialize(
+        const MaterialAssetDescription& description,
+        const AssetDatabase& database,
+        std::string* error = nullptr
     );
     [[nodiscard]] static bool save(
         AssetHandle handle,
@@ -37,6 +47,11 @@ public:
     );
     [[nodiscard]] static MaterialAssetRefreshResult refresh_assigned(
         EntityManager& entities, const AssetDatabase& database
+    );
+    [[nodiscard]] static std::size_t preview_assigned(
+        EntityManager& entities,
+        AssetHandle handle,
+        std::shared_ptr<const Material> material
     );
 };
 } // namespace Engine

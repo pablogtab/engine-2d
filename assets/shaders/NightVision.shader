@@ -4,7 +4,21 @@
   "uniform_buffers": [
     {
       "name": "NightVisionUniforms",
-      "size": 32
+      "size": 32,
+      "parameters": [
+        {
+          "name": "Tint",
+          "type": "color",
+          "offset": 0,
+          "default": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+          "name": "Shadow Tint",
+          "type": "color",
+          "offset": 16,
+          "default": [0.0, 0.0, 0.0, 0.15]
+        }
+      ]
     }
   ],
   "variants": [

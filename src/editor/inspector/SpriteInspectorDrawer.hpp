@@ -2,6 +2,7 @@
 
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/EditorPropertyTransaction.hpp"
+#include "MaterialInspectorWidget.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
 #include <vector>
 
@@ -19,6 +20,7 @@ public:
         AssetManager* asset_manager{nullptr};
         EditorCommandHistory* command_history{nullptr};
         EditorPropertyTransaction* transactions{nullptr};
+        MaterialInspectorActions material_actions;
     };
 
     static void draw(EntityManager& em, EntityID entity, const Context& context);

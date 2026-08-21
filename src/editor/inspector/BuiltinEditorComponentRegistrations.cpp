@@ -89,7 +89,11 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
                 context.renderer,
                 context.asset_manager,
                 context.command_history,
-                context.transactions
+                context.transactions,
+                {
+                    context.create_material, context.duplicate_material,
+                    context.open_material, context.preview_material
+                }
             });
         },
         .create_default = [](
@@ -329,7 +333,10 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
             UIInspectorDrawer::draw_text(em, entity, {
                 context.command_history, context.transactions
-            }, context.renderer);
+            }, context.renderer, {
+                context.create_material, context.duplicate_material,
+                context.open_material, context.preview_material
+            });
         },
         .create_default = [](
             EntityManager&,
@@ -348,7 +355,10 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
             UIInspectorDrawer::draw_image(em, entity, {
                 context.command_history, context.transactions
-            }, context.renderer);
+            }, context.renderer, {
+                context.create_material, context.duplicate_material,
+                context.open_material, context.preview_material
+            });
         },
         .create_default = [](
             EntityManager&,

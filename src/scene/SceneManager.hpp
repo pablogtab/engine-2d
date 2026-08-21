@@ -10,6 +10,7 @@
 namespace Engine {
 
 class AssetDatabase;
+class Material;
 struct MaterialAssetRefreshResult;
 
 enum class ScenePlayState {
@@ -55,6 +56,10 @@ public:
     void render(Renderer2D& renderer);
     void configure_view(RenderViewKind view, const RenderViewConfiguration& configuration);
     [[nodiscard]] MaterialAssetRefreshResult refresh_material_assets(const AssetDatabase& database);
+    [[nodiscard]] std::size_t preview_material_asset(
+        AssetHandle handle,
+        std::shared_ptr<const Material> material
+    );
 
     Scene* get_active_scene() const;
     [[nodiscard]] std::shared_ptr<Scene> get_active_scene_shared_ptr() const;

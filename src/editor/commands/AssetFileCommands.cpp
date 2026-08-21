@@ -55,6 +55,35 @@ std::string CreateAssetCommand::get_description() const {
     return "Create Asset " + m_path.filename().string();
 }
 
+ModifyAssetCommand::ModifyAssetCommand(
+    AssetDatabase* database,
+    fs::path path,
+    std::string before,
+    std::string after,
+    std::string description
+) : m_database(database),
+    m_path(std::move(path)),
+    m_before(std::move(before)),
+    m_after(std::move(after)),
+    m_description(std::move(description)) {}
+
+bool ModifyAssetCommand::apply(const std::string& content) {
+    std::error_code error;
+    if (!fs::is_regular_file(m_path, error) || error) return false;
+    const std::string rollback = FileSystem::read_text(m_path.string());
+    if (!FileSystem::write_text_atomically(m_path.string(), content)) return false;
+    if (m_database && !m_database->import_asset(m_path).has_value()) {
+        static_cast<void>(FileSystem::write_text_atomically(m_path.string(), rollback));
+        static_cast<void>(m_database->import_asset(m_path));
+        return false;
+    }
+    rescan(m_database);
+    return true;
+}
+
+bool ModifyAssetCommand::execute() { return apply(m_after); }
+bool ModifyAssetCommand::undo() { return apply(m_before); }
+
 MoveAssetCommand::MoveAssetCommand(AssetDatabase* database, fs::path source, fs::path destination)
     : m_database(database), m_source(std::move(source)), m_destination(std::move(destination)) {}
 
