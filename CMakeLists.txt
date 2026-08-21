@@ -436,6 +436,17 @@ target_include_directories(EntityManagerTests PRIVATE
 target_link_libraries(EntityManagerTests PRIVATE glm::glm)
 add_test(NAME EntityManagerTests COMMAND EntityManagerTests)
 
+add_executable(SceneValidatorTests
+    tests/SceneValidatorTests.cpp
+    src/ecs/EntityManager.cpp
+    src/scene/SceneValidator.cpp
+)
+target_include_directories(SceneValidatorTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(SceneValidatorTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME SceneValidatorTests COMMAND SceneValidatorTests)
+
 add_executable(EditorEntityStateStoreTests
     tests/EditorEntityStateStoreTests.cpp
     src/core/Log.cpp
@@ -706,6 +717,7 @@ foreach(runtime_test
     InspectorCommandTests
     AnimationSystemTests
     EntityManagerTests
+    SceneValidatorTests
     EditorEntityStateStoreTests
     HierarchyCommandTests
     ViewportVisibilityTests
