@@ -92,6 +92,12 @@ void SceneDiagnosticsPanel::on_gui() {
                 ));
             }
         }
+        if (!diagnostic.asset_path.empty() && m_on_reveal_asset) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Show Asset")) {
+                m_on_reveal_asset(diagnostic.asset_path);
+            }
+        }
         ImGui::PopID();
     }
 

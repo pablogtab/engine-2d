@@ -35,6 +35,7 @@ public:
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
 
     void refresh();
+    void reveal_asset_path(const std::string& path);
 
 private:
     std::string m_name{"Asset Browser"};
@@ -46,6 +47,7 @@ private:
     std::function<void(const std::string&)> m_on_load_scene;
     std::function<void(const std::string&)> m_on_open_prefab;
     std::string m_selected_file{""};
+    std::string m_revealed_reference{""};
     char m_new_scene_name_buf[128]{"NewScene"};
     char m_new_material_name_buf[128]{"NewMaterial"};
     char m_new_post_process_name_buf[128]{"NewPostProcessProfile"};

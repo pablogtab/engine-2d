@@ -60,6 +60,20 @@ void AssetBrowserPanel::refresh() {
     }
 }
 
+void AssetBrowserPanel::reveal_asset_path(const std::string& path) {
+    if (path.empty()) return;
+
+    const std::filesystem::path target = std::filesystem::path(path).lexically_normal();
+    std::filesystem::path directory = target.parent_path();
+    while (!directory.empty() && !std::filesystem::exists(directory)) {
+        directory = directory.parent_path();
+    }
+    m_current_path = directory.empty() ? m_root_path : directory;
+    m_selected_file = target.string();
+    m_revealed_reference = target.string();
+    is_open = true;
+}
+
 void AssetBrowserPanel::on_gui() {
     if (!is_open) return;
 
@@ -95,6 +109,15 @@ void AssetBrowserPanel::on_gui() {
 
         ImGui::Separator();
         ImGui::Spacing();
+
+        if (!m_revealed_reference.empty()) {
+            ImGui::TextDisabled("Referenced asset: %s", m_revealed_reference.c_str());
+            if (!std::filesystem::exists(m_revealed_reference)) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.25f, 1.0f), "(missing)");
+            }
+            ImGui::Spacing();
+        }
 
         // --- 2. Grid Items View ---
         float cell_size = m_thumbnail_size + m_padding;
@@ -154,9 +177,15 @@ void AssetBrowserPanel::on_gui() {
                     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
 
                     std::string button_label = std::string(tag) + "\n\n" + filename;
+                    const bool is_revealed = path.string() == m_selected_file;
+                    if (is_revealed) {
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.42f, 0.72f, 1.0f));
+                    }
                     if (ImGui::Button(button_label.c_str(), ImVec2(m_thumbnail_size + 14.0f, m_thumbnail_size + 18.0f))) {
                         m_selected_file = path.string();
+                        m_revealed_reference.clear();
                     }
+                    if (is_revealed) ImGui::PopStyleColor();
 
                     // Drag and drop source for asset files
                     if (!is_dir && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {

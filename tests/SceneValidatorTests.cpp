@@ -123,6 +123,16 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingMaterialAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingPrefabAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTilemapTileset));
+    const auto missing_prefab = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
+        return diagnostic.code == SceneDiagnosticCode::MissingPrefabAsset;
+    });
+    assert(missing_prefab != diagnostics.end());
+    assert(missing_prefab->asset_path == "assets/prefabs/missing.prefab");
+    const auto missing_tileset = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
+        return diagnostic.code == SceneDiagnosticCode::MissingTilemapTileset;
+    });
+    assert(missing_tileset != diagnostics.end());
+    assert(missing_tileset->asset_path == "assets/textures/missing.png");
 }
 
 void test_invalid_colliders_and_tilemaps_are_reported() {

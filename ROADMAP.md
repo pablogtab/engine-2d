@@ -485,7 +485,8 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Extend the model with missing assets and invalid collider/tilemap diagnostics.
 2. **Diagnostics Panel and Navigation (Phase 3)**:
    - [x] Present grouped validation results, select the related entity, and refresh after scene edits without changing authored content.
-   - [ ] Add asset navigation for diagnostics without an entity target.
+   - [x] Add asset navigation for diagnostics with a resolvable asset path.
+   - [ ] Add asset navigation for unresolved asset handles.
 3. **Reversible Safe Fixes (Phase 3)**:
    - [x] Remove nonexistent child references through a command-backed fix with Undo/Redo.
    - [ ] Add fixes only where the correction is unambiguous; every authored mutation must support Undo/Redo.

@@ -35,6 +35,7 @@ struct SceneDiagnostic {
     EntityID entity{0};
     std::string message;
     EntityID related_entity{0};
+    std::string asset_path;
 };
 
 class SceneValidator {

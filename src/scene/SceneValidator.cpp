@@ -19,9 +19,10 @@ void add_diagnostic(
     SceneDiagnosticCode code,
     EntityID entity,
     std::string message,
-    EntityID related_entity = 0
+    EntityID related_entity = 0,
+    std::string asset_path = {}
 ) {
-    diagnostics.push_back({severity, code, entity, std::move(message), related_entity});
+    diagnostics.push_back({severity, code, entity, std::move(message), related_entity, std::move(asset_path)});
 }
 
 bool parent_chain_has_cycle(const EntityManager& entities, EntityID entity) {
@@ -184,7 +185,9 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
                     SceneDiagnosticSeverity::Error,
                     SceneDiagnosticCode::MissingPrefabAsset,
                     entity,
-                    "Prefab asset is missing or unavailable"
+                    "Prefab asset is missing or unavailable",
+                    0,
+                    prefab.prefab_asset_path
                 );
             }
         }
@@ -226,7 +229,9 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
                     SceneDiagnosticSeverity::Error,
                     SceneDiagnosticCode::MissingTilemapTileset,
                     entity,
-                    "Tilemap tileset asset is missing or unavailable"
+                    "Tilemap tileset asset is missing or unavailable",
+                    0,
+                    tilemap.tileset_path
                 );
             }
         }

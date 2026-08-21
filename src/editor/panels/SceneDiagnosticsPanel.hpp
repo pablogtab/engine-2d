@@ -5,6 +5,7 @@
 #include "../commands/EditorCommandHistory.hpp"
 #include <memory>
 #include <string>
+#include <functional>
 
 namespace Engine {
 
@@ -24,6 +25,7 @@ public:
 
     void set_selection(std::shared_ptr<EditorSelection> selection) { m_selection = std::move(selection); }
     void set_command_history(std::shared_ptr<EditorCommandHistory> command_history) { m_command_history = std::move(command_history); }
+    void set_on_reveal_asset(std::function<void(const std::string&)> callback) { m_on_reveal_asset = std::move(callback); }
 
 private:
     std::string m_name{"Scene Diagnostics"};
@@ -31,6 +33,7 @@ private:
     AssetDatabase* m_asset_database{nullptr};
     std::shared_ptr<EditorSelection> m_selection;
     std::shared_ptr<EditorCommandHistory> m_command_history;
+    std::function<void(const std::string&)> m_on_reveal_asset;
 };
 
 } // namespace Engine
