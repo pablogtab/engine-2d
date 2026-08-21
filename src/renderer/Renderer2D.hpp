@@ -3,9 +3,11 @@
 #include "Texture.hpp"
 #include "RenderTargetPool.hpp"
 #include "LocalEffectPass.hpp"
+#include "LightingPass.hpp"
 #include "../scene/Camera2D.hpp"
 #include <glm/glm.hpp>
 #include <array>
+#include <span>
 #include <vector>
 #include <memory>
 #include <SDL3/SDL.h>
@@ -20,6 +22,8 @@ class IMaterialBackend;
 
 enum class RenderStage : std::size_t {
     SceneGeometry,
+    LocalEffects,
+    Lighting,
     GlobalPostProcess,
     CanvasUI,
     Presentation,
@@ -89,6 +93,14 @@ public:
     [[nodiscard]] SDL_Texture* execute_local_effect(
         ILocalEffectPass& pass, SDL_Texture* source, int width, int height
     );
+    // Runs enabled passes in order. The returned surface remains leased; every
+    // intermediate surface is returned to the pool before this call returns.
+    [[nodiscard]] SDL_Texture* execute_local_effect_chain(
+        std::span<ILocalEffectPass* const> passes, SDL_Texture* source, int width, int height
+    );
+    void add_lighting_pass(std::shared_ptr<ILightingPass> pass);
+    void clear_lighting_passes();
+    [[nodiscard]] std::size_t get_active_lighting_pass_count() const;
 
     void reserve_capacity(size_t max_sprites);
     void begin_scene(const Camera2D& camera);
@@ -149,14 +161,19 @@ public:
     SDL_Renderer* get_sdl_renderer() const { return m_sdl_renderer; }
 
 private:
+    void execute_lighting_stage(SDL_Texture* scene_target, int width, int height);
+    void begin_lighting_capture();
+    void end_lighting_capture();
     void flush_batch(Texture* texture);
 
     SDL_Renderer* m_sdl_renderer{nullptr};
     SDL_Color m_scene_clear_color{24, 28, 36, 255};
     ThreadPool* m_thread_pool{nullptr};
     PostProcessPipeline* m_post_process_pipeline{nullptr};
+    std::vector<std::shared_ptr<ILightingPass>> m_lighting_passes;
     std::shared_ptr<IMaterialBackend> m_material_backend;
     SDL_Texture* m_custom_render_target{nullptr};
+    SDL_Texture* m_lighting_capture_target{nullptr};
     RenderTargetPool m_render_target_pool;
     const Camera2D* m_active_camera{nullptr};
     std::vector<SpriteCommand> m_sprite_queue;

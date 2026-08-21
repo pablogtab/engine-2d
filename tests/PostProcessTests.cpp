@@ -66,6 +66,34 @@ public:
     Engine::LocalEffectContext last_context{};
 };
 
+class CopyingLocalEffectPass final : public Engine::ILocalEffectPass {
+public:
+    [[nodiscard]] const char* name() const override { return "Copying"; }
+    [[nodiscard]] bool is_enabled() const override { return enabled; }
+    bool apply(const Engine::LocalEffectContext& context) override {
+        ++apply_count;
+        return succeed && SDL_RenderTexture(context.renderer, context.source, nullptr, nullptr);
+    }
+    bool enabled{true};
+    bool succeed{true};
+    int apply_count{0};
+};
+
+class RecordingLightingPass final : public Engine::ILightingPass {
+public:
+    [[nodiscard]] const char* name() const override { return "RecordingLight"; }
+    [[nodiscard]] bool is_enabled() const override { return enabled; }
+    bool apply(const Engine::LightingContext& context) override {
+        ++apply_count;
+        last_context = context;
+        return succeed;
+    }
+    bool enabled{true};
+    bool succeed{true};
+    int apply_count{0};
+    Engine::LightingContext last_context{};
+};
+
 void test_night_vision_shader_assets_match_runtime_contract() {
     const std::filesystem::path shader_directory =
         std::filesystem::path(ENGINE_SOURCE_DIR) / "assets" / "shaders";
@@ -515,6 +543,66 @@ void test_renderer_executes_local_effects_with_pooled_targets() {
     SDL_DestroySurface(surface);
 }
 
+void test_renderer_chains_local_effects_and_releases_intermediates() {
+    SDL_Surface* surface = SDL_CreateSurface(32, 32, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Engine::Renderer2D renderer(sdl_renderer);
+        std::unique_ptr<Engine::Texture> source(Engine::Texture::create_solid(sdl_renderer, 8, 8, 255, 255, 255, 255));
+        assert(source);
+        CopyingLocalEffectPass first;
+        CopyingLocalEffectPass second;
+        std::array<Engine::ILocalEffectPass*, 2> passes{&first, &second};
+        SDL_Texture* output = renderer.execute_local_effect_chain(passes, source->get_sdl_texture(), 8, 8);
+        assert(output && first.apply_count == 1 && second.apply_count == 1);
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 1);
+        assert(renderer.get_frame_metrics().stage(Engine::RenderStage::LocalEffects).draw_calls == 2);
+        renderer.release_local_effect_surface(output);
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+
+        second.succeed = false;
+        assert(!renderer.execute_local_effect_chain(passes, source->get_sdl_texture(), 8, 8));
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
+void test_renderer_composes_lighting_before_global_post_process() {
+    constexpr int width = 32;
+    constexpr int height = 32;
+    SDL_Surface* surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Engine::Renderer2D renderer(sdl_renderer);
+        Engine::Camera2D camera(static_cast<float>(width), static_cast<float>(height));
+        auto light = std::make_shared<RecordingLightingPass>();
+        renderer.add_lighting_pass(light);
+
+        Engine::PostProcessPipeline pipeline;
+        pipeline.init(sdl_renderer, width, height, width, height);
+        renderer.set_post_process_pipeline(&pipeline);
+        renderer.begin_scene(camera);
+        renderer.end_scene();
+        assert(light->apply_count == 1);
+        assert(light->last_context.scene_target == pipeline.get_capture_target());
+        assert(renderer.get_frame_metrics().stage(Engine::RenderStage::Lighting).draw_calls == 1);
+        assert(renderer.get_frame_metrics().stage(Engine::RenderStage::GlobalPostProcess).cpu_milliseconds >= 0.0f);
+        pipeline.destroy_targets();
+
+        renderer.begin_scene(camera);
+        renderer.end_scene();
+        assert(light->apply_count == 2);
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
@@ -534,6 +622,8 @@ int main() {
     test_render_target_pool_reuses_matching_surfaces();
     test_renderer_owns_local_effect_surfaces();
     test_renderer_executes_local_effects_with_pooled_targets();
+    test_renderer_chains_local_effects_and_releases_intermediates();
+    test_renderer_composes_lighting_before_global_post_process();
     std::cout << "PostProcessTests passed\n";
     return 0;
 }
