@@ -39,14 +39,20 @@ SDL_BlendMode preserve_alpha_blend(
     );
 }
 
-SDL_BlendMode point_composite_mode(Light2DBlendMode mode) {
+SDL_BlendMode point_composite_mode(
+    Light2DBlendMode mode,
+    bool composite_uncovered_pixels
+) {
+    const SDL_BlendFactor source = composite_uncovered_pixels
+        ? SDL_BLENDFACTOR_ONE
+        : SDL_BLENDFACTOR_DST_ALPHA;
     switch (mode) {
         case Light2DBlendMode::Multiply:
             return preserve_alpha_blend(SDL_BLENDFACTOR_DST_COLOR, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA);
         case Light2DBlendMode::Screen:
-            return preserve_alpha_blend(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE_MINUS_SRC_COLOR);
+            return preserve_alpha_blend(source, SDL_BLENDFACTOR_ONE_MINUS_SRC_COLOR);
         case Light2DBlendMode::Additive:
-            return preserve_alpha_blend(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE);
+            return preserve_alpha_blend(source, SDL_BLENDFACTOR_ONE);
     }
     return SDL_BLENDMODE_ADD;
 }
@@ -342,6 +348,8 @@ bool Lighting2DPass::apply(const LightingContext& context) {
             !renders_layer(light.affected_layers, context.render_layer)) continue;
 
         const float intensity = std::clamp(light.intensity, 0.0f, 1.0f);
+        const bool composite_uncovered_pixels =
+            (light.affected_layers & context.previously_composited_layers) == 0;
         if (light.type == Light2DType::Ambient) {
             if (light.blend_mode == Light2DBlendMode::Multiply) {
                 const auto channel = [&](std::uint8_t value) {
@@ -354,13 +362,22 @@ bool Lighting2DPass::apply(const LightingContext& context) {
                 const SDL_BlendFactor destination = light.blend_mode == Light2DBlendMode::Screen
                     ? SDL_BLENDFACTOR_ONE_MINUS_SRC_COLOR
                     : SDL_BLENDFACTOR_ONE;
+                const SDL_BlendFactor source = composite_uncovered_pixels
+                    ? SDL_BLENDFACTOR_ONE
+                    : SDL_BLENDFACTOR_DST_ALPHA;
                 SDL_SetRenderDrawBlendMode(
                     context.renderer,
-                    preserve_alpha_blend(SDL_BLENDFACTOR_SRC_ALPHA, destination)
+                    preserve_alpha_blend(source, destination)
                 );
+                const auto channel = [&](std::uint8_t value) {
+                    return static_cast<std::uint8_t>(static_cast<float>(value) * intensity);
+                };
                 SDL_SetRenderDrawColor(
-                    context.renderer, light.color.r, light.color.g, light.color.b,
-                    static_cast<std::uint8_t>(255.0f * intensity)
+                    context.renderer,
+                    channel(light.color.r),
+                    channel(light.color.g),
+                    channel(light.color.b),
+                    255
                 );
             }
             SDL_RenderFillRect(context.renderer, nullptr);
@@ -403,7 +420,10 @@ bool Lighting2DPass::apply(const LightingContext& context) {
             m_light_map, composite_intensity, composite_intensity, composite_intensity
         );
         SDL_SetTextureAlphaModFloat(m_light_map, composite_intensity);
-        SDL_SetTextureBlendMode(m_light_map, point_composite_mode(light.blend_mode));
+        SDL_SetTextureBlendMode(
+            m_light_map,
+            point_composite_mode(light.blend_mode, composite_uncovered_pixels)
+        );
         SDL_RenderTexture(context.renderer, m_light_map, nullptr, nullptr);
         drew = true;
     }

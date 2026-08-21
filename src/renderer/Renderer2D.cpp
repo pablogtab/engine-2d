@@ -150,7 +150,20 @@ void Renderer2D::execute_lighting_stage(
     for (const auto& pass : m_lighting_passes) {
         if (!pass || !pass->is_enabled() || !renders_layer(pass->affected_layers(), layer)) continue;
         const auto stage_begin = std::chrono::high_resolution_clock::now();
-        if (pass->apply({m_sdl_renderer, scene_target, m_active_camera, layer, width, height})) ++metrics.draw_calls;
+        const RenderLayerMask previously_composited_layers =
+            m_lighting_composited_layers[pass.get()];
+        if (pass->apply({
+                m_sdl_renderer,
+                scene_target,
+                m_active_camera,
+                layer,
+                width,
+                height,
+                previously_composited_layers
+            })) {
+            ++metrics.draw_calls;
+            m_lighting_composited_layers[pass.get()] |= render_layer_mask(layer);
+        }
         metrics.cpu_milliseconds += std::chrono::duration<float, std::milli>(
             std::chrono::high_resolution_clock::now() - stage_begin
         ).count();
@@ -164,6 +177,7 @@ void Renderer2D::begin_scene(const Camera2D& camera) {
     m_rendered_sprites = 0;
     m_culled_sprites = 0;
     m_frame_metrics = {};
+    m_lighting_composited_layers.clear();
 
     if (m_custom_render_target) {
         SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);

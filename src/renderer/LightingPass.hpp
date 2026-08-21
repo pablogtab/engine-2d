@@ -14,6 +14,10 @@ struct LightingContext {
     RenderLayer render_layer{DEFAULT_RENDER_LAYER};
     int width{0};
     int height{0};
+    // Layers already processed by this same pass during the current frame.
+    // A light may contribute to uncovered pixels on its first matching layer;
+    // subsequent matching layers must keep the contribution inside geometry.
+    RenderLayerMask previously_composited_layers{0};
 };
 
 // Lighting passes compose directly onto the captured scene before global

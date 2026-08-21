@@ -187,6 +187,7 @@ private:
     ThreadPool* m_thread_pool{nullptr};
     PostProcessPipeline* m_post_process_pipeline{nullptr};
     std::vector<std::shared_ptr<ILightingPass>> m_lighting_passes;
+    std::unordered_map<const ILightingPass*, RenderLayerMask> m_lighting_composited_layers;
     std::array<std::vector<std::shared_ptr<ILocalEffectPass>>, 32> m_render_layer_effects;
     std::unordered_map<AssetHandle, std::vector<std::shared_ptr<ILocalEffectPass>>> m_entity_effect_profiles;
     std::shared_ptr<IMaterialBackend> m_material_backend;

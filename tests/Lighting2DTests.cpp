@@ -159,19 +159,23 @@ void test_components_serialize_validate_and_restore_commands() {
 
 class LayerRecordingPass final : public ILightingPass {
 public:
+    explicit LayerRecordingPass(RenderLayerMask layers = render_layer_mask(2)) : layers(layers) {}
     [[nodiscard]] const char* name() const override { return "Layer Recording"; }
     [[nodiscard]] bool is_enabled() const override { return true; }
-    [[nodiscard]] RenderLayerMask affected_layers() const override { return render_layer_mask(2); }
+    [[nodiscard]] RenderLayerMask affected_layers() const override { return layers; }
     bool apply(const LightingContext& context) override {
         ++calls;
         layer = context.render_layer;
         camera = context.camera;
+        previous_layers_history.push_back(context.previously_composited_layers);
         return true;
     }
 
+    RenderLayerMask layers{0};
     int calls{0};
     RenderLayer layer{0};
     const Camera2D* camera{nullptr};
+    std::vector<RenderLayerMask> previous_layers_history;
 };
 
 void test_renderer_routes_lighting_only_to_affected_layers() {
@@ -214,6 +218,52 @@ void test_renderer_routes_lighting_only_to_affected_layers() {
     SDL_DestroySurface(surface);
 }
 
+void test_renderer_composites_uncovered_lighting_once_per_frame() {
+    SDL_Surface* surface = SDL_CreateSurface(48, 48, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Renderer2D renderer(sdl_renderer);
+        Camera2D camera(48.0f, 48.0f);
+        std::unique_ptr<Texture> white(Texture::create_solid(
+            sdl_renderer, 4, 4, 255, 255, 255, 255
+        ));
+        auto pass = std::make_shared<LayerRecordingPass>(
+            render_layer_mask(1) | render_layer_mask(2)
+        );
+        renderer.add_lighting_pass(pass);
+
+        renderer.begin_scene(camera);
+        renderer.submit_sprite(
+            white.get(), {-8.0f, 0.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+            {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+            false, false, 0, 0, nullptr, 1
+        );
+        renderer.submit_sprite(
+            white.get(), {8.0f, 0.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+            {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+            false, false, 0, 0, nullptr, 2
+        );
+        renderer.end_scene();
+        assert((pass->previous_layers_history == std::vector<RenderLayerMask>{
+            0, render_layer_mask(1)
+        }));
+
+        renderer.begin_scene(camera);
+        renderer.submit_sprite(
+            white.get(), {0.0f, 0.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+            {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+            false, false, 0, 0, nullptr, 2
+        );
+        renderer.end_scene();
+        assert(pass->previous_layers_history.size() == 3);
+        assert(pass->previous_layers_history.back() == 0);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
@@ -223,6 +273,7 @@ int main() {
     test_system_extracts_lights_and_shadow_sources();
     test_components_serialize_validate_and_restore_commands();
     test_renderer_routes_lighting_only_to_affected_layers();
+    test_renderer_composites_uncovered_lighting_once_per_frame();
     std::cout << "Lighting2DTests passed\n";
     return 0;
 }

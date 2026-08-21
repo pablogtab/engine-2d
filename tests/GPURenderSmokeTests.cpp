@@ -287,6 +287,37 @@ int main() {
                         camera.set_zoom(0.5f);
                         const Pixel zoom_050_pixel = render_lighting_probe(Engine::Light2DBlendMode::Additive);
                         camera.set_zoom(1.0f);
+                        const auto render_lighting_translation_probe = [&](float camera_y) {
+                            camera.set_position({0.0f, camera_y});
+                            point.blend_mode = Engine::Light2DBlendMode::Additive;
+                            lighting->update({{light_position, point}}, {});
+                            SDL_SetRenderTarget(sdl_renderer, lighting_target);
+                            SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+                            SDL_RenderClear(sdl_renderer);
+                            renderer.begin_scene(camera);
+                            renderer.submit_sprite(
+                                white.get(), {light_position.x, light_position.y, 0.0f},
+                                {128.0f, 128.0f}, 0.0f, {64, 128, 192, 255}
+                            );
+                            renderer.submit_sprite(
+                                white.get(), {0.0f, 34.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+                                {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+                                false, false, 0, 0, nullptr, 1
+                            );
+                            renderer.end_scene();
+                            const glm::vec2 sample = camera.world_to_screen(
+                                glm::vec3(light_position, 0.0f)
+                            );
+                            return read_pixel(
+                                sdl_renderer,
+                                lighting_target,
+                                static_cast<int>(std::round(sample.x)),
+                                static_cast<int>(std::round(sample.y))
+                            );
+                        };
+                        const Pixel layer_visible_pixel = render_lighting_translation_probe(0.0f);
+                        const Pixel layer_culled_pixel = render_lighting_translation_probe(-10.0f);
+                        camera.set_position({0.0f, 0.0f});
                         const auto channel_delta = [](Uint8 lhs, Uint8 rhs) {
                             return std::abs(static_cast<int>(lhs) - static_cast<int>(rhs));
                         };
@@ -300,7 +331,10 @@ int main() {
                             channel_delta(zoom_100_pixel.red, zoom_075_pixel.red) <= 2 &&
                             channel_delta(zoom_100_pixel.red, zoom_050_pixel.red) <= 2 &&
                             channel_delta(zoom_100_pixel.green, zoom_050_pixel.green) <= 2 &&
-                            channel_delta(zoom_100_pixel.blue, zoom_050_pixel.blue) <= 2;
+                            channel_delta(zoom_100_pixel.blue, zoom_050_pixel.blue) <= 2 &&
+                            channel_delta(layer_visible_pixel.red, layer_culled_pixel.red) <= 2 &&
+                            channel_delta(layer_visible_pixel.green, layer_culled_pixel.green) <= 2 &&
+                            channel_delta(layer_visible_pixel.blue, layer_culled_pixel.blue) <= 2;
 
                         if (renderer.get_frame_metrics().stage(
                                 Engine::RenderStage::Lighting
@@ -334,7 +368,15 @@ int main() {
                                 << static_cast<int>(zoom_100_pixel.red) << ','
                                 << static_cast<int>(zoom_090_pixel.red) << ','
                                 << static_cast<int>(zoom_075_pixel.red) << ','
-                                << static_cast<int>(zoom_050_pixel.red) << ")\n";
+                                << static_cast<int>(zoom_050_pixel.red) << ") translated visible/culled RGBA=("
+                                << static_cast<int>(layer_visible_pixel.red) << ','
+                                << static_cast<int>(layer_visible_pixel.green) << ','
+                                << static_cast<int>(layer_visible_pixel.blue) << ','
+                                << static_cast<int>(layer_visible_pixel.alpha) << ")/("
+                                << static_cast<int>(layer_culled_pixel.red) << ','
+                                << static_cast<int>(layer_culled_pixel.green) << ','
+                                << static_cast<int>(layer_culled_pixel.blue) << ','
+                                << static_cast<int>(layer_culled_pixel.alpha) << ")\n";
                         } else {
                             std::cout << "GPURenderSmokeTests passed on " << backend->backend_name()
                                       << ": sprite, fullscreen, blend, and zoom-stability probes matched\n";
