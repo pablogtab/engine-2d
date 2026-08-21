@@ -5,12 +5,14 @@
 #include "LocalEffectPass.hpp"
 #include "LightingPass.hpp"
 #include "RenderLayer.hpp"
+#include "../core/AssetHandle.hpp"
 #include "../scene/Camera2D.hpp"
 #include <glm/glm.hpp>
 #include <array>
 #include <span>
 #include <vector>
 #include <memory>
+#include <unordered_map>
 #include <SDL3/SDL.h>
 
 namespace Engine {
@@ -62,6 +64,8 @@ struct SpriteCommand {
     int16_t order_in_layer{0};
     RenderLayer render_layer{DEFAULT_RENDER_LAYER};
     std::shared_ptr<const Material> material;
+    AssetHandle entity_effect_profile{};
+    std::uint64_t entity_effect_scope{0};
 };
 
 class Renderer2D {
@@ -105,6 +109,9 @@ public:
     void clear_render_layer_effects(RenderLayer layer);
     void clear_all_render_layer_effects();
     [[nodiscard]] std::size_t get_active_render_layer_effect_count(RenderLayer layer) const;
+    void set_entity_effect_profile(AssetHandle profile, std::vector<std::shared_ptr<ILocalEffectPass>> passes);
+    void clear_all_entity_effect_profiles();
+    [[nodiscard]] std::size_t get_active_entity_effect_count(AssetHandle profile) const;
     void add_lighting_pass(std::shared_ptr<ILightingPass> pass);
     void clear_lighting_passes();
     [[nodiscard]] std::size_t get_active_lighting_pass_count() const;
@@ -125,7 +132,9 @@ public:
         int16_t sorting_layer = 0,
         int16_t order_in_layer = 0,
         std::shared_ptr<const Material> material = nullptr,
-        RenderLayer render_layer = DEFAULT_RENDER_LAYER
+        RenderLayer render_layer = DEFAULT_RENDER_LAYER,
+        AssetHandle entity_effect_profile = {},
+        std::uint64_t entity_effect_scope = 0
     );
     void submit_screen_sprite(
         Texture* texture,
@@ -180,6 +189,7 @@ private:
     PostProcessPipeline* m_post_process_pipeline{nullptr};
     std::vector<std::shared_ptr<ILightingPass>> m_lighting_passes;
     std::array<std::vector<std::shared_ptr<ILocalEffectPass>>, 32> m_render_layer_effects;
+    std::unordered_map<AssetHandle, std::vector<std::shared_ptr<ILocalEffectPass>>> m_entity_effect_profiles;
     std::shared_ptr<IMaterialBackend> m_material_backend;
     SDL_Texture* m_custom_render_target{nullptr};
     SDL_Texture* m_lighting_capture_target{nullptr};

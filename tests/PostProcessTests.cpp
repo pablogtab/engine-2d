@@ -432,7 +432,16 @@ void test_world_is_processed_before_screen_space_hud_is_composited() {
         glm::vec3(-16.0f, 0.0f, 0.0f),
         glm::vec2(16.0f, 16.0f),
         0.0f,
-        SDL_Color{255, 255, 255, 255}
+        SDL_Color{255, 255, 255, 255},
+        nullptr,
+        glm::vec2(0.5f, 0.5f),
+        false,
+        false,
+        false,
+        0,
+        0,
+        nullptr,
+        2
     );
     renderer.submit_screen_sprite(
         white.get(),
@@ -701,6 +710,54 @@ void test_render_layers_are_composed_in_layer_order() {
     SDL_DestroySurface(surface);
 }
 
+void test_entity_effect_groups_all_entity_primitives_once() {
+    SDL_Surface* surface = SDL_CreateSurface(32, 32, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Engine::Renderer2D renderer(sdl_renderer);
+        Engine::Camera2D camera(32.0f, 32.0f);
+        const Engine::AssetHandle profile{901};
+        auto entity_effect = std::make_shared<IsolatedCopyLocalEffectPass>();
+        auto layer_effect = std::make_shared<IsolatedCopyLocalEffectPass>();
+        renderer.set_entity_effect_profile(profile, {entity_effect});
+        renderer.set_render_layer_effects(2, {layer_effect});
+        std::unique_ptr<Engine::Texture> white(
+            Engine::Texture::create_solid(sdl_renderer, 4, 4, 255, 255, 255, 255)
+        );
+        assert(white);
+
+        renderer.begin_scene(camera);
+        renderer.submit_sprite(
+            white.get(), {-4.0f, -2.0f, 0.0f}, {4.0f, 4.0f}, 0.0f,
+            {255, 0, 0, 255}, nullptr, {0.5f, 0.5f}, false,
+            false, false, 0, 0, nullptr, 2, profile, 42
+        );
+        renderer.submit_sprite(
+            white.get(), {0.0f, 0.0f, 0.0f}, {4.0f, 4.0f}, 0.0f,
+            {0, 255, 0, 255}, nullptr, {0.5f, 0.5f}, false,
+            false, false, 0, 0, nullptr, 2
+        );
+        renderer.submit_sprite(
+            white.get(), {4.0f, 2.0f, 0.0f}, {4.0f, 4.0f}, 0.0f,
+            {0, 0, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+            false, false, 0, 0, nullptr, 2, profile, 42
+        );
+        renderer.end_scene();
+
+        assert(renderer.get_active_entity_effect_count(profile) == 1);
+        assert(entity_effect->apply_count == 1);
+        assert(layer_effect->apply_count == 1);
+        assert(renderer.get_rendered_sprite_count() == 3);
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+        renderer.clear_all_entity_effect_profiles();
+        assert(renderer.get_active_entity_effect_count(profile) == 0);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 void test_render_layer_effect_profile_round_trip_and_asset_dependencies() {
     namespace fs = std::filesystem;
     const fs::path root = fs::temp_directory_path() / "engine2d_layer_effect_profile_test";
@@ -869,6 +926,7 @@ int main() {
     test_renderer_composes_lighting_before_global_post_process();
     test_camera_render_layer_mask_filters_world_submissions();
     test_render_layers_are_composed_in_layer_order();
+    test_entity_effect_groups_all_entity_primitives_once();
     test_render_layer_effect_profile_round_trip_and_asset_dependencies();
     test_scene_layer_effect_assignment_is_undoable();
     test_layer_effect_asset_edits_are_undoable();

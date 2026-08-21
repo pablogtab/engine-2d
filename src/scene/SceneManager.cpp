@@ -206,6 +206,7 @@ void SceneManager::update(float delta_time) {
 
 void SceneManager::render(Renderer2D& renderer) {
     renderer.clear_all_render_layer_effects();
+    renderer.clear_all_entity_effect_profiles();
     Scene* active = get_active_scene();
     if (active) {
         active->on_render(renderer);

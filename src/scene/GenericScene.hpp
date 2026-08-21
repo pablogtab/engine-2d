@@ -6,8 +6,7 @@
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/postprocess/PostProcessPipeline.hpp"
 #include "../renderer/postprocess/PostProcessProfile.hpp"
-#include "../renderer/RenderLayerEffectProfile.hpp"
-#include <array>
+#include "../renderer/RenderEffectSystem.hpp"
 #include <vector>
 
 namespace Engine {
@@ -33,7 +32,7 @@ public:
     bool set_post_process_profile_handle(AssetHandle handle, const AssetDatabase& database) override;
     [[nodiscard]] bool supports_render_layer_effects() const override { return true; }
     [[nodiscard]] const std::vector<RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const override {
-        return m_render_layer_effect_assignments;
+        return m_render_effect_system.layer_assignments();
     }
     bool set_render_layer_effect_assignments(std::vector<RenderLayerEffectAssignment> assignments, const AssetDatabase& database) override;
     bool refresh_render_layer_effects(const AssetDatabase& database) override;
@@ -83,11 +82,7 @@ private:
     PostProcessPipeline m_post_process_pipeline;
     PostProcessProfile m_post_process_profile;
     AssetHandle m_post_process_profile_handle{};
-    std::vector<RenderLayerEffectAssignment> m_render_layer_effect_assignments;
-    std::vector<RenderLayerEffectProfile> m_render_layer_effect_profiles;
-    std::array<std::vector<std::shared_ptr<ILocalEffectPass>>, 32> m_render_layer_effect_runtime_passes;
-    std::shared_ptr<IMaterialBackend> m_render_layer_effect_backend;
-    bool m_render_layer_effects_dirty{true};
+    RenderEffectSystem m_render_effect_system;
     bool m_post_process_enabled{false};
     bool m_post_process_initialized{false};
 };

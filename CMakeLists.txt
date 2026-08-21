@@ -42,6 +42,7 @@ set(SOURCES
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp
+    src/renderer/RenderEffectSystem.cpp
     src/renderer/RenderLayerEffectProfile.cpp
     src/renderer/RenderTargetPool.cpp
     src/renderer/SpriteAnimationSystem.cpp
@@ -84,6 +85,7 @@ set(SOURCES
     src/editor/gizmos/TransformGizmo2D.cpp
     src/editor/inspector/InspectorWidgets.cpp
     src/editor/inspector/SpriteInspectorDrawer.cpp
+    src/editor/inspector/RenderEffectInspectorDrawer.cpp
     src/editor/inspector/RigidBodyInspectorDrawer.cpp
     src/editor/inspector/ColliderInspectorDrawer.cpp
     src/editor/inspector/TilemapInspectorDrawer.cpp

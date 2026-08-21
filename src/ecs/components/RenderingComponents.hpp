@@ -44,6 +44,15 @@ struct SpriteComponent {
     ) : texture(texture_value), color(color_value), size(size_value) {}
 };
 
+// Scene-owned assignment of a reusable .layereffect recipe. Runtime passes are
+// resolved outside the component so snapshots and serialized data stay pure.
+struct RenderEffectComponent {
+    AssetHandle profile_handle{};
+    bool enabled{true};
+
+    bool operator==(const RenderEffectComponent&) const = default;
+};
+
 struct CameraComponent {
     bool is_primary{false};
     SDL_Color clear_color{24, 28, 36, 255};

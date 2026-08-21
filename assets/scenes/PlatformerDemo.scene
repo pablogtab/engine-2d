@@ -5,6 +5,7 @@
         "collider": 1,
         "group": 1,
         "prefab_link": 1,
+        "render_effect": 1,
         "rigidbody": 1,
         "sprite": 1,
         "tag": 1,
@@ -74,6 +75,10 @@
                 }
             ],
             "id": 1,
+            "render_effect": {
+                "enabled": false,
+                "profile_handle": "bf695f890eea01bd"
+            },
             "rigidbody": {
                 "fixed_rotation": true,
                 "friction": 0.30000001192092896,
@@ -124,8 +129,8 @@
                     0.5
                 ],
                 "position": [
-                    -123.2108154296875,
-                    -39.8538818359375,
+                    -95.2108154296875,
+                    -66.8538818359375,
                     0.0
                 ],
                 "rotation": 0.0,
@@ -1049,13 +1054,7 @@
         }
     ],
     "post_process_profile_handle": "6cf2c88d90447631",
-    "render_layer_effect_assignments": [
-        {
-            "enabled": true,
-            "profile_handle": "bf695f890eea01bd",
-            "render_layer": 1
-        }
-    ],
+    "render_layer_effect_assignments": [],
     "scene_name": "PlatformerDemo",
     "version": 2
 }

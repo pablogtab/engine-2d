@@ -4,6 +4,7 @@
 #include "CameraInspectorDrawer.hpp"
 #include "ColliderInspectorDrawer.hpp"
 #include "RigidBodyInspectorDrawer.hpp"
+#include "RenderEffectInspectorDrawer.hpp"
 #include "SpriteInspectorDrawer.hpp"
 #include "TilemapInspectorDrawer.hpp"
 #include "TransformInspectorDrawer.hpp"
@@ -92,6 +93,23 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
                 : nullptr;
             snapshot.set(SpriteComponent{texture, glm::vec2(64.0f, 64.0f)});
         }
+    });
+    register_or_throw(registry, {
+        .component_key = "render_effect",
+        .drawer_key = "RenderEffectHeader",
+        .display_name = "Render Effect",
+        .category = EditorComponentCategory::Rendering,
+        .icon = EditorIcon::Zap,
+        .dependencies = {"transform"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            RenderEffectInspectorDrawer::draw(em, entity, context.command_history);
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(RenderEffectComponent{}); }
     });
     register_or_throw(registry, {
         .component_key = "rigidbody",

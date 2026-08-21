@@ -1032,6 +1032,31 @@ void test_clear_missing_sprite_asset_reference_round_trips() {
     assert(!em.get_component<SpriteComponent>(entity).material_handle.is_valid());
 }
 
+void test_render_effect_assignment_round_trips() {
+    EntityManager em;
+    EditorCommandHistory history;
+    const EntityID entity = em.create_entity();
+    const RenderEffectComponent before{AssetHandle{301}, true};
+    const RenderEffectComponent after{AssetHandle{302}, false};
+    em.add_component<RenderEffectComponent>(entity, before);
+
+    history.execute_command(std::make_unique<SetComponentCommand<RenderEffectComponent>>(
+        &em, entity, before, after, "Assign Render Effect Profile"
+    ));
+    assert(em.get_component<RenderEffectComponent>(entity) == after);
+    history.undo();
+    assert(em.get_component<RenderEffectComponent>(entity) == before);
+    history.redo();
+    assert(em.get_component<RenderEffectComponent>(entity) == after);
+
+    history.execute_command(std::make_unique<SetComponentCommand<RenderEffectComponent>>(
+        &em, entity, after, std::nullopt, "Remove Render Effect"
+    ));
+    assert(!em.has_component<RenderEffectComponent>(entity));
+    history.undo();
+    assert(em.get_component<RenderEffectComponent>(entity) == after);
+}
+
 void test_multiselection_escape_cancellation_restores_individual_values() {
     EntityManager em;
     EditorCommandHistory history;
@@ -1333,6 +1358,7 @@ int main() {
     test_multiselection_camera_bounds_and_follow_target();
     test_multiselection_camera_clear_color_round_trips();
     test_clear_missing_sprite_asset_reference_round_trips();
+    test_render_effect_assignment_round_trips();
     test_multiselection_escape_cancellation_restores_individual_values();
     test_multiselection_locked_state_disables_modifications();
     test_multiselection_gizmo_world_to_local_translation_and_orbit_rotation();

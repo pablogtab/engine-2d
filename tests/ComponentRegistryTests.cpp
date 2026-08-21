@@ -248,9 +248,10 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 10);
+    assert(registry.descriptors().size() == 11);
     assert(registry.find_by_type(typeid(TagComponent)));
     assert(registry.find_by_type(typeid(GroupComponent)));
+    assert(registry.find_by_type(typeid(RenderEffectComponent)));
     assert(registry.find_by_type(typeid(PrefabLinkComponent)));
     assert(registry.find_by_type(typeid(CameraComponent)));
     assert(registry.find_by_type(typeid(AnimationComponent)));
@@ -363,6 +364,7 @@ void test_builtin_components_round_trip_through_registry() {
     em.add_component<TagComponent>(source, TagComponent{"RegistryEntity"});
     em.add_component<GroupComponent>(source, GroupComponent{});
     em.add_component<SpriteComponent>(source, SpriteComponent{});
+    em.add_component<RenderEffectComponent>(source, RenderEffectComponent{AssetHandle{0x1234}, false});
 
     CameraComponent camera;
     camera.clear_color = {12, 34, 56, 78};
@@ -392,7 +394,7 @@ void test_builtin_components_round_trip_through_registry() {
     nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
-    for (const char* key : {"tag", "group", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
+    for (const char* key : {"tag", "group", "render_effect", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
         assert(value.contains(key));
     }
 
@@ -406,6 +408,7 @@ void test_builtin_components_round_trip_through_registry() {
     ));
     assert(em.get_component<TagComponent>(target).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(target));
+    assert(em.get_component<RenderEffectComponent>(target) == RenderEffectComponent(AssetHandle{0x1234}, false));
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<CameraComponent>(target).clear_color.r == 12);
     assert(em.get_component<CameraComponent>(target).clear_color.a == 78);
@@ -427,6 +430,7 @@ void test_builtin_components_round_trip_through_registry() {
     assert(snapshot.size() + 1 == default_component_registry().descriptors().size());
     assert(em.get_component<TagComponent>(restored).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(restored));
+    assert(em.get_component<RenderEffectComponent>(restored) == RenderEffectComponent(AssetHandle{0x1234}, false));
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
     assert(em.get_component<CameraComponent>(restored).clear_color.g == 34);
     assert(em.get_component<AnimationComponent>(restored).clips.size() == 1);

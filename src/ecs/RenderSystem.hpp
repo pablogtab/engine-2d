@@ -56,24 +56,28 @@ public:
                 if (!transform.world_visible || !sprite.visible || !sprite.texture) continue;
 
                 const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
-                submit_sprite_with_outline(renderer, transform, sprite, src_rect_ptr);
+                const RenderEffectComponent* effect = entity_manager.has_component<RenderEffectComponent>(id)
+                    ? &entity_manager.get_component<RenderEffectComponent>(id) : nullptr;
+                submit_sprite_with_outline(renderer, id, transform, sprite, src_rect_ptr, effect);
             }
         } else {
             // Fallback for un-camera-bound rendering
             entity_manager.for_each<TransformComponent, SpriteComponent>(
-                [&renderer, visibility_filter](EntityID id, const TransformComponent& transform, const SpriteComponent& sprite) {
+                [&renderer, &entity_manager, visibility_filter](EntityID id, const TransformComponent& transform, const SpriteComponent& sprite) {
                     if (visibility_filter && !visibility_filter->should_render(id)) return;
                     if (!transform.world_visible || !sprite.visible || !sprite.texture) return;
 
                     const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
-                    submit_sprite_with_outline(renderer, transform, sprite, src_rect_ptr);
+                    const RenderEffectComponent* effect = entity_manager.has_component<RenderEffectComponent>(id)
+                        ? &entity_manager.get_component<RenderEffectComponent>(id) : nullptr;
+                    submit_sprite_with_outline(renderer, id, transform, sprite, src_rect_ptr, effect);
                 }
             );
         }
 
         // Step 3: Render Tilemap Grid Components
         entity_manager.for_each<TransformComponent, TilemapComponent>(
-            [&renderer, visibility_filter](EntityID id, const TransformComponent& transform, const TilemapComponent& tilemap) {
+            [&renderer, &entity_manager, visibility_filter](EntityID id, const TransformComponent& transform, const TilemapComponent& tilemap) {
                 if (visibility_filter && !visibility_filter->should_render(id)) return;
                 if (!transform.world_visible || tilemap.empty()) return;
 
@@ -88,6 +92,11 @@ public:
                 int cols = std::max(1, tex_w / px_size);
 
                 float tile_sz = tilemap.tile_size * transform.world_scale.x;
+                AssetHandle effect_profile{};
+                if (entity_manager.has_component<RenderEffectComponent>(id)) {
+                    const auto& effect = entity_manager.get_component<RenderEffectComponent>(id);
+                    if (effect.enabled) effect_profile = effect.profile_handle;
+                }
 
                 for (const auto& [key, tile_id] : tilemap.tiles) {
                     if (tile_id == 0) continue;
@@ -125,7 +134,9 @@ public:
                         0,
                         0,
                         nullptr,
-                        tilemap.render_layer
+                        tilemap.render_layer,
+                        effect_profile,
+                        effect_profile.is_valid() ? static_cast<std::uint64_t>(id) : 0
                     );
                 }
             }
@@ -135,10 +146,14 @@ public:
 private:
     static inline void submit_sprite_with_outline(
         Renderer2D& renderer,
+        EntityID entity,
         const TransformComponent& transform,
         const SpriteComponent& sprite,
-        const SDL_FRect* src_rect_ptr
+        const SDL_FRect* src_rect_ptr,
+        const RenderEffectComponent* effect
     ) {
+        const AssetHandle effect_profile = effect && effect->enabled ? effect->profile_handle : AssetHandle{};
+        const std::uint64_t effect_scope = effect_profile.is_valid() ? static_cast<std::uint64_t>(entity) : 0;
         if (sprite.has_outline && sprite.outline_thickness > 0.0f) {
             float thick = sprite.outline_thickness;
             SDL_Color out_col = sprite.outline_color;
@@ -156,14 +171,14 @@ private:
 
             // 8-directional dilation for full radial glow border
             float diag = thick * 0.7071f;
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, -thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer, effect_profile, effect_scope);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer, effect_profile, effect_scope);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, -thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer, effect_profile, effect_scope);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer, effect_profile, effect_scope);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer, effect_profile, effect_scope);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer, effect_profile, effect_scope);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer, effect_profile, effect_scope);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer, effect_profile, effect_scope);
         }
 
         renderer.submit_sprite(
@@ -180,7 +195,9 @@ private:
             sprite.sorting_layer,
             sprite.order_in_layer,
             sprite.material,
-            sprite.render_layer
+            sprite.render_layer,
+            effect_profile,
+            effect_scope
         );
     }
 public:

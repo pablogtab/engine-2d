@@ -261,9 +261,10 @@ These systems form the current baseline and should be extended rather than rewri
   - [x] Make render layers stable composition groups while preserving authored order within each layer.
   - [x] Expose authored layer and camera-mask controls in the Inspector.
   - [ ] Apply the render-layer contract to Light components when they exist.
-- [ ] Support entity- or layer-scoped multipass effects through managed intermediate surfaces.
+- [x] Support entity- or layer-scoped multipass effects through managed intermediate surfaces.
   - [x] Add reusable `.layereffect` recipes with ordered material passes plus scene-owned layer assignments, cached runtime resolution, authoring, and undo/redo.
-  - [ ] Add entity-scoped multipass isolation and authoring.
+  - [x] Add entity-scoped multipass isolation and authoring through a serializable `RenderEffectComponent`, reusable profile assets, pooled composition surfaces, missing-asset diagnostics, and undo/redo.
+  - [x] Extract profile resolution and runtime pass caching from `GenericScene` into the reusable `RenderEffectSystem`.
 - [x] Keep simple single-pass sprite materials on the direct fast path.
 - [x] Define clear ownership and pooling for render targets.
 - [x] Track draw calls, material switches, pass timings, and render-target memory.

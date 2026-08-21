@@ -185,6 +185,23 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
             }
         }
 
+        if (asset_database && entities.has_component<RenderEffectComponent>(entity)) {
+            const auto& effect = entities.get_component<RenderEffectComponent>(entity);
+            if (effect.profile_handle.is_valid() &&
+                !has_ready_asset(*asset_database, effect.profile_handle, AssetType::RenderLayerEffectProfile)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingRenderEffectAsset,
+                    entity,
+                    "Render effect profile is missing or unavailable",
+                    0,
+                    {},
+                    effect.profile_handle
+                );
+            }
+        }
+
         if (asset_database && entities.has_component<PrefabLinkComponent>(entity)) {
             const auto& prefab = entities.get_component<PrefabLinkComponent>(entity);
             if (!prefab.prefab_asset_path.empty() &&

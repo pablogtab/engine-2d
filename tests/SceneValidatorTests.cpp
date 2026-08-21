@@ -109,6 +109,9 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
     sprite.texture_handle = AssetHandle{101};
     sprite.material_handle = AssetHandle{102};
     entities.add_component<SpriteComponent>(sprite_entity, sprite);
+    entities.add_component<RenderEffectComponent>(
+        sprite_entity, RenderEffectComponent{AssetHandle{103}, true}
+    );
 
     const EntityID prefab_entity = entities.create_entity();
     entities.add_component<PrefabLinkComponent>(prefab_entity, PrefabLinkComponent{"assets/prefabs/missing.prefab"});
@@ -121,6 +124,7 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
     const auto diagnostics = SceneValidator::validate(entities, &asset_database);
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTextureAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingMaterialAsset));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingRenderEffectAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingPrefabAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTilemapTileset));
     const auto missing_texture = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
@@ -133,6 +137,11 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
     });
     assert(missing_material != diagnostics.end());
     assert(missing_material->asset_handle == AssetHandle{102});
+    const auto missing_effect = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
+        return diagnostic.code == SceneDiagnosticCode::MissingRenderEffectAsset;
+    });
+    assert(missing_effect != diagnostics.end());
+    assert(missing_effect->asset_handle == AssetHandle{103});
     const auto missing_prefab = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
         return diagnostic.code == SceneDiagnosticCode::MissingPrefabAsset;
     });

@@ -106,9 +106,10 @@ void SceneDiagnosticsPanel::on_gui() {
                 m_on_reveal_asset(diagnostic.asset_path);
             }
         }
-        const bool missing_sprite_handle = diagnostic.code == SceneDiagnosticCode::MissingTextureAsset ||
-            diagnostic.code == SceneDiagnosticCode::MissingMaterialAsset;
-        if (missing_sprite_handle && diagnostic.asset_handle.is_valid() && m_command_history) {
+        const bool clearable_asset_handle = diagnostic.code == SceneDiagnosticCode::MissingTextureAsset ||
+            diagnostic.code == SceneDiagnosticCode::MissingMaterialAsset ||
+            diagnostic.code == SceneDiagnosticCode::MissingRenderEffectAsset;
+        if (clearable_asset_handle && diagnostic.asset_handle.is_valid() && m_command_history) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear Reference")) {
                 m_pending_clear = diagnostic;
@@ -119,35 +120,51 @@ void SceneDiagnosticsPanel::on_gui() {
     }
 
     if (ImGui::BeginPopupModal("Clear Missing Asset Reference", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted("This clears the broken asset reference from the sprite.");
+        ImGui::TextUnformatted("This clears the broken asset reference from the entity.");
         ImGui::TextUnformatted("The operation can be undone.");
         ImGui::Spacing();
         if (ImGui::Button("Clear Reference", ImVec2(140.0f, 0.0f))) {
             if (m_pending_clear && m_command_history &&
-                active_scene->get_entity_manager().is_alive(m_pending_clear->entity) &&
-                active_scene->get_entity_manager().has_component<SpriteComponent>(m_pending_clear->entity)) {
+                active_scene->get_entity_manager().is_alive(m_pending_clear->entity)) {
                 EntityManager& entities = active_scene->get_entity_manager();
-                const SpriteComponent before = entities.get_component<SpriteComponent>(m_pending_clear->entity);
-                SpriteComponent after = before;
-                bool changed = false;
-                if (m_pending_clear->code == SceneDiagnosticCode::MissingTextureAsset &&
-                    after.texture_handle == m_pending_clear->asset_handle) {
-                    after.texture_handle = {};
-                    changed = true;
-                } else if (m_pending_clear->code == SceneDiagnosticCode::MissingMaterialAsset &&
-                           after.material_handle == m_pending_clear->asset_handle) {
-                    after.material_handle = {};
-                    after.material.reset();
-                    changed = true;
-                }
-                if (changed) {
-                    m_command_history->execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
-                        &entities,
-                        m_pending_clear->entity,
-                        before,
-                        after,
-                        "Clear Missing Sprite Asset Reference"
-                    ));
+                if (m_pending_clear->code == SceneDiagnosticCode::MissingRenderEffectAsset &&
+                    entities.has_component<RenderEffectComponent>(m_pending_clear->entity)) {
+                    const RenderEffectComponent before =
+                        entities.get_component<RenderEffectComponent>(m_pending_clear->entity);
+                    if (before.profile_handle == m_pending_clear->asset_handle) {
+                        auto after = before;
+                        after.profile_handle = {};
+                        m_command_history->execute_command(std::make_unique<SetComponentCommand<RenderEffectComponent>>(
+                            &entities,
+                            m_pending_clear->entity,
+                            before,
+                            after,
+                            "Clear Missing Render Effect Reference"
+                        ));
+                    }
+                } else if (entities.has_component<SpriteComponent>(m_pending_clear->entity)) {
+                    const SpriteComponent before = entities.get_component<SpriteComponent>(m_pending_clear->entity);
+                    SpriteComponent after = before;
+                    bool changed = false;
+                    if (m_pending_clear->code == SceneDiagnosticCode::MissingTextureAsset &&
+                        after.texture_handle == m_pending_clear->asset_handle) {
+                        after.texture_handle = {};
+                        changed = true;
+                    } else if (m_pending_clear->code == SceneDiagnosticCode::MissingMaterialAsset &&
+                               after.material_handle == m_pending_clear->asset_handle) {
+                        after.material_handle = {};
+                        after.material.reset();
+                        changed = true;
+                    }
+                    if (changed) {
+                        m_command_history->execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
+                            &entities,
+                            m_pending_clear->entity,
+                            before,
+                            after,
+                            "Clear Missing Sprite Asset Reference"
+                        ));
+                    }
                 }
             }
             m_pending_clear.reset();

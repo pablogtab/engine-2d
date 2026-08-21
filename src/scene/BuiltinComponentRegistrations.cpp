@@ -115,6 +115,45 @@ void register_group(ComponentRegistry& registry) {
     });
 }
 
+void register_render_effect(ComponentRegistry& registry) {
+    register_or_throw<RenderEffectComponent>(registry, {
+        .display_name = "Render Effect",
+        .serialized_key = "render_effect",
+        .serialize = [](const RenderEffectComponent& effect, const ComponentSerializationContext&) {
+            Json value{{"enabled", effect.enabled}};
+            if (effect.profile_handle.is_valid()) {
+                value["profile_handle"] = effect.profile_handle.to_string();
+            }
+            return value;
+        },
+        .deserialize = [](
+            RenderEffectComponent& effect,
+            const Json& value,
+            const ComponentSerializationContext&,
+            std::string& error
+        ) {
+            if (!value.is_object()) {
+                error = "Render Effect must be an object";
+                return false;
+            }
+            effect = {};
+            effect.enabled = value.value("enabled", true);
+            if (!value.contains("profile_handle")) return true;
+            if (!value["profile_handle"].is_string()) {
+                error = "Render Effect profile_handle must be a string";
+                return false;
+            }
+            const auto handle = AssetHandle::from_string(value["profile_handle"].get<std::string>());
+            if (!handle || !handle->is_valid()) {
+                error = "Render Effect profile_handle is invalid";
+                return false;
+            }
+            effect.profile_handle = *handle;
+            return true;
+        }
+    });
+}
+
 void register_prefab_link(ComponentRegistry& registry) {
     register_or_throw<PrefabLinkComponent>(registry, {
         .display_name = "Prefab Link",
@@ -516,6 +555,7 @@ void register_tilemap(ComponentRegistry& registry) {
 void register_additional_builtin_components(ComponentRegistry& registry) {
     register_tag(registry);
     register_group(registry);
+    register_render_effect(registry);
     register_prefab_link(registry);
     register_camera(registry);
     register_animation(registry);
