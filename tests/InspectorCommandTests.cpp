@@ -996,6 +996,42 @@ void test_multiselection_camera_clear_color_round_trips() {
     assert(redone_c2.r == edited.r && redone_c2.g == edited.g && redone_c2.b == edited.b && redone_c2.a == edited.a);
 }
 
+void test_clear_missing_sprite_asset_reference_round_trips() {
+    EntityManager em;
+    EditorCommandHistory history;
+    const EntityID entity = em.create_entity();
+    SpriteComponent sprite;
+    sprite.texture_handle = AssetHandle{101};
+    sprite.material_handle = AssetHandle{202};
+    em.add_component<SpriteComponent>(entity, sprite);
+
+    SpriteComponent without_texture = sprite;
+    without_texture.texture_handle = {};
+    history.execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
+        &em, entity, sprite, without_texture, "Clear Missing Sprite Asset Reference"
+    ));
+    assert(!em.get_component<SpriteComponent>(entity).texture_handle.is_valid());
+    assert(em.get_component<SpriteComponent>(entity).material_handle == AssetHandle{202});
+
+    history.undo();
+    assert(em.get_component<SpriteComponent>(entity).texture_handle == AssetHandle{101});
+    history.redo();
+    assert(!em.get_component<SpriteComponent>(entity).texture_handle.is_valid());
+
+    SpriteComponent without_material = em.get_component<SpriteComponent>(entity);
+    without_material.material_handle = {};
+    history.execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
+        &em, entity, em.get_component<SpriteComponent>(entity), without_material,
+        "Clear Missing Sprite Asset Reference"
+    ));
+    assert(!em.get_component<SpriteComponent>(entity).material_handle.is_valid());
+
+    history.undo();
+    assert(em.get_component<SpriteComponent>(entity).material_handle == AssetHandle{202});
+    history.redo();
+    assert(!em.get_component<SpriteComponent>(entity).material_handle.is_valid());
+}
+
 void test_multiselection_escape_cancellation_restores_individual_values() {
     EntityManager em;
     EditorCommandHistory history;
@@ -1296,6 +1332,7 @@ int main() {
     test_multiselection_collider_compatibility_and_mixed_edit();
     test_multiselection_camera_bounds_and_follow_target();
     test_multiselection_camera_clear_color_round_trips();
+    test_clear_missing_sprite_asset_reference_round_trips();
     test_multiselection_escape_cancellation_restores_individual_values();
     test_multiselection_locked_state_disables_modifications();
     test_multiselection_gizmo_world_to_local_translation_and_orbit_rotation();

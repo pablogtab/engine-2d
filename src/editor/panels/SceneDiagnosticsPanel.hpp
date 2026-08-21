@@ -3,9 +3,11 @@
 #include "../EditorPanel.hpp"
 #include "../EditorSelection.hpp"
 #include "../commands/EditorCommandHistory.hpp"
+#include "../../scene/SceneValidator.hpp"
 #include <memory>
 #include <string>
 #include <functional>
+#include <optional>
 
 namespace Engine {
 
@@ -34,6 +36,7 @@ private:
     std::shared_ptr<EditorSelection> m_selection;
     std::shared_ptr<EditorCommandHistory> m_command_history;
     std::function<void(const std::string&)> m_on_reveal_asset;
+    std::optional<SceneDiagnostic> m_pending_clear;
 };
 
 } // namespace Engine

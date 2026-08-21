@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../core/AssetHandle.hpp"
 #include "../ecs/EcsTypes.hpp"
 #include <string>
 #include <vector>
@@ -36,6 +37,7 @@ struct SceneDiagnostic {
     std::string message;
     EntityID related_entity{0};
     std::string asset_path;
+    AssetHandle asset_handle{};
 };
 
 class SceneValidator {

@@ -123,6 +123,16 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingMaterialAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingPrefabAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTilemapTileset));
+    const auto missing_texture = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
+        return diagnostic.code == SceneDiagnosticCode::MissingTextureAsset;
+    });
+    assert(missing_texture != diagnostics.end());
+    assert(missing_texture->asset_handle == AssetHandle{101});
+    const auto missing_material = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
+        return diagnostic.code == SceneDiagnosticCode::MissingMaterialAsset;
+    });
+    assert(missing_material != diagnostics.end());
+    assert(missing_material->asset_handle == AssetHandle{102});
     const auto missing_prefab = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
         return diagnostic.code == SceneDiagnosticCode::MissingPrefabAsset;
     });

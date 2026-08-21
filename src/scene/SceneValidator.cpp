@@ -20,9 +20,12 @@ void add_diagnostic(
     EntityID entity,
     std::string message,
     EntityID related_entity = 0,
-    std::string asset_path = {}
+    std::string asset_path = {},
+    AssetHandle asset_handle = {}
 ) {
-    diagnostics.push_back({severity, code, entity, std::move(message), related_entity, std::move(asset_path)});
+    diagnostics.push_back({
+        severity, code, entity, std::move(message), related_entity, std::move(asset_path), asset_handle
+    });
 }
 
 bool parent_chain_has_cycle(const EntityManager& entities, EntityID entity) {
@@ -161,7 +164,10 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
                     SceneDiagnosticSeverity::Error,
                     SceneDiagnosticCode::MissingTextureAsset,
                     entity,
-                    "Sprite texture asset is missing or unavailable"
+                    "Sprite texture asset is missing or unavailable",
+                    0,
+                    {},
+                    sprite.texture_handle
                 );
             }
             if (sprite.material_handle.is_valid() &&
@@ -171,7 +177,10 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
                     SceneDiagnosticSeverity::Error,
                     SceneDiagnosticCode::MissingMaterialAsset,
                     entity,
-                    "Sprite material asset is missing or unavailable"
+                    "Sprite material asset is missing or unavailable",
+                    0,
+                    {},
+                    sprite.material_handle
                 );
             }
         }

@@ -186,9 +186,9 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Validation and Diagnostics
 
-- [ ] Add a Scene Validator for missing assets, invalid colliders, absent or duplicate primary cameras, hierarchy errors, and invalid tilemaps.
-- [ ] Add a diagnostics panel with entity/asset navigation and safe fix actions.
-- [ ] Make every automatic fix reversible when it changes authored content.
+- [x] Add a Scene Validator for missing assets, invalid colliders, absent or duplicate primary cameras, hierarchy errors, and invalid tilemaps.
+- [x] Add a diagnostics panel with entity/asset navigation and safe fix actions.
+- [x] Make every automatic fix reversible when it changes authored content.
 - [ ] Add tests for history invalidation, scene switching, hierarchy commands, and recovery.
 
 **Completion criteria:** Complex scenes can be edited, reorganized, recovered, validated, and saved without losing authoring state or producing stale history entries.
@@ -486,7 +486,7 @@ These items are useful but should not interrupt the architecture work above unle
 2. **Diagnostics Panel and Navigation (Phase 3)**:
    - [x] Present grouped validation results, select the related entity, and refresh after scene edits without changing authored content.
    - [x] Add asset navigation for diagnostics with a resolvable asset path.
-   - [ ] Add asset navigation for unresolved asset handles.
+   - [x] Expose unresolved asset handles and allow a confirmed, reversible cleanup.
 3. **Reversible Safe Fixes (Phase 3)**:
    - [x] Remove nonexistent child references through a command-backed fix with Undo/Redo.
-   - [ ] Add fixes only where the correction is unambiguous; every authored mutation must support Undo/Redo.
+   - [x] Add fixes only where the correction is unambiguous; every authored mutation supports Undo/Redo.

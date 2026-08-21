@@ -4,6 +4,7 @@
 #include "../../scene/Scene.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/SceneValidator.hpp"
+#include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
 
 #include <imgui.h>
@@ -83,6 +84,13 @@ void SceneDiagnosticsPanel::on_gui() {
         if (diagnostic.entity != 0 && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::SetTooltip("Select entity #%u", diagnostic.entity);
         }
+        if (diagnostic.asset_handle.is_valid()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("Handle: %s", diagnostic.asset_handle.to_string().c_str());
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+                ImGui::SetTooltip("Missing asset handle: %s", diagnostic.asset_handle.to_string().c_str());
+            }
+        }
         if (diagnostic.code == SceneDiagnosticCode::MissingHierarchyChild &&
             diagnostic.related_entity != 0 && m_command_history) {
             ImGui::SameLine();
@@ -98,7 +106,59 @@ void SceneDiagnosticsPanel::on_gui() {
                 m_on_reveal_asset(diagnostic.asset_path);
             }
         }
+        const bool missing_sprite_handle = diagnostic.code == SceneDiagnosticCode::MissingTextureAsset ||
+            diagnostic.code == SceneDiagnosticCode::MissingMaterialAsset;
+        if (missing_sprite_handle && diagnostic.asset_handle.is_valid() && m_command_history) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear Reference")) {
+                m_pending_clear = diagnostic;
+                ImGui::OpenPopup("Clear Missing Asset Reference");
+            }
+        }
         ImGui::PopID();
+    }
+
+    if (ImGui::BeginPopupModal("Clear Missing Asset Reference", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("This clears the broken asset reference from the sprite.");
+        ImGui::TextUnformatted("The operation can be undone.");
+        ImGui::Spacing();
+        if (ImGui::Button("Clear Reference", ImVec2(140.0f, 0.0f))) {
+            if (m_pending_clear && m_command_history &&
+                active_scene->get_entity_manager().is_alive(m_pending_clear->entity) &&
+                active_scene->get_entity_manager().has_component<SpriteComponent>(m_pending_clear->entity)) {
+                EntityManager& entities = active_scene->get_entity_manager();
+                const SpriteComponent before = entities.get_component<SpriteComponent>(m_pending_clear->entity);
+                SpriteComponent after = before;
+                bool changed = false;
+                if (m_pending_clear->code == SceneDiagnosticCode::MissingTextureAsset &&
+                    after.texture_handle == m_pending_clear->asset_handle) {
+                    after.texture_handle = {};
+                    changed = true;
+                } else if (m_pending_clear->code == SceneDiagnosticCode::MissingMaterialAsset &&
+                           after.material_handle == m_pending_clear->asset_handle) {
+                    after.material_handle = {};
+                    after.material.reset();
+                    changed = true;
+                }
+                if (changed) {
+                    m_command_history->execute_command(std::make_unique<SetComponentCommand<SpriteComponent>>(
+                        &entities,
+                        m_pending_clear->entity,
+                        before,
+                        after,
+                        "Clear Missing Sprite Asset Reference"
+                    ));
+                }
+            }
+            m_pending_clear.reset();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f))) {
+            m_pending_clear.reset();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     ImGui::End();
