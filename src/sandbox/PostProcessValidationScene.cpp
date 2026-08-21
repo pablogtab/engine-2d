@@ -1,7 +1,9 @@
 #include "PostProcessValidationScene.hpp"
 
+#include "../core/AssetDatabase.hpp"
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
+#include "../renderer/RenderLayerEffectProfile.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/material/FragmentShader.hpp"
 #include "../renderer/postprocess/PostProcessPasses.hpp"
@@ -91,8 +93,8 @@ void PostProcessValidationScene::on_attach() {
         ENGINE_LOG_ERROR("[MATERIAL VALIDATION] Could not load NightVision MSL variant");
     }
 
-    select_mode(7);
-    ENGINE_LOG_INFO("[POST-PROCESS VALIDATION] Keys: 0 bypass, 1-6 legacy profiles, 7 GPU material on sprite, 8 same GPU material fullscreen.");
+    select_mode(9);
+    ENGINE_LOG_INFO("[POST-PROCESS VALIDATION] Keys: 0 bypass, 1-6 legacy profiles, 7 GPU material on sprite, 8 same GPU material fullscreen, 9 full render pipeline.");
 }
 
 void PostProcessValidationScene::on_detach() {
@@ -102,7 +104,11 @@ void PostProcessValidationScene::on_detach() {
     m_grid_texture.reset();
     m_font.reset();
     m_night_vision_material.reset();
+    m_local_effect_profile_handle = {};
+    m_local_effect_passes.clear();
     m_material_pass_registered = false;
+    m_local_effects_registered = false;
+    m_local_effects_registration_attempted = false;
 }
 
 void PostProcessValidationScene::on_viewport_resize(
@@ -150,6 +156,14 @@ void PostProcessValidationScene::select_mode(int mode) {
             m_material_pipeline.request_frame_probe("GPU NightVision Fullscreen");
         }
         ENGINE_LOG_INFO("[MATERIAL VALIDATION] NightVision material scope: fullscreen camera image");
+    } else if (mode == 9) {
+        m_profile = Engine::PostProcessProfile::PresetCinematic();
+        m_profile.apply_to_pipeline(m_pipeline);
+        m_pipeline.request_frame_probe("GPU Entity Layer Global");
+        m_log_composition_metrics = true;
+        ENGINE_LOG_INFO(
+            "[PIPELINE VALIDATION] Left: global only | center: entity + global | right: layer + global | HUD: unprocessed"
+        );
     } else {
         ENGINE_LOG_INFO("[POST-PROCESS VALIDATION] Pipeline bypassed; expected image is neutral gray.");
     }
@@ -167,6 +181,7 @@ void PostProcessValidationScene::on_update(float delta_time) {
     else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_6)) requested_mode = 6;
     else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_7)) requested_mode = 7;
     else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_8)) requested_mode = 8;
+    else if (Engine::Input::is_key_just_pressed(SDL_SCANCODE_9)) requested_mode = 9;
 
     if (requested_mode >= 0 && requested_mode != m_mode) select_mode(requested_mode);
     m_pipeline.update(delta_time);
@@ -195,6 +210,38 @@ void PostProcessValidationScene::on_render(Engine::Renderer2D& renderer) {
             renderer.get_material_backend()->backend_name()
         );
     }
+    if (!m_local_effects_registration_attempted && renderer.get_material_backend()) {
+        m_local_effects_registration_attempted = true;
+        auto& database = Engine::AssetDatabase::get();
+        const auto* record = database.find_by_path("assets/shaders/ManualNightVision.layereffect");
+        std::string error;
+        const auto profile = record
+            ? Engine::RenderLayerEffectProfile::load_asset(record->handle, database, &error)
+            : std::nullopt;
+        if (profile) {
+            auto passes = profile->build_runtime_passes(
+                database,
+                renderer.get_material_backend(),
+                &error
+            );
+            if (!passes.empty()) {
+                m_local_effect_profile_handle = record->handle;
+                m_local_effect_passes = std::move(passes);
+                m_local_effects_registered = true;
+                ENGINE_LOG_INFO(
+                    "[PIPELINE VALIDATION] Local profile '{}' ready on backend '{}'",
+                    profile->name,
+                    renderer.get_material_backend()->backend_name()
+                );
+            }
+        }
+        if (!m_local_effects_registered) {
+            ENGINE_LOG_ERROR(
+                "[PIPELINE VALIDATION] Could not load assets/shaders/ManualNightVision.layereffect: {}",
+                error.empty() ? "asset is not registered or has no runtime passes" : error
+            );
+        }
+    }
     if (m_log_next_render) {
         m_log_next_render = false;
         ENGINE_LOG_INFO(
@@ -202,15 +249,20 @@ void PostProcessValidationScene::on_render(Engine::Renderer2D& renderer) {
             m_pipeline.get_width(),
             m_pipeline.get_height(),
             renderer.get_custom_render_target() ? "Viewport texture" : "window framebuffer",
-            m_mode == 7 ? "sprite material" : (m_post_process_enabled ? "enabled" : "bypassed"),
+            m_mode == 7 ? "sprite material" : (m_mode == 9 ? "entity + layer + global" :
+                (m_post_process_enabled ? "enabled" : "bypassed")),
             m_mode == 8 ? m_material_pipeline.get_active_pass_count() :
                 (m_post_process_enabled ? m_pipeline.get_active_pass_count() : 0)
         );
     }
     Engine::PostProcessPipeline* active_pipeline = nullptr;
     if (m_mode == 8 && m_material_pass_registered) active_pipeline = &m_material_pipeline;
-    else if (m_mode >= 1 && m_mode <= 6) active_pipeline = &m_pipeline;
+    else if ((m_mode >= 1 && m_mode <= 6) || m_mode == 9) active_pipeline = &m_pipeline;
     renderer.set_post_process_pipeline(active_pipeline);
+    if (m_mode == 9 && m_local_effects_registered) {
+        renderer.set_entity_effect_profile(m_local_effect_profile_handle, m_local_effect_passes);
+        renderer.set_render_layer_effects(2, m_local_effect_passes);
+    }
     renderer.begin_scene(m_camera);
 
     // A neutral full-camera plate makes full-frame grading immediately visible.
@@ -249,15 +301,27 @@ void PostProcessValidationScene::on_render(Engine::Renderer2D& renderer) {
         false,
         0,
         0,
-        m_mode == 7 ? m_night_vision_material : nullptr
+        m_mode == 7 ? m_night_vision_material : nullptr,
+        1,
+        m_mode == 9 ? m_local_effect_profile_handle : Engine::AssetHandle{},
+        m_mode == 9 ? 9001 : 0
     );
-    renderer.submit_sprite(m_white_texture.get(), glm::vec3(220.0f, swatch_y, 0.0f), swatch_size, 0.0f, SDL_Color{70, 120, 255, 255});
-    renderer.submit_sprite(m_white_texture.get(), glm::vec3(440.0f, swatch_y, 0.0f), swatch_size, 0.0f, SDL_Color{255, 220, 60, 255});
+    renderer.submit_sprite(
+        m_white_texture.get(), glm::vec3(220.0f, swatch_y, 0.0f), swatch_size,
+        0.0f, SDL_Color{70, 120, 255, 255}, nullptr, glm::vec2(0.5f), false,
+        false, false, 0, 0, nullptr, m_mode == 9 ? 2 : 0
+    );
+    renderer.submit_sprite(
+        m_white_texture.get(), glm::vec3(440.0f, swatch_y, 0.0f), swatch_size,
+        0.0f, SDL_Color{255, 220, 60, 255}, nullptr, glm::vec2(0.5f), false,
+        false, false, 0, 0, nullptr, m_mode == 9 ? 2 : 0
+    );
 
     if (m_font) {
         const std::string mode_name = m_mode == 7 ? "GPU MATERIAL / SPRITE" :
             (m_mode == 8 ? "GPU MATERIAL / FULLSCREEN" :
-            (m_post_process_enabled ? m_profile.name : "BYPASS"));
+            (m_mode == 9 ? "ENTITY + LAYER + GLOBAL + HUD" :
+            (m_post_process_enabled ? m_profile.name : "BYPASS")));
         renderer.submit_screen_text(
             *m_font,
             "POST-PROCESS VALIDATION | EFFECTIVE: " + mode_name,
@@ -267,14 +331,16 @@ void PostProcessValidationScene::on_render(Engine::Renderer2D& renderer) {
         );
         renderer.submit_screen_text(
             *m_font,
-            "0 Bypass | 1-6 Legacy | 7 NightVision sprite | 8 NightVision fullscreen",
+            "0 Bypass | 1-6 Legacy | 7 Sprite | 8 Fullscreen | 9 Full pipeline",
             glm::vec2(28.0f, 58.0f),
             0.52f,
             SDL_Color{220, 225, 235, 255}
         );
         renderer.submit_screen_text(
             *m_font,
-            "7 = local GPU grade on center sprite | 8 = original NightVision profile using that GPU grade.",
+            m_mode == 9
+                ? "Global only <- LEFT | ENTITY -> CENTER | LAYER -> RIGHT | HUD remains white"
+                : "7 = local GPU grade on center sprite | 8 = original NightVision profile using that GPU grade.",
             glm::vec2(28.0f, static_cast<float>(m_view_configuration.output_height) - 42.0f),
             0.58f,
             SDL_Color{255, 255, 255, 255}
@@ -282,6 +348,22 @@ void PostProcessValidationScene::on_render(Engine::Renderer2D& renderer) {
     }
 
     renderer.end_scene();
+    if (m_mode == 9 && m_log_composition_metrics && m_local_effects_registered) {
+        m_log_composition_metrics = false;
+        const auto& metrics = renderer.get_frame_metrics();
+        const auto& geometry = metrics.stage(Engine::RenderStage::SceneGeometry);
+        const auto& local = metrics.stage(Engine::RenderStage::LocalEffects);
+        const auto& canvas = metrics.stage(Engine::RenderStage::CanvasUI);
+        const auto& pool = renderer.get_render_target_pool_metrics();
+        ENGINE_LOG_INFO(
+            "[PIPELINE VALIDATION] Frame complete | geometry sprites: {} | local draws: {} | HUD sprites: {} | pool allocated: {} | pool leased after frame: {}",
+            geometry.sprites,
+            local.draw_calls,
+            canvas.sprites,
+            pool.allocated_targets,
+            pool.leased_targets
+        );
+    }
 }
 
 } // namespace Sandbox

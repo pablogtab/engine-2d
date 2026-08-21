@@ -7,6 +7,7 @@ namespace Engine {
 
 struct LocalEffectContext {
     SDL_Renderer* renderer{nullptr};
+    // Local surfaces use premultiplied alpha from capture through composition.
     SDL_Texture* source{nullptr};
     SDL_Texture* destination{nullptr};
     int width{0};

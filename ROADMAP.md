@@ -269,8 +269,9 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Define clear ownership and pooling for render targets.
 - [x] Track draw calls, material switches, pass timings, and render-target memory.
   - [x] Report per-stage draw calls, material switches, and CPU timings; expose render-target pool allocation metrics.
-- [ ] Remove obsolete renderer compatibility stubs after all callers use the current batching path.
-- [ ] Add GPU integration tests or deterministic validation scenes for pass ordering and state reset.
+- [x] Remove obsolete renderer compatibility stubs after all callers use the current batching path.
+- [x] Add GPU integration tests or deterministic validation scenes for pass ordering and state reset.
+  - [x] Add mode 9 to `PostProcessValidationScene` for deterministic entity, layer, global post-process, and HUD composition using the reusable `ManualNightVision` asset; validate probes and render-target release on Metal.
 
 **Completion criteria:** New effects and lighting can be composed through explicit stages without embedding feature-specific branches throughout `Renderer2D` or scene code.
 
@@ -425,8 +426,8 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 5 — Render Architecture Suites
 
-- [ ] `RenderPipelineTests` — stage ordering, layer filtering, intermediate-surface lifetime, pooling, resize, state reset, and direct fast-path selection.
-- [ ] `LocalEffectsTests` — per-entity and per-layer isolation, multipass ordering, transformed sprites, alpha composition, and coexistence with global post-processing.
+- [x] `RenderPipelineTests` — entity/layer/global/HUD ordering, layer filtering, intermediate-surface lifetime, pooling, resize, state reset, and direct fast-path selection.
+- [x] `LocalEffectsTests` — per-entity and per-layer isolation, multipass ordering and failure cleanup, transformed sprites, alpha composition, and pool reuse.
 - [ ] `RenderMetricsTests` — draw calls, material switches, pass timings, surface memory, and stable counter reset per frame.
 - [ ] `GPURenderSmokeTests` — deterministic image or pixel probes for supported Metal, Vulkan, and Direct3D backends where CI hardware permits.
 

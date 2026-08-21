@@ -374,6 +374,22 @@ target_compile_definitions(PostProcessTests PRIVATE
 target_link_libraries(PostProcessTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME PostProcessTests COMMAND PostProcessTests)
 
+add_executable(RenderPipelineTests tests/RenderPipelineTests.cpp)
+target_include_directories(RenderPipelineTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(RenderPipelineTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME RenderPipelineTests COMMAND RenderPipelineTests)
+
+add_executable(LocalEffectsTests tests/LocalEffectsTests.cpp)
+target_include_directories(LocalEffectsTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(LocalEffectsTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME LocalEffectsTests COMMAND LocalEffectsTests)
+
 add_executable(EditorPropertyTransactionTests
     tests/EditorPropertyTransactionTests.cpp
     src/core/Log.cpp
@@ -747,6 +763,8 @@ foreach(runtime_test
     AssetDatabaseTests
     DisplayPersistenceTests
     PostProcessTests
+    RenderPipelineTests
+    LocalEffectsTests
     EditorPropertyTransactionTests
     EditorCommandHistoryTests
     AssetFileCommandTests

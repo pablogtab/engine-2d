@@ -450,10 +450,6 @@ void Renderer2D::submit_sprites_batch(const SpriteCommand* commands, size_t coun
     }
 }
 
-void Renderer2D::flush_batch(Texture* texture) {
-    // Legacy single flush stub (retained for API compatibility)
-}
-
 void Renderer2D::end_scene() {
     if (!m_active_camera || !m_sdl_renderer) return;
 

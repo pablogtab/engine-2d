@@ -22,7 +22,10 @@ SDL_Texture* RenderTargetPool::acquire(int width, int height) {
     }
     SDL_Texture* texture = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, width, height);
     if (!texture) return nullptr;
-    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+    // Geometry is alpha-blended into a transparent target, so its stored RGB
+    // is already premultiplied. Composite the target without applying alpha a
+    // second time when a local effect is returned to the main render stream.
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND_PREMULTIPLIED);
     SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
     m_entries.push_back({texture, width, height, true});
     ++m_metrics.allocated_targets;

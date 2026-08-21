@@ -181,7 +181,6 @@ private:
     void execute_lighting_stage(SDL_Texture* scene_target, int width, int height);
     void begin_lighting_capture();
     void end_lighting_capture();
-    void flush_batch(Texture* texture);
 
     SDL_Renderer* m_sdl_renderer{nullptr};
     SDL_Color m_scene_clear_color{24, 28, 36, 255};
