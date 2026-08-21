@@ -4,6 +4,7 @@
 #include "MultiComponentInspectorTransaction.hpp"
 #include "../commands/PrefabCommands.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
+#include "../../ecs/components/UIComponents.hpp"
 #include "../../ecs/TransformSystem.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
@@ -269,6 +270,7 @@ void TransformInspectorDrawer::draw(
     const ComponentTransactionContext& context
 ) {
     if (!em.has_component<TransformComponent>(entity)) return;
+    if (em.has_component<UILayoutComponent>(entity)) return;
 
     const bool has_override = PrefabOverrides::is_component_overridden(em, entity, "transform");
     const auto header = InspectorWidgets::registered_component_header("transform", false, true, has_override);

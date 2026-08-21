@@ -8,6 +8,8 @@
 #include "../renderer/postprocess/PostProcessProfile.hpp"
 #include "../renderer/RenderEffectSystem.hpp"
 #include "../renderer/Lighting2DSystem.hpp"
+#include "../ui/CanvasUISystem.hpp"
+#include "../ui/UIInputSystem.hpp"
 #include <vector>
 
 namespace Engine {
@@ -85,6 +87,10 @@ private:
     AssetHandle m_post_process_profile_handle{};
     RenderEffectSystem m_render_effect_system;
     Lighting2DSystem m_lighting_system;
+    CanvasUISystem m_canvas_ui_system;
+    UIInputSystem m_ui_input_system;
+    glm::vec2 m_ui_output_size{1920.0f, 1080.0f};
+    SafeAreaInsets m_ui_safe_area{};
     bool m_post_process_enabled{false};
     bool m_post_process_initialized{false};
 };

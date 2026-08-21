@@ -60,6 +60,7 @@ struct SpriteCommand {
     bool flip_x{false};
     bool flip_y{false};
     bool is_screen_space{false};
+    bool scale_with_camera_projection{true};
     int16_t sorting_layer{0};
     int16_t order_in_layer{0};
     RenderLayer render_layer{DEFAULT_RENDER_LAYER};
@@ -148,7 +149,8 @@ public:
         float z_layer = 0.0f,
         bool flip_x = false,
         bool flip_y = false,
-        std::shared_ptr<const Material> material = nullptr
+        std::shared_ptr<const Material> material = nullptr,
+        bool scale_with_camera_projection = true
     );
     void submit_text(
         const Font& font,
@@ -165,7 +167,9 @@ public:
         float scale = 1.0f,
         SDL_Color color = {255, 255, 255, 255},
         const glm::vec2& pivot = {0.0f, 0.0f},
-        float z_layer = 1.0f
+        float z_layer = 1.0f,
+        bool scale_with_camera_projection = true,
+        std::shared_ptr<const Material> material = nullptr
     );
     void submit_sprites_batch(const SpriteCommand* commands, size_t count);
     void end_scene();
@@ -203,6 +207,7 @@ private:
     size_t m_rendered_sprites{0};
     size_t m_culled_sprites{0};
     RenderFrameMetrics m_frame_metrics{};
+    std::uint32_t m_screen_submission_order{0};
     bool m_low_latency_mode{true};
 };
 

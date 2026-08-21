@@ -29,24 +29,27 @@ int main() {
     fs::remove_all(root, error);
     write_file(root / "assets/prefabs/Hero.prefab", "{}");
     write_file(root / "assets/textures/Hero.PNG");
+    write_file(root / "assets/fonts/Interface.ttf");
     write_file(root / "assets/shaders/effect.frag.msl");
 
     Engine::AssetDatabase database(root);
     const auto initial = database.scan(root / "assets");
-    require(initial.imported == 3, "scan imports source assets into central database");
-    require(initial.ready == 3, "all imported assets become ready");
+    require(initial.imported == 4, "scan imports source assets into central database");
+    require(initial.ready == 4, "all imported assets become ready");
     require(fs::exists(root / "ProjectSettings/AssetDatabase.json"), "central asset database is created");
 
     const auto* prefab = database.find_by_path(root / "assets/prefabs/Hero.prefab");
     require(prefab != nullptr, "path resolves to record");
     require(prefab->type == Engine::AssetType::Prefab, "prefab type inferred");
+    require(database.find_by_path(root / "assets/fonts/Interface.ttf")->type == Engine::AssetType::Font,
+        "font type inferred");
     require(database.resolve(prefab->handle) == (root / "assets/prefabs/Hero.prefab").string(), "handle resolves source path");
     const auto parsed = Engine::AssetHandle::from_string(prefab->handle.to_string());
     require(parsed.has_value() && *parsed == prefab->handle, "handle string round trip");
 
     const Engine::AssetHandle stable_handle = prefab->handle;
     const auto again = database.scan(root / "assets");
-    require(again.imported == 0 && again.ready == 3, "second scan reuses central metadata");
+    require(again.imported == 0 && again.ready == 4, "second scan reuses central metadata");
     require(database.find_by_path(root / "assets/prefabs/Hero.prefab")->handle == stable_handle, "central database keeps handle stable");
 
     write_file(root / "assets/audio/theme.wav");
@@ -86,7 +89,7 @@ int main() {
 
     fs::remove(root / "assets/prefabs/Hero.prefab", error);
     const auto missing = database.scan(root / "assets");
-    require(missing.ready == 3, "missing asset is retained but excluded from ready count");
+    require(missing.ready == 4, "missing asset is retained but excluded from ready count");
     require(database.find(stable_handle)->status == Engine::AssetStatus::MissingSource, "lost source remains repairable by handle");
 
     fs::remove_all(root, error);

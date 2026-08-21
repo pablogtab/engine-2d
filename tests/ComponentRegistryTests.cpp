@@ -4,6 +4,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
+#include "ecs/components/UIComponents.hpp"
 #include "renderer/material/MaterialAsset.hpp"
 #include "renderer/material/ShaderAsset.hpp"
 #include "renderer/material/Material.hpp"
@@ -145,6 +146,63 @@ void test_editor_metadata_validates_runtime_constraints() {
     assert(error.find("repeats constraint 'transform'") != std::string::npos);
 }
 
+void test_editor_default_snapshot_includes_dependency_chain() {
+    EditorComponentRegistry registry;
+    std::string error;
+    auto transform = editor_registration("transform", "TransformDrawer");
+    transform.addable = false;
+    transform.create_default = [](
+        EntityManager&, EntityID, const EditorInspectorContext&, ComponentSnapshotSet& snapshot
+    ) { snapshot.set(TransformComponent{}); };
+    auto layout = editor_registration("ui_layout", "UILayoutDrawer", {"transform"});
+    layout.create_default = [](
+        EntityManager&, EntityID, const EditorInspectorContext&, ComponentSnapshotSet& snapshot
+    ) { snapshot.set(UILayoutComponent{}); };
+    auto text = editor_registration("ui_text", "UITextDrawer", {"ui_layout"});
+    text.create_default = [](
+        EntityManager&, EntityID, const EditorInspectorContext&, ComponentSnapshotSet& snapshot
+    ) { snapshot.set(UITextComponent{}); };
+    auto image = editor_registration("ui_image", "UIImageDrawer", {"ui_layout"});
+    image.create_default = [](
+        EntityManager&, EntityID, const EditorInspectorContext&, ComponentSnapshotSet& snapshot
+    ) { snapshot.set(UIImageComponent{}); };
+    auto button = editor_registration("ui_button", "UIButtonDrawer", {"ui_image"});
+    button.create_default = [](
+        EntityManager&, EntityID, const EditorInspectorContext&, ComponentSnapshotSet& snapshot
+    ) { snapshot.set(UIButtonComponent{}); };
+    assert(registry.register_component(std::move(transform), &error));
+    assert(registry.register_component(std::move(layout), &error));
+    assert(registry.register_component(std::move(text), &error));
+    assert(registry.register_component(std::move(image), &error));
+    assert(registry.register_component(std::move(button), &error));
+
+    EntityManager em;
+    ComponentSnapshotSet snapshot;
+    assert(registry.build_default_snapshot(
+        "ui_text", em, 0, EditorInspectorContext{}, snapshot, error
+    ));
+    assert(snapshot.contains<TransformComponent>());
+    assert(snapshot.contains<UILayoutComponent>());
+    assert(snapshot.contains<UITextComponent>());
+    assert(snapshot.size() == 3);
+
+    ComponentSnapshotSet button_snapshot;
+    assert(registry.build_default_snapshot(
+        "ui_button", em, 0, EditorInspectorContext{}, button_snapshot, error
+    ));
+    assert(button_snapshot.contains<TransformComponent>());
+    assert(button_snapshot.contains<UILayoutComponent>());
+    assert(button_snapshot.contains<UIImageComponent>());
+    assert(button_snapshot.contains<UIButtonComponent>());
+    assert(button_snapshot.size() == 4);
+
+    ComponentSnapshotSet invalid;
+    assert(!registry.build_default_snapshot(
+        "missing", em, 0, EditorInspectorContext{}, invalid, error
+    ));
+    assert(error == "Unknown editor component: missing");
+}
+
 void test_editor_component_availability_reports_dependencies_and_conflicts() {
     ComponentRegistry runtime;
     std::string error;
@@ -248,7 +306,7 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 13);
+    assert(registry.descriptors().size() == 18);
     assert(registry.find_by_type(typeid(TagComponent)));
     assert(registry.find_by_type(typeid(GroupComponent)));
     assert(registry.find_by_type(typeid(RenderEffectComponent)));
@@ -256,6 +314,11 @@ void test_default_registry_metadata_is_stable() {
     assert(registry.find_by_type(typeid(ShadowCaster2DComponent)));
     assert(registry.find_by_type(typeid(PrefabLinkComponent)));
     assert(registry.find_by_type(typeid(CameraComponent)));
+    assert(registry.find_by_type(typeid(CanvasComponent)));
+    assert(registry.find_by_type(typeid(UILayoutComponent)));
+    assert(registry.find_by_type(typeid(UITextComponent)));
+    assert(registry.find_by_type(typeid(UIImageComponent)));
+    assert(registry.find_by_type(typeid(UIButtonComponent)));
     assert(registry.find_by_type(typeid(AnimationComponent)));
     assert(registry.find_by_type(typeid(RigidBodyComponent)));
     assert(registry.find_by_type(typeid(ColliderComponent)));
@@ -391,6 +454,55 @@ void test_builtin_components_round_trip_through_registry() {
     camera.follow_offset = {3.0f, 4.0f};
     em.add_component<CameraComponent>(source, camera);
 
+    CanvasComponent canvas;
+    canvas.reference_size = {1920.0f, 1080.0f};
+    canvas.scaling_policy = PresentationMode::Fill;
+    canvas.sorting_order = 4;
+    canvas.use_safe_area = false;
+    em.add_component<CanvasComponent>(source, canvas);
+
+    UILayoutComponent ui_layout;
+    ui_layout.anchor_min = {0.0f, 0.5f};
+    ui_layout.anchor_max = {1.0f, 0.5f};
+    ui_layout.pivot = {0.25f, 0.75f};
+    ui_layout.anchored_position = {12.0f, -8.0f};
+    ui_layout.size_delta = {-40.0f, 72.0f};
+    em.add_component<UILayoutComponent>(source, ui_layout);
+
+    UITextComponent ui_text;
+    ui_text.text = "Play";
+    ui_text.font_handle = AssetHandle{0x4567};
+    ui_text.material_handle = AssetHandle{0x4568};
+    ui_text.font_size = 36.0f;
+    ui_text.color = {20, 40, 80, 220};
+    ui_text.horizontal_alignment = UIHorizontalAlignment::Right;
+    ui_text.vertical_alignment = UIVerticalAlignment::Bottom;
+    ui_text.margins.left = {8.0f, UILengthUnit::Pixels};
+    ui_text.margins.top = {12.0f, UILengthUnit::Percent};
+    ui_text.margins.right = {-16.0f, UILengthUnit::Pixels};
+    ui_text.margins.bottom = {-20.0f, UILengthUnit::Percent};
+    ui_text.fit_content_width = true;
+    ui_text.fit_content_height = true;
+    ui_text.fit_padding = {4.0f, 6.0f, 8.0f, 10.0f};
+    ui_text.wrap = true;
+    em.add_component<UITextComponent>(source, ui_text);
+
+    UIImageComponent ui_image;
+    ui_image.texture_handle = AssetHandle{0x5678};
+    ui_image.material_handle = AssetHandle{0x5679};
+    ui_image.color = {120, 140, 160, 180};
+    ui_image.scale_mode = UIImageScaleMode::Fit;
+    ui_image.raycast_target = false;
+    em.add_component<UIImageComponent>(source, ui_image);
+
+    UIButtonComponent ui_button;
+    ui_button.normal_color = {10, 20, 30, 255};
+    ui_button.hovered_color = {40, 50, 60, 255};
+    ui_button.pressed_color = {70, 80, 90, 255};
+    ui_button.disabled_color = {100, 110, 120, 128};
+    ui_button.interactable = false;
+    em.add_component<UIButtonComponent>(source, ui_button);
+
     AnimationComponent animation;
     animation.columns = 4;
     animation.rows = 2;
@@ -413,7 +525,8 @@ void test_builtin_components_round_trip_through_registry() {
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
     for (const char* key : {"tag", "group", "render_effect", "light_2d", "shadow_caster_2d",
-                            "camera", "animation", "rigidbody", "collider", "tilemap"}) {
+                            "camera", "canvas", "ui_layout", "ui_text", "ui_image", "ui_button",
+                            "animation", "rigidbody", "collider", "tilemap"}) {
         assert(value.contains(key));
     }
 
@@ -433,6 +546,11 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<CameraComponent>(target).clear_color.r == 12);
     assert(em.get_component<CameraComponent>(target).clear_color.a == 78);
+    assert(em.get_component<CanvasComponent>(target) == canvas);
+    assert(em.get_component<UILayoutComponent>(target) == ui_layout);
+    assert(em.get_component<UITextComponent>(target) == ui_text);
+    assert(em.get_component<UIImageComponent>(target) == ui_image);
+    assert(em.get_component<UIButtonComponent>(target) == ui_button);
     assert(em.get_component<AnimationComponent>(target).clips.front().name == "Run");
     assert(em.get_component<RigidBodyComponent>(target).mass == 3.0f);
     assert(em.get_component<ColliderComponent>(target).shapes.front().radius == 14.0f);
@@ -456,6 +574,11 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<ShadowCaster2DComponent>(restored) == caster);
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
     assert(em.get_component<CameraComponent>(restored).clear_color.g == 34);
+    assert(em.get_component<CanvasComponent>(restored) == canvas);
+    assert(em.get_component<UILayoutComponent>(restored) == ui_layout);
+    assert(em.get_component<UITextComponent>(restored) == ui_text);
+    assert(em.get_component<UIImageComponent>(restored) == ui_image);
+    assert(em.get_component<UIButtonComponent>(restored) == ui_button);
     assert(em.get_component<AnimationComponent>(restored).clips.size() == 1);
     assert(em.get_component<RigidBodyComponent>(restored).body_type == BodyType::Dynamic);
     assert(em.get_component<ColliderComponent>(restored).shapes.size() == 1);
@@ -642,20 +765,36 @@ void test_material_assets_load_by_handle() {
     sprite.material_handle = material->handle;
     sprite.material = edited;
     entities.add_component<SpriteComponent>(entity, sprite);
+    UITextComponent text;
+    text.material_handle = material->handle;
+    text.material = edited;
+    entities.add_component<UITextComponent>(entity, text);
+    UIImageComponent image;
+    image.material_handle = material->handle;
+    image.material = edited;
+    entities.add_component<UIImageComponent>(entity, image);
     const auto initial_refresh = MaterialAsset::refresh_assigned(entities, database);
-    assert(initial_refresh.reloaded == 1 && entities.get_component<SpriteComponent>(entity).material);
+    assert(initial_refresh.reloaded == 3);
+    assert(entities.get_component<SpriteComponent>(entity).material);
+    assert(entities.get_component<UITextComponent>(entity).material);
+    assert(entities.get_component<UIImageComponent>(entity).material);
 
     fs::remove(root / "assets/shaders/Test.msl", ignored);
     [[maybe_unused]] const auto missing_scan = database.rescan();
     const auto unavailable_refresh = MaterialAsset::refresh_assigned(entities, database);
-    assert(unavailable_refresh.unavailable == 1);
+    assert(unavailable_refresh.unavailable == 3);
     assert(!entities.get_component<SpriteComponent>(entity).material);
+    assert(!entities.get_component<UITextComponent>(entity).material);
+    assert(!entities.get_component<UIImageComponent>(entity).material);
     assert(entities.get_component<SpriteComponent>(entity).material_handle == material->handle);
 
     assert(FileSystem::write_text((root / "assets/shaders/Test.msl").string(), "fragment float4 main0() { return float4(1); }\n"));
     [[maybe_unused]] const auto restored_scan = database.rescan();
     const auto restored_refresh = MaterialAsset::refresh_assigned(entities, database);
-    assert(restored_refresh.reloaded == 1 && entities.get_component<SpriteComponent>(entity).material);
+    assert(restored_refresh.reloaded == 3);
+    assert(entities.get_component<SpriteComponent>(entity).material);
+    assert(entities.get_component<UITextComponent>(entity).material);
+    assert(entities.get_component<UIImageComponent>(entity).material);
 
     fs::remove_all(root, ignored);
 }
@@ -687,6 +826,7 @@ void test_component_type_limit_has_explicit_diagnostic() {
 int main() {
     test_editor_metadata_rejects_duplicate_keys_and_drawers();
     test_editor_metadata_validates_runtime_constraints();
+    test_editor_default_snapshot_includes_dependency_chain();
     test_editor_component_availability_reports_dependencies_and_conflicts();
     test_registration_rejects_duplicate_keys_and_types();
     test_component_migration_runs_for_every_entity();

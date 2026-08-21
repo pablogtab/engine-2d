@@ -4,6 +4,7 @@
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/PhysicsComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
+#include "../ecs/components/UIComponents.hpp"
 #include "../core/AssetDatabase.hpp"
 #include "../tilemap/Tilemap.hpp"
 
@@ -35,6 +36,17 @@ bool parent_chain_has_cycle(const EntityManager& entities, EntityID entity) {
     while (current != 0) {
         if (!entities.is_alive(current) || !entities.has_component<HierarchyComponent>(current)) return false;
         if (!visited.insert(current).second) return true;
+        current = entities.get_component<HierarchyComponent>(current).parent;
+    }
+    return false;
+}
+
+bool has_canvas_ancestor(const EntityManager& entities, EntityID entity) {
+    std::unordered_set<EntityID> visited;
+    EntityID current = entity;
+    while (current != 0 && entities.is_alive(current) && visited.insert(current).second) {
+        if (entities.has_component<CanvasComponent>(current)) return true;
+        if (!entities.has_component<HierarchyComponent>(current)) return false;
         current = entities.get_component<HierarchyComponent>(current).parent;
     }
     return false;
@@ -203,6 +215,66 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
             }
         }
 
+        if (asset_database && entities.has_component<UIImageComponent>(entity)) {
+            const auto& image = entities.get_component<UIImageComponent>(entity);
+            if (image.texture_handle.is_valid() &&
+                !has_ready_asset(*asset_database, image.texture_handle, AssetType::Texture)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingUIImageTexture,
+                    entity,
+                    "UI Image texture asset is missing or unavailable",
+                    0,
+                    {},
+                    image.texture_handle
+                );
+            }
+            if (image.material_handle.is_valid() &&
+                !has_ready_asset(*asset_database, image.material_handle, AssetType::Material)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingMaterialAsset,
+                    entity,
+                    "UI Image material asset is missing or unavailable",
+                    0,
+                    {},
+                    image.material_handle
+                );
+            }
+        }
+
+        if (asset_database && entities.has_component<UITextComponent>(entity)) {
+            const auto& text = entities.get_component<UITextComponent>(entity);
+            if (text.font_handle.is_valid() &&
+                !has_ready_asset(*asset_database, text.font_handle, AssetType::Font)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingUIFont,
+                    entity,
+                    "UI Text font asset is missing or unavailable",
+                    0,
+                    {},
+                    text.font_handle
+                );
+            }
+            if (text.material_handle.is_valid() &&
+                !has_ready_asset(*asset_database, text.material_handle, AssetType::Material)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingMaterialAsset,
+                    entity,
+                    "UI Text material asset is missing or unavailable",
+                    0,
+                    {},
+                    text.material_handle
+                );
+            }
+        }
+
         if (asset_database && entities.has_component<PrefabLinkComponent>(entity)) {
             const auto& prefab = entities.get_component<PrefabLinkComponent>(entity);
             if (!prefab.prefab_asset_path.empty() &&
@@ -307,6 +379,99 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
                     "Shadow Caster 2D has invalid geometry or affected layers"
                 );
             }
+        }
+
+        if (entities.has_component<CanvasComponent>(entity)) {
+            const auto& canvas = entities.get_component<CanvasComponent>(entity);
+            if (!std::isfinite(canvas.reference_size.x) || !std::isfinite(canvas.reference_size.y) ||
+                canvas.reference_size.x <= 0.0f || canvas.reference_size.y <= 0.0f) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::InvalidCanvas,
+                    entity,
+                    "Canvas reference size must be finite and positive"
+                );
+            }
+        }
+
+        if (entities.has_component<UILayoutComponent>(entity)) {
+            const auto& layout = entities.get_component<UILayoutComponent>(entity);
+            const auto finite = [](const glm::vec2& value) {
+                return std::isfinite(value.x) && std::isfinite(value.y);
+            };
+            const bool invalid_anchors =
+                glm::any(glm::lessThan(layout.anchor_min, glm::vec2(0.0f))) ||
+                glm::any(glm::greaterThan(layout.anchor_max, glm::vec2(1.0f))) ||
+                glm::any(glm::greaterThan(layout.anchor_min, layout.anchor_max));
+            const bool invalid_pivot =
+                glm::any(glm::lessThan(layout.pivot, glm::vec2(0.0f))) ||
+                glm::any(glm::greaterThan(layout.pivot, glm::vec2(1.0f)));
+            if (!finite(layout.anchor_min) || !finite(layout.anchor_max) || !finite(layout.pivot) ||
+                !finite(layout.anchored_position) || !finite(layout.size_delta) ||
+                invalid_anchors || invalid_pivot) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::InvalidUILayout,
+                    entity,
+                    "UI Layout anchors, pivot, position, or size are invalid"
+                );
+            }
+            if (!has_canvas_ancestor(entities, entity)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingCanvasAncestor,
+                    entity,
+                    "UI Layout requires a Canvas on this entity or an ancestor"
+                );
+            }
+        }
+
+        if (entities.has_component<UITextComponent>(entity)) {
+            const auto& text = entities.get_component<UITextComponent>(entity);
+            const auto finite_length = [](const UILength& length) {
+                return std::isfinite(length.value);
+            };
+            const auto percentage = [](const UILength& length) {
+                return length.unit == UILengthUnit::Percent ? length.value * 0.01f : 0.0f;
+            };
+            const bool invalid_margins =
+                !finite_length(text.margins.left) || !finite_length(text.margins.top) ||
+                !finite_length(text.margins.right) || !finite_length(text.margins.bottom);
+            const bool invalid_padding =
+                !std::isfinite(text.fit_padding.x) || !std::isfinite(text.fit_padding.y) ||
+                !std::isfinite(text.fit_padding.z) || !std::isfinite(text.fit_padding.w) ||
+                glm::any(glm::lessThan(text.fit_padding, glm::vec4(0.0f)));
+            const bool invalid_fit =
+                (text.fit_content_width &&
+                 percentage(text.margins.left) + percentage(text.margins.right) >= 1.0f) ||
+                (text.fit_content_height &&
+                 percentage(text.margins.top) + percentage(text.margins.bottom) >= 1.0f);
+            if (!std::isfinite(text.font_size) || text.font_size <= 0.0f ||
+                text.font_size > 512.0f || invalid_margins || invalid_padding || invalid_fit) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::InvalidUIText,
+                    entity,
+                    "UI Text font size, margins, or fit-content settings are invalid"
+                );
+            }
+        }
+
+        if ((entities.has_component<UITextComponent>(entity) ||
+             entities.has_component<UIImageComponent>(entity) ||
+             entities.has_component<UIButtonComponent>(entity)) &&
+            !entities.has_component<UILayoutComponent>(entity)) {
+            add_diagnostic(
+                diagnostics,
+                SceneDiagnosticSeverity::Error,
+                SceneDiagnosticCode::MissingUILayout,
+                entity,
+                "UI visual components require UI Layout on the same entity"
+            );
         }
     }
 

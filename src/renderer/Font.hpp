@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <string>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <SDL3/SDL.h>
 
@@ -32,10 +33,17 @@ public:
 
     // Creates an embedded fallback font (attempts system TTF or procedural high-contrast bitmap font)
     static std::unique_ptr<Font> create_default(SDL_Renderer* renderer, float font_size = 24.0f);
+    static std::optional<std::string> find_default_font_path();
 
     Texture* get_atlas_texture() const { return m_atlas_texture.get(); }
     float get_font_size() const { return m_font_size; }
     float get_line_height() const { return m_line_height; }
+    float get_ascent() const { return m_ascent; }
+    float get_descent() const { return m_descent; }
+    float get_line_baseline_offset() const {
+        const float glyph_height = m_ascent - m_descent;
+        return m_ascent + (m_line_height - glyph_height) * 0.5f;
+    }
 
     const Glyph* get_glyph(char c) const {
         auto it = m_glyphs.find(c);
@@ -53,6 +61,8 @@ private:
     std::unordered_map<char, Glyph> m_glyphs;
     float m_font_size{28.0f};
     float m_line_height{32.0f};
+    float m_ascent{23.8f};
+    float m_descent{-5.6f};
 };
 
 } // namespace Engine

@@ -9,12 +9,14 @@
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../tools/EditorIcons.hpp"
 #include "../tools/EditorTransformUtils.hpp"
+#include "../inspector/EditorComponentRegistry.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../ecs/components/AnimationComponents.hpp"
+#include "../../ecs/components/UIComponents.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../core/Log.hpp"
@@ -23,8 +25,24 @@
 #include <cstring>
 #include <algorithm>
 #include <filesystem>
+#include <unordered_set>
 
 namespace Engine {
+
+namespace {
+
+bool has_canvas_ancestor(const EntityManager& em, EntityID entity) {
+    std::unordered_set<EntityID> visited;
+    EntityID current = entity;
+    while (current != 0 && em.is_alive(current) && visited.insert(current).second) {
+        if (em.has_component<CanvasComponent>(current)) return true;
+        if (!em.has_component<HierarchyComponent>(current)) break;
+        current = em.get_component<HierarchyComponent>(current).parent;
+    }
+    return false;
+}
+
+} // namespace
 
 SceneHierarchyPanel::SceneHierarchyPanel(
     SceneManager* scene_manager, 
@@ -152,8 +170,9 @@ void SceneHierarchyPanel::on_gui() {
 
         // Right-click on empty area in tree window
         if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-            if (ImGui::MenuItem("Add Entity (Root)")) {
-                create_entity_helper(em, 0);
+            if (ImGui::BeginMenu("Create")) {
+                render_create_menu(em, 0);
+                ImGui::EndMenu();
             }
             ImGui::EndPopup();
         }
@@ -190,9 +209,14 @@ void SceneHierarchyPanel::on_gui() {
         ImGui::EndChild();
 
         // --- Bottom Actions Bar ---
-        if (ImGui::Button(" + Add Entity ", ImVec2(100, 24))) {
-            EntityID selected_parent = (m_selection && !m_selection->empty()) ? m_selection->get_primary() : 0;
-            create_entity_helper(em, selected_parent);
+        if (ImGui::Button(" + Create ", ImVec2(100, 24))) {
+            ImGui::OpenPopup("HierarchyCreatePopup");
+        }
+        if (ImGui::BeginPopup("HierarchyCreatePopup")) {
+            const EntityID selected_parent = (m_selection && !m_selection->empty())
+                ? m_selection->get_primary() : 0;
+            render_create_menu(em, selected_parent);
+            ImGui::EndPopup();
         }
         ImGui::SameLine();
         if (m_selection && !m_selection->empty()) {
@@ -535,11 +559,9 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             m_selection->select(id, false);
         }
 
-        if (ImGui::MenuItem("Add Child Entity (Sprite)", nullptr, false, !is_locked)) {
-            create_entity_helper(em, id);
-        }
-        if (ImGui::MenuItem("Add Child Tilemap", nullptr, false, !is_locked)) {
-            create_tilemap_helper(em, id);
+        if (ImGui::BeginMenu("Create Child", !is_locked)) {
+            render_create_menu(em, id);
+            ImGui::EndMenu();
         }
         if (ImGui::MenuItem("Save As Prefab...", nullptr, false, !is_locked)) {
             std::string tag_name = em.has_component<TagComponent>(id) ? em.get_component<TagComponent>(id).tag : "Entity";
@@ -763,6 +785,57 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 }
 
 void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID parent_id) {
+    create_component_entity_helper(em, parent_id, "transform", "Empty Entity");
+}
+
+void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID parent_id) {
+    create_component_entity_helper(em, parent_id, "tilemap", "Tilemap");
+}
+
+void SceneHierarchyPanel::render_create_menu(EntityManager& em, EntityID parent_id) {
+    if (ImGui::MenuItem("Empty Entity")) {
+        create_entity_helper(em, parent_id);
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("2D");
+    if (ImGui::MenuItem("Sprite")) {
+        create_component_entity_helper(em, parent_id, "sprite", "Sprite");
+    }
+    if (ImGui::MenuItem("Tilemap")) {
+        create_tilemap_helper(em, parent_id);
+    }
+    if (ImGui::MenuItem("Camera 2D")) {
+        create_component_entity_helper(em, parent_id, "camera", "Camera 2D");
+    }
+    if (ImGui::MenuItem("Light 2D")) {
+        create_component_entity_helper(em, parent_id, "light_2d", "Light 2D");
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("UI");
+    if (ImGui::MenuItem("Canvas")) {
+        create_component_entity_helper(em, parent_id, "canvas", "Canvas");
+    }
+    const bool can_create_ui_child = has_canvas_ancestor(em, parent_id);
+    const auto ui_item = [&](const char* label, const char* component_key, const char* name) {
+        if (ImGui::MenuItem(label, nullptr, false, can_create_ui_child)) {
+            create_component_entity_helper(em, parent_id, component_key, name);
+        }
+        if (!can_create_ui_child && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("Select a Canvas or one of its UI children first");
+        }
+    };
+    ui_item("Text", "ui_text", "UI Text");
+    ui_item("Image", "ui_image", "UI Image");
+    ui_item("Button", "ui_button", "UI Button");
+}
+
+void SceneHierarchyPanel::create_component_entity_helper(
+    EntityManager& em,
+    EntityID parent_id,
+    const std::string& component_key,
+    const std::string& name
+) {
     if (m_prefab_stage && m_prefab_stage->is_active()) {
         if (parent_id == 0) {
             parent_id = m_prefab_stage->get_root_entity();
@@ -779,13 +852,21 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
     }
 
     EntitySnapshot snap;
-    snap.registered_components.set(TagComponent{parent_id == 0 ? "New_Entity" : "Child_Entity"});
-    snap.registered_components.set(TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
-    snap.registered_components.set(SpriteComponent{
-        AssetManager::get().get_white_texture(m_renderer),
-        glm::vec2(64.0f, 64.0f),
-        SDL_Color{255, 255, 255, 255}
-    });
+    snap.registered_components.set(TagComponent{name});
+    std::string error;
+    const EditorInspectorContext context{
+        m_renderer,
+        &AssetManager::get(),
+        m_command_history.get()
+    };
+    if (!default_editor_component_registry().build_default_snapshot(
+            component_key, em, 0, context, snap.registered_components, error
+        )) {
+        ENGINE_LOG_ERROR(
+            "[HIERARCHY] Cannot create '{}': {}", name, error
+        );
+        return;
+    }
     if (parent_id != 0) {
         snap.has_hierarchy = true;
         snap.hierarchy.parent = parent_id;
@@ -794,68 +875,10 @@ void SceneHierarchyPanel::create_entity_helper(EntityManager& em, EntityID paren
     if (m_command_history) {
         m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, snap, m_entity_state_store.get()));
     } else {
-        EntityID new_id = em.create_entity();
-        default_component_registry().restore_entity(em, new_id, snap.registered_components);
-        if (parent_id != 0) {
-            const HierarchyOperationResult result = em.set_parent(new_id, parent_id);
-            if (!result.succeeded()) {
-                ENGINE_LOG_ERROR(
-                    "[HIERARCHY] Cannot parent new entity #{} to #{}: {}",
-                    new_id,
-                    parent_id,
-                    result.message()
-                );
-                em.destroy_entity(new_id);
-                return;
-            }
-        }
-        std::string finalize_error;
-        if (!default_component_registry().finalize_entity(
-            em,
-            new_id,
-            ComponentFinalizeContext{
-                .serialization = {m_renderer, &AssetManager::get()},
-                .reason = ComponentFinalizeReason::DefaultCreation
-            },
-            finalize_error
-        )) {
-            em.destroy_entity(new_id);
-            return;
-        }
-        if (m_selection) m_selection->select(new_id, false);
-    }
-}
-
-void SceneHierarchyPanel::create_tilemap_helper(EntityManager& em, EntityID parent_id) {
-    if (m_prefab_stage && m_prefab_stage->is_active()) {
-        if (parent_id == 0) {
-            parent_id = m_prefab_stage->get_root_entity();
-        }
-        if (parent_id == 0 || !em.is_alive(parent_id)) {
-            ENGINE_LOG_WARN("[HIERARCHY] Cannot create tilemap: Prefab Stage root entity is zero or invalid.");
-            return;
-        }
-    }
-
-    if (parent_id != 0 && m_entity_state_store && m_entity_state_store->is_locked(parent_id)) {
-        ENGINE_LOG_WARN("[HIERARCHY] Cannot create child tilemap under locked parent #{}", parent_id);
-        return;
-    }
-
-    EntitySnapshot snap;
-    snap.registered_components.set(TagComponent{parent_id == 0 ? "Tilemap" : "Child_Tilemap"});
-    snap.registered_components.set(TransformComponent{glm::vec3(0.0f, 0.0f, 0.0f)});
-    snap.registered_components.set(TilemapComponent{});
-    if (parent_id != 0) {
-        snap.has_hierarchy = true;
-        snap.hierarchy.parent = parent_id;
-    }
-
-    if (m_command_history) {
-        m_command_history->execute_command(std::make_unique<CreateEntityCommand>(&em, m_selection, std::move(snap), m_entity_state_store.get()));
-    } else {
-        CreateEntityCommand command(&em, m_selection, std::move(snap), m_entity_state_store.get());
-        command.execute();
+        CreateEntityCommand command(
+            &em, m_selection, std::move(snap), m_entity_state_store.get()
+        );
+        static_cast<void>(command.execute());
     }
 }
 

@@ -13,6 +13,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
+#include "ecs/components/UIComponents.hpp"
 #include "tilemap/Tilemap.hpp"
 #include "core/FileSystem.hpp"
 #include "core/AssetDatabase.hpp"
@@ -41,10 +42,37 @@ void test_prefab_serialization_and_deserialization_round_trip() {
     EntityID root = em.create_entity();
     em.add_component<TagComponent>(root, TagComponent{"Enemy_Prefab"});
     em.add_component<TransformComponent>(root, TransformComponent{glm::vec3(50.0f, 50.0f, 0.0f), glm::vec2(1.5f, 1.5f), 15.0f});
+    CanvasComponent canvas;
+    canvas.reference_size = {1920.0f, 1080.0f};
+    canvas.scaling_policy = PresentationMode::Fit;
+    em.add_component<CanvasComponent>(root, canvas);
 
     EntityID child1 = em.create_entity();
     em.add_component<TagComponent>(child1, TagComponent{"Sword"});
     em.add_component<TransformComponent>(child1, TransformComponent{glm::vec3(10.0f, 5.0f, 0.0f)});
+    UILayoutComponent layout;
+    layout.anchor_min = {0.5f, 1.0f};
+    layout.anchor_max = {0.5f, 1.0f};
+    layout.pivot = {0.5f, 1.0f};
+    layout.anchored_position = {0.0f, -24.0f};
+    layout.size_delta = {320.0f, 64.0f};
+    em.add_component<UILayoutComponent>(child1, layout);
+    UITextComponent text;
+    text.text = "Inventory";
+    text.font_size = 32.0f;
+    text.material_handle = AssetHandle{0xAA01};
+    text.margins.left = {12.0f, UILengthUnit::Pixels};
+    text.margins.top = {8.0f, UILengthUnit::Percent};
+    text.margins.right = {-12.0f, UILengthUnit::Pixels};
+    text.margins.bottom = {-8.0f, UILengthUnit::Percent};
+    text.fit_content_width = true;
+    text.fit_content_height = true;
+    text.fit_padding = {6.0f, 4.0f, 6.0f, 4.0f};
+    em.add_component<UITextComponent>(child1, text);
+    UIImageComponent image;
+    image.material_handle = AssetHandle{0xAA02};
+    em.add_component<UIImageComponent>(child1, image);
+    em.add_component<UIButtonComponent>(child1, UIButtonComponent{});
     static_cast<void>(em.set_parent(child1, root));
 
     EntityID child2 = em.create_entity();
@@ -70,6 +98,7 @@ void test_prefab_serialization_and_deserialization_round_trip() {
     assert(em2.is_alive(new_root));
     assert(em2.has_component<TagComponent>(new_root));
     assert(em2.get_component<TagComponent>(new_root).tag == "Enemy_Prefab");
+    assert(em2.get_component<CanvasComponent>(new_root) == canvas);
 
     const auto& new_root_tr = em2.get_component<TransformComponent>(new_root);
     assert(approx_vec3(new_root_tr.world_position, glm::vec3(100.0f, 200.0f, 0.0f)));
@@ -78,6 +107,10 @@ void test_prefab_serialization_and_deserialization_round_trip() {
     assert(em2.has_component<HierarchyComponent>(new_root));
     const auto& children = em2.get_component<HierarchyComponent>(new_root).children;
     assert(children.size() == 2);
+    const auto ui_child = children.front();
+    assert(em2.get_component<UILayoutComponent>(ui_child) == layout);
+    assert(em2.get_component<UITextComponent>(ui_child) == text);
+    assert(em2.has_component<UIButtonComponent>(ui_child));
 
     std::cout << "test_prefab_serialization_and_deserialization_round_trip passed." << std::endl;
 }

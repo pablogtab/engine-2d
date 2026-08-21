@@ -67,6 +67,11 @@ set(SOURCES
     src/scene/PrefabSerializer.cpp
     src/scene/PrefabPropagation.cpp
     src/scene/PrefabOverrides.cpp
+    src/ui/CanvasLayout.cpp
+    src/ui/CanvasUISystem.cpp
+    src/ui/UIInputSystem.cpp
+    src/ui/UIComponentRegistrations.cpp
+    src/ui/UITextLayout.cpp
     src/sandbox/AnimatedSpriteDemoScene.cpp
 
 
@@ -89,12 +94,14 @@ set(SOURCES
     src/editor/panels/TilemapPalettePanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/gizmos/TransformGizmo2D.cpp
+    src/editor/gizmos/UILayoutGizmo.cpp
     src/editor/inspector/InspectorWidgets.cpp
     src/editor/inspector/SpriteInspectorDrawer.cpp
     src/editor/inspector/RenderEffectInspectorDrawer.cpp
     src/editor/inspector/RigidBodyInspectorDrawer.cpp
     src/editor/inspector/ColliderInspectorDrawer.cpp
     src/editor/inspector/LightingInspectorDrawer.cpp
+    src/editor/inspector/UIInspectorDrawer.cpp
     src/editor/inspector/TilemapInspectorDrawer.cpp
     src/editor/inspector/AnimationInspectorDrawer.cpp
     src/editor/inspector/EditorComponentRegistry.cpp
@@ -421,6 +428,27 @@ target_include_directories(Lighting2DTests PRIVATE
 target_link_libraries(Lighting2DTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME Lighting2DTests COMMAND Lighting2DTests)
 
+add_executable(CanvasLayoutTests tests/CanvasLayoutTests.cpp)
+target_include_directories(CanvasLayoutTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(CanvasLayoutTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME CanvasLayoutTests COMMAND CanvasLayoutTests)
+
+add_executable(UIInputTests tests/UIInputTests.cpp)
+target_include_directories(UIInputTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(UIInputTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME UIInputTests COMMAND UIInputTests)
+
+add_executable(CanvasUIRenderTests tests/CanvasUIRenderTests.cpp)
+target_include_directories(CanvasUIRenderTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(CanvasUIRenderTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME CanvasUIRenderTests COMMAND CanvasUIRenderTests)
+
 add_executable(GPURenderSmokeTests tests/GPURenderSmokeTests.cpp)
 target_include_directories(GPURenderSmokeTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -612,6 +640,7 @@ add_executable(ViewportVisibilityTests
     src/editor/state/EditorEntityStateStore.cpp
     src/editor/tools/ViewportSelectionTool.cpp
     src/scene/Camera2D.cpp
+    src/ui/CanvasLayout.cpp
     src/renderer/Texture.cpp
     vendor/imgui/imgui.cpp
     vendor/imgui/imgui_draw.cpp
@@ -828,6 +857,9 @@ foreach(runtime_test
     LocalEffectsTests
     RenderMetricsTests
     Lighting2DTests
+    CanvasLayoutTests
+    UIInputTests
+    CanvasUIRenderTests
     GPURenderSmokeTests
     EditorPropertyTransactionTests
     EditorCommandHistoryTests

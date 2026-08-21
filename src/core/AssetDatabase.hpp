@@ -15,6 +15,7 @@ enum class AssetType {
     Scene,
     Prefab,
     Texture,
+    Font,
     Audio,
     Shader,
     Material,

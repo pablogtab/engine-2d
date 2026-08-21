@@ -49,6 +49,13 @@ public:
 private:
     void draw_entity_node(EntityManager& em, EntityID id, const std::string& filter_str, bool is_multi_key);
     bool is_descendant(EntityManager& em, EntityID potential_descendant, EntityID ancestor) const;
+    void render_create_menu(EntityManager& em, EntityID parent_id);
+    void create_component_entity_helper(
+        EntityManager& em,
+        EntityID parent_id,
+        const std::string& component_key,
+        const std::string& name
+    );
     void create_entity_helper(EntityManager& em, EntityID parent_id = 0);
     void create_tilemap_helper(EntityManager& em, EntityID parent_id = 0);
     void create_asset_helper(EntityManager& em, EntityID parent_id, const std::string& path_str);

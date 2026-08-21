@@ -5,6 +5,7 @@
 #include "../../core/FileSystem.hpp"
 #include "../../ecs/EntityManager.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
+#include "../../ecs/components/UIComponents.hpp"
 #include <nlohmann/json.hpp>
 #include <filesystem>
 
@@ -97,16 +98,25 @@ std::shared_ptr<const Material> MaterialAsset::load(AssetHandle handle, const As
 
 MaterialAssetRefreshResult MaterialAsset::refresh_assigned(EntityManager& entities, const AssetDatabase& database) {
     MaterialAssetRefreshResult result;
-    entities.for_each<SpriteComponent>([&](EntityID, SpriteComponent& sprite) {
-        if (!sprite.material_handle.is_valid()) return;
-        const auto material = load(sprite.material_handle, database);
-        if (material) {
-            sprite.material = material;
+    const auto refresh = [&](AssetHandle handle, std::shared_ptr<const Material>& material) {
+        if (!handle.is_valid()) return;
+        const auto reloaded = load(handle, database);
+        if (reloaded) {
+            material = reloaded;
             ++result.reloaded;
         } else {
-            sprite.material.reset();
+            material.reset();
             ++result.unavailable;
         }
+    };
+    entities.for_each<SpriteComponent>([&](EntityID, SpriteComponent& sprite) {
+        refresh(sprite.material_handle, sprite.material);
+    });
+    entities.for_each<UITextComponent>([&](EntityID, UITextComponent& text) {
+        refresh(text.material_handle, text.material);
+    });
+    entities.for_each<UIImageComponent>([&](EntityID, UIImageComponent& image) {
+        refresh(image.material_handle, image.material);
     });
     return result;
 }

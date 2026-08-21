@@ -801,9 +801,9 @@ void ViewportPanel::on_gui() {
 
             if (m_is_hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseClicked(ImGuiMouseButton_Middle))) {
                 // An Image does not naturally take keyboard focus from an
-                // active text/scalar editor. Explicitly release that editor,
-                // then consume this click as focus transfer so it cannot also
-                // start a gizmo, marquee or painting gesture with stale state.
+                // active text/scalar editor. Explicitly release that editor.
+                // Camera and gizmo gestures still wait for an already-focused
+                // viewport, but selection is allowed on this first click.
                 if (viewport_focus_click) ImGui::ClearActiveID();
                 ImGui::SetWindowFocus();
                 m_is_focused = true;
@@ -818,7 +818,8 @@ void ViewportPanel::on_gui() {
             ImVec2 mouse_pos = io.MousePos;
 
             // Transform toolbar: viewport-only shortcuts avoid stealing text input.
-            if (m_is_focused && !io.WantTextInput && !m_gizmo.is_using() && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt) {
+            if (m_is_focused && !io.WantTextInput && !m_gizmo.is_using() &&
+                !m_ui_layout_gizmo.is_using() && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt) {
                 if (ImGui::IsKeyPressed(ImGuiKey_W)) m_gizmo.set_tool(TransformTool::Move);
                 if (ImGui::IsKeyPressed(ImGuiKey_R)) m_gizmo.set_tool(TransformTool::Rotate);
                 if (ImGui::IsKeyPressed(ImGuiKey_S)) m_gizmo.set_tool(TransformTool::Scale);
@@ -1101,6 +1102,28 @@ void ViewportPanel::on_gui() {
             bool is_tilemap_painting = (m_palette_panel && m_palette_panel->is_painting_active());
             bool is_gizmo_active = false;
 
+            // UI rectangles are themselves the move surface. Pick the visible
+            // UI element before resolving its gizmo so an unselected Text,
+            // Image, or Button can be selected directly and dragged in the
+            // same gesture. This also prevents a previously selected,
+            // overlapping UI rectangle from swallowing the click.
+            if (is_editing && active_scene && active_cam && m_selection &&
+                !is_tilemap_painting && !is_guide_interaction && m_is_hovered &&
+                ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+                !io.KeyCtrl && !io.KeyShift && !io.KeyAlt) {
+                EntityManager& em = active_scene->get_entity_manager();
+                const EntityID hit = m_selection_tool.pick_entity(
+                    em,
+                    active_cam->screen_to_world(m_viewport_mouse_pos),
+                    active_cam,
+                    &m_visibility_filter
+                );
+                if (hit != 0 && em.has_component<UILayoutComponent>(hit) &&
+                    !m_selection->is_selected(hit)) {
+                    m_selection->select(hit);
+                }
+            }
+
             // --- 5. Selection Outlines & Transform Gizmo (Only when NOT actively painting tiles) ---
             if (is_editing && active_scene && active_cam && m_selection && !m_selection->empty() && !is_tilemap_painting) {
                 // A. Selection Outlines
@@ -1113,8 +1136,22 @@ void ViewportPanel::on_gui() {
                     &m_visibility_filter
                 );
 
-                // B. Transform Gizmo (Records to Command History on Drag Release)
-                is_gizmo_active = m_gizmo.draw_gizmo(
+                // B. UI layout uses Canvas pixels and anchors instead of world transforms.
+                const bool ui_gizmo_active = m_ui_layout_gizmo.draw_gizmo(
+                    active_scene->get_entity_manager(),
+                    m_selection->get_selected(),
+                    *active_cam,
+                    img_min,
+                    img_size,
+                    viewport_tools_hovered,
+                    is_position_snap_active(),
+                    m_gizmo.snap_settings().position_step,
+                    m_command_history.get(),
+                    &m_visibility_filter
+                );
+
+                // C. World Transform gizmo ignores UI layout entities.
+                const bool transform_gizmo_active = m_gizmo.draw_gizmo(
                     active_scene->get_entity_manager(),
                     m_selection->get_selected(),
                     *active_cam,
@@ -1124,6 +1161,7 @@ void ViewportPanel::on_gui() {
                     m_command_history.get(),
                     &m_visibility_filter
                 );
+                is_gizmo_active = ui_gizmo_active || transform_gizmo_active;
             }
 
             // --- 6. Marquee Box Selection & Raycast Picking (Active when NOT painting) ---
@@ -1134,8 +1172,10 @@ void ViewportPanel::on_gui() {
                     *m_selection,
                     img_min,
                     img_size,
-                    viewport_tools_hovered,
-                    is_gizmo_active || m_gizmo.is_hovered() || m_gizmo.is_using() || is_guide_interaction,
+                    m_is_hovered,
+                    is_gizmo_active || m_gizmo.is_hovered() || m_gizmo.is_using() ||
+                        m_ui_layout_gizmo.is_hovered() || m_ui_layout_gizmo.is_using() ||
+                        is_guide_interaction,
                     &m_visibility_filter
                 );
             }

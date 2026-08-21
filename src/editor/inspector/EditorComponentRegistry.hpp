@@ -24,7 +24,8 @@ enum class EditorComponentCategory {
     Rendering,
     Physics,
     Animation,
-    World
+    World,
+    UI
 };
 
 struct EditorInspectorContext {
@@ -73,6 +74,14 @@ public:
         const ComponentRegistry& runtime_registry,
         const EntityManager& em,
         EntityID entity
+    ) const;
+    bool build_default_snapshot(
+        std::string_view component_key,
+        EntityManager& em,
+        EntityID entity,
+        const EditorInspectorContext& context,
+        ComponentSnapshotSet& snapshot,
+        std::string& error
     ) const;
 
 private:

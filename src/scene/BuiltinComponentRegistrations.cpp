@@ -11,6 +11,7 @@
 #include "../renderer/SpriteAnimationSystem.hpp"
 #include "../tilemap/Tilemap.hpp"
 #include "../tilemap/TilemapColliderSystem.hpp"
+#include "../ui/UIComponentRegistrations.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -722,6 +723,7 @@ void register_additional_builtin_components(ComponentRegistry& registry) {
     register_rigidbody(registry);
     register_collider(registry);
     register_tilemap(registry);
+    register_ui_components(registry);
 }
 
 } // namespace Engine

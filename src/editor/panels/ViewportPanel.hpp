@@ -4,6 +4,7 @@
 #include "../EditorSelection.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../gizmos/TransformGizmo2D.hpp"
+#include "../gizmos/UILayoutGizmo.hpp"
 #include "../tools/ViewportCameraController.hpp"
 #include "../tools/ViewportArrangementTool.hpp"
 #include "../tools/ViewportSelectionTool.hpp"
@@ -153,6 +154,7 @@ private:
 
     // Sub-tools
     TransformGizmo2D m_gizmo;
+    UILayoutGizmo m_ui_layout_gizmo;
     ViewportCameraController m_camera_controller;
     ViewportSelectionTool m_selection_tool;
     TilemapPaintingTool m_tilemap_painting_tool;

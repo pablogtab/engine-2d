@@ -56,12 +56,15 @@ void GenericScene::on_attach() {
     Engine::PhysicsSystem::set_gravity(glm::vec2(0.0f, -980.0f));
 
     TransformSystem::update(m_entity_manager);
+    m_ui_input_system.reset();
     synchronize_game_camera(0.0f, true);
 }
 
 void GenericScene::on_detach() {
     ENGINE_LOG_INFO("[SCENE] Detached generic scene: '{}'", get_name());
     Engine::PhysicsSystem::clear();
+    m_ui_input_system.reset();
+    m_canvas_ui_system.clear();
     m_post_process_pipeline.destroy_targets();
     m_post_process_initialized = false;
 }
@@ -151,6 +154,34 @@ void GenericScene::reset_editor_camera() {
 }
 
 void GenericScene::on_update(float delta_time) {
+    const bool ui_had_focus = m_ui_input_system.focused_entity() != 0;
+    const bool navigate_previous = Input::is_key_just_pressed(SDL_SCANCODE_UP);
+    const bool navigate_next = Input::is_key_just_pressed(SDL_SCANCODE_DOWN);
+    const bool activate_pressed = ui_had_focus &&
+        (Input::is_key_just_pressed(SDL_SCANCODE_RETURN) || Input::is_key_just_pressed(SDL_SCANCODE_SPACE));
+    const bool activate_released = ui_had_focus &&
+        (Input::is_key_just_released(SDL_SCANCODE_RETURN) || Input::is_key_just_released(SDL_SCANCODE_SPACE));
+    const UIInputResult ui_input = m_ui_input_system.update(
+        m_entity_manager,
+        m_ui_output_size,
+        m_ui_safe_area,
+        {
+            .pointer_position = Input::get_mouse_position(),
+            .pointer_down = Input::is_mouse_pressed(MouseButton::LEFT),
+            .pointer_pressed = Input::is_mouse_just_pressed(MouseButton::LEFT),
+            .pointer_released = Input::is_mouse_just_released(MouseButton::LEFT),
+            .focus_next = navigate_next,
+            .focus_previous = navigate_previous,
+            .activate_down = ui_had_focus &&
+                (Input::is_key_pressed(SDL_SCANCODE_RETURN) || Input::is_key_pressed(SDL_SCANCODE_SPACE)),
+            .activate_pressed = activate_pressed,
+            .activate_released = activate_released
+        },
+        &m_event_dispatcher
+    );
+    const bool ui_keyboard_consumed = ui_input.focused != 0 &&
+        (navigate_previous || navigate_next || activate_pressed || activate_released);
+
     // --- 1. Player Gameplay Movement Controller (Active during Play simulation) ---
     EntityID player_id = 0;
     m_entity_manager.for_each<TagComponent>([&](EntityID id, const TagComponent& tag) {
@@ -165,11 +196,13 @@ void GenericScene::on_update(float delta_time) {
         auto* sprite = m_entity_manager.has_component<SpriteComponent>(player_id) ? &m_entity_manager.get_component<SpriteComponent>(player_id) : nullptr;
 
         float move_x = 0.0f;
-        if (Input::is_key_pressed(SDL_SCANCODE_A) || Input::is_key_pressed(SDL_SCANCODE_LEFT)) {
+        if (!ui_keyboard_consumed &&
+            (Input::is_key_pressed(SDL_SCANCODE_A) || Input::is_key_pressed(SDL_SCANCODE_LEFT))) {
             move_x -= 1.0f;
             if (sprite) sprite->flip_x = true;
         }
-        if (Input::is_key_pressed(SDL_SCANCODE_D) || Input::is_key_pressed(SDL_SCANCODE_RIGHT)) {
+        if (!ui_keyboard_consumed &&
+            (Input::is_key_pressed(SDL_SCANCODE_D) || Input::is_key_pressed(SDL_SCANCODE_RIGHT))) {
             move_x += 1.0f;
             if (sprite) sprite->flip_x = false;
         }
@@ -179,7 +212,10 @@ void GenericScene::on_update(float delta_time) {
         PhysicsSystem::set_velocity(m_entity_manager, player_id, rb.velocity);
 
         // Jump
-        if (Input::is_key_just_pressed(SDL_SCANCODE_SPACE) || Input::is_key_just_pressed(SDL_SCANCODE_W) || Input::is_key_just_pressed(SDL_SCANCODE_UP)) {
+        if (!ui_keyboard_consumed &&
+            (Input::is_key_just_pressed(SDL_SCANCODE_SPACE) ||
+             Input::is_key_just_pressed(SDL_SCANCODE_W) ||
+             Input::is_key_just_pressed(SDL_SCANCODE_UP))) {
             if (std::abs(rb.velocity.y) < 15.0f) { // Grounded check
                 rb.velocity.y = 520.0f;
                 PhysicsSystem::set_velocity(m_entity_manager, player_id, rb.velocity);
@@ -308,6 +344,25 @@ void GenericScene::on_render(Renderer2D& renderer) {
     // Centralized rendering for Sprites, Tilemaps, and Outlines
     const IEntityRenderFilter* filter = m_is_editing ? m_render_filter : nullptr;
     RenderSystem::render(m_entity_manager, renderer, filter);
+    if (m_is_editing) {
+        m_canvas_ui_system.render_editor_preview(
+            m_entity_manager,
+            renderer,
+            AssetDatabase::get(),
+            m_editor_camera,
+            filter
+        );
+    } else {
+        m_canvas_ui_system.render(
+            m_entity_manager,
+            renderer,
+            AssetDatabase::get(),
+            m_ui_output_size,
+            m_ui_safe_area,
+            &m_ui_input_system,
+            nullptr
+        );
+    }
 
     renderer.end_scene();
     renderer.set_post_process_pipeline(nullptr);
@@ -315,6 +370,10 @@ void GenericScene::on_render(Renderer2D& renderer) {
 
 void GenericScene::on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) {
     Camera2D& camera = view == RenderViewKind::Editor ? m_editor_camera : m_camera;
+    m_ui_output_size = {
+        static_cast<float>(configuration.output_width),
+        static_cast<float>(configuration.output_height)
+    };
     camera.set_viewport_size(static_cast<float>(configuration.output_width), static_cast<float>(configuration.output_height));
     camera.set_reference_size(static_cast<float>(configuration.reference_width), static_cast<float>(configuration.reference_height));
     if (m_post_process_initialized) {

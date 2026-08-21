@@ -1,4 +1,5 @@
 #include "EditorComponentRegistry.hpp"
+#include <functional>
 #include <unordered_set>
 #include <utility>
 
@@ -120,6 +121,42 @@ EditorComponentAvailability EditorComponentRegistry::availability(
     return {true, {}};
 }
 
+bool EditorComponentRegistry::build_default_snapshot(
+    std::string_view component_key,
+    EntityManager& em,
+    EntityID entity,
+    const EditorInspectorContext& context,
+    ComponentSnapshotSet& snapshot,
+    std::string& error
+) const {
+    std::unordered_set<std::string> visiting;
+    std::unordered_set<std::string> built;
+    const std::function<bool(std::string_view)> build = [&](std::string_view key) {
+        const EditorComponentDescriptor* descriptor = find(key);
+        if (!descriptor) {
+            error = "Unknown editor component: " + std::string(key);
+            return false;
+        }
+        if (built.contains(descriptor->component_key)) return true;
+        if (!visiting.insert(descriptor->component_key).second) {
+            error = "Cyclic editor component dependency: " + descriptor->component_key;
+            return false;
+        }
+        for (const std::string& dependency : descriptor->dependencies) {
+            if (!build(dependency)) return false;
+        }
+        if (!descriptor->create_default) {
+            error = "Editor component has no default factory: " + descriptor->component_key;
+            return false;
+        }
+        descriptor->create_default(em, entity, context, snapshot);
+        visiting.erase(descriptor->component_key);
+        built.insert(descriptor->component_key);
+        return true;
+    };
+    return build(component_key);
+}
+
 const char* editor_component_category_label(EditorComponentCategory category) {
     switch (category) {
         case EditorComponentCategory::Core: return "Core";
@@ -127,6 +164,7 @@ const char* editor_component_category_label(EditorComponentCategory category) {
         case EditorComponentCategory::Physics: return "Physics";
         case EditorComponentCategory::Animation: return "Animation";
         case EditorComponentCategory::World: return "World";
+        case EditorComponentCategory::UI: return "UI";
     }
     return "Other";
 }

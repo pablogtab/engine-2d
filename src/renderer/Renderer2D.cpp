@@ -177,6 +177,7 @@ void Renderer2D::begin_scene(const Camera2D& camera) {
     m_rendered_sprites = 0;
     m_culled_sprites = 0;
     m_frame_metrics = {};
+    m_screen_submission_order = 0;
     m_lighting_composited_layers.clear();
 
     if (m_custom_render_target) {
@@ -261,7 +262,8 @@ void Renderer2D::submit_screen_sprite(
     float z_layer,
     bool flip_x,
     bool flip_y,
-    std::shared_ptr<const Material> material
+    std::shared_ptr<const Material> material,
+    bool scale_with_camera_projection
 ) {
     if (!texture) return;
 
@@ -279,10 +281,12 @@ void Renderer2D::submit_screen_sprite(
     cmd.flip_x = flip_x;
     cmd.flip_y = flip_y;
     cmd.is_screen_space = true;
+    cmd.scale_with_camera_projection = scale_with_camera_projection;
     cmd.material = std::move(material);
 
-    // Screen-space sort key: Bit 63 is 1 to guarantee rendering on top of all world geometry!
-    cmd.sort_key = SpriteSortKey::screen(z_layer, texture);
+    // Screen-space content preserves authored submission order within its
+    // explicit layer. Texture batching must never change overlap semantics.
+    cmd.sort_key = SpriteSortKey::screen(z_layer, m_screen_submission_order++);
 
     m_sprite_queue.push_back(cmd);
 }
@@ -345,7 +349,9 @@ void Renderer2D::submit_screen_text(
     float scale,
     SDL_Color color,
     const glm::vec2& pivot,
-    float z_layer
+    float z_layer,
+    bool scale_with_camera_projection,
+    std::shared_ptr<const Material> material
 ) {
     if (text.empty()) return;
     Texture* atlas = font.get_atlas_texture();
@@ -382,7 +388,11 @@ void Renderer2D::submit_screen_text(
                 color,
                 &g->src_rect,
                 glm::vec2(0.0f, 0.0f),
-                z_layer
+                z_layer,
+                false,
+                false,
+                material,
+                scale_with_camera_projection
             );
         }
 
@@ -543,7 +553,8 @@ void Renderer2D::end_scene() {
         glm::vec2 scaled_size;
 
         if (cmd.is_screen_space) {
-            const float projection_scale = m_active_camera ? m_active_camera->get_projection_scale() : 1.0f;
+            const float projection_scale = cmd.scale_with_camera_projection && m_active_camera
+                ? m_active_camera->get_projection_scale() : 1.0f;
             screen_pos = glm::vec2(cmd.position.x, cmd.position.y) * projection_scale;
             scaled_size = cmd.size * projection_scale;
         } else {

@@ -2,6 +2,7 @@
     "component_versions": {
         "animation": 1,
         "camera": 1,
+        "canvas": 1,
         "collider": 1,
         "group": 1,
         "light_2d": 1,
@@ -12,7 +13,11 @@
         "sprite": 1,
         "tag": 1,
         "tilemap": 1,
-        "transform": 1
+        "transform": 1,
+        "ui_button": 1,
+        "ui_image": 1,
+        "ui_layout": 1,
+        "ui_text": 1
     },
     "entities": [
         {
@@ -1130,8 +1135,8 @@
                     0.5
                 ],
                 "position": [
-                    32.0,
-                    13.0,
+                    99.0,
+                    22.0,
                     0.0
                 ],
                 "rotation": 0.0,
@@ -1140,6 +1145,193 @@
                     1.0
                 ],
                 "visible": true
+            }
+        },
+        {
+            "id": 16,
+            "light_2d": {
+                "affected_layers": 4294967295,
+                "blend_mode": "Additive",
+                "casts_shadows": true,
+                "color": [
+                    255,
+                    244,
+                    214,
+                    255
+                ],
+                "enabled": true,
+                "falloff": 1.3799999952316284,
+                "intensity": 0.03999999910593033,
+                "radius": 263.0,
+                "type": "Point"
+            },
+            "sprite": {
+                "color": [
+                    255,
+                    255,
+                    255,
+                    0
+                ],
+                "flip_x": false,
+                "flip_y": false,
+                "has_outline": false,
+                "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
+                "render_layer": 0,
+                "size": [
+                    64.0,
+                    64.0
+                ],
+                "sorting_layer": 0,
+                "use_src_rect": false,
+                "visible": true
+            },
+            "tag": "New_Entity_Copy",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    -243.0,
+                    24.0,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
+        },
+        {
+            "canvas": {
+                "enabled": true,
+                "reference_size": [
+                    1280.0,
+                    720.0
+                ],
+                "scaling_policy": "responsive",
+                "sorting_order": 0,
+                "use_safe_area": true
+            },
+            "hierarchy": {
+                "parent": 0
+            },
+            "id": 17,
+            "tag": "Canvas",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    -1047.0477294921875,
+                    335.8521728515625,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
+        },
+        {
+            "hierarchy": {
+                "parent": 17
+            },
+            "id": 18,
+            "tag": "UI",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    183.71044921875,
+                    -57.300445556640625,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            },
+            "ui_layout": {
+                "anchor_max": [
+                    0.5,
+                    0.5
+                ],
+                "anchor_min": [
+                    0.5,
+                    0.5
+                ],
+                "anchored_position": [
+                    -235.02523803710938,
+                    -176.298095703125
+                ],
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "size_delta": [
+                    162.0,
+                    40.0
+                ]
+            },
+            "ui_text": {
+                "color": [
+                    255,
+                    255,
+                    255,
+                    255
+                ],
+                "enabled": true,
+                "fit_content_height": false,
+                "fit_content_width": false,
+                "fit_padding": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "font_handle": null,
+                "font_size": 24.0,
+                "horizontal_alignment": "center",
+                "margins": {
+                    "bottom": {
+                        "unit": "px",
+                        "value": 0.0
+                    },
+                    "left": {
+                        "unit": "px",
+                        "value": 0.0
+                    },
+                    "right": {
+                        "unit": "px",
+                        "value": 0.0
+                    },
+                    "top": {
+                        "unit": "px",
+                        "value": 0.0
+                    }
+                },
+                "material_handle": "dbd2385da3441a11",
+                "text": "Text",
+                "vertical_alignment": "center",
+                "wrap": false
             }
         }
     ],

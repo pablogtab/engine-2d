@@ -2,6 +2,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
+#include "ecs/components/UIComponents.hpp"
 #include "core/AssetDatabase.hpp"
 #include "scene/SceneValidator.hpp"
 #include "tilemap/Tilemap.hpp"
@@ -121,12 +122,26 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
     tilemap.tileset_path = "assets/textures/missing.png";
     entities.add_component<TilemapComponent>(tilemap_entity, tilemap);
 
+    const EntityID image_entity = entities.create_entity();
+    UIImageComponent image;
+    image.texture_handle = AssetHandle{104};
+    image.material_handle = AssetHandle{106};
+    entities.add_component<UIImageComponent>(image_entity, image);
+
+    const EntityID text_entity = entities.create_entity();
+    UITextComponent text;
+    text.font_handle = AssetHandle{105};
+    text.material_handle = AssetHandle{107};
+    entities.add_component<UITextComponent>(text_entity, text);
+
     const auto diagnostics = SceneValidator::validate(entities, &asset_database);
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTextureAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingMaterialAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingRenderEffectAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingPrefabAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTilemapTileset));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingUIImageTexture));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingUIFont));
     const auto missing_texture = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
         return diagnostic.code == SceneDiagnosticCode::MissingTextureAsset;
     });
@@ -142,6 +157,16 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
     });
     assert(missing_effect != diagnostics.end());
     assert(missing_effect->asset_handle == AssetHandle{103});
+    const auto missing_image = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
+        return diagnostic.code == SceneDiagnosticCode::MissingUIImageTexture;
+    });
+    assert(missing_image != diagnostics.end());
+    assert(missing_image->asset_handle == AssetHandle{104});
+    const auto missing_font = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
+        return diagnostic.code == SceneDiagnosticCode::MissingUIFont;
+    });
+    assert(missing_font != diagnostics.end());
+    assert(missing_font->asset_handle == AssetHandle{105});
     const auto missing_prefab = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
         return diagnostic.code == SceneDiagnosticCode::MissingPrefabAsset;
     });
@@ -197,6 +222,37 @@ void test_invalid_lighting_is_reported() {
     assert(contains_code(diagnostics, SceneDiagnosticCode::InvalidShadowCaster2D));
 }
 
+void test_invalid_ui_layout_is_reported() {
+    EntityManager entities;
+
+    const EntityID canvas_entity = entities.create_entity();
+    CanvasComponent canvas;
+    canvas.reference_size = {0.0f, 720.0f};
+    entities.add_component<CanvasComponent>(canvas_entity, canvas);
+
+    const EntityID layout_entity = entities.create_entity();
+    UILayoutComponent layout;
+    layout.anchor_min = {0.8f, 0.2f};
+    layout.anchor_max = {0.4f, 1.2f};
+    entities.add_component<UILayoutComponent>(layout_entity, layout);
+
+    const EntityID text_entity = entities.create_entity();
+    UITextComponent text;
+    text.font_size = 0.0f;
+    text.fit_content_width = true;
+    text.margins.left = {60.0f, UILengthUnit::Percent};
+    text.margins.right = {40.0f, UILengthUnit::Percent};
+    text.fit_padding.x = -1.0f;
+    entities.add_component<UITextComponent>(text_entity, text);
+
+    const auto diagnostics = SceneValidator::validate(entities);
+    assert(contains_code(diagnostics, SceneDiagnosticCode::InvalidCanvas));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::InvalidUILayout));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::InvalidUIText));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingCanvasAncestor));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingUILayout));
+}
+
 } // namespace
 
 int main() {
@@ -208,6 +264,7 @@ int main() {
     test_missing_assets_are_reported_when_a_database_is_available();
     test_invalid_colliders_and_tilemaps_are_reported();
     test_invalid_lighting_is_reported();
+    test_invalid_ui_layout_is_reported();
     std::cout << "SceneValidatorTests passed\n";
     return 0;
 }

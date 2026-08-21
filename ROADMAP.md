@@ -293,10 +293,26 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Canvas and Responsive UI
 
-- [ ] Add Canvas, text, image, and button components.
-- [ ] Add anchors, pivots, responsive layout, scaling policy, and input routing.
+- [x] Add Canvas, text, image, and button components.
+- [x] Add responsive layout and input routing.
+  - [x] Implement anchors, pivots, nested layout, and Fit/Fill/Stretch/Responsive scaling policies.
+  - [x] Connect hit testing, hover, pointer capture, focus, keyboard navigation, and click events to resolved Canvas geometry.
+  - [x] Render image, button, and aligned/wrapped text components with per-side pixel/percentage margins (including negative expansion), independent fit-content width/height, and fit padding through the post-process-independent `CanvasUI` stage.
+  - [x] Apply reusable `.material` assets to UI images and text glyphs through the shared shader/material pipeline; button visuals reuse their target UI Image material.
+  - [x] Preserve Canvas sorting and authored hierarchy overlap order independently from texture batching.
+  - [x] Preview screen-space Canvas content as a stable framed Scene View object at its Transform while retaining screen-space Game View behavior.
+  - [x] Register `.ttf` and `.otf` font assets with a runtime fallback when no font is assigned.
 - [ ] Add safe-area and notch support.
+  - [x] Make pure Canvas layout calculations safe-area-aware.
+  - [ ] Acquire and propagate platform safe-area/notch changes at runtime.
 - [ ] Add UI authoring tools, serialization, undo/redo, and validation.
+  - [x] Add Inspector authoring, serialization, prefab persistence, undo/redo, and validation.
+  - [x] Present UI layout as `Rect Transform` with Unity-style visual anchor presets (click changes anchors, Alt/Option also snaps position and size, Shift also sets pivot), while hiding ineffective world-transform controls on UI children.
+  - [x] Create Canvas, text, image, and button entities directly from the Hierarchy with dependency-complete component snapshots and Undo/Redo.
+  - [ ] Preserve per-entity Inspector component insertion order and allow drag/drop reordering through editor-only authoring metadata with Undo/Redo.
+  - [ ] Add direct Scene View layout overlays and manipulation.
+    - [x] Select and drag UI rectangles in the Canvas preview with visible anchors and pivot, pixel/grid snapping, Escape cancellation, and one Undo/Redo command per gesture.
+    - [ ] Add draggable anchor, pivot, edge, and corner handles for resizing and stretch authoring.
 
 ### Display and Mobile Follow-Up
 
@@ -439,8 +455,9 @@ These suites protect systems that already exist but do not yet have dedicated au
 ### Phase 6 — Runtime Authoring Suites
 
 - [x] `Lighting2DTests` — light bounds, intensity/color, layer masks, blending, shadow-caster geometry, serialization, and command restoration.
-- [ ] `CanvasLayoutTests` — anchors, pivots, nested layout, reference scaling, Fit/Fill/Stretch/Responsive behavior, and safe areas.
-- [ ] `UIInputTests` — hit testing, focus, navigation, pointer capture, viewport conversion, and overlap ordering.
+- [x] `CanvasLayoutTests` — anchors, pivots, nested layout, reference scaling, Fit/Fill/Stretch/Responsive behavior, safe areas, editor preview placement, and drag conversion.
+- [x] `UIInputTests` — hit testing, focus, navigation, pointer capture, viewport conversion, and overlap ordering.
+- [x] `CanvasUIRenderTests` — Canvas sorting, runtime button state tinting, font resolution, and final screen-space pixels.
 - [ ] `MobileSurfaceTests` — orientation, safe-area updates, surface recreation, suspend/resume, split-screen resize, and capability restrictions using a fake backend.
 - [ ] Real-device iOS and Android smoke tests before mobile support is declared complete.
 
@@ -514,6 +531,15 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Require an explicit Recover or Discard choice; recovered content remains dirty until normally saved or discarded.
    - [x] Expose the interval and recovery storage policy in Editor Preferences, then add conflict handling for source files changed outside the editor.
 5. **Canvas Layout Foundations (Phase 6)**:
-   - [ ] Register serializable Canvas, text, image, and button components.
-   - [ ] Implement pure anchor, pivot, nested layout, scaling-policy, and safe-area calculations.
-   - [ ] Add `CanvasLayoutTests` before connecting rendering and input authoring.
+   - [x] Register serializable Canvas, text, image, and button components.
+   - [x] Implement pure anchor, pivot, nested layout, scaling-policy, and safe-area calculations.
+   - [x] Add `CanvasLayoutTests` before connecting rendering and input authoring.
+6. **Canvas Runtime Rendering and Input (Phase 6)**:
+   - [x] Render images, buttons, and aligned/wrapped text in the dedicated `CanvasUI` stage.
+   - [x] Route pointer and keyboard input through resolved Canvas geometry without serializing transient state.
+   - [x] Cover overlap order, capture, focus, navigation, click events, font assets, and rendered pixels.
+7. **Canvas Scene View Authoring (Phase 6)**:
+   - [x] Keep the Canvas preview at its authored Transform and draw its frame in Edit mode.
+   - [x] Select and move visible UI rectangles directly while preserving anchor-relative layout and Undo/Redo.
+   - [x] Add anchor preset previews and direct component-backed entity creation to the Hierarchy.
+   - [ ] Add direct resize, anchor, and pivot handles.

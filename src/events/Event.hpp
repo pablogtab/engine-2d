@@ -59,4 +59,22 @@ struct CustomLogEvent : public IEvent {
     std::type_index get_type_index() const override { return std::type_index(typeid(CustomLogEvent)); }
 };
 
+struct UIButtonClickedEvent : public IEvent {
+    EntityID entity;
+
+    explicit UIButtonClickedEvent(EntityID id) : entity(id) {}
+    const char* get_name() const override { return "UIButtonClickedEvent"; }
+    std::type_index get_type_index() const override { return std::type_index(typeid(UIButtonClickedEvent)); }
+};
+
+struct UIFocusChangedEvent : public IEvent {
+    EntityID previous_entity;
+    EntityID focused_entity;
+
+    UIFocusChangedEvent(EntityID previous, EntityID focused)
+        : previous_entity(previous), focused_entity(focused) {}
+    const char* get_name() const override { return "UIFocusChangedEvent"; }
+    std::type_index get_type_index() const override { return std::type_index(typeid(UIFocusChangedEvent)); }
+};
+
 } // namespace Engine

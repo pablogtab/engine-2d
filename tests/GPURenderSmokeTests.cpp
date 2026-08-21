@@ -1,3 +1,8 @@
+#include "core/AssetDatabase.hpp"
+#include "core/AssetManager.hpp"
+#include "ecs/EntityManager.hpp"
+#include "ecs/components/CoreComponents.hpp"
+#include "ecs/components/UIComponents.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "renderer/Lighting2DSystem.hpp"
 #include "renderer/Texture.hpp"
@@ -5,6 +10,7 @@
 #include "renderer/material/Material.hpp"
 #include "renderer/material/SDLGPUMaterialBackend.hpp"
 #include "scene/Camera2D.hpp"
+#include "ui/CanvasUISystem.hpp"
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <cstdlib>
@@ -62,6 +68,33 @@ bool matches_expected_grade(const Pixel& pixel) {
            pixel.green >= 247 && pixel.green <= 255 &&
            pixel.blue >= 120 && pixel.blue <= 136 &&
            pixel.alpha >= 247;
+}
+
+bool contains_expected_grade(SDL_Renderer* renderer, SDL_Texture* target) {
+    if (!SDL_SetRenderTarget(renderer, target)) return false;
+    SDL_Surface* surface = SDL_RenderReadPixels(renderer, nullptr);
+    if (!surface) return false;
+    bool found = false;
+    for (int y = 0; y < surface->h && !found; ++y) {
+        for (int x = 0; x < surface->w; ++x) {
+            Pixel pixel;
+            SDL_ReadSurfacePixel(
+                surface,
+                x,
+                y,
+                &pixel.red,
+                &pixel.green,
+                &pixel.blue,
+                &pixel.alpha
+            );
+            if (matches_expected_grade(pixel)) {
+                found = true;
+                break;
+            }
+        }
+    }
+    SDL_DestroySurface(surface);
+    return found;
 }
 
 } // namespace
@@ -175,7 +208,22 @@ int main() {
                     width,
                     height
                 );
-                if (!sprite_target || !fullscreen_source || !fullscreen_target || !lighting_target) {
+                SDL_Texture* canvas_target = SDL_CreateTexture(
+                    sdl_renderer,
+                    SDL_PIXELFORMAT_RGBA8888,
+                    SDL_TEXTUREACCESS_TARGET,
+                    width,
+                    height
+                );
+                SDL_Texture* canvas_text_target = SDL_CreateTexture(
+                    sdl_renderer,
+                    SDL_PIXELFORMAT_RGBA8888,
+                    SDL_TEXTUREACCESS_TARGET,
+                    width,
+                    height
+                );
+                if (!sprite_target || !fullscreen_source || !fullscreen_target ||
+                    !lighting_target || !canvas_target || !canvas_text_target) {
                     std::cerr << "GPURenderSmokeTests failed: render target creation failed: "
                               << SDL_GetError() << '\n';
                 } else {
@@ -223,6 +271,74 @@ int main() {
                             sprite_target,
                             width,
                             height
+                        );
+
+                        Engine::EntityManager canvas_entities;
+                        const Engine::EntityID canvas_entity = canvas_entities.create_entity();
+                        Engine::CanvasComponent canvas;
+                        canvas.reference_size = {width, height};
+                        canvas.scaling_policy = Engine::PresentationMode::Stretch;
+                        canvas.use_safe_area = false;
+                        canvas_entities.add_component<Engine::CanvasComponent>(canvas_entity, canvas);
+                        canvas_entities.add_component<Engine::HierarchyComponent>(
+                            canvas_entity, Engine::HierarchyComponent{}
+                        );
+                        const Engine::EntityID image_entity = canvas_entities.create_entity();
+                        canvas_entities.add_component<Engine::HierarchyComponent>(
+                            image_entity, Engine::HierarchyComponent{canvas_entity}
+                        );
+                        canvas_entities.get_component<Engine::HierarchyComponent>(canvas_entity)
+                            .children.push_back(image_entity);
+                        Engine::UILayoutComponent image_layout;
+                        image_layout.anchor_min = {0.0f, 0.0f};
+                        image_layout.anchor_max = {1.0f, 1.0f};
+                        image_layout.size_delta = {0.0f, 0.0f};
+                        canvas_entities.add_component<Engine::UILayoutComponent>(image_entity, image_layout);
+                        Engine::UIImageComponent image;
+                        image.material = material;
+                        canvas_entities.add_component<Engine::UIImageComponent>(image_entity, image);
+                        Engine::AssetDatabase canvas_database(source_dir);
+                        Engine::CanvasUISystem canvas_ui;
+                        renderer.set_custom_render_target(canvas_target);
+                        SDL_SetRenderTarget(sdl_renderer, canvas_target);
+                        SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+                        SDL_RenderClear(sdl_renderer);
+                        renderer.begin_scene(camera);
+                        const auto canvas_stats = canvas_ui.render(
+                            canvas_entities,
+                            renderer,
+                            canvas_database,
+                            {width, height}
+                        );
+                        renderer.end_scene();
+                        const Pixel canvas_pixel = read_center(
+                            sdl_renderer,
+                            canvas_target,
+                            width,
+                            height
+                        );
+
+                        canvas_entities.get_component<Engine::UIImageComponent>(image_entity).enabled = false;
+                        Engine::UITextComponent ui_text;
+                        ui_text.text = "I";
+                        ui_text.font_size = 32.0f;
+                        ui_text.material = material;
+                        canvas_entities.add_component<Engine::UITextComponent>(image_entity, ui_text);
+                        renderer.set_custom_render_target(canvas_text_target);
+                        SDL_SetRenderTarget(sdl_renderer, canvas_text_target);
+                        SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+                        SDL_RenderClear(sdl_renderer);
+                        renderer.begin_scene(camera);
+                        const auto canvas_text_stats = canvas_ui.render(
+                            canvas_entities,
+                            renderer,
+                            canvas_database,
+                            {width, height}
+                        );
+                        renderer.end_scene();
+                        const bool canvas_text_graded = contains_expected_grade(
+                            sdl_renderer,
+                            canvas_text_target
                         );
 
                         SDL_SetRenderTarget(sdl_renderer, fullscreen_source);
@@ -341,6 +457,10 @@ int main() {
                             ).draw_calls != 1 ||
                             !fullscreen_drawn ||
                             !matches_expected_grade(sprite_pixel) ||
+                            canvas_stats.images != 1 ||
+                            !matches_expected_grade(canvas_pixel) ||
+                            canvas_text_stats.text_lines != 1 ||
+                            !canvas_text_graded ||
                             !matches_expected_grade(fullscreen_pixel) ||
                             !lighting_matches) {
                             std::cerr
@@ -348,7 +468,11 @@ int main() {
                                 << ": sprite RGBA=(" << static_cast<int>(sprite_pixel.red) << ','
                                 << static_cast<int>(sprite_pixel.green) << ','
                                 << static_cast<int>(sprite_pixel.blue) << ','
-                                << static_cast<int>(sprite_pixel.alpha) << ") fullscreen RGBA=("
+                                << static_cast<int>(sprite_pixel.alpha) << ") canvas RGBA=("
+                                << static_cast<int>(canvas_pixel.red) << ','
+                                << static_cast<int>(canvas_pixel.green) << ','
+                                << static_cast<int>(canvas_pixel.blue) << ','
+                                << static_cast<int>(canvas_pixel.alpha) << ") fullscreen RGBA=("
                                 << static_cast<int>(fullscreen_pixel.red) << ','
                                 << static_cast<int>(fullscreen_pixel.green) << ','
                                 << static_cast<int>(fullscreen_pixel.blue) << ','
@@ -379,7 +503,7 @@ int main() {
                                 << static_cast<int>(layer_culled_pixel.alpha) << ")\n";
                         } else {
                             std::cout << "GPURenderSmokeTests passed on " << backend->backend_name()
-                                      << ": sprite, fullscreen, blend, and zoom-stability probes matched\n";
+                                      << ": sprite, Canvas UI, fullscreen, blend, and zoom-stability probes matched\n";
                             exit_code = 0;
                         }
                     }
@@ -388,10 +512,13 @@ int main() {
                 if (fullscreen_source) SDL_DestroyTexture(fullscreen_source);
                 if (fullscreen_target) SDL_DestroyTexture(fullscreen_target);
                 if (lighting_target) SDL_DestroyTexture(lighting_target);
+                if (canvas_target) SDL_DestroyTexture(canvas_target);
+                if (canvas_text_target) SDL_DestroyTexture(canvas_text_target);
             }
         }
     }
 
+    Engine::AssetManager::get().clear();
     SDL_DestroyRenderer(sdl_renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();

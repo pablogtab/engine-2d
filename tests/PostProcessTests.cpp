@@ -251,13 +251,17 @@ void test_non_uniform_output_uses_area_preserving_pixel_scale() {
 void test_world_sort_keys_never_overlap_the_screen_space_partition() {
     const uint64_t lowest_world = Engine::SpriteSortKey::world(-32768, -1000.0f, -32768.0f, -32768);
     const uint64_t highest_world = Engine::SpriteSortKey::world(32767, 10000.0f, 32767.0f, 32767);
-    const uint64_t screen = Engine::SpriteSortKey::screen(0.0f, nullptr);
+    const uint64_t screen = Engine::SpriteSortKey::screen(0.0f, 0);
 
     assert(!Engine::SpriteSortKey::is_screen_space(lowest_world));
     assert(!Engine::SpriteSortKey::is_screen_space(highest_world));
     assert(Engine::SpriteSortKey::is_screen_space(screen));
     assert(lowest_world < highest_world);
     assert(highest_world < screen);
+
+    const uint64_t first = Engine::SpriteSortKey::screen(2.0f, 14);
+    const uint64_t second = Engine::SpriteSortKey::screen(2.0f, 15);
+    assert(first < second);
 }
 
 void test_profile_round_trip_preserves_effect_reference_and_parameters() {

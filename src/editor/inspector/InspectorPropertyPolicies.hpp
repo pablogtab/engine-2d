@@ -111,4 +111,13 @@ inline constexpr auto RenderLayerMask = bounded_int(
 );
 } // namespace Lighting
 
+namespace UI {
+inline constexpr auto ReferenceSize = bounded_float(1.0f, 1.0f, 16384.0f, "%.0f px");
+inline constexpr auto Normalized = bounded_float(0.01f, 0.0f, 1.0f, "%.2f");
+inline constexpr auto Coordinate = unbounded_float(1.0f, "%.1f px");
+inline constexpr auto FontSize = bounded_float(0.5f, 1.0f, 512.0f, "%.1f px");
+inline constexpr auto Padding = bounded_float(1.0f, 0.0f, 16384.0f, "%.0f px");
+inline constexpr auto SortingOrder = bounded_int(1.0f, -32768, 32767);
+} // namespace UI
+
 } // namespace Engine::InspectorPropertyPolicies

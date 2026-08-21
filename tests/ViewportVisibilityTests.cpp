@@ -1,6 +1,7 @@
 #include "ecs/EntityManager.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
+#include "ecs/components/UIComponents.hpp"
 #include "editor/state/EditorEntityStateStore.hpp"
 #include "editor/tools/EditorEntityVisibilityFilter.hpp"
 #include "editor/tools/ViewportSelectionTool.hpp"
@@ -112,10 +113,54 @@ void test_hierarchical_visibility_inheritance() {
     std::cout << "[PASS] test_hierarchical_visibility_inheritance" << std::endl;
 }
 
+void test_canvas_ui_picking_matches_editor_preview() {
+    EntityManager em;
+    EditorEntityStateStore store;
+    SceneViewEntityFilter filter(&store, &em);
+    Camera2D camera(800.0f, 600.0f);
+    ViewportSelectionTool selection_tool;
+
+    const EntityID world_sprite = em.create_entity();
+    em.add_component<TransformComponent>(world_sprite, TransformComponent{});
+    em.add_component<SpriteComponent>(
+        world_sprite, SpriteComponent{nullptr, glm::vec2(100.0f, 100.0f)}
+    );
+
+    const EntityID canvas = em.create_entity();
+    CanvasComponent canvas_component;
+    canvas_component.reference_size = {100.0f, 100.0f};
+    em.add_component<CanvasComponent>(canvas, canvas_component);
+    em.add_component<TransformComponent>(
+        canvas, TransformComponent{glm::vec3(120.0f, -80.0f, 0.0f)}
+    );
+
+    const EntityID button = em.create_entity();
+    UILayoutComponent layout;
+    layout.size_delta = {40.0f, 20.0f};
+    em.add_component<TransformComponent>(button, TransformComponent{});
+    em.add_component<UILayoutComponent>(button, layout);
+    em.add_component<UIButtonComponent>(button, UIButtonComponent{});
+    em.add_component<UITextComponent>(button, UITextComponent{});
+    assert(em.set_parent(button, canvas).succeeded());
+
+    EntityID picked = selection_tool.pick_entity(em, {120.0f, -80.0f}, &camera, &filter);
+    assert(picked == button);
+
+    store.set_visible(button, false);
+    picked = selection_tool.pick_entity(em, {120.0f, -80.0f}, &camera, &filter);
+    assert(picked == 0);
+
+    picked = selection_tool.pick_entity(em, {0.0f, 0.0f}, &camera, &filter);
+    assert(picked == world_sprite);
+
+    std::cout << "[PASS] test_canvas_ui_picking_matches_editor_preview" << std::endl;
+}
+
 int main() {
     test_visibility_filter_behavior();
     test_selection_tool_filtering();
     test_hierarchical_visibility_inheritance();
+    test_canvas_ui_picking_matches_editor_preview();
     std::cout << "All ViewportVisibilityTests passed successfully!" << std::endl;
     return 0;
 }

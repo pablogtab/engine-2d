@@ -30,14 +30,13 @@ inline uint64_t world(int16_t sorting_layer, float depth, float y, int16_t order
     return (layer_key << 47) | (depth_key << 32) | (y_key << 16) | order_key;
 }
 
-inline uint64_t screen(float z_layer, const void* texture) {
+inline uint64_t screen(float z_layer, std::uint32_t submission_order) {
     const uint64_t z_key = static_cast<uint64_t>(std::clamp(
         static_cast<int64_t>(z_layer + 1000.0f),
         int64_t{0},
         int64_t{0x7FFFFFFF}
     ));
-    const uint64_t texture_key = reinterpret_cast<uintptr_t>(texture) & 0xFFFFFFFFULL;
-    return SCREEN_SPACE_FLAG | (z_key << 32) | texture_key;
+    return SCREEN_SPACE_FLAG | (z_key << 32) | submission_order;
 }
 
 inline bool is_screen_space(uint64_t key) {

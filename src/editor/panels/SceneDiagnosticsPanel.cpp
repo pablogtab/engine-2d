@@ -6,6 +6,7 @@
 #include "../../scene/SceneValidator.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
+#include "../../ecs/components/UIComponents.hpp"
 
 #include <imgui.h>
 
@@ -108,7 +109,9 @@ void SceneDiagnosticsPanel::on_gui() {
         }
         const bool clearable_asset_handle = diagnostic.code == SceneDiagnosticCode::MissingTextureAsset ||
             diagnostic.code == SceneDiagnosticCode::MissingMaterialAsset ||
-            diagnostic.code == SceneDiagnosticCode::MissingRenderEffectAsset;
+            diagnostic.code == SceneDiagnosticCode::MissingRenderEffectAsset ||
+            diagnostic.code == SceneDiagnosticCode::MissingUIImageTexture ||
+            diagnostic.code == SceneDiagnosticCode::MissingUIFont;
         if (clearable_asset_handle && diagnostic.asset_handle.is_valid() && m_command_history) {
             ImGui::SameLine();
             if (ImGui::SmallButton("Clear Reference")) {
@@ -142,6 +145,68 @@ void SceneDiagnosticsPanel::on_gui() {
                             "Clear Missing Render Effect Reference"
                         ));
                     }
+                } else if (m_pending_clear->code == SceneDiagnosticCode::MissingUIFont &&
+                           entities.has_component<UITextComponent>(m_pending_clear->entity)) {
+                    const UITextComponent before =
+                        entities.get_component<UITextComponent>(m_pending_clear->entity);
+                    if (before.font_handle == m_pending_clear->asset_handle) {
+                        auto after = before;
+                        after.font_handle = {};
+                        m_command_history->execute_command(std::make_unique<SetComponentCommand<UITextComponent>>(
+                            &entities,
+                            m_pending_clear->entity,
+                            before,
+                            after,
+                            "Clear Missing UI Font Reference"
+                        ));
+                    }
+                } else if (m_pending_clear->code == SceneDiagnosticCode::MissingUIImageTexture &&
+                           entities.has_component<UIImageComponent>(m_pending_clear->entity)) {
+                    const UIImageComponent before =
+                        entities.get_component<UIImageComponent>(m_pending_clear->entity);
+                    if (before.texture_handle == m_pending_clear->asset_handle) {
+                        auto after = before;
+                        after.texture_handle = {};
+                        m_command_history->execute_command(std::make_unique<SetComponentCommand<UIImageComponent>>(
+                            &entities,
+                            m_pending_clear->entity,
+                            before,
+                            after,
+                            "Clear Missing UI Image Reference"
+                        ));
+                    }
+                } else if (m_pending_clear->code == SceneDiagnosticCode::MissingMaterialAsset &&
+                           entities.has_component<UITextComponent>(m_pending_clear->entity) &&
+                           entities.get_component<UITextComponent>(m_pending_clear->entity).material_handle ==
+                               m_pending_clear->asset_handle) {
+                    const UITextComponent before =
+                        entities.get_component<UITextComponent>(m_pending_clear->entity);
+                    auto after = before;
+                    after.material_handle = {};
+                    after.material.reset();
+                    m_command_history->execute_command(std::make_unique<SetComponentCommand<UITextComponent>>(
+                        &entities,
+                        m_pending_clear->entity,
+                        before,
+                        after,
+                        "Clear Missing UI Text Material Reference"
+                    ));
+                } else if (m_pending_clear->code == SceneDiagnosticCode::MissingMaterialAsset &&
+                           entities.has_component<UIImageComponent>(m_pending_clear->entity) &&
+                           entities.get_component<UIImageComponent>(m_pending_clear->entity).material_handle ==
+                               m_pending_clear->asset_handle) {
+                    const UIImageComponent before =
+                        entities.get_component<UIImageComponent>(m_pending_clear->entity);
+                    auto after = before;
+                    after.material_handle = {};
+                    after.material.reset();
+                    m_command_history->execute_command(std::make_unique<SetComponentCommand<UIImageComponent>>(
+                        &entities,
+                        m_pending_clear->entity,
+                        before,
+                        after,
+                        "Clear Missing UI Image Material Reference"
+                    ));
                 } else if (entities.has_component<SpriteComponent>(m_pending_clear->entity)) {
                     const SpriteComponent before = entities.get_component<SpriteComponent>(m_pending_clear->entity);
                     SpriteComponent after = before;

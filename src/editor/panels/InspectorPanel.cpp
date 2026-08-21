@@ -174,7 +174,12 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
     const bool all_have_transform = std::all_of(entities.begin(), entities.end(), [&](EntityID entity) {
         return em.has_component<TransformComponent>(entity);
     });
-    if (all_have_transform) {
+    const bool any_uses_rect_transform = std::any_of(
+        entities.begin(), entities.end(), [&](EntityID entity) {
+            return em.has_component<UILayoutComponent>(entity);
+        }
+    );
+    if (all_have_transform && !any_uses_rect_transform) {
         ImGui::SameLine();
         TransformInspectorDrawer::draw_entities_active(em, entities, transaction_context);
     }
@@ -279,8 +284,10 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
             return em.has_component<TilemapGeneratedColliderComponent>(entity);
         });
         TransformInspectorDrawer::draw_multiple(em, entities, locked, transaction_context);
-    } else {
+    } else if (!any_uses_rect_transform) {
         ImGui::TextDisabled("Transform is not shared by every selected entity.");
+    } else {
+        ImGui::TextDisabled("World Transform is hidden for UI layout entities.");
     }
 
     const auto sprite_count = static_cast<std::size_t>(std::count_if(
@@ -655,7 +662,8 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             EditorComponentCategory::Rendering,
             EditorComponentCategory::Physics,
             EditorComponentCategory::Animation,
-            EditorComponentCategory::World
+            EditorComponentCategory::World,
+            EditorComponentCategory::UI
         };
         bool has_previous_category = false;
         for (const EditorComponentCategory category : categories) {

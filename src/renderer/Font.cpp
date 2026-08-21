@@ -62,6 +62,21 @@ std::unique_ptr<Font> Font::load_from_file(
     font->m_atlas_texture = std::make_unique<Texture>(renderer, ATLAS_W, ATLAS_H, rgba_pixels.data());
     font->m_font_size = font_size;
     font->m_line_height = font_size * 1.25f;
+    font->m_ascent = font_size * 0.85f;
+    font->m_descent = -font_size * 0.2f;
+
+    stbtt_fontinfo font_info{};
+    const int font_offset = stbtt_GetFontOffsetForIndex(ttf_buffer.data(), 0);
+    if (font_offset >= 0 && stbtt_InitFont(&font_info, ttf_buffer.data(), font_offset)) {
+        int ascent = 0;
+        int descent = 0;
+        int line_gap = 0;
+        stbtt_GetFontVMetrics(&font_info, &ascent, &descent, &line_gap);
+        static_cast<void>(line_gap);
+        const float metric_scale = stbtt_ScaleForPixelHeight(&font_info, font_size);
+        font->m_ascent = static_cast<float>(ascent) * metric_scale;
+        font->m_descent = static_cast<float>(descent) * metric_scale;
+    }
 
     for (int i = 0; i < char_count; ++i) {
         char c = static_cast<char>(first_char + i);
@@ -86,8 +101,16 @@ std::unique_ptr<Font> Font::load_from_file(
 }
 
 std::unique_ptr<Font> Font::create_default(SDL_Renderer* renderer, float font_size) {
-    // List of standard system TTF fonts across macOS, Windows and Linux
-    static const std::vector<std::string> s_system_fonts = {
+    const auto path = find_default_font_path();
+    if (path) return load_from_file(renderer, *path, font_size);
+
+    ENGINE_LOG_WARN("[FONT] No standard system TTF font found on system.");
+    return nullptr;
+}
+
+std::optional<std::string> Font::find_default_font_path() {
+    // Standard system fonts across macOS, Windows, and Linux.
+    static const std::vector<std::string> system_fonts = {
         "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/System/Library/Fonts/Geneva.ttf",
         "/System/Library/Fonts/Monaco.ttf",
@@ -98,16 +121,11 @@ std::unique_ptr<Font> Font::create_default(SDL_Renderer* renderer, float font_si
         "/usr/share/fonts/TTF/DejaVuSans.ttf"
     };
 
-    for (const auto& path : s_system_fonts) {
+    for (const auto& path : system_fonts) {
         std::ifstream test(path);
-        if (test.good()) {
-            auto font = load_from_file(renderer, path, font_size);
-            if (font) return font;
-        }
+        if (test.good()) return path;
     }
-
-    ENGINE_LOG_WARN("[FONT] No standard system TTF font found on system.");
-    return nullptr;
+    return std::nullopt;
 }
 
 glm::vec2 Font::measure_text(const std::string& text, float scale) const {

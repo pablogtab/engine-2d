@@ -9,11 +9,14 @@
 #include "SpriteInspectorDrawer.hpp"
 #include "TilemapInspectorDrawer.hpp"
 #include "TransformInspectorDrawer.hpp"
+#include "UIInspectorDrawer.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../ecs/CameraSystem.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/AnimationComponents.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
+#include "../../ecs/components/UIComponents.hpp"
 #include "../../renderer/SpriteAnimationSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include <stdexcept>
@@ -66,7 +69,13 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
             TransformInspectorDrawer::draw(em, entity, context.locked, {
                 context.command_history, context.transactions
             });
-        }
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(TransformComponent{}); }
     });
     register_or_throw(registry, {
         .component_key = "sprite",
@@ -271,6 +280,101 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
             animation.add_clip("Fall", 20, 4, 8.0f, true);
             snapshot.set(std::move(animation));
         }
+    });
+    register_or_throw(registry, {
+        .component_key = "canvas",
+        .drawer_key = "CanvasHeader",
+        .display_name = "Canvas",
+        .category = EditorComponentCategory::UI,
+        .icon = EditorIcon::Grid,
+        .dependencies = {"transform"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            UIInspectorDrawer::draw_canvas(em, entity, {
+                context.command_history, context.transactions
+            });
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(CanvasComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "ui_layout",
+        .drawer_key = "UILayoutHeader",
+        .display_name = "Rect Transform",
+        .category = EditorComponentCategory::UI,
+        .icon = EditorIcon::Move,
+        .dependencies = {"transform"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            UIInspectorDrawer::draw_layout(em, entity, {
+                context.command_history, context.transactions
+            });
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(UILayoutComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "ui_text",
+        .drawer_key = "UITextHeader",
+        .display_name = "UI Text",
+        .category = EditorComponentCategory::UI,
+        .icon = EditorIcon::Component,
+        .dependencies = {"ui_layout"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            UIInspectorDrawer::draw_text(em, entity, {
+                context.command_history, context.transactions
+            }, context.renderer);
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(UITextComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "ui_image",
+        .drawer_key = "UIImageHeader",
+        .display_name = "UI Image",
+        .category = EditorComponentCategory::UI,
+        .icon = EditorIcon::Sprite,
+        .dependencies = {"ui_layout"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            UIInspectorDrawer::draw_image(em, entity, {
+                context.command_history, context.transactions
+            }, context.renderer);
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(UIImageComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "ui_button",
+        .drawer_key = "UIButtonHeader",
+        .display_name = "UI Button",
+        .category = EditorComponentCategory::UI,
+        .icon = EditorIcon::Component,
+        .dependencies = {"ui_image"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            UIInspectorDrawer::draw_button(em, entity, {
+                context.command_history, context.transactions
+            });
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(UIButtonComponent{}); }
     });
 }
 

@@ -3,6 +3,7 @@
 #include "editor/commands/EntityCommands.hpp"
 #include "editor/tools/ViewportTransformMath.hpp"
 #include "ecs/components/AnimationComponents.hpp"
+#include "ecs/components/UIComponents.hpp"
 #include "editor/inspector/InspectorPropertyPolicies.hpp"
 #include "editor/inspector/MultiComponentInspectorTransaction.hpp"
 #include "ecs/EntityManager.hpp"
@@ -1333,6 +1334,88 @@ void test_create_entity_command_with_sprite_round_trips() {
     assert(em.get_component<SpriteComponent>(created_id).size == glm::vec2(128.0f, 128.0f));
 }
 
+void test_ui_component_edits_round_trip() {
+    EntityManager em;
+    EditorCommandHistory history;
+    const EntityID entity = em.create_entity();
+
+    CanvasComponent canvas_before;
+    CanvasComponent canvas_after = canvas_before;
+    canvas_after.reference_size = {1920.0f, 1080.0f};
+    canvas_after.scaling_policy = PresentationMode::Fill;
+    em.add_component<CanvasComponent>(entity, canvas_before);
+    history.execute_command(std::make_unique<SetComponentCommand<CanvasComponent>>(
+        &em, entity, canvas_before, canvas_after, "Edit Canvas"
+    ));
+
+    UILayoutComponent layout_before;
+    UILayoutComponent layout_after = layout_before;
+    layout_after.anchor_min = {0.0f, 0.0f};
+    layout_after.anchor_max = {1.0f, 1.0f};
+    layout_after.size_delta = {-32.0f, -32.0f};
+    em.add_component<UILayoutComponent>(entity, layout_before);
+    history.execute_command(std::make_unique<SetComponentCommand<UILayoutComponent>>(
+        &em, entity, layout_before, layout_after, "Edit UI Layout"
+    ));
+
+    UITextComponent text_before;
+    UITextComponent text_after = text_before;
+    text_after.text = "Continue";
+    text_after.font_handle = AssetHandle{0xFACE};
+    text_after.material_handle = AssetHandle{0xFACF};
+    text_after.font_size = 36.0f;
+    text_after.margins.left = {10.0f, UILengthUnit::Pixels};
+    text_after.margins.top = {6.0f, UILengthUnit::Percent};
+    text_after.margins.right = {-10.0f, UILengthUnit::Pixels};
+    text_after.margins.bottom = {-6.0f, UILengthUnit::Percent};
+    text_after.fit_content_width = true;
+    text_after.fit_content_height = true;
+    text_after.fit_padding = {4.0f, 2.0f, 4.0f, 2.0f};
+    em.add_component<UITextComponent>(entity, text_before);
+    history.execute_command(std::make_unique<SetComponentCommand<UITextComponent>>(
+        &em, entity, text_before, text_after, "Edit UI Text"
+    ));
+
+    UIImageComponent image_before;
+    UIImageComponent image_after = image_before;
+    image_after.texture_handle = AssetHandle{0xABCD};
+    image_after.material_handle = AssetHandle{0xABCE};
+    image_after.scale_mode = UIImageScaleMode::Fit;
+    em.add_component<UIImageComponent>(entity, image_before);
+    history.execute_command(std::make_unique<SetComponentCommand<UIImageComponent>>(
+        &em, entity, image_before, image_after, "Edit UI Image"
+    ));
+
+    UIButtonComponent button_before;
+    UIButtonComponent button_after = button_before;
+    button_after.interactable = false;
+    button_after.pressed_color = {10, 20, 30, 255};
+    em.add_component<UIButtonComponent>(entity, button_before);
+    history.execute_command(std::make_unique<SetComponentCommand<UIButtonComponent>>(
+        &em, entity, button_before, button_after, "Edit UI Button"
+    ));
+
+    assert(em.get_component<CanvasComponent>(entity) == canvas_after);
+    assert(em.get_component<UILayoutComponent>(entity) == layout_after);
+    assert(em.get_component<UITextComponent>(entity) == text_after);
+    assert(em.get_component<UIImageComponent>(entity) == image_after);
+    assert(em.get_component<UIButtonComponent>(entity) == button_after);
+
+    for (int index = 0; index < 5; ++index) history.undo();
+    assert(em.get_component<CanvasComponent>(entity) == canvas_before);
+    assert(em.get_component<UILayoutComponent>(entity) == layout_before);
+    assert(em.get_component<UITextComponent>(entity) == text_before);
+    assert(em.get_component<UIImageComponent>(entity) == image_before);
+    assert(em.get_component<UIButtonComponent>(entity) == button_before);
+
+    for (int index = 0; index < 5; ++index) history.redo();
+    assert(em.get_component<CanvasComponent>(entity) == canvas_after);
+    assert(em.get_component<UILayoutComponent>(entity) == layout_after);
+    assert(em.get_component<UITextComponent>(entity) == text_after);
+    assert(em.get_component<UIImageComponent>(entity) == image_after);
+    assert(em.get_component<UIButtonComponent>(entity) == button_after);
+}
+
 } // namespace
 
 int main() {
@@ -1364,6 +1447,7 @@ int main() {
     test_multiselection_gizmo_world_to_local_translation_and_orbit_rotation();
     test_multiselection_gizmo_scale_preserves_negative_sign();
     test_create_entity_command_with_sprite_round_trips();
+    test_ui_component_edits_round_trip();
     std::cout << "InspectorCommandTests passed\n";
     return 0;
 }

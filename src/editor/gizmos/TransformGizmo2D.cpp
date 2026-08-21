@@ -6,6 +6,7 @@
 #include "../tools/ViewportTransformMath.hpp"
 #include "../tools/ViewportSelectionGeometry.hpp"
 #include "../../ecs/TransformSystem.hpp"
+#include "../../ecs/components/UIComponents.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
 #include <cmath>
@@ -69,6 +70,7 @@ bool TransformGizmo2D::draw_gizmo(
 
     for (EntityID id : selected_entities) {
         if (em.is_alive(id) && em.has_component<TransformComponent>(id) &&
+            !em.has_component<UILayoutComponent>(id) &&
             !is_entity_locked_from_gizmo(em, id, visibility_filter) &&
             !has_selected_ancestor(em, id, selected_entities)) {
             transformable_roots.push_back(id);

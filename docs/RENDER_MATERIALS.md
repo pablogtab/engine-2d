@@ -10,9 +10,10 @@ fragment variants for the APIs supported by the project:
 - MSL or a Metal library for Metal targets.
 
 `Material` references one shader and owns the uniform values for one visual
-instance. A material does not know whether it will render a sprite or a full
-screen quad. `Renderer2D` binds it while flushing sprite batches, and
-`MaterialPostProcessPass` adapts that same material to `PostProcessPipeline`.
+instance. A material does not know whether it will render a world sprite, a UI
+image, a text glyph, or a full screen quad. `Renderer2D` binds it while flushing
+sprite batches, and `MaterialPostProcessPass` adapts that same material to
+`PostProcessPipeline`.
 
 This separation is intentional:
 
@@ -21,7 +22,7 @@ shader algorithm + material parameters
                   |
           +-------+--------+
           |                |
-     sprite quad      fullscreen quad
+ world/UI/text quad   fullscreen quad
 ```
 
 Effects that need neighboring pixels, such as blur and bloom, can use the same
@@ -185,3 +186,9 @@ The current slice supports the primary sprite texture and up to four fragment
 uniform slots. Additional textures and reflected parameter metadata belong in
 the next asset-pipeline increment; they should not be added as hardcoded fields
 to `SpriteComponent`.
+
+`UIImageComponent` and `UITextComponent` store the reusable material asset
+handle plus a runtime-resolved material. `UIButtonComponent` remains an input
+and state component; its visual target is the `UIImageComponent` on the same
+entity, matching the separation between interaction and graphics. Material
+refresh reloads world sprites and UI graphics without duplicating shader data.

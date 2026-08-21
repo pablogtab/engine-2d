@@ -1,11 +1,15 @@
 #include "ViewportSelectionTool.hpp"
 #include "ViewportSelectionGeometry.hpp"
 #include "EditorEntityVisibilityFilter.hpp"
+#include "../../core/AssetDatabase.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
+#include "../../ecs/components/UIComponents.hpp"
+#include "../../ui/CanvasLayout.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 namespace Engine {
 
@@ -103,6 +107,66 @@ EntityID ViewportSelectionTool::pick_entity(
             const bool near_horizontal = std::abs(std::abs(local.y) - half.y) <= edge_tolerance && std::abs(local.x) <= half.x + edge_tolerance;
             if (near_vertical || near_horizontal) hit_entity = id;
         });
+    }
+
+    // Canvas UI is composited above world geometry, so visible UI rectangles
+    // take selection priority at the same pointer location.
+    if (view_camera) {
+        const glm::vec2 screen_position = view_camera->world_to_screen(
+            glm::vec3(world_position, 0.0f)
+        );
+        std::vector<EntityID> canvases;
+        em.for_each<CanvasComponent>([&](EntityID id, const CanvasComponent& canvas) {
+            if (!canvas.enabled) return;
+            if (visibility_filter && !visibility_filter->should_interact(id)) return;
+            if (em.has_component<TransformComponent>(id) &&
+                !em.get_component<TransformComponent>(id).world_visible) return;
+            canvases.push_back(id);
+        });
+        std::sort(canvases.begin(), canvases.end(), [&](EntityID lhs, EntityID rhs) {
+            const auto& left = em.get_component<CanvasComponent>(lhs);
+            const auto& right = em.get_component<CanvasComponent>(rhs);
+            if (left.sorting_order != right.sorting_order) {
+                return left.sorting_order < right.sorting_order;
+            }
+            return lhs < rhs;
+        });
+
+        for (const EntityID canvas_entity : canvases) {
+            glm::vec2 canvas_position{0.0f};
+            if (em.has_component<TransformComponent>(canvas_entity)) {
+                canvas_position = glm::vec2(
+                    em.get_component<TransformComponent>(canvas_entity).world_position
+                );
+            }
+            const CanvasViewport viewport = calculate_canvas_editor_viewport(
+                em.get_component<CanvasComponent>(canvas_entity),
+                canvas_position,
+                *view_camera
+            );
+            for (const ResolvedUILayout& resolved : resolve_canvas_hierarchy(
+                    em, canvas_entity, viewport, &AssetDatabase::get()
+                )) {
+                const EntityID candidate = resolved.entity;
+                if (visibility_filter && !visibility_filter->should_interact(candidate)) continue;
+                if (em.has_component<TransformComponent>(candidate) &&
+                    !em.get_component<TransformComponent>(candidate).world_visible) continue;
+                const bool has_visual =
+                    (em.has_component<UITextComponent>(candidate) &&
+                     em.get_component<UITextComponent>(candidate).enabled) ||
+                    (em.has_component<UIImageComponent>(candidate) &&
+                     em.get_component<UIImageComponent>(candidate).enabled) ||
+                    (em.has_component<UIButtonComponent>(candidate) &&
+                     em.get_component<UIButtonComponent>(candidate).enabled);
+                if (!has_visual) continue;
+                const glm::vec2 minimum = resolved.screen_rect.min();
+                const glm::vec2 maximum = resolved.screen_rect.max();
+                if (screen_position.x >= minimum.x && screen_position.x <= maximum.x &&
+                    screen_position.y >= minimum.y && screen_position.y <= maximum.y) {
+                    hit_entity = candidate;
+                }
+            }
+        }
     }
 
     if (hit_entity != 0 && em.has_component<HierarchyComponent>(hit_entity)) {

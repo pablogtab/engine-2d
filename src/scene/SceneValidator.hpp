@@ -31,7 +31,14 @@ enum class SceneDiagnosticCode {
     InvalidTilemapDimensions,
     InvalidLight2D,
     InvalidShadowCaster2D,
-    MissingShadowCasterCollider
+    MissingShadowCasterCollider,
+    MissingUIImageTexture,
+    MissingUIFont,
+    InvalidCanvas,
+    InvalidUILayout,
+    InvalidUIText,
+    MissingUILayout,
+    MissingCanvasAncestor
 };
 
 struct SceneDiagnostic {
