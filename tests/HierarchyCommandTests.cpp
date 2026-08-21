@@ -1573,6 +1573,23 @@ void test_scene_hierarchy_smart_search_and_component_filters() {
     std::cout << "test_scene_hierarchy_smart_search_and_component_filters passed." << std::endl;
 }
 
+void test_remove_missing_hierarchy_child_reference_round_trips() {
+    EntityManager em;
+    EditorCommandHistory history;
+    const EntityID parent = em.create_entity();
+    em.add_component<HierarchyComponent>(parent, HierarchyComponent{});
+    em.get_component<HierarchyComponent>(parent).children = {777, 888};
+
+    history.execute_command(std::make_unique<RemoveMissingHierarchyChildReferenceCommand>(&em, parent, 777));
+    assert(em.get_component<HierarchyComponent>(parent).children == std::vector<EntityID>({888}));
+
+    history.undo();
+    assert(em.get_component<HierarchyComponent>(parent).children == std::vector<EntityID>({777, 888}));
+
+    history.redo();
+    assert(em.get_component<HierarchyComponent>(parent).children == std::vector<EntityID>({888}));
+}
+
 int main() {
     test_reparent_preserves_world_transform();
     test_unparent_preserves_world_transform();
@@ -1611,6 +1628,7 @@ int main() {
     test_reparent_multiple_entities_with_locked_entity_rejection();
     test_reparent_multiple_entities_unparent_to_root();
     test_scene_hierarchy_smart_search_and_component_filters();
+    test_remove_missing_hierarchy_child_reference_round_trips();
 
     std::cout << "All HierarchyCommandTests passed successfully!" << std::endl;
     return 0;

@@ -15,6 +15,24 @@ namespace Engine {
 
 class EditorEntityStateStore;
 
+class RemoveMissingHierarchyChildReferenceCommand final : public IEditorCommand {
+public:
+    RemoveMissingHierarchyChildReferenceCommand(EntityManager* em, EntityID parent, EntityID missing_child);
+
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
+
+private:
+    EntityManager* m_em{nullptr};
+    EntityID m_parent{0};
+    std::vector<EntityID> m_before;
+    std::vector<EntityID> m_after;
+    bool m_valid{false};
+    std::string m_description{"Remove Missing Hierarchy Child"};
+};
+
 class ReparentEntityCommand final : public IEditorCommand {
 public:
     ReparentEntityCommand(

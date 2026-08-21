@@ -79,6 +79,11 @@ void test_hierarchy_errors_are_reported_without_mutation() {
     assert(SceneValidator::has_errors(diagnostics));
     assert(entities.get_component<HierarchyComponent>(child).parent == 9999);
     assert(entities.get_component<HierarchyComponent>(parent).children == std::vector<EntityID>({child, 8888}));
+    const auto missing_child = std::find_if(diagnostics.begin(), diagnostics.end(), [](const SceneDiagnostic& diagnostic) {
+        return diagnostic.code == SceneDiagnosticCode::MissingHierarchyChild;
+    });
+    assert(missing_child != diagnostics.end());
+    assert(missing_child->related_entity == 8888);
 }
 
 void test_hierarchy_cycles_are_reported() {

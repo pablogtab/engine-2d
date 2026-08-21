@@ -4,6 +4,7 @@
 #include "../../scene/Scene.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/SceneValidator.hpp"
+#include "../commands/HierarchyCommands.hpp"
 
 #include <imgui.h>
 
@@ -81,6 +82,15 @@ void SceneDiagnosticsPanel::on_gui() {
 
         if (diagnostic.entity != 0 && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
             ImGui::SetTooltip("Select entity #%u", diagnostic.entity);
+        }
+        if (diagnostic.code == SceneDiagnosticCode::MissingHierarchyChild &&
+            diagnostic.related_entity != 0 && m_command_history) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Fix")) {
+                m_command_history->execute_command(std::make_unique<RemoveMissingHierarchyChildReferenceCommand>(
+                    &active_scene->get_entity_manager(), diagnostic.entity, diagnostic.related_entity
+                ));
+            }
         }
         ImGui::PopID();
     }

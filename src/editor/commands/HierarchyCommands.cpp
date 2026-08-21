@@ -9,6 +9,36 @@
 
 namespace Engine {
 
+RemoveMissingHierarchyChildReferenceCommand::RemoveMissingHierarchyChildReferenceCommand(
+    EntityManager* em,
+    EntityID parent,
+    EntityID missing_child
+) : m_em(em),
+    m_parent(parent) {
+    if (!m_em || !m_em->is_alive(m_parent) ||
+        !m_em->has_component<HierarchyComponent>(m_parent) ||
+        m_em->is_alive(missing_child)) return;
+
+    m_before = m_em->get_component<HierarchyComponent>(m_parent).children;
+    m_after = m_before;
+    std::erase(m_after, missing_child);
+    m_valid = m_before != m_after;
+}
+
+bool RemoveMissingHierarchyChildReferenceCommand::execute() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_parent) ||
+        !m_em->has_component<HierarchyComponent>(m_parent)) return false;
+    m_em->get_component<HierarchyComponent>(m_parent).children = m_after;
+    return true;
+}
+
+bool RemoveMissingHierarchyChildReferenceCommand::undo() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_parent) ||
+        !m_em->has_component<HierarchyComponent>(m_parent)) return false;
+    m_em->get_component<HierarchyComponent>(m_parent).children = m_before;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // 1. ReparentEntityCommand
 // ---------------------------------------------------------------------------

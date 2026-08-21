@@ -487,4 +487,5 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Present grouped validation results, select the related entity, and refresh after scene edits without changing authored content.
    - [ ] Add asset navigation for diagnostics without an entity target.
 3. **Reversible Safe Fixes (Phase 3)**:
-   - Add command-backed fixes only where the correction is unambiguous; every authored mutation must support Undo/Redo.
+   - [x] Remove nonexistent child references through a command-backed fix with Undo/Redo.
+   - [ ] Add fixes only where the correction is unambiguous; every authored mutation must support Undo/Redo.

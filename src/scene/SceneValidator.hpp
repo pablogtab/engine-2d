@@ -34,6 +34,7 @@ struct SceneDiagnostic {
     SceneDiagnosticCode code{SceneDiagnosticCode::MissingPrimaryCamera};
     EntityID entity{0};
     std::string message;
+    EntityID related_entity{0};
 };
 
 class SceneValidator {

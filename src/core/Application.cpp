@@ -134,6 +134,7 @@ Application::Application(const std::string& name, int width, int height, bool st
     auto diagnostics_panel = std::make_shared<SceneDiagnosticsPanel>(
         &m_scene_manager, &get_asset_database(), selection
     );
+    diagnostics_panel->set_command_history(command_history);
     diagnostics_panel->is_open = false;
     auto asset_browser = std::make_shared<AssetBrowserPanel>(&get_asset_database(), "assets");
     asset_browser->set_renderer(m_window->get_sdl_renderer());

@@ -345,6 +345,7 @@ void EditorLayer::update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch
             p->set_entity_state_store(store);
             if (sel) p->set_selection(sel);
         } else if (auto p = std::dynamic_pointer_cast<SceneDiagnosticsPanel>(panel)) {
+            p->set_command_history(ch);
             if (sel) p->set_selection(sel);
         } else if (auto p = std::dynamic_pointer_cast<SpriteAnimationStudioPanel>(panel)) {
             p->set_command_history(ch);

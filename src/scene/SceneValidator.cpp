@@ -18,9 +18,10 @@ void add_diagnostic(
     SceneDiagnosticSeverity severity,
     SceneDiagnosticCode code,
     EntityID entity,
-    std::string message
+    std::string message,
+    EntityID related_entity = 0
 ) {
-    diagnostics.push_back({severity, code, entity, std::move(message)});
+    diagnostics.push_back({severity, code, entity, std::move(message), related_entity});
 }
 
 bool parent_chain_has_cycle(const EntityManager& entities, EntityID entity) {
@@ -123,7 +124,8 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
                     SceneDiagnosticSeverity::Error,
                     SceneDiagnosticCode::MissingHierarchyChild,
                     entity,
-                    "Hierarchy child does not exist"
+                    "Hierarchy child does not exist",
+                    child
                 );
             } else if (!entities.has_component<HierarchyComponent>(child) ||
                        entities.get_component<HierarchyComponent>(child).parent != entity) {

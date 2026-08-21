@@ -2,6 +2,7 @@
 
 #include "../EditorPanel.hpp"
 #include "../EditorSelection.hpp"
+#include "../commands/EditorCommandHistory.hpp"
 #include <memory>
 #include <string>
 
@@ -22,12 +23,14 @@ public:
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
     void set_selection(std::shared_ptr<EditorSelection> selection) { m_selection = std::move(selection); }
+    void set_command_history(std::shared_ptr<EditorCommandHistory> command_history) { m_command_history = std::move(command_history); }
 
 private:
     std::string m_name{"Scene Diagnostics"};
     SceneManager* m_scene_manager{nullptr};
     AssetDatabase* m_asset_database{nullptr};
     std::shared_ptr<EditorSelection> m_selection;
+    std::shared_ptr<EditorCommandHistory> m_command_history;
 };
 
 } // namespace Engine
