@@ -309,10 +309,10 @@ These systems form the current baseline and should be extended rather than rewri
   - [x] Add Inspector authoring, serialization, prefab persistence, undo/redo, and validation.
   - [x] Present UI layout as `Rect Transform` with Unity-style visual anchor presets (click changes anchors, Alt/Option also snaps position and size, Shift also sets pivot), while hiding ineffective world-transform controls on UI children.
   - [x] Create Canvas, text, image, and button entities directly from the Hierarchy with dependency-complete component snapshots and Undo/Redo.
-  - [ ] Preserve per-entity Inspector component insertion order and allow drag/drop reordering through editor-only authoring metadata with Undo/Redo.
-  - [ ] Add direct Scene View layout overlays and manipulation.
+  - [x] Preserve per-entity Inspector component insertion order and allow drag/drop reordering through persisted editor-only authoring metadata with Undo/Redo.
+  - [x] Add direct Scene View layout overlays and manipulation.
     - [x] Select and drag UI rectangles in the Canvas preview with visible anchors and pivot, pixel/grid snapping, Escape cancellation, and one Undo/Redo command per gesture.
-    - [ ] Add draggable anchor, pivot, edge, and corner handles for resizing and stretch authoring.
+    - [x] Add draggable anchor, pivot, edge, and corner handles for resizing and stretch authoring.
 
 ### Display and Mobile Follow-Up
 
@@ -542,4 +542,4 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Keep the Canvas preview at its authored Transform and draw its frame in Edit mode.
    - [x] Select and move visible UI rectangles directly while preserving anchor-relative layout and Undo/Redo.
    - [x] Add anchor preset previews and direct component-backed entity creation to the Hierarchy.
-   - [ ] Add direct resize, anchor, and pivot handles.
+   - [x] Add direct resize, anchor, and pivot handles.

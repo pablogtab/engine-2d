@@ -34,6 +34,10 @@ void capture_property_interaction();
 void request_cancel_active_property();
 [[nodiscard]] const PropertyInteraction& last_property_interaction();
 
+// Enables drag-to-reorder on the next registered component header drawn by
+// the Inspector. The header itself remains the source, matching Hierarchy rows.
+void set_component_header_reorder_enabled(bool enabled);
+
 // Unity-style component header. Removable components expose a compact options
 // menu in their own header instead of relying on a global removal picker.
 [[nodiscard]] ComponentHeaderResult component_header(
@@ -42,7 +46,8 @@ void request_cancel_active_property();
     bool removable = true,
     bool default_open = true,
     EditorIcon icon = EditorIcon::Component,
-    bool has_override = false
+    bool has_override = false,
+    const char* reorder_payload = nullptr
 );
 
 // Resolves presentation through the editor-only component registry.

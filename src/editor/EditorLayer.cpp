@@ -47,6 +47,26 @@ constexpr const char* AUTOSAVE_PREFERENCES_PATH = "config/editor_autosave.json";
 constexpr int MIN_AUTOSAVE_INTERVAL_SECONDS = 15;
 constexpr int MAX_AUTOSAVE_INTERVAL_SECONDS = 3600;
 
+SceneEditorMetadata capture_scene_editor_metadata(const EditorEntityStateStore* store) {
+    SceneEditorMetadata metadata;
+    if (!store) return metadata;
+    for (const auto& [entity, order] : store->component_orders()) {
+        metadata.component_orders.emplace(entity, order);
+    }
+    return metadata;
+}
+
+void apply_scene_editor_metadata(
+    const SceneEditorMetadata& metadata,
+    EditorEntityStateStore* store
+) {
+    if (!store) return;
+    store->clear_component_orders();
+    for (const auto& [entity, order] : metadata.component_orders) {
+        store->set_component_order(entity, order);
+    }
+}
+
 } // namespace
 
 EditorLayer::~EditorLayer() {
@@ -379,7 +399,10 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
             session.file_path = "assets/scenes/" + scene_name + ".scene";
         } else {
             // Save initial snapshot for rollback on discard
-            SceneSerializer serializer(const_cast<Scene*>(scene), m_renderer);
+            SceneEditorMetadata editor_metadata = capture_scene_editor_metadata(session.entity_state_store.get());
+            SceneSerializer serializer(
+                const_cast<Scene*>(scene), m_renderer, nullptr, &editor_metadata
+            );
             session.initial_snapshot_json = serializer.serialize_to_string();
         }
         session.autosave_identity = !session.file_path.empty()
@@ -611,7 +634,10 @@ void EditorLayer::create_new_scene(const std::string& name) {
     auto& session = get_or_create_session(new_scene.get(), name);
     session.command_history->reset_clean_baseline(0);
     session.file_path = "";
-    session.initial_snapshot_json = SceneSerializer(new_scene.get(), m_renderer).serialize_to_string();
+    SceneEditorMetadata editor_metadata = capture_scene_editor_metadata(session.entity_state_store.get());
+    session.initial_snapshot_json = SceneSerializer(
+        new_scene.get(), m_renderer, nullptr, &editor_metadata
+    ).serialize_to_string();
     session.autosave_identity = "untitled:" + name + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(new_scene.get()));
 
     const auto& scenes = m_scene_manager->get_scenes();
@@ -642,7 +668,8 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
         }
     }
 
-    SceneSerializer serializer(scene, m_renderer);
+    SceneEditorMetadata editor_metadata = capture_scene_editor_metadata(session.entity_state_store.get());
+    SceneSerializer serializer(scene, m_renderer, nullptr, &editor_metadata);
     if (!serializer.serialize(path)) {
         ENGINE_LOG_ERROR("[EDITOR] Failed to save scene '{}' to '{}'", scene->get_name(), path);
         return false;
@@ -772,21 +799,25 @@ bool EditorLayer::discard_active_scene_changes() {
 
     auto& session = get_or_create_session(active_scene);
     if (!session.file_path.empty() && std::filesystem::exists(session.file_path)) {
-        SceneSerializer serializer(active_scene, m_renderer);
+        SceneEditorMetadata editor_metadata;
+        SceneSerializer serializer(active_scene, m_renderer, nullptr, &editor_metadata);
         if (!serializer.deserialize(session.file_path)) {
             ENGINE_LOG_ERROR("[EDITOR] Failed to reload scene '{}' from '{}' during discard",
                              active_scene->get_name(), session.file_path);
             return false;
         }
+        apply_scene_editor_metadata(editor_metadata, session.entity_state_store.get());
         session.command_history->reset_clean_baseline(0);
         ENGINE_LOG_INFO("[EDITOR] Discarded changes, reloaded scene '{}' from '{}'", active_scene->get_name(), session.file_path);
     } else if (!session.initial_snapshot_json.empty()) {
-        SceneSerializer serializer(active_scene, m_renderer);
+        SceneEditorMetadata editor_metadata;
+        SceneSerializer serializer(active_scene, m_renderer, nullptr, &editor_metadata);
         if (!serializer.deserialize_from_string(session.initial_snapshot_json)) {
             ENGINE_LOG_ERROR("[EDITOR] Failed to restore scene '{}' from initial snapshot during discard",
                              active_scene->get_name());
             return false;
         }
+        apply_scene_editor_metadata(editor_metadata, session.entity_state_store.get());
         session.command_history->reset_clean_baseline(0);
         ENGINE_LOG_INFO("[EDITOR] Discarded changes, restored scene '{}' to initial snapshot", active_scene->get_name());
     } else {
@@ -811,11 +842,15 @@ void EditorLayer::load_scene(const std::string& path) {
     std::string scene_name = p.stem().string();
 
     auto new_scene = std::make_shared<GenericScene>(scene_name);
-    SceneSerializer serializer(new_scene.get(), m_renderer);
+    auto loaded_editor_state = std::make_shared<EditorEntityStateStore>();
+    SceneEditorMetadata editor_metadata;
+    SceneSerializer serializer(new_scene.get(), m_renderer, nullptr, &editor_metadata);
     if (serializer.deserialize(path)) {
+        apply_scene_editor_metadata(editor_metadata, loaded_editor_state.get());
         m_scene_manager->add_scene(new_scene);
 
         auto& session = get_or_create_session(new_scene.get(), scene_name);
+        session.entity_state_store = std::move(loaded_editor_state);
         session.command_history->reset_clean_baseline(0);
         session.file_path = path;
         session.initial_snapshot_json.clear();
@@ -1302,7 +1337,10 @@ void EditorLayer::update_autosaves(float delta_time) {
         if (!scene) continue;
         auto& session = get_or_create_session(scene.get());
         if (!session.command_history || !session.command_history->is_dirty()) continue;
-        const std::string snapshot = SceneSerializer(scene.get(), m_renderer).serialize_to_string();
+        SceneEditorMetadata editor_metadata = capture_scene_editor_metadata(session.entity_state_store.get());
+        const std::string snapshot = SceneSerializer(
+            scene.get(), m_renderer, nullptr, &editor_metadata
+        ).serialize_to_string();
         if (m_autosave_recovery.write_snapshot(
                 session.autosave_identity, session.file_path, scene->get_name(), snapshot
             )) {
@@ -1345,14 +1383,18 @@ void EditorLayer::recover_autosave(const AutosaveRecord& record) {
     if (!m_scene_manager) return;
 
     auto recovered_scene = std::make_shared<GenericScene>(record.scene_name);
-    SceneSerializer serializer(recovered_scene.get(), m_renderer);
+    auto recovered_editor_state = std::make_shared<EditorEntityStateStore>();
+    SceneEditorMetadata editor_metadata;
+    SceneSerializer serializer(recovered_scene.get(), m_renderer, nullptr, &editor_metadata);
     if (!serializer.deserialize_from_string(record.snapshot_json)) {
         ENGINE_LOG_ERROR("[AUTOSAVE] Failed recovering scene '{}'", record.scene_name);
         return;
     }
+    apply_scene_editor_metadata(editor_metadata, recovered_editor_state.get());
 
     m_scene_manager->add_scene(recovered_scene);
     auto& session = get_or_create_session(recovered_scene.get(), record.scene_name);
+    session.entity_state_store = std::move(recovered_editor_state);
     session.command_history->reset_clean_baseline(0);
     session.command_history->mark_recovered();
     session.file_path = record.source_conflicted ? "" : record.source_path;

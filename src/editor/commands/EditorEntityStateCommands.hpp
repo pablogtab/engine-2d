@@ -65,4 +65,30 @@ private:
     bool m_valid{false};
 };
 
+class SetComponentOrderCommand final : public IEditorCommand {
+public:
+    SetComponentOrderCommand(
+        const EntityManager* em,
+        std::shared_ptr<EditorEntityStateStore> store,
+        EntityID entity,
+        std::vector<std::string> before,
+        std::vector<std::string> after
+    );
+
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return "Reorder Components"; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
+
+private:
+    bool apply(const std::vector<std::string>& order);
+
+    const EntityManager* m_em{nullptr};
+    std::shared_ptr<EditorEntityStateStore> m_store;
+    EntityID m_entity{0};
+    std::vector<std::string> m_before;
+    std::vector<std::string> m_after;
+    bool m_valid{false};
+};
+
 } // namespace Engine

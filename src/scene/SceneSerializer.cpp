@@ -9,6 +9,8 @@
 #include "../core/AssetManager.hpp"
 #include "../core/AssetDatabase.hpp"
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <unordered_set>
 
 using json = nlohmann::json;
 
@@ -17,9 +19,13 @@ namespace Engine {
 SceneSerializer::SceneSerializer(
     Scene* scene,
     SDL_Renderer* renderer,
-    ComponentRegistry* component_registry
+    ComponentRegistry* component_registry,
+    SceneEditorMetadata* editor_metadata
 )
-    : m_scene(scene), m_renderer(renderer), m_component_registry(component_registry) {}
+    : m_scene(scene),
+      m_renderer(renderer),
+      m_component_registry(component_registry),
+      m_editor_metadata(editor_metadata) {}
 
 std::string SceneSerializer::serialize_to_string() {
     if (!m_scene) {
@@ -89,6 +95,23 @@ std::string SceneSerializer::serialize_to_string() {
     }
 
     root["entities"] = entities_array;
+    if (m_editor_metadata) {
+        json component_orders = json::array();
+        std::vector<EntityID> ordered_entities;
+        ordered_entities.reserve(m_editor_metadata->component_orders.size());
+        for (const auto& [entity, order] : m_editor_metadata->component_orders) {
+            if (!em.is_alive(entity) || order.empty()) continue;
+            ordered_entities.push_back(entity);
+        }
+        std::sort(ordered_entities.begin(), ordered_entities.end());
+        for (const EntityID entity : ordered_entities) {
+            const auto& order = m_editor_metadata->component_orders.at(entity);
+            component_orders.push_back({{"entity", entity}, {"components", order}});
+        }
+        if (!component_orders.empty()) {
+            root["editor_metadata"] = {{"component_orders", std::move(component_orders)}};
+        }
+    }
     return root.dump(4);
 }
 
@@ -168,6 +191,45 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
         const ComponentSerializationContext component_context{m_renderer, &AssetManager::get(), &AssetDatabase::get()};
         std::vector<EntityID> loaded_entities;
         std::vector<std::pair<EntityID, EntityID>> hierarchy_links;
+        std::vector<std::pair<EntityID, std::vector<std::string>>> editor_component_orders;
+
+        if (root.contains("editor_metadata")) {
+            const auto& metadata = root["editor_metadata"];
+            if (!metadata.is_object() || !metadata.contains("component_orders") ||
+                !metadata["component_orders"].is_array()) {
+                ENGINE_LOG_ERROR("[SERIALIZER] Scene editor_metadata must contain a component_orders array");
+                return false;
+            }
+            std::unordered_set<EntityID> ordered_entities;
+            for (const auto& entry : metadata["component_orders"]) {
+                if (!entry.is_object() || !entry.contains("entity") ||
+                    !entry["entity"].is_number_unsigned() || !entry.contains("components") ||
+                    !entry["components"].is_array()) {
+                    ENGINE_LOG_ERROR("[SERIALIZER] Scene component order entry is invalid");
+                    return false;
+                }
+                const EntityID entity = entry["entity"].get<EntityID>();
+                if (entity == 0 || !ordered_entities.insert(entity).second) {
+                    ENGINE_LOG_ERROR("[SERIALIZER] Scene component order has an invalid or duplicate entity ID");
+                    return false;
+                }
+                std::vector<std::string> order;
+                std::unordered_set<std::string> keys;
+                for (const auto& component : entry["components"]) {
+                    if (!component.is_string()) {
+                        ENGINE_LOG_ERROR("[SERIALIZER] Scene component order keys must be strings");
+                        return false;
+                    }
+                    std::string key = component.get<std::string>();
+                    if (!registry.find_by_key(key) || !keys.insert(key).second) {
+                        ENGINE_LOG_ERROR("[SERIALIZER] Scene component order contains unknown or duplicate key '{}'", key);
+                        return false;
+                    }
+                    order.push_back(std::move(key));
+                }
+                editor_component_orders.emplace_back(entity, std::move(order));
+            }
+        }
 
         if (root.contains("entities") && root["entities"].is_array()) {
             for (const auto& entity_json : root["entities"]) {
@@ -218,6 +280,13 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
             }
 
             TransformSystem::update(candidate);
+            for (const auto& [entity, order] : editor_component_orders) {
+                (void)order;
+                if (!candidate.is_alive(entity)) {
+                    ENGINE_LOG_ERROR("[SERIALIZER] Component order references missing entity #{}", entity);
+                    return false;
+                }
+            }
             for (const EntityID entity : loaded_entities) {
                 const auto issues = registry.validate_entity(candidate, entity);
                 if (!issues.empty()) {
@@ -271,6 +340,12 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                 rollback_error.empty() ? "" : "; rollback finalization failed: " + rollback_error
             );
             return false;
+        }
+        if (m_editor_metadata) {
+            m_editor_metadata->component_orders.clear();
+            for (auto& [entity, order] : editor_component_orders) {
+                m_editor_metadata->component_orders.emplace(entity, std::move(order));
+            }
         }
         return true;
     } catch (const std::exception& e) {

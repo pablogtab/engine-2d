@@ -38,6 +38,43 @@ void test_mutations() {
     std::cout << "[PASS] test_mutations" << std::endl;
 }
 
+void test_component_order_resolution_and_authoring_command() {
+    EntityManager em;
+    const EntityID entity = em.create_entity();
+    auto store = std::make_shared<EditorEntityStateStore>();
+
+    store->set_component_order(entity, {"sprite", "transform", "missing"});
+    assert((store->get_component_order(entity) ==
+        std::vector<std::string>{"sprite", "transform", "missing"}));
+    assert((store->resolve_component_order(entity, {"transform", "camera", "sprite"}) ==
+        std::vector<std::string>{"sprite", "transform", "camera"}));
+
+    EditorCommandHistory history;
+    history.execute_command(std::make_unique<SetComponentOrderCommand>(
+        &em,
+        store,
+        entity,
+        std::vector<std::string>{"sprite", "transform", "camera"},
+        std::vector<std::string>{"camera", "sprite", "transform"}
+    ));
+    assert((store->get_component_order(entity) ==
+        std::vector<std::string>{"camera", "sprite", "transform"}));
+    assert(history.is_dirty());
+
+    history.undo();
+    assert((store->get_component_order(entity) ==
+        std::vector<std::string>{"sprite", "transform", "camera"}));
+    history.redo();
+    assert((store->get_component_order(entity) ==
+        std::vector<std::string>{"camera", "sprite", "transform"}));
+
+    store->set_locked(entity, true);
+    store->set_component_order(entity, {});
+    assert(store->is_locked(entity));
+    assert(store->get_component_order(entity).empty());
+    std::cout << "[PASS] test_component_order_resolution_and_authoring_command" << std::endl;
+}
+
 void test_pruning() {
     EntityManager em;
     EntityID e1 = em.create_entity();
@@ -134,6 +171,7 @@ void test_state_commands_multi() {
 int main() {
     test_default_state();
     test_mutations();
+    test_component_order_resolution_and_authoring_command();
     test_pruning();
     test_state_commands_single();
     test_state_commands_multi();

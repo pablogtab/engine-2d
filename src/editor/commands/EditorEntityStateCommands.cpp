@@ -163,4 +163,31 @@ bool SetEditorEntityStateCommand::undo() {
     return true;
 }
 
+SetComponentOrderCommand::SetComponentOrderCommand(
+    const EntityManager* em,
+    std::shared_ptr<EditorEntityStateStore> store,
+    EntityID entity,
+    std::vector<std::string> before,
+    std::vector<std::string> after
+) : m_em(em),
+    m_store(std::move(store)),
+    m_entity(entity),
+    m_before(std::move(before)),
+    m_after(std::move(after)),
+    m_valid(m_em && m_store && m_em->is_alive(m_entity) && m_before != m_after) {}
+
+bool SetComponentOrderCommand::execute() {
+    return apply(m_after);
+}
+
+bool SetComponentOrderCommand::undo() {
+    return apply(m_before);
+}
+
+bool SetComponentOrderCommand::apply(const std::vector<std::string>& order) {
+    if (!m_valid || !m_em || !m_store || !m_em->is_alive(m_entity)) return false;
+    m_store->set_component_order(m_entity, order);
+    return true;
+}
+
 } // namespace Engine

@@ -434,6 +434,35 @@ void test_entity_lock_and_editor_visibility_are_not_serialized() {
     assert(serialized.find("\"editor_visible\"") == std::string::npos);
 }
 
+void test_component_order_editor_metadata_round_trips_and_is_optional() {
+    TestScene source;
+    EntityManager& src_em = source.get_entity_manager();
+    const EntityID entity = src_em.create_entity();
+    src_em.add_component<TagComponent>(entity, TagComponent{"Ordered"});
+    src_em.add_component<TransformComponent>(entity, TransformComponent{});
+    src_em.add_component<SpriteComponent>(entity, SpriteComponent{});
+
+    SceneEditorMetadata source_metadata;
+    source_metadata.component_orders[entity] = {"sprite", "transform"};
+    SceneSerializer serializer(&source, nullptr, nullptr, &source_metadata);
+    const std::string serialized = serializer.serialize_to_string();
+    assert(!serialized.empty());
+    const nlohmann::json root = nlohmann::json::parse(serialized);
+    assert(root.at("editor_metadata").at("component_orders").size() == 1);
+
+    TestScene loaded_with_metadata;
+    SceneEditorMetadata loaded_metadata;
+    SceneSerializer loaded_serializer(&loaded_with_metadata, nullptr, nullptr, &loaded_metadata);
+    assert(loaded_serializer.deserialize_from_string(serialized));
+    assert((loaded_metadata.component_orders.at(entity) ==
+        std::vector<std::string>{"sprite", "transform"}));
+
+    TestScene runtime_only;
+    SceneSerializer runtime_serializer(&runtime_only);
+    assert(runtime_serializer.deserialize_from_string(serialized));
+    assert(runtime_only.get_entity_manager().is_alive(entity));
+}
+
 } // namespace
 
 int main() {
@@ -454,6 +483,7 @@ int main() {
     test_discard_changes_restores_initial_snapshot_for_new_scene();
     test_scene_with_group_component_round_trip();
     test_entity_lock_and_editor_visibility_are_not_serialized();
+    test_component_order_editor_metadata_round_trips_and_is_optional();
     std::cout << "Scene serializer tests passed\n";
     return 0;
 }

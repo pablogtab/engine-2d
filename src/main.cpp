@@ -1,5 +1,6 @@
 #include "core/Application.hpp"
 #include "editor/EditorLayer.hpp"
+#include "editor/state/EditorEntityStateStore.hpp"
 #include "scene/GenericScene.hpp"
 #include "scene/SceneSerializer.hpp"
 #include "sandbox/AnimatedSpriteDemoScene.hpp"
@@ -52,9 +53,18 @@ protected:
 
     // 1. Primary Editor Level: Load PlatformerDemo.scene from disk
     auto platformer_level = std::make_shared<Engine::GenericScene>("PlatformerDemo");
-    Engine::SceneSerializer serializer(platformer_level.get(), renderer);
+    Engine::SceneEditorMetadata editor_metadata;
+    Engine::SceneSerializer serializer(platformer_level.get(), renderer, nullptr, &editor_metadata);
     if (serializer.deserialize("assets/scenes/PlatformerDemo.scene")) {
         get_scene_manager().add_scene(platformer_level);
+        if (Engine::EditorLayer* editor = get_editor_layer()) {
+            auto& session = editor->get_or_create_session(platformer_level.get(), "PlatformerDemo");
+            if (session.entity_state_store) {
+                for (const auto& [entity, order] : editor_metadata.component_orders) {
+                    session.entity_state_store->set_component_order(entity, order);
+                }
+            }
+        }
     }
 
     // 2. Register testbed scenes for engine validation and standalone F1 mode

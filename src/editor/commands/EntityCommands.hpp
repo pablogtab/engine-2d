@@ -152,7 +152,10 @@ public:
         ComponentSnapshotSet before,
         ComponentSnapshotSet after,
         ComponentSerializationContext serialization_context,
-        std::string description
+        std::string description,
+        std::shared_ptr<EditorEntityStateStore> state_store = nullptr,
+        std::vector<std::string> before_order = {},
+        std::vector<std::string> after_order = {}
     );
 
     bool execute() override;
@@ -160,7 +163,7 @@ public:
     [[nodiscard]] std::string get_description() const override { return m_description; }
 
 private:
-    bool apply(const ComponentSnapshotSet& snapshot);
+    bool apply(const ComponentSnapshotSet& snapshot, const std::vector<std::string>& component_order);
 
     ComponentRegistry* m_registry{nullptr};
     EntityManager* m_em{nullptr};
@@ -170,6 +173,9 @@ private:
     ComponentSnapshotSet m_after;
     ComponentSerializationContext m_serialization_context;
     std::string m_description;
+    std::shared_ptr<EditorEntityStateStore> m_state_store;
+    std::vector<std::string> m_before_order;
+    std::vector<std::string> m_after_order;
 };
 
 // 2. Delete Entities Command (with full snapshot restore on undo)

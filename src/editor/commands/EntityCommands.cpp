@@ -17,7 +17,10 @@ SetRegisteredComponentCommand::SetRegisteredComponentCommand(
     ComponentSnapshotSet before,
     ComponentSnapshotSet after,
     ComponentSerializationContext serialization_context,
-    std::string description
+    std::string description,
+    std::shared_ptr<EditorEntityStateStore> state_store,
+    std::vector<std::string> before_order,
+    std::vector<std::string> after_order
 ) : m_registry(registry),
     m_em(em),
     m_entity(entity),
@@ -25,17 +28,23 @@ SetRegisteredComponentCommand::SetRegisteredComponentCommand(
     m_before(std::move(before)),
     m_after(std::move(after)),
     m_serialization_context(serialization_context),
-    m_description(std::move(description)) {}
+    m_description(std::move(description)),
+    m_state_store(std::move(state_store)),
+    m_before_order(std::move(before_order)),
+    m_after_order(std::move(after_order)) {}
 
 bool SetRegisteredComponentCommand::execute() {
-    return apply(m_after);
+    return apply(m_after, m_after_order);
 }
 
 bool SetRegisteredComponentCommand::undo() {
-    return apply(m_before);
+    return apply(m_before, m_before_order);
 }
 
-bool SetRegisteredComponentCommand::apply(const ComponentSnapshotSet& snapshot) {
+bool SetRegisteredComponentCommand::apply(
+    const ComponentSnapshotSet& snapshot,
+    const std::vector<std::string>& component_order
+) {
     if (!m_registry || !m_em || !m_em->is_alive(m_entity)) return false;
     const ComponentDescriptor* descriptor = m_registry->find_by_key(m_component_key);
     if (!descriptor) {
@@ -43,7 +52,10 @@ bool SetRegisteredComponentCommand::apply(const ComponentSnapshotSet& snapshot) 
         return false;
     }
     descriptor->restore(*m_em, m_entity, snapshot);
-    if (!descriptor->has(*m_em, m_entity) || !descriptor->finalize) return true;
+    if (!descriptor->has(*m_em, m_entity) || !descriptor->finalize) {
+        if (m_state_store) m_state_store->set_component_order(m_entity, component_order);
+        return true;
+    }
 
     std::string error;
     if (!descriptor->finalize(
@@ -63,6 +75,7 @@ bool SetRegisteredComponentCommand::apply(const ComponentSnapshotSet& snapshot) 
         );
         return false;
     }
+    if (m_state_store) m_state_store->set_component_order(m_entity, component_order);
     return true;
 }
 

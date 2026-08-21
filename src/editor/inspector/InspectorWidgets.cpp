@@ -4,6 +4,7 @@
 #include "../../ecs/EntityManager.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include <imgui_internal.h>
+#include <cstring>
 #include <string>
 
 namespace Engine::InspectorWidgets {
@@ -16,6 +17,7 @@ constexpr float RESET_BUTTON_WIDTH = 28.0f;
 PropertyInteraction g_property_interaction;
 ImGuiID g_active_property_id = 0;
 ImGuiID g_cancel_requested_for = 0;
+bool g_component_header_reorder_enabled = false;
 
 } // namespace
 
@@ -59,13 +61,18 @@ const PropertyInteraction& last_property_interaction() {
     return g_property_interaction;
 }
 
+void set_component_header_reorder_enabled(bool enabled) {
+    g_component_header_reorder_enabled = enabled;
+}
+
 ComponentHeaderResult component_header(
     const char* label,
     const char* id,
     bool removable,
     bool default_open,
     EditorIcon icon,
-    bool has_override
+    bool has_override,
+    const char* reorder_payload
 ) {
     ImGui::PushID(id);
     const ImVec2 header_position = ImGui::GetCursorScreenPos();
@@ -77,6 +84,27 @@ ComponentHeaderResult component_header(
     bool remove_requested = false;
     bool revert_override_requested = false;
     bool apply_override_requested = false;
+
+    if (reorder_payload) {
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.10f, 0.11f, 0.15f, 0.98f));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.37f, 0.57f, 1.0f, 0.90f));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 5.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 7.0f));
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+            ImGui::SetDragDropPayload(
+                "ENGINE_COMPONENT_ORDER",
+                reorder_payload,
+                std::strlen(reorder_payload) + 1
+            );
+            ImGui::TextUnformatted(header_label.c_str());
+            ImGui::EndDragDropSource();
+        }
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            ImGui::SetTooltip("Click to expand or drag to reorder");
+        }
+    }
 
     // Draw subtle vertical gutter indicator bar on the left margin when overridden
     if (has_override) {
@@ -158,7 +186,9 @@ ComponentHeaderResult registered_component_header(
         const std::string fallback_label(component_key);
         const std::string fallback_id = fallback_label + "Header";
         return component_header(
-            fallback_label.c_str(), fallback_id.c_str(), removable, default_open, EditorIcon::Component, has_override
+            fallback_label.c_str(), fallback_id.c_str(), removable, default_open,
+            EditorIcon::Component, has_override,
+            g_component_header_reorder_enabled ? fallback_label.c_str() : nullptr
         );
     }
     return component_header(
@@ -167,7 +197,8 @@ ComponentHeaderResult registered_component_header(
         removable,
         default_open,
         descriptor->icon,
-        has_override
+        has_override,
+        g_component_header_reorder_enabled ? descriptor->component_key.c_str() : nullptr
     );
 }
 

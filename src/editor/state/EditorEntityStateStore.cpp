@@ -1,4 +1,6 @@
 #include "EditorEntityStateStore.hpp"
+#include <algorithm>
+#include <unordered_set>
 #include <vector>
 
 namespace Engine {
@@ -27,29 +29,81 @@ bool EditorEntityStateStore::is_visible(EntityID id) const {
     return true;
 }
 
+std::vector<std::string> EditorEntityStateStore::get_component_order(EntityID id) const {
+    const auto it = m_states.find(id);
+    return it != m_states.end() ? it->second.component_order : std::vector<std::string>{};
+}
+
+std::vector<std::string> EditorEntityStateStore::resolve_component_order(
+    EntityID id,
+    const std::vector<std::string>& present_components
+) const {
+    std::vector<std::string> resolved;
+    resolved.reserve(present_components.size());
+    std::unordered_set<std::string> present(present_components.begin(), present_components.end());
+    std::unordered_set<std::string> used;
+
+    for (const std::string& key : get_component_order(id)) {
+        if (present.contains(key) && used.insert(key).second) resolved.push_back(key);
+    }
+    for (const std::string& key : present_components) {
+        if (used.insert(key).second) resolved.push_back(key);
+    }
+    return resolved;
+}
+
+std::vector<std::pair<EntityID, std::vector<std::string>>> EditorEntityStateStore::component_orders() const {
+    std::vector<std::pair<EntityID, std::vector<std::string>>> result;
+    for (const auto& [id, state] : m_states) {
+        if (!state.component_order.empty()) result.emplace_back(id, state.component_order);
+    }
+    std::sort(result.begin(), result.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.first < rhs.first;
+    });
+    return result;
+}
+
+void EditorEntityStateStore::erase_if_default(EntityID id) {
+    const auto it = m_states.find(id);
+    if (it != m_states.end() && !it->second.locked && it->second.visible_in_editor &&
+        it->second.component_order.empty()) {
+        m_states.erase(it);
+    }
+}
+
 void EditorEntityStateStore::set_locked(EntityID id, bool value) {
     if (id == 0) return;
     auto& state = m_states[id];
     state.locked = value;
-    // If state equals defaults, we can clean up the map entry
-    if (!state.locked && state.visible_in_editor) {
-        m_states.erase(id);
-    }
+    erase_if_default(id);
 }
 
 void EditorEntityStateStore::set_visible(EntityID id, bool value) {
     if (id == 0) return;
     auto& state = m_states[id];
     state.visible_in_editor = value;
-    // If state equals defaults, we can clean up the map entry
-    if (!state.locked && state.visible_in_editor) {
-        m_states.erase(id);
+    erase_if_default(id);
+}
+
+void EditorEntityStateStore::set_component_order(EntityID id, std::vector<std::string> order) {
+    if (id == 0) return;
+    auto& state = m_states[id];
+    state.component_order = std::move(order);
+    erase_if_default(id);
+}
+
+void EditorEntityStateStore::clear_component_orders() {
+    std::vector<EntityID> defaults;
+    for (auto& [id, state] : m_states) {
+        state.component_order.clear();
+        if (!state.locked && state.visible_in_editor) defaults.push_back(id);
     }
+    for (const EntityID id : defaults) m_states.erase(id);
 }
 
 void EditorEntityStateStore::set(EntityID id, EditorEntityState state) {
     if (id == 0) return;
-    if (!state.locked && state.visible_in_editor) {
+    if (!state.locked && state.visible_in_editor && state.component_order.empty()) {
         m_states.erase(id);
     } else {
         m_states[id] = state;

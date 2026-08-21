@@ -177,6 +177,7 @@ void test_component_presence_round_trips_exact_state() {
 void test_registered_component_presence_command_round_trips() {
     EntityManager em;
     EditorCommandHistory history;
+    auto editor_state = std::make_shared<EditorEntityStateStore>();
     const EntityID entity = em.create_entity();
     em.add_component<TransformComponent>(entity, TransformComponent{});
 
@@ -195,17 +196,25 @@ void test_registered_component_presence_command_round_trips() {
         std::move(before),
         std::move(after),
         ComponentSerializationContext{},
-        "Add Sprite Renderer"
+        "Add Sprite Renderer",
+        editor_state,
+        std::vector<std::string>{"transform"},
+        std::vector<std::string>{"transform", "sprite"}
     ));
     assert(em.has_component<SpriteComponent>(entity));
     assert(em.get_component<SpriteComponent>(entity).size == glm::vec2(96.0f, 48.0f));
     assert(em.get_component<SpriteComponent>(entity).color.a == 89);
+    assert((editor_state->get_component_order(entity) ==
+        std::vector<std::string>{"transform", "sprite"}));
 
     history.undo();
     assert(!em.has_component<SpriteComponent>(entity));
+    assert((editor_state->get_component_order(entity) == std::vector<std::string>{"transform"}));
     history.redo();
     assert(em.has_component<SpriteComponent>(entity));
     assert(em.get_component<SpriteComponent>(entity).size == glm::vec2(96.0f, 48.0f));
+    assert((editor_state->get_component_order(entity) ==
+        std::vector<std::string>{"transform", "sprite"}));
 }
 
 void test_physics_rebuild_updates_fixture_without_preview_churn() {

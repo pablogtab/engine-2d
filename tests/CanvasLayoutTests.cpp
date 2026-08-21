@@ -232,6 +232,63 @@ void test_ui_drag_converts_screen_motion_to_canvas_pixels() {
     );
 }
 
+void test_ui_resize_handles_preserve_the_opposite_edges() {
+    const UIRect initial{{100.0f, 80.0f}, {200.0f, 100.0f}};
+    const UIRect left = resize_ui_rect(
+        initial, {35.0f, 0.0f}, UIResizeHandle::Left
+    );
+    assert_vec2(left.position, {135.0f, 80.0f});
+    assert_vec2(left.size, {165.0f, 100.0f});
+    assert_vec2(left.max(), initial.max());
+
+    const UIRect bottom_right = resize_ui_rect(
+        initial, {17.0f, 24.0f}, UIResizeHandle::BottomRight, true, 16.0f
+    );
+    assert_vec2(bottom_right.position, initial.position);
+    assert_vec2(bottom_right.max(), {320.0f, 208.0f});
+}
+
+void test_ui_rect_conversion_supports_fixed_and_stretched_layouts() {
+    const UIRect parent{{20.0f, 30.0f}, {800.0f, 600.0f}};
+    UILayoutComponent fixed;
+    fixed.anchor_min = {0.5f, 0.5f};
+    fixed.anchor_max = fixed.anchor_min;
+    const UIRect desired{{120.0f, 140.0f}, {260.0f, 90.0f}};
+    const UILayoutComponent fixed_result = layout_for_ui_rect(fixed, parent, desired);
+    assert(resolve_ui_rect(fixed_result, parent) == desired);
+
+    UILayoutComponent stretched;
+    stretched.anchor_min = {0.1f, 0.2f};
+    stretched.anchor_max = {0.9f, 0.8f};
+    stretched.pivot = {0.25f, 0.75f};
+    const UILayoutComponent stretched_result = layout_for_ui_rect(stretched, parent, desired);
+    assert(resolve_ui_rect(stretched_result, parent) == desired);
+}
+
+void test_ui_pivot_and_anchor_handles_preserve_visual_rect() {
+    const UIRect parent{{0.0f, 0.0f}, {1000.0f, 500.0f}};
+    UILayoutComponent initial;
+    initial.anchor_min = {0.25f, 0.25f};
+    initial.anchor_max = {0.75f, 0.75f};
+    initial.pivot = {0.5f, 0.5f};
+    initial.anchored_position = {40.0f, -20.0f};
+    initial.size_delta = {-100.0f, 30.0f};
+    const UIRect before = resolve_ui_rect(initial, parent);
+
+    const UILayoutComponent pivot = move_ui_pivot_preserving_rect(
+        initial, parent, before, {0.2f, 0.8f}
+    );
+    assert_vec2(pivot.pivot, {0.2f, 0.8f});
+    assert(resolve_ui_rect(pivot, parent) == before);
+
+    const UILayoutComponent anchors = move_ui_anchors_preserving_rect(
+        initial, parent, before, {0.1f, 0.15f}, {0.9f, 0.95f}
+    );
+    assert_vec2(anchors.anchor_min, {0.1f, 0.15f});
+    assert_vec2(anchors.anchor_max, {0.9f, 0.95f});
+    assert(resolve_ui_rect(anchors, parent) == before);
+}
+
 void test_anchor_presets_follow_unity_style_modifiers() {
     const UIRect parent{{0.0f, 0.0f}, {1280.0f, 720.0f}};
     UILayoutComponent layout;
@@ -282,6 +339,9 @@ int main() {
     test_fit_content_drives_the_resolved_rect_and_children();
     test_editor_canvas_stays_at_its_world_position();
     test_ui_drag_converts_screen_motion_to_canvas_pixels();
+    test_ui_resize_handles_preserve_the_opposite_edges();
+    test_ui_rect_conversion_supports_fixed_and_stretched_layouts();
+    test_ui_pivot_and_anchor_handles_preserve_visual_rect();
     test_anchor_presets_follow_unity_style_modifiers();
     std::cout << "Canvas layout tests passed\n";
     return 0;

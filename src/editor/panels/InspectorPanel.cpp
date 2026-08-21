@@ -633,12 +633,85 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
     };
     ComponentRegistry& runtime_registry = default_component_registry();
     EditorComponentRegistry& editor_registry = default_editor_component_registry();
+    std::vector<std::string> present_components;
     for (const EditorComponentDescriptor& descriptor : editor_registry.descriptors()) {
         if (!descriptor.show_in_inspector || !descriptor.draw) continue;
+        // UI entities author their placement through Rect Transform, so the
+        // regular Transform drawer intentionally renders nothing for them.
+        // Keep it out of the reorder list as well to avoid an orphan grip.
+        if (descriptor.component_key == "transform" && em.has_component<UILayoutComponent>(entity)) continue;
         const ComponentDescriptor* runtime_descriptor = runtime_registry.find_by_key(descriptor.component_key);
         if (runtime_descriptor && runtime_descriptor->has(em, entity)) {
-            descriptor.draw(em, entity, inspector_context);
+            present_components.push_back(descriptor.component_key);
         }
+    }
+    const std::vector<std::string> component_order = m_entity_state_store
+        ? m_entity_state_store->resolve_component_order(entity, present_components)
+        : present_components;
+    std::optional<std::vector<std::string>> reordered_components;
+
+    for (const std::string& component_key : component_order) {
+        const EditorComponentDescriptor* descriptor = editor_registry.find(component_key);
+        if (!descriptor || !descriptor->draw) continue;
+
+        ImGui::PushID(component_key.c_str());
+        ImGui::BeginGroup();
+        InspectorWidgets::set_component_header_reorder_enabled(!is_editor_locked);
+        descriptor->draw(em, entity, inspector_context);
+        InspectorWidgets::set_component_header_reorder_enabled(false);
+        // Component headers temporarily move the cursor to draw their options
+        // button. Submit a final item so ImGui can safely finalize this drag
+        // target group's bounds even when the component is collapsed.
+        ImGui::Dummy(ImVec2(0.0f, 0.0f));
+        ImGui::EndGroup();
+        if (!is_editor_locked && m_command_history && m_entity_state_store &&
+            ImGui::BeginDragDropTarget()) {
+            const ImVec2 target_min = ImGui::GetItemRectMin();
+            const ImVec2 target_max = ImGui::GetItemRectMax();
+            const bool insert_after = ImGui::GetMousePos().y >
+                (target_min.y + target_max.y) * 0.5f;
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(
+                    "ENGINE_COMPONENT_ORDER",
+                    ImGuiDragDropFlags_AcceptBeforeDelivery
+                )) {
+                const float indicator_y = insert_after ? target_max.y : target_min.y;
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                draw_list->AddLine(
+                    {target_min.x, indicator_y},
+                    {target_max.x, indicator_y},
+                    IM_COL32(95, 145, 255, 255),
+                    2.0f
+                );
+                draw_list->AddCircleFilled(
+                    {target_min.x + 3.0f, indicator_y},
+                    3.0f,
+                    IM_COL32(95, 145, 255, 255)
+                );
+                const std::string source_key(static_cast<const char*>(payload->Data));
+                if (payload->IsDelivery() && source_key != component_key) {
+                    std::vector<std::string> after = component_order;
+                    const auto source = std::find(after.begin(), after.end(), source_key);
+                    if (source != after.end()) {
+                        after.erase(source);
+                        auto target = std::find(after.begin(), after.end(), component_key);
+                        if (target != after.end() && insert_after) ++target;
+                        after.insert(target, source_key);
+                        if (after != component_order) reordered_components = std::move(after);
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        ImGui::PopID();
+    }
+    if (reordered_components) {
+        m_command_history->execute_command(std::make_unique<SetComponentOrderCommand>(
+            &em,
+            m_entity_state_store,
+            entity,
+            component_order,
+            std::move(*reordered_components)
+        ));
     }
 
     // --- Bottom Add Component Popup ---
@@ -689,6 +762,15 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                     ComponentSnapshotSet after;
                     runtime_descriptor->capture(em, entity, before);
                     descriptor.create_default(em, entity, inspector_context, after);
+                    const std::vector<std::string> before_order = m_entity_state_store
+                        ? m_entity_state_store->resolve_component_order(entity, present_components)
+                        : present_components;
+                    std::vector<std::string> after_order = before_order;
+                    after_order.erase(
+                        std::remove(after_order.begin(), after_order.end(), descriptor.component_key),
+                        after_order.end()
+                    );
+                    after_order.push_back(descriptor.component_key);
                     m_command_history->execute_command(std::make_unique<SetRegisteredComponentCommand>(
                         &runtime_registry,
                         &em,
@@ -697,7 +779,10 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                         std::move(before),
                         std::move(after),
                         ComponentSerializationContext{m_renderer, m_asset_manager},
-                        "Add " + descriptor.display_name
+                        "Add " + descriptor.display_name,
+                        m_entity_state_store,
+                        before_order,
+                        std::move(after_order)
                     ));
                 }
                 if (!enabled && !availability.reason.empty() && ImGui::IsItemHovered()) {
