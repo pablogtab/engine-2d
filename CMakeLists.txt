@@ -99,6 +99,7 @@ set(SOURCES
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
     src/editor/state/EditorEntityStateStore.cpp
+    src/editor/state/AutosaveRecovery.cpp
     src/editor/state/RecentSceneList.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
@@ -308,6 +309,19 @@ target_include_directories(AssetDatabaseTests PRIVATE
 )
 target_link_libraries(AssetDatabaseTests PRIVATE SDL3::SDL3)
 add_test(NAME AssetDatabaseTests COMMAND AssetDatabaseTests)
+
+add_executable(AutosaveRecoveryTests
+    tests/AutosaveRecoveryTests.cpp
+    src/editor/state/AutosaveRecovery.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+)
+target_include_directories(AutosaveRecoveryTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(AutosaveRecoveryTests PRIVATE SDL3::SDL3)
+add_test(NAME AutosaveRecoveryTests COMMAND AutosaveRecoveryTests)
 
 add_executable(DisplayPersistenceTests
     tests/DisplayPersistenceTests.cpp

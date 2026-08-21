@@ -50,6 +50,9 @@ public:
     // Marks the current revision as saved (clean point)
     void mark_saved();
 
+    // A restored recovery snapshot must be saved or discarded explicitly.
+    void mark_recovered();
+
     // Returns true if current revision differs from the saved revision
     [[nodiscard]] bool is_dirty() const {
         return !m_saved_revision.has_value() || m_current_revision != *m_saved_revision;

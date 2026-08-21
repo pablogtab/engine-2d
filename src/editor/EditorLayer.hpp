@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EditorPanel.hpp"
+#include "state/AutosaveRecovery.hpp"
 #include "state/RecentSceneList.hpp"
 #include <SDL3/SDL.h>
 #include <vector>
@@ -24,6 +25,7 @@ struct EditorSceneSession {
     std::shared_ptr<EditorSelection> selection;
     std::string file_path;
     std::string initial_snapshot_json;
+    std::string autosave_identity;
 };
 
 enum class PendingActionType {
@@ -110,6 +112,9 @@ private:
     void update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store, std::shared_ptr<EditorSelection> sel = nullptr);
     void render_prefab_stage_modals();
     bool save_scene(Scene* scene, EditorSceneSession& session, const std::string& custom_path = "");
+    void update_autosaves(float delta_time);
+    void render_recovery_modal();
+    void recover_autosave(const AutosaveRecord& record);
     void record_recent_scene(const std::string& path);
     void open_scene_tab(const Scene* scene);
     [[nodiscard]] bool has_loaded_scene_path(const std::string& path, std::size_t& index);
@@ -126,6 +131,8 @@ private:
     std::unordered_map<const Scene*, EditorSceneSession> m_scene_sessions;
     std::vector<const Scene*> m_open_scene_tabs;
     RecentSceneList m_recent_scenes;
+    AutosaveRecovery m_autosave_recovery;
+    std::vector<AutosaveRecord> m_pending_recoveries;
     const Scene* m_last_active_scene{nullptr};
 
     bool m_initialized{false};
@@ -134,6 +141,8 @@ private:
     bool m_show_save_as_popup{false};
     bool m_show_unsaved_changes_modal{false};
     bool m_show_prefab_stage_exit_modal{false};
+    bool m_recovery_scan_complete{false};
+    float m_autosave_elapsed{0.0f};
     PendingDestructiveAction m_pending_action;
     char m_save_as_buf[128]{"NewLevel.scene"};
 

@@ -491,3 +491,7 @@ These items are useful but should not interrupt the architecture work above unle
 3. **Reversible Safe Fixes (Phase 3)**:
    - [x] Remove nonexistent child references through a command-backed fix with Undo/Redo.
    - [x] Add fixes only where the correction is unambiguous; every authored mutation supports Undo/Redo.
+4. **Autosave and Recovery Foundations (Phase 3)**:
+   - [x] Write dirty scene snapshots atomically outside authored scene files and discover them on the next editor launch.
+   - [x] Require an explicit Recover or Discard choice; recovered content remains dirty until normally saved or discarded.
+   - [ ] Expose the interval and recovery storage policy in Editor Preferences, then add conflict handling for source files changed outside the editor.

@@ -103,4 +103,9 @@ void EditorCommandHistory::mark_saved() {
     ENGINE_LOG_INFO("[COMMAND] History marked saved at revision {}", m_current_revision);
 }
 
+void EditorCommandHistory::mark_recovered() {
+    m_saved_revision.reset();
+    ENGINE_LOG_INFO("[COMMAND] History marked dirty after recovery");
+}
+
 } // namespace Engine

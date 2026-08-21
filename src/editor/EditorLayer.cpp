@@ -28,6 +28,7 @@
 #include "../tilemap/Tilemap.hpp"
 #include <filesystem>
 #include <algorithm>
+#include <cstdint>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -39,6 +40,7 @@ namespace Engine {
 namespace {
 
 constexpr const char* RECENT_SCENES_PATH = "config/editor_recent_scenes.json";
+constexpr float AUTOSAVE_INTERVAL_SECONDS = 60.0f;
 
 } // namespace
 
@@ -345,6 +347,9 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
             SceneSerializer serializer(const_cast<Scene*>(scene), m_renderer);
             session.initial_snapshot_json = serializer.serialize_to_string();
         }
+        session.autosave_identity = !session.file_path.empty()
+            ? std::filesystem::path(session.file_path).lexically_normal().generic_string()
+            : "untitled:" + scene_name + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(scene));
 
         it = m_scene_sessions.emplace(scene, std::move(session)).first;
     }
@@ -572,6 +577,7 @@ void EditorLayer::create_new_scene(const std::string& name) {
     session.command_history->reset_clean_baseline(0);
     session.file_path = "";
     session.initial_snapshot_json = SceneSerializer(new_scene.get(), m_renderer).serialize_to_string();
+    session.autosave_identity = "untitled:" + name + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(new_scene.get()));
 
     const auto& scenes = m_scene_manager->get_scenes();
     const auto scene_it = std::find_if(scenes.begin(), scenes.end(), [&new_scene](const std::shared_ptr<Scene>& scene) {
@@ -605,6 +611,8 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
     session.file_path = path;
     session.initial_snapshot_json.clear();
     if (session.command_history) session.command_history->mark_saved();
+    static_cast<void>(m_autosave_recovery.remove(session.autosave_identity));
+    session.autosave_identity = std::filesystem::path(path).lexically_normal().generic_string();
     record_recent_scene(path);
     ENGINE_LOG_INFO("[EDITOR] Successfully saved scene '{}' to '{}'", scene->get_name(), path);
     return true;
@@ -746,6 +754,7 @@ bool EditorLayer::discard_active_scene_changes() {
     if (session.entity_state_store) {
         session.entity_state_store->prune(active_scene->get_entity_manager());
     }
+    static_cast<void>(m_autosave_recovery.remove(session.autosave_identity));
     update_window_title();
     return true;
 }
@@ -769,6 +778,7 @@ void EditorLayer::load_scene(const std::string& path) {
         session.command_history->reset_clean_baseline(0);
         session.file_path = path;
         session.initial_snapshot_json.clear();
+        session.autosave_identity = std::filesystem::path(path).lexically_normal().generic_string();
         record_recent_scene(path);
 
         activate_scene(static_cast<std::size_t>(m_scene_manager->get_active_index()));
@@ -1193,12 +1203,93 @@ void EditorLayer::render_main_menu_bar() {
 void EditorLayer::render_panels(float delta_time) {
     if (!m_initialized || !m_visible) return;
 
+    if (!m_recovery_scan_complete) {
+        m_pending_recoveries = m_autosave_recovery.discover();
+        m_recovery_scan_complete = true;
+    }
+    update_autosaves(delta_time);
+    render_recovery_modal();
+
     for (auto& panel : m_panels) {
         if (panel && panel->is_open) {
             panel->on_update(delta_time);
             panel->on_gui();
         }
     }
+}
+
+void EditorLayer::update_autosaves(float delta_time) {
+    if (!m_scene_manager || delta_time <= 0.0f) return;
+    m_autosave_elapsed += delta_time;
+    if (m_autosave_elapsed < AUTOSAVE_INTERVAL_SECONDS) return;
+    m_autosave_elapsed = 0.0f;
+
+    for (const auto& scene : m_scene_manager->get_scenes()) {
+        if (!scene) continue;
+        auto& session = get_or_create_session(scene.get());
+        if (!session.command_history || !session.command_history->is_dirty()) continue;
+        const std::string snapshot = SceneSerializer(scene.get(), m_renderer).serialize_to_string();
+        if (m_autosave_recovery.write_snapshot(
+                session.autosave_identity, session.file_path, scene->get_name(), snapshot
+            )) {
+            ENGINE_LOG_INFO("[AUTOSAVE] Snapshot written for scene '{}'", scene->get_name());
+        }
+    }
+}
+
+void EditorLayer::render_recovery_modal() {
+    if (m_pending_recoveries.empty()) return;
+
+    ImGui::OpenPopup("Recover Autosaved Scene");
+    if (!ImGui::BeginPopupModal("Recover Autosaved Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+    const AutosaveRecord& record = m_pending_recoveries.front();
+    ImGui::Text("An autosaved scene was found for '%s'.", record.scene_name.c_str());
+    if (!record.source_path.empty()) {
+        ImGui::TextWrapped("Recover the unsaved changes over: %s", record.source_path.c_str());
+    } else {
+        ImGui::TextWrapped("Recover the unsaved changes as a new scene.");
+    }
+    ImGui::Spacing();
+    if (ImGui::Button("Recover", ImVec2(120, 0))) {
+        recover_autosave(record);
+        m_pending_recoveries.erase(m_pending_recoveries.begin());
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Discard Autosave", ImVec2(140, 0))) {
+        static_cast<void>(m_autosave_recovery.remove(record.identity));
+        m_pending_recoveries.erase(m_pending_recoveries.begin());
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void EditorLayer::recover_autosave(const AutosaveRecord& record) {
+    if (!m_scene_manager) return;
+
+    auto recovered_scene = std::make_shared<GenericScene>(record.scene_name);
+    SceneSerializer serializer(recovered_scene.get(), m_renderer);
+    if (!serializer.deserialize_from_string(record.snapshot_json)) {
+        ENGINE_LOG_ERROR("[AUTOSAVE] Failed recovering scene '{}'", record.scene_name);
+        return;
+    }
+
+    m_scene_manager->add_scene(recovered_scene);
+    auto& session = get_or_create_session(recovered_scene.get(), record.scene_name);
+    session.command_history->reset_clean_baseline(0);
+    session.command_history->mark_recovered();
+    session.file_path = record.source_path;
+    session.initial_snapshot_json.clear();
+    session.autosave_identity = record.identity;
+    if (!record.source_path.empty()) record_recent_scene(record.source_path);
+
+    const auto& scenes = m_scene_manager->get_scenes();
+    const auto recovered = std::find_if(scenes.begin(), scenes.end(), [&recovered_scene](const std::shared_ptr<Scene>& scene) {
+        return scene.get() == recovered_scene.get();
+    });
+    if (recovered != scenes.end()) activate_scene(static_cast<std::size_t>(std::distance(scenes.begin(), recovered)));
+    ENGINE_LOG_INFO("[AUTOSAVE] Recovered scene '{}'", record.scene_name);
 }
 
 void EditorLayer::end_frame(SDL_Renderer* renderer) {
