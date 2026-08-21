@@ -350,6 +350,8 @@ void GenericScene::on_render(Renderer2D& renderer) {
             renderer,
             AssetDatabase::get(),
             m_editor_camera,
+            m_ui_editor_safe_area,
+            m_show_ui_safe_area_overlay,
             filter
         );
     } else {
@@ -370,10 +372,16 @@ void GenericScene::on_render(Renderer2D& renderer) {
 
 void GenericScene::on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) {
     Camera2D& camera = view == RenderViewKind::Editor ? m_editor_camera : m_camera;
-    m_ui_output_size = {
-        static_cast<float>(configuration.output_width),
-        static_cast<float>(configuration.output_height)
-    };
+    if (view == RenderViewKind::Editor) {
+        m_ui_editor_safe_area = configuration.safe_area;
+        m_show_ui_safe_area_overlay = configuration.show_safe_area_overlay;
+    } else {
+        m_ui_output_size = {
+            static_cast<float>(configuration.output_width),
+            static_cast<float>(configuration.output_height)
+        };
+        m_ui_safe_area = configuration.safe_area;
+    }
     camera.set_viewport_size(static_cast<float>(configuration.output_width), static_cast<float>(configuration.output_height));
     camera.set_reference_size(static_cast<float>(configuration.reference_width), static_cast<float>(configuration.reference_height));
     if (m_post_process_initialized) {

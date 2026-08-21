@@ -1,20 +1,13 @@
 #pragma once
 
+#include "../core/Display.hpp"
 #include "../ecs/components/UIComponents.hpp"
 #include "../ecs/EcsTypes.hpp"
+#include <array>
 #include <glm/glm.hpp>
 #include <vector>
 
 namespace Engine {
-
-struct SafeAreaInsets {
-    float left{0.0f};
-    float top{0.0f};
-    float right{0.0f};
-    float bottom{0.0f};
-
-    bool operator==(const SafeAreaInsets&) const = default;
-};
 
 struct UIRect {
     glm::vec2 position{0.0f};
@@ -28,7 +21,9 @@ struct UIRect {
 struct CanvasViewport {
     UIRect logical_rect;
     UIRect physical_rect;
+    UIRect platform_safe_rect;
     UIRect safe_rect;
+    UIRect output_rect;
     glm::vec2 scale{1.0f};
 };
 
@@ -37,6 +32,12 @@ struct ResolvedUILayout {
     UIRect parent_logical_rect;
     UIRect logical_rect;
     UIRect screen_rect;
+    glm::vec2 pivot{0.5f, 0.5f};
+    glm::vec2 screen_pivot{0.0f};
+    glm::vec2 parent_logical_pivot{0.0f};
+    glm::vec2 parent_screen_pivot{0.0f};
+    float parent_rotation{0.0f};
+    float rotation{0.0f};
 };
 
 class EntityManager;
@@ -55,7 +56,8 @@ class AssetDatabase;
 [[nodiscard]] CanvasViewport calculate_canvas_editor_viewport(
     const CanvasComponent& canvas,
     const glm::vec2& canvas_world_position,
-    const Camera2D& editor_camera
+    const Camera2D& editor_camera,
+    const SafeAreaInsets& safe_area = {}
 );
 
 [[nodiscard]] UIRect resolve_ui_rect(
@@ -76,6 +78,21 @@ class AssetDatabase;
 [[nodiscard]] UIRect canvas_to_screen(
     const UIRect& canvas_rect,
     const CanvasViewport& viewport
+);
+
+[[nodiscard]] glm::vec2 rotate_ui_point(
+    const glm::vec2& point,
+    const glm::vec2& origin,
+    float rotation_degrees
+);
+
+[[nodiscard]] std::array<glm::vec2, 4> resolved_ui_corners(
+    const ResolvedUILayout& resolved
+);
+
+[[nodiscard]] bool point_in_resolved_ui_rect(
+    const ResolvedUILayout& resolved,
+    const glm::vec2& point
 );
 
 // Resolves descendants in authored hierarchy order without mutating ECS data.

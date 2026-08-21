@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../ecs/EntityManager.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/UIComponents.hpp"
 #include "../../scene/Camera2D.hpp"
 #include "../tools/UILayoutGizmoMath.hpp"
@@ -24,6 +25,7 @@ public:
         bool is_viewport_hovered,
         bool snap_enabled,
         float snap_step,
+        float rotation_snap_step,
         EditorCommandHistory* command_history,
         const EditorEntityVisibilityFilter* visibility_filter = nullptr
     );
@@ -39,7 +41,8 @@ private:
         AnchorMinimum,
         AnchorMaximum,
         AnchorBoth,
-        Pivot
+        Pivot,
+        Rotate
     };
 
     void cancel_drag(EntityManager& entities);
@@ -49,9 +52,17 @@ private:
     DragMode m_drag_mode{DragMode::None};
     UIResizeHandle m_resize_handle{UIResizeHandle::BottomRight};
     UILayoutComponent m_initial_layout{};
+    TransformComponent m_initial_transform{};
     UIRect m_initial_rect{};
     UIRect m_initial_parent_rect{};
-    glm::vec2 m_drag_start_canvas{0.0f};
+    glm::vec2 m_drag_start_screen{0.0f};
+    glm::vec2 m_initial_logical_pivot{0.0f};
+    glm::vec2 m_initial_screen_pivot{0.0f};
+    glm::vec2 m_initial_parent_logical_pivot{0.0f};
+    glm::vec2 m_initial_parent_screen_pivot{0.0f};
+    float m_initial_parent_rotation{0.0f};
+    float m_initial_rotation{0.0f};
+    float m_drag_start_angle{0.0f};
     bool m_hovered{false};
 };
 

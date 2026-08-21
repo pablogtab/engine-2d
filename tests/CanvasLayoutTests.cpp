@@ -217,6 +217,62 @@ void test_editor_canvas_stays_at_its_world_position() {
     assert_vec2(viewport.physical_rect.size, {200.0f, 100.0f});
 }
 
+void test_editor_canvas_previews_the_runtime_safe_area() {
+    CanvasComponent canvas;
+    canvas.reference_size = {390.0f, 844.0f};
+    canvas.scaling_policy = PresentationMode::Stretch;
+    canvas.use_safe_area = true;
+    Camera2D camera(800.0f, 1000.0f);
+    const CanvasViewport viewport = calculate_canvas_editor_viewport(
+        canvas, {0.0f, 0.0f}, camera, {0.0f, 47.0f, 0.0f, 34.0f}
+    );
+    assert_vec2(viewport.output_rect.size, {390.0f, 844.0f});
+    assert(viewport.platform_safe_rect == viewport.safe_rect);
+    assert_vec2(viewport.safe_rect.position, {205.0f, 125.0f});
+    assert_vec2(viewport.safe_rect.size, {390.0f, 763.0f});
+    assert(viewport.physical_rect == viewport.safe_rect);
+}
+
+void test_rotated_ui_layout_resolves_nested_geometry() {
+    EntityManager entities;
+    const EntityID canvas_entity = entities.create_entity();
+    const EntityID parent_entity = entities.create_entity();
+    const EntityID child_entity = entities.create_entity();
+    CanvasComponent canvas;
+    canvas.reference_size = {200.0f, 200.0f};
+    canvas.scaling_policy = PresentationMode::Stretch;
+    canvas.use_safe_area = false;
+    entities.add_component<CanvasComponent>(canvas_entity, canvas);
+    entities.add_component<HierarchyComponent>(canvas_entity, HierarchyComponent{});
+    entities.add_component<HierarchyComponent>(parent_entity, HierarchyComponent{canvas_entity});
+    entities.add_component<HierarchyComponent>(child_entity, HierarchyComponent{parent_entity});
+    entities.get_component<HierarchyComponent>(canvas_entity).children = {parent_entity};
+    entities.get_component<HierarchyComponent>(parent_entity).children = {child_entity};
+
+    UILayoutComponent parent_layout;
+    parent_layout.size_delta = {100.0f, 100.0f};
+    entities.add_component<UILayoutComponent>(parent_entity, parent_layout);
+    entities.add_component<TransformComponent>(parent_entity, TransformComponent{});
+    entities.get_component<TransformComponent>(parent_entity).rotation = 90.0f;
+
+    UILayoutComponent child_layout;
+    child_layout.size_delta = {20.0f, 20.0f};
+    child_layout.anchored_position = {30.0f, 0.0f};
+    entities.add_component<UILayoutComponent>(child_entity, child_layout);
+    entities.add_component<TransformComponent>(child_entity, TransformComponent{});
+    entities.get_component<TransformComponent>(child_entity).rotation = 15.0f;
+
+    const CanvasViewport viewport = calculate_canvas_viewport(canvas, {400.0f, 200.0f});
+    const auto resolved = resolve_canvas_hierarchy(entities, canvas_entity, viewport);
+    assert(resolved.size() == 2);
+    assert_vec2(resolved[0].screen_pivot, {200.0f, 100.0f});
+    assert(approximate(resolved[0].rotation, 90.0f));
+    assert_vec2(resolved[1].screen_pivot, {200.0f, 160.0f});
+    assert(approximate(resolved[1].rotation, 105.0f));
+    assert(point_in_resolved_ui_rect(resolved[0], {200.0f, 190.0f}));
+    assert(!point_in_resolved_ui_rect(resolved[0], {290.0f, 100.0f}));
+}
+
 void test_ui_drag_converts_screen_motion_to_canvas_pixels() {
     CanvasViewport viewport;
     viewport.scale = {0.5f, 0.5f};
@@ -338,6 +394,8 @@ int main() {
     test_hierarchy_resolution_preserves_nested_order();
     test_fit_content_drives_the_resolved_rect_and_children();
     test_editor_canvas_stays_at_its_world_position();
+    test_editor_canvas_previews_the_runtime_safe_area();
+    test_rotated_ui_layout_resolves_nested_geometry();
     test_ui_drag_converts_screen_motion_to_canvas_pixels();
     test_ui_resize_handles_preserve_the_opposite_edges();
     test_ui_rect_conversion_supports_fixed_and_stretched_layouts();

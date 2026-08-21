@@ -70,11 +70,6 @@ std::optional<GizmoLayoutContext> resolve_context(
     return std::nullopt;
 }
 
-bool point_inside(const ImVec2& point, const ImVec2& minimum, const ImVec2& maximum) {
-    return point.x >= minimum.x && point.x <= maximum.x &&
-        point.y >= minimum.y && point.y <= maximum.y;
-}
-
 bool point_near(const ImVec2& point, const ImVec2& center, float radius) {
     const float x = point.x - center.x;
     const float y = point.y - center.y;
@@ -143,6 +138,7 @@ bool UILayoutGizmo::draw_gizmo(
     bool is_viewport_hovered,
     bool snap_enabled,
     float snap_step,
+    float rotation_snap_step,
     EditorCommandHistory* command_history,
     const EditorEntityVisibilityFilter* visibility_filter
 ) {
@@ -178,49 +174,62 @@ bool UILayoutGizmo::draw_gizmo(
             viewport_position.y + screen_position.y * display_scale.y
         );
     };
-    const auto mouse_to_canvas = [&](const ImVec2& mouse) {
-        const glm::vec2 camera_screen{
-            (mouse.x - viewport_position.x) / std::max(display_scale.x, 0.0001f),
-            (mouse.y - viewport_position.y) / std::max(display_scale.y, 0.0001f)
-        };
-        return screen_to_canvas(camera_screen, context->viewport);
-    };
-
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 mouse = io.MousePos;
-    ImVec2 rect_min = to_editor_screen(context->resolved.screen_rect.min());
-    ImVec2 rect_max = to_editor_screen(context->resolved.screen_rect.max());
-    if (rect_min.x > rect_max.x) std::swap(rect_min.x, rect_max.x);
-    if (rect_min.y > rect_max.y) std::swap(rect_min.y, rect_max.y);
+    const glm::vec2 mouse_camera_screen{
+        (mouse.x - viewport_position.x) / std::max(display_scale.x, 0.0001f),
+        (mouse.y - viewport_position.y) / std::max(display_scale.y, 0.0001f)
+    };
+    const auto resolved_corners = resolved_ui_corners(context->resolved);
+    std::array<ImVec2, 4> rect_corners{};
+    for (std::size_t index = 0; index < rect_corners.size(); ++index) {
+        rect_corners[index] = to_editor_screen(resolved_corners[index]);
+    }
     const UIRect& parent = context->resolved.parent_logical_rect;
     const glm::vec2 anchor_min_canvas = parent.position + parent.size * context->layout.anchor_min;
     const glm::vec2 anchor_max_canvas = parent.position + parent.size * context->layout.anchor_max;
     const glm::vec2 anchor_pivot_canvas = glm::mix(
         anchor_min_canvas, anchor_max_canvas, context->layout.pivot
     );
-    const glm::vec2 pivot_canvas = context->resolved.logical_rect.position +
-        context->resolved.logical_rect.size * context->layout.pivot;
-    const ImVec2 anchor_min = to_editor_screen(canvas_to_screen(anchor_min_canvas, context->viewport));
-    const ImVec2 anchor_max = to_editor_screen(canvas_to_screen(anchor_max_canvas, context->viewport));
-    const ImVec2 anchor_pivot = to_editor_screen(canvas_to_screen(anchor_pivot_canvas, context->viewport));
-    const ImVec2 pivot = to_editor_screen(canvas_to_screen(pivot_canvas, context->viewport));
+    const auto parent_point_to_screen = [&](const glm::vec2& point) {
+        const glm::vec2 local_screen =
+            (point - context->resolved.parent_logical_pivot) * context->viewport.scale;
+        const glm::vec2 rotated = rotate_ui_point(
+            local_screen, glm::vec2(0.0f), context->resolved.parent_rotation
+        );
+        return context->resolved.parent_screen_pivot + rotated;
+    };
+    const ImVec2 anchor_min = to_editor_screen(parent_point_to_screen(anchor_min_canvas));
+    const ImVec2 anchor_max = to_editor_screen(parent_point_to_screen(anchor_max_canvas));
+    const ImVec2 anchor_pivot = to_editor_screen(parent_point_to_screen(anchor_pivot_canvas));
+    const ImVec2 pivot = to_editor_screen(context->resolved.screen_pivot);
 
     struct ResizePoint {
         UIResizeHandle handle;
         ImVec2 position;
     };
-    const float center_x = (rect_min.x + rect_max.x) * 0.5f;
-    const float center_y = (rect_min.y + rect_max.y) * 0.5f;
+    const auto midpoint = [](const ImVec2& lhs, const ImVec2& rhs) {
+        return ImVec2((lhs.x + rhs.x) * 0.5f, (lhs.y + rhs.y) * 0.5f);
+    };
     const std::array<ResizePoint, 8> resize_points{{
-        {UIResizeHandle::TopLeft, rect_min},
-        {UIResizeHandle::Top, {center_x, rect_min.y}},
-        {UIResizeHandle::TopRight, {rect_max.x, rect_min.y}},
-        {UIResizeHandle::Right, {rect_max.x, center_y}},
-        {UIResizeHandle::BottomRight, rect_max},
-        {UIResizeHandle::Bottom, {center_x, rect_max.y}},
-        {UIResizeHandle::BottomLeft, {rect_min.x, rect_max.y}},
-        {UIResizeHandle::Left, {rect_min.x, center_y}}
+        {UIResizeHandle::TopLeft, rect_corners[0]},
+        {UIResizeHandle::Top, midpoint(rect_corners[0], rect_corners[1])},
+        {UIResizeHandle::TopRight, rect_corners[1]},
+        {UIResizeHandle::Right, midpoint(rect_corners[1], rect_corners[2])},
+        {UIResizeHandle::BottomRight, rect_corners[2]},
+        {UIResizeHandle::Bottom, midpoint(rect_corners[2], rect_corners[3])},
+        {UIResizeHandle::BottomLeft, rect_corners[3]},
+        {UIResizeHandle::Left, midpoint(rect_corners[3], rect_corners[0])}
     }};
+    const ImVec2 top_center = resize_points[1].position;
+    const ImVec2 bottom_center = resize_points[5].position;
+    const float outward_x = top_center.x - bottom_center.x;
+    const float outward_y = top_center.y - bottom_center.y;
+    const float outward_length = std::max(std::hypot(outward_x, outward_y), 0.0001f);
+    const ImVec2 rotation_handle{
+        top_center.x + outward_x / outward_length * 22.0f,
+        top_center.y + outward_y / outward_length * 22.0f
+    };
     const bool fit_width = entities.has_component<UITextComponent>(selected) &&
         entities.get_component<UITextComponent>(selected).fit_content_width;
     const bool fit_height = entities.has_component<UITextComponent>(selected) &&
@@ -239,7 +248,9 @@ bool UILayoutGizmo::draw_gizmo(
 
     DragMode hovered_mode = DragMode::None;
     UIResizeHandle hovered_resize = UIResizeHandle::BottomRight;
-    if (is_viewport_hovered && point_near(mouse, pivot, 8.0f)) {
+    if (is_viewport_hovered && point_near(mouse, rotation_handle, 8.0f)) {
+        hovered_mode = DragMode::Rotate;
+    } else if (is_viewport_hovered && point_near(mouse, pivot, 8.0f)) {
         hovered_mode = DragMode::Pivot;
     }
     if (is_viewport_hovered && hovered_mode == DragMode::None) {
@@ -265,10 +276,8 @@ bool UILayoutGizmo::draw_gizmo(
             hovered_mode = DragMode::AnchorMaximum;
         }
     }
-    const ImVec2 hit_min{rect_min.x - 4.0f, rect_min.y - 4.0f};
-    const ImVec2 hit_max{rect_max.x + 4.0f, rect_max.y + 4.0f};
     if (is_viewport_hovered && hovered_mode == DragMode::None &&
-        point_inside(mouse, hit_min, hit_max)) {
+        point_in_resolved_ui_rect(context->resolved, mouse_camera_screen)) {
         hovered_mode = DragMode::Move;
     }
     m_hovered = hovered_mode != DragMode::None;
@@ -279,9 +288,20 @@ bool UILayoutGizmo::draw_gizmo(
         m_drag_mode = hovered_mode;
         m_resize_handle = hovered_resize;
         m_initial_layout = context->layout;
+        if (entities.has_component<TransformComponent>(selected)) {
+            m_initial_transform = entities.get_component<TransformComponent>(selected);
+        }
         m_initial_rect = context->resolved.logical_rect;
         m_initial_parent_rect = context->resolved.parent_logical_rect;
-        m_drag_start_canvas = mouse_to_canvas(mouse);
+        m_drag_start_screen = mouse_camera_screen;
+        m_initial_logical_pivot = context->resolved.logical_rect.position +
+            context->resolved.logical_rect.size * context->layout.pivot;
+        m_initial_screen_pivot = context->resolved.screen_pivot;
+        m_initial_parent_logical_pivot = context->resolved.parent_logical_pivot;
+        m_initial_parent_screen_pivot = context->resolved.parent_screen_pivot;
+        m_initial_parent_rotation = context->resolved.parent_rotation;
+        m_initial_rotation = context->resolved.rotation;
+        m_drag_start_angle = std::atan2(mouse.y - pivot.y, mouse.x - pivot.x);
     }
 
     if (m_drag_mode != DragMode::None) {
@@ -289,19 +309,27 @@ bool UILayoutGizmo::draw_gizmo(
             cancel_drag(entities);
             cancelled_this_frame = true;
         } else if (io.MouseDown[ImGuiMouseButton_Left]) {
-            const glm::vec2 current_canvas = mouse_to_canvas(mouse);
             auto& layout = entities.get_component<UILayoutComponent>(m_drag_entity);
-            const glm::vec2 delta = current_canvas - m_drag_start_canvas;
+            const glm::vec2 safe_scale = glm::max(
+                glm::abs(context->viewport.scale), glm::vec2(0.0001f)
+            );
+            const glm::vec2 screen_delta = mouse_camera_screen - m_drag_start_screen;
+            const glm::vec2 parent_delta = rotate_ui_point(
+                screen_delta, glm::vec2(0.0f), -m_initial_parent_rotation
+            ) / safe_scale;
+            const glm::vec2 local_delta = rotate_ui_point(
+                screen_delta, glm::vec2(0.0f), -m_initial_rotation
+            ) / safe_scale;
             if (m_drag_mode == DragMode::Move) {
                 layout = m_initial_layout;
                 layout.anchored_position = {
                     snap_ui_value(
-                        m_initial_layout.anchored_position.x + delta.x,
+                        m_initial_layout.anchored_position.x + parent_delta.x,
                         snap_enabled,
                         snap_step
                     ),
                     snap_ui_value(
-                        m_initial_layout.anchored_position.y + delta.y,
+                        m_initial_layout.anchored_position.y + parent_delta.y,
                         snap_enabled,
                         snap_step
                     )
@@ -309,7 +337,7 @@ bool UILayoutGizmo::draw_gizmo(
             } else if (m_drag_mode == DragMode::Resize) {
                 const UIRect resized = resize_ui_rect(
                     m_initial_rect,
-                    delta,
+                    local_delta,
                     m_resize_handle,
                     snap_enabled,
                     snap_step
@@ -325,19 +353,43 @@ bool UILayoutGizmo::draw_gizmo(
                 }
             } else if (m_drag_mode == DragMode::Pivot) {
                 const glm::vec2 safe_size = glm::max(m_initial_rect.size, glm::vec2(0.0001f));
+                const glm::vec2 logical_point = m_initial_logical_pivot + rotate_ui_point(
+                    mouse_camera_screen - m_initial_screen_pivot,
+                    glm::vec2(0.0f),
+                    -m_initial_rotation
+                ) / safe_scale;
                 layout = move_ui_pivot_preserving_rect(
                     m_initial_layout,
                     m_initial_parent_rect,
                     m_initial_rect,
-                    (current_canvas - m_initial_rect.position) / safe_size
+                    (logical_point - m_initial_rect.position) / safe_size
                 );
+            } else if (m_drag_mode == DragMode::Rotate) {
+                if (entities.has_component<TransformComponent>(m_drag_entity)) {
+                    const float current_angle = std::atan2(
+                        mouse.y - pivot.y, mouse.x - pivot.x
+                    );
+                    float angle_delta = glm::degrees(current_angle - m_drag_start_angle);
+                    while (angle_delta > 180.0f) angle_delta -= 360.0f;
+                    while (angle_delta < -180.0f) angle_delta += 360.0f;
+                    float rotation = m_initial_transform.rotation + angle_delta;
+                    if (snap_enabled && rotation_snap_step > 0.0f) {
+                        rotation = std::round(rotation / rotation_snap_step) * rotation_snap_step;
+                    }
+                    entities.get_component<TransformComponent>(m_drag_entity).rotation = rotation;
+                }
             } else {
-                glm::vec2 anchor = (current_canvas - m_initial_parent_rect.position) /
+                glm::vec2 parent_point = m_initial_parent_logical_pivot + rotate_ui_point(
+                    mouse_camera_screen - m_initial_parent_screen_pivot,
+                    glm::vec2(0.0f),
+                    -m_initial_parent_rotation
+                ) / safe_scale;
+                glm::vec2 anchor = (parent_point - m_initial_parent_rect.position) /
                     glm::max(m_initial_parent_rect.size, glm::vec2(0.0001f));
                 if (snap_enabled && snap_step > 0.0f) {
                     const glm::vec2 snapped_canvas{
-                        snap_ui_value(current_canvas.x, true, snap_step),
-                        snap_ui_value(current_canvas.y, true, snap_step)
+                        snap_ui_value(parent_point.x, true, snap_step),
+                        snap_ui_value(parent_point.y, true, snap_step)
                     };
                     anchor = (snapped_canvas - m_initial_parent_rect.position) /
                         glm::max(m_initial_parent_rect.size, glm::vec2(0.0001f));
@@ -373,8 +425,24 @@ bool UILayoutGizmo::draw_gizmo(
             const DragMode completed_mode = m_drag_mode;
             const UILayoutComponent before = m_initial_layout;
             const UILayoutComponent after = entities.get_component<UILayoutComponent>(dragged_entity);
+            const TransformComponent transform_before = m_initial_transform;
+            const TransformComponent transform_after =
+                entities.has_component<TransformComponent>(dragged_entity)
+                    ? entities.get_component<TransformComponent>(dragged_entity)
+                    : m_initial_transform;
             clear_drag();
-            if (command_history && before != after) {
+            if (command_history && completed_mode == DragMode::Rotate &&
+                std::abs(transform_before.rotation - transform_after.rotation) > 0.0001f) {
+                command_history->push_executed_command(
+                    std::make_unique<SetComponentCommand<TransformComponent>>(
+                        &entities,
+                        dragged_entity,
+                        transform_before,
+                        transform_after,
+                        "Rotate UI Element"
+                    )
+                );
+            } else if (command_history && before != after) {
                 const char* description = "Edit UI Layout";
                 if (completed_mode == DragMode::Move) description = "Move UI Element";
                 else if (completed_mode == DragMode::Resize) description = "Resize UI Element";
@@ -396,10 +464,11 @@ bool UILayoutGizmo::draw_gizmo(
     context = resolve_context(entities, selected, camera);
     if (!context) return true;
 
-    rect_min = to_editor_screen(context->resolved.screen_rect.min());
-    rect_max = to_editor_screen(context->resolved.screen_rect.max());
-    if (rect_min.x > rect_max.x) std::swap(rect_min.x, rect_max.x);
-    if (rect_min.y > rect_max.y) std::swap(rect_min.y, rect_max.y);
+    const auto updated_resolved_corners = resolved_ui_corners(context->resolved);
+    std::array<ImVec2, 4> updated_rect_corners{};
+    for (std::size_t index = 0; index < updated_rect_corners.size(); ++index) {
+        updated_rect_corners[index] = to_editor_screen(updated_resolved_corners[index]);
+    }
 
     const UIRect& updated_parent = context->resolved.parent_logical_rect;
     const glm::vec2 updated_anchor_min_canvas = updated_parent.position +
@@ -409,33 +478,45 @@ bool UILayoutGizmo::draw_gizmo(
     const glm::vec2 updated_anchor_pivot_canvas = glm::mix(
         updated_anchor_min_canvas, updated_anchor_max_canvas, context->layout.pivot
     );
-    const glm::vec2 updated_pivot_canvas = context->resolved.logical_rect.position +
-        context->resolved.logical_rect.size * context->layout.pivot;
-    const ImVec2 updated_anchor_min = to_editor_screen(canvas_to_screen(
-        updated_anchor_min_canvas, context->viewport
-    ));
-    const ImVec2 updated_anchor_max = to_editor_screen(canvas_to_screen(
-        updated_anchor_max_canvas, context->viewport
-    ));
-    const ImVec2 updated_anchor_pivot = to_editor_screen(canvas_to_screen(
-        updated_anchor_pivot_canvas, context->viewport
-    ));
-    const ImVec2 updated_pivot = to_editor_screen(canvas_to_screen(
-        updated_pivot_canvas, context->viewport
-    ));
+    const auto updated_parent_point_to_screen = [&](const glm::vec2& point) {
+        const glm::vec2 local_screen =
+            (point - context->resolved.parent_logical_pivot) * context->viewport.scale;
+        const glm::vec2 rotated = rotate_ui_point(
+            local_screen, glm::vec2(0.0f), context->resolved.parent_rotation
+        );
+        return context->resolved.parent_screen_pivot + rotated;
+    };
+    const ImVec2 updated_anchor_min = to_editor_screen(
+        updated_parent_point_to_screen(updated_anchor_min_canvas)
+    );
+    const ImVec2 updated_anchor_max = to_editor_screen(
+        updated_parent_point_to_screen(updated_anchor_max_canvas)
+    );
+    const ImVec2 updated_anchor_pivot = to_editor_screen(
+        updated_parent_point_to_screen(updated_anchor_pivot_canvas)
+    );
+    const ImVec2 updated_pivot = to_editor_screen(context->resolved.screen_pivot);
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     constexpr ImU32 anchor_color = IM_COL32(255, 188, 74, 240);
     constexpr ImU32 rect_color = IM_COL32(89, 202, 255, 255);
     if (std::abs(updated_anchor_min.x - updated_anchor_max.x) > 0.5f ||
         std::abs(updated_anchor_min.y - updated_anchor_max.y) > 0.5f) {
-        draw_list->AddRect(
+        const glm::vec2 anchor_top_right_canvas{
+            updated_anchor_max_canvas.x, updated_anchor_min_canvas.y
+        };
+        const glm::vec2 anchor_bottom_left_canvas{
+            updated_anchor_min_canvas.x, updated_anchor_max_canvas.y
+        };
+        const ImVec2 anchor_corners[4]{
             updated_anchor_min,
+            to_editor_screen(updated_parent_point_to_screen(anchor_top_right_canvas)),
             updated_anchor_max,
-            IM_COL32(255, 188, 74, 155),
-            0.0f,
-            0,
-            1.0f
+            to_editor_screen(updated_parent_point_to_screen(anchor_bottom_left_canvas))
+        };
+        draw_list->AddPolyline(
+            anchor_corners, 4, IM_COL32(255, 188, 74, 155),
+            ImDrawFlags_Closed, 1.0f
         );
         draw_anchor_marker(draw_list, updated_anchor_min, anchor_color, 5.0f);
         draw_anchor_marker(draw_list, updated_anchor_max, anchor_color, 5.0f);
@@ -443,24 +524,40 @@ bool UILayoutGizmo::draw_gizmo(
         draw_anchor_marker(draw_list, updated_anchor_pivot, anchor_color, 5.5f);
     }
     if (m_hovered || m_drag_mode != DragMode::None) {
-        draw_list->AddRectFilled(rect_min, rect_max, IM_COL32(89, 202, 255, 24));
+        draw_list->AddQuadFilled(
+            updated_rect_corners[0], updated_rect_corners[1],
+            updated_rect_corners[2], updated_rect_corners[3],
+            IM_COL32(89, 202, 255, 24)
+        );
     }
-    draw_list->AddRect(rect_min, rect_max, rect_color, 0.0f, 0, 2.0f);
-    const float updated_center_x = (rect_min.x + rect_max.x) * 0.5f;
-    const float updated_center_y = (rect_min.y + rect_max.y) * 0.5f;
+    draw_list->AddPolyline(
+        updated_rect_corners.data(), 4, rect_color, ImDrawFlags_Closed, 2.0f
+    );
     const std::array<ResizePoint, 8> updated_resize_points{{
-        {UIResizeHandle::TopLeft, rect_min},
-        {UIResizeHandle::Top, {updated_center_x, rect_min.y}},
-        {UIResizeHandle::TopRight, {rect_max.x, rect_min.y}},
-        {UIResizeHandle::Right, {rect_max.x, updated_center_y}},
-        {UIResizeHandle::BottomRight, rect_max},
-        {UIResizeHandle::Bottom, {updated_center_x, rect_max.y}},
-        {UIResizeHandle::BottomLeft, {rect_min.x, rect_max.y}},
-        {UIResizeHandle::Left, {rect_min.x, updated_center_y}}
+        {UIResizeHandle::TopLeft, updated_rect_corners[0]},
+        {UIResizeHandle::Top, midpoint(updated_rect_corners[0], updated_rect_corners[1])},
+        {UIResizeHandle::TopRight, updated_rect_corners[1]},
+        {UIResizeHandle::Right, midpoint(updated_rect_corners[1], updated_rect_corners[2])},
+        {UIResizeHandle::BottomRight, updated_rect_corners[2]},
+        {UIResizeHandle::Bottom, midpoint(updated_rect_corners[2], updated_rect_corners[3])},
+        {UIResizeHandle::BottomLeft, updated_rect_corners[3]},
+        {UIResizeHandle::Left, midpoint(updated_rect_corners[3], updated_rect_corners[0])}
     }};
     for (const ResizePoint& point : updated_resize_points) {
         if (handle_available(point.handle)) draw_marker(draw_list, point.position, rect_color, 4.0f);
     }
+    const ImVec2 updated_top_center = updated_resize_points[1].position;
+    const ImVec2 updated_bottom_center = updated_resize_points[5].position;
+    const float updated_outward_x = updated_top_center.x - updated_bottom_center.x;
+    const float updated_outward_y = updated_top_center.y - updated_bottom_center.y;
+    const float updated_outward_length = std::max(
+        std::hypot(updated_outward_x, updated_outward_y), 0.0001f
+    );
+    const ImVec2 updated_rotation_handle{
+        updated_top_center.x + updated_outward_x / updated_outward_length * 22.0f,
+        updated_top_center.y + updated_outward_y / updated_outward_length * 22.0f
+    };
+    draw_list->AddCircle(updated_rotation_handle, 5.0f, rect_color, 20, 2.0f);
     draw_list->AddCircleFilled(updated_pivot, 4.0f, rect_color, 16);
     draw_list->AddCircle(updated_pivot, 7.0f, IM_COL32(89, 202, 255, 190), 20, 1.0f);
 
@@ -469,6 +566,8 @@ bool UILayoutGizmo::draw_gizmo(
         const UIResizeHandle cursor_handle = m_drag_mode == DragMode::Resize
             ? m_resize_handle : hovered_resize;
         ImGui::SetMouseCursor(resize_cursor(cursor_handle));
+    } else if (cursor_mode == DragMode::Rotate) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     } else if (cursor_mode == DragMode::Move || cursor_mode == DragMode::Pivot ||
                cursor_mode == DragMode::AnchorMinimum ||
                cursor_mode == DragMode::AnchorMaximum ||
@@ -483,13 +582,19 @@ void UILayoutGizmo::cancel_drag(EntityManager& entities) {
         entities.has_component<UILayoutComponent>(m_drag_entity)) {
         entities.get_component<UILayoutComponent>(m_drag_entity) = m_initial_layout;
     }
+    if (m_drag_mode == DragMode::Rotate && m_drag_entity != 0 &&
+        entities.is_alive(m_drag_entity) &&
+        entities.has_component<TransformComponent>(m_drag_entity)) {
+        entities.get_component<TransformComponent>(m_drag_entity) = m_initial_transform;
+    }
     clear_drag();
 }
 
 void UILayoutGizmo::clear_drag() {
     m_drag_entity = 0;
     m_drag_mode = DragMode::None;
-    m_drag_start_canvas = {0.0f, 0.0f};
+    m_drag_start_screen = {0.0f, 0.0f};
+    m_drag_start_angle = 0.0f;
 }
 
 } // namespace Engine

@@ -161,6 +161,12 @@ int main() {
     require(manager.current_state().settings.display_id == 1, "removed display falls back to primary");
     require(manager.current_state().orientation == Engine::DisplayOrientation::Portrait, "orientation refreshes from system");
 
+    const int changes_before_safe_area = change_count;
+    fake->state.safe_area = {12.0f, 36.0f, 8.0f, 20.0f};
+    manager.refresh_from_system();
+    require(manager.current_state().safe_area == fake->state.safe_area, "safe area refreshes from system");
+    require(change_count == changes_before_safe_area + 1, "safe-area changes notify listeners");
+
     Engine::DisplayApplyError thread_error = Engine::DisplayApplyError::None;
     std::thread worker([&]() {
         thread_error = manager.apply(manager.current_state().settings).error;

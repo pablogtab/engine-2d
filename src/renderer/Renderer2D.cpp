@@ -351,7 +351,9 @@ void Renderer2D::submit_screen_text(
     const glm::vec2& pivot,
     float z_layer,
     bool scale_with_camera_projection,
-    std::shared_ptr<const Material> material
+    std::shared_ptr<const Material> material,
+    float rotation,
+    const glm::vec2& rotation_origin
 ) {
     if (text.empty()) return;
     Texture* atlas = font.get_atlas_texture();
@@ -378,13 +380,23 @@ void Renderer2D::submit_screen_text(
                 cur_x + g->offset.x * scale,
                 cur_y + g->offset.y * scale
             );
+            if (std::abs(rotation) > 0.0001f) {
+                const float radians = glm::radians(rotation);
+                const float cosine = std::cos(radians);
+                const float sine = std::sin(radians);
+                const glm::vec2 local = glyph_pos - rotation_origin;
+                glyph_pos = rotation_origin + glm::vec2(
+                    local.x * cosine - local.y * sine,
+                    local.x * sine + local.y * cosine
+                );
+            }
             glm::vec2 glyph_size = g->size * scale;
 
             submit_screen_sprite(
                 atlas,
                 glyph_pos,
                 glyph_size,
-                0.0f,
+                rotation,
                 color,
                 &g->src_rect,
                 glm::vec2(0.0f, 0.0f),

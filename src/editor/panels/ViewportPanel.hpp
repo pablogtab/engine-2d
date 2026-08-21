@@ -81,6 +81,8 @@ public:
 
     int get_render_width() const { return m_render_width; }
     int get_render_height() const { return m_render_height; }
+    void set_safe_area_preview(const SafeAreaInsets& insets) { m_safe_area_preview = insets; }
+    [[nodiscard]] bool show_safe_area_overlay() const { return m_show_safe_area_overlay; }
 
     // View menu entry point. Grid preferences are view-only session state.
     void render_grid_settings_menu();
@@ -139,6 +141,8 @@ private:
     glm::vec2 m_viewport_mouse_pos{0.0f, 0.0f};
     EditorToolbox m_transform_toolbox;
     ViewportGridSettings m_grid_settings;
+    SafeAreaInsets m_safe_area_preview{};
+    bool m_show_safe_area_overlay{true};
     ViewportReferenceOverlay m_reference_overlay;
     ViewportColliderOverlay m_collider_overlay;
     ViewportLightingOverlay m_lighting_overlay;

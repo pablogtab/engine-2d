@@ -169,7 +169,9 @@ public:
         const glm::vec2& pivot = {0.0f, 0.0f},
         float z_layer = 1.0f,
         bool scale_with_camera_projection = true,
-        std::shared_ptr<const Material> material = nullptr
+        std::shared_ptr<const Material> material = nullptr,
+        float rotation = 0.0f,
+        const glm::vec2& rotation_origin = {0.0f, 0.0f}
     );
     void submit_sprites_batch(const SpriteCommand* commands, size_t count);
     void end_scene();

@@ -205,14 +205,27 @@ void ViewportPanel::configure_scene_view() {
     const RenderViewKind view = m_scene_manager->is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
     if (view == RenderViewKind::Game && m_project_settings) {
         const auto& game_view = m_project_settings->display();
+        const float scale_x = static_cast<float>(m_render_width) /
+            static_cast<float>(std::max(game_view.reference_width, 1));
+        const float scale_y = static_cast<float>(m_render_height) /
+            static_cast<float>(std::max(game_view.reference_height, 1));
+        const SafeAreaInsets preview_safe_area{
+            m_safe_area_preview.left * scale_x,
+            m_safe_area_preview.top * scale_y,
+            m_safe_area_preview.right * scale_x,
+            m_safe_area_preview.bottom * scale_y
+        };
         m_scene_manager->configure_view(view, {
             m_render_width, m_render_height,
-            game_view.reference_width, game_view.reference_height
+            game_view.reference_width, game_view.reference_height,
+            preview_safe_area
         });
     } else {
         m_scene_manager->configure_view(view, {
             m_render_width, m_render_height,
-            m_render_width, m_render_height
+            m_render_width, m_render_height,
+            m_safe_area_preview,
+            m_show_safe_area_overlay
         });
     }
 }
@@ -226,6 +239,7 @@ ViewportPanel::~ViewportPanel() {
 
 void ViewportPanel::render_grid_settings_menu() {
     ImGui::Checkbox("Show grid (G)", &m_grid_settings.visible);
+    ImGui::Checkbox("Show UI safe area", &m_show_safe_area_overlay);
     ImGui::SetNextItemWidth(160.0f);
     ImGui::SliderFloat("Visual density", &m_grid_settings.target_spacing_pixels, 12.0f, 88.0f, "%.0f px");
     ImGui::SetNextItemWidth(160.0f);
@@ -1146,6 +1160,7 @@ void ViewportPanel::on_gui() {
                     viewport_tools_hovered,
                     is_position_snap_active(),
                     m_gizmo.snap_settings().position_step,
+                    m_gizmo.snap_settings().rotation_step,
                     m_command_history.get(),
                     &m_visibility_filter
                 );

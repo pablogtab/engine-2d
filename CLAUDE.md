@@ -109,6 +109,7 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
 - **Resource Management (`Engine::AssetManager`):** Centralized texture caching using `std::unordered_map` and `std::shared_ptr<Texture>` to prevent duplicate RAM/VRAM loads.
 
 ### 2. 2.5D Renderer & Performance Optimizations (`Engine::Renderer2D`)
+- **Renderer/Canvas contract:** Read `docs/RENDERER_CANVAS_CONTRACTS.md` before changing render stages, display mapping, Canvas layout, UI input, or UI Scene View tools. Keep that document synchronized with contract changes.
 - **2.5D Depth & Parallax (`Engine::Camera2D`):** Converts 3D world $(X, Y, Z)$ to 2D screen coordinates with parallax displacement and focal depth scaling.
 - **Sprite Batching / Instancing (Optimization 2.1):** Uses `SDL_RenderGeometry` to group quad geometry per texture into single VBO/VAO draw calls. Reduces 3,000 individual draw calls to **1 single GPU draw call** per frame (99.9% reduction).
 - **2D Frustum Culling (Optimization 2.2):** $O(1)$ early discard check (`Camera2D::is_visible`) before pushing out-of-screen sprites to render queues.

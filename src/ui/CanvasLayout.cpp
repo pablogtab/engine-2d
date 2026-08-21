@@ -7,6 +7,7 @@
 #include "../scene/Camera2D.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <unordered_set>
 
@@ -35,10 +36,8 @@ CanvasViewport calculate_canvas_viewport(
 ) {
     const glm::vec2 output = positive_size(output_size);
     const glm::vec2 reference = positive_size(canvas.reference_size);
-    const SafeAreaInsets insets = canvas.use_safe_area
-        ? clamp_safe_area(safe_area, output)
-        : SafeAreaInsets{};
-    const UIRect safe_rect{
+    const SafeAreaInsets insets = clamp_safe_area(safe_area, output);
+    const UIRect platform_safe_rect{
         {insets.left, insets.top},
         positive_size({
             output.x - insets.left - insets.right,
@@ -47,36 +46,40 @@ CanvasViewport calculate_canvas_viewport(
     };
 
     CanvasViewport result;
-    result.safe_rect = safe_rect;
+    result.output_rect = {{0.0f, 0.0f}, output};
+    result.platform_safe_rect = platform_safe_rect;
+    result.safe_rect = canvas.use_safe_area
+        ? platform_safe_rect
+        : result.output_rect;
     result.logical_rect = {{0.0f, 0.0f}, reference};
-    const glm::vec2 ratios = safe_rect.size / reference;
+    const glm::vec2 ratios = result.safe_rect.size / reference;
 
     switch (canvas.scaling_policy) {
         case PresentationMode::Fit: {
             const float scale = std::min(ratios.x, ratios.y);
             result.scale = glm::vec2(scale);
             result.physical_rect.size = reference * scale;
-            result.physical_rect.position = safe_rect.position +
-                (safe_rect.size - result.physical_rect.size) * 0.5f;
+            result.physical_rect.position = result.safe_rect.position +
+                (result.safe_rect.size - result.physical_rect.size) * 0.5f;
             break;
         }
         case PresentationMode::Fill: {
             const float scale = std::max(ratios.x, ratios.y);
             result.scale = glm::vec2(scale);
             result.physical_rect.size = reference * scale;
-            result.physical_rect.position = safe_rect.position +
-                (safe_rect.size - result.physical_rect.size) * 0.5f;
+            result.physical_rect.position = result.safe_rect.position +
+                (result.safe_rect.size - result.physical_rect.size) * 0.5f;
             break;
         }
         case PresentationMode::Stretch:
             result.scale = ratios;
-            result.physical_rect = safe_rect;
+            result.physical_rect = result.safe_rect;
             break;
         case PresentationMode::Responsive: {
             const float scale = std::min(ratios.x, ratios.y);
             result.scale = glm::vec2(scale);
-            result.logical_rect.size = safe_rect.size / scale;
-            result.physical_rect = safe_rect;
+            result.logical_rect.size = result.safe_rect.size / scale;
+            result.physical_rect = result.safe_rect;
             break;
         }
     }
@@ -86,21 +89,26 @@ CanvasViewport calculate_canvas_viewport(
 CanvasViewport calculate_canvas_editor_viewport(
     const CanvasComponent& canvas,
     const glm::vec2& canvas_world_position,
-    const Camera2D& editor_camera
+    const Camera2D& editor_camera,
+    const SafeAreaInsets& safe_area
 ) {
     const glm::vec2 reference = positive_size(canvas.reference_size);
     const glm::vec2 world_top_left = canvas_world_position +
         glm::vec2(-reference.x * 0.5f, reference.y * 0.5f);
     const float scale = editor_camera.get_effective_zoom();
 
-    CanvasViewport result;
-    result.logical_rect = {{0.0f, 0.0f}, reference};
-    result.physical_rect = {
-        editor_camera.world_to_screen(glm::vec3(world_top_left, 0.0f)),
-        reference * scale
+    CanvasViewport result = calculate_canvas_viewport(canvas, reference, safe_area);
+    const glm::vec2 frame_position = editor_camera.world_to_screen(
+        glm::vec3(world_top_left, 0.0f)
+    );
+    const auto map_preview_rect = [&](const UIRect& rect) {
+        return UIRect{frame_position + rect.position * scale, rect.size * scale};
     };
-    result.safe_rect = result.physical_rect;
-    result.scale = glm::vec2(scale);
+    result.output_rect = {frame_position, reference * scale};
+    result.platform_safe_rect = map_preview_rect(result.platform_safe_rect);
+    result.safe_rect = map_preview_rect(result.safe_rect);
+    result.physical_rect = map_preview_rect(result.physical_rect);
+    result.scale *= scale;
     return result;
 }
 
@@ -137,6 +145,50 @@ UIRect canvas_to_screen(const UIRect& canvas_rect, const CanvasViewport& viewpor
     };
 }
 
+glm::vec2 rotate_ui_point(
+    const glm::vec2& point,
+    const glm::vec2& origin,
+    float rotation_degrees
+) {
+    if (std::abs(rotation_degrees) <= 0.0001f) return point;
+    const float radians = glm::radians(rotation_degrees);
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    const glm::vec2 local = point - origin;
+    return origin + glm::vec2(
+        local.x * cosine - local.y * sine,
+        local.x * sine + local.y * cosine
+    );
+}
+
+std::array<glm::vec2, 4> resolved_ui_corners(const ResolvedUILayout& resolved) {
+    const glm::vec2 minimum = resolved.screen_rect.min();
+    const glm::vec2 maximum = resolved.screen_rect.max();
+    std::array<glm::vec2, 4> corners{{
+        minimum,
+        {maximum.x, minimum.y},
+        maximum,
+        {minimum.x, maximum.y}
+    }};
+    for (glm::vec2& corner : corners) {
+        corner = rotate_ui_point(corner, resolved.screen_pivot, resolved.rotation);
+    }
+    return corners;
+}
+
+bool point_in_resolved_ui_rect(
+    const ResolvedUILayout& resolved,
+    const glm::vec2& point
+) {
+    const glm::vec2 local = rotate_ui_point(
+        point, resolved.screen_pivot, -resolved.rotation
+    );
+    return local.x >= resolved.screen_rect.position.x &&
+        local.y >= resolved.screen_rect.position.y &&
+        local.x <= resolved.screen_rect.position.x + resolved.screen_rect.size.x &&
+        local.y <= resolved.screen_rect.position.y + resolved.screen_rect.size.y;
+}
+
 std::vector<ResolvedUILayout> resolve_canvas_hierarchy(
     const EntityManager& entities,
     EntityID canvas_entity,
@@ -149,8 +201,19 @@ std::vector<ResolvedUILayout> resolve_canvas_hierarchy(
 
     std::unordered_set<EntityID> visited;
     visited.insert(canvas_entity);
-    const std::function<void(EntityID, const UIRect&)> visit =
-        [&](EntityID parent, const UIRect& parent_rect) {
+    const std::function<void(
+        EntityID,
+        const UIRect&,
+        const glm::vec2&,
+        const glm::vec2&,
+        float
+    )> visit = [&] (
+        EntityID parent,
+        const UIRect& parent_rect,
+        const glm::vec2& parent_logical_pivot,
+        const glm::vec2& parent_screen_pivot,
+        float parent_rotation
+    ) {
             if (!entities.has_component<HierarchyComponent>(parent)) return;
             const auto& hierarchy = entities.get_component<HierarchyComponent>(parent);
             for (const EntityID child : hierarchy.children) {
@@ -171,17 +234,46 @@ std::vector<ResolvedUILayout> resolve_canvas_hierarchy(
                         child_rect.size = fitted_size;
                         child_rect.position = pivot_position - fitted_size * layout.pivot;
                     }
+                    const glm::vec2 logical_pivot = child_rect.position +
+                        child_rect.size * layout.pivot;
+                    const glm::vec2 parent_offset =
+                        (logical_pivot - parent_logical_pivot) * viewport.scale;
+                    const glm::vec2 screen_pivot = parent_screen_pivot + rotate_ui_point(
+                        parent_offset, glm::vec2(0.0f), parent_rotation
+                    );
+                    const float local_rotation = entities.has_component<TransformComponent>(child)
+                        ? entities.get_component<TransformComponent>(child).rotation
+                        : 0.0f;
+                    const float rotation = parent_rotation + local_rotation;
+                    const glm::vec2 screen_size = child_rect.size * viewport.scale;
                     result.push_back({
                         child,
                         parent_rect,
                         child_rect,
-                        canvas_to_screen(child_rect, viewport)
+                        {screen_pivot - screen_size * layout.pivot, screen_size},
+                        layout.pivot,
+                        screen_pivot,
+                        parent_logical_pivot,
+                        parent_screen_pivot,
+                        parent_rotation,
+                        rotation
                     });
+                    visit(child, child_rect, logical_pivot, screen_pivot, rotation);
+                } else {
+                    visit(
+                        child, child_rect, parent_logical_pivot,
+                        parent_screen_pivot, parent_rotation
+                    );
                 }
-                visit(child, child_rect);
             }
         };
-    visit(canvas_entity, viewport.logical_rect);
+    visit(
+        canvas_entity,
+        viewport.logical_rect,
+        viewport.logical_rect.position,
+        canvas_to_screen(viewport.logical_rect.position, viewport),
+        0.0f
+    );
     return result;
 }
 

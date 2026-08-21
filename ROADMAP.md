@@ -315,10 +315,10 @@ This is intentionally independent from the material workflow above. Materials re
   - [x] Preserve Canvas sorting and authored hierarchy overlap order independently from texture batching.
   - [x] Preview screen-space Canvas content as a stable framed Scene View object at its Transform while retaining screen-space Game View behavior.
   - [x] Register `.ttf` and `.otf` font assets with a runtime fallback when no font is assigned.
-- [ ] Add safe-area and notch support.
+- [x] Add safe-area and notch support.
   - [x] Make pure Canvas layout calculations safe-area-aware.
-  - [ ] Acquire and propagate platform safe-area/notch changes at runtime.
-- [ ] Add UI authoring tools, serialization, undo/redo, and validation.
+  - [x] Acquire and propagate platform safe-area/notch changes at runtime.
+- [x] Add UI authoring tools, serialization, undo/redo, and validation.
   - [x] Add Inspector authoring, serialization, prefab persistence, undo/redo, and validation.
   - [x] Present UI layout as `Rect Transform` with Unity-style visual anchor presets (click changes anchors, Alt/Option also snaps position and size, Shift also sets pivot), while hiding ineffective world-transform controls on UI children.
   - [x] Create Canvas, text, image, and button entities directly from the Hierarchy with dependency-complete component snapshots and Undo/Redo.
@@ -326,6 +326,7 @@ This is intentionally independent from the material workflow above. Materials re
   - [x] Add direct Scene View layout overlays and manipulation.
     - [x] Select and drag UI rectangles in the Canvas preview with visible anchors and pivot, pixel/grid snapping, Escape cancellation, and one Undo/Redo command per gesture.
     - [x] Add draggable anchor, pivot, edge, and corner handles for resizing and stretch authoring.
+    - [x] Add Inspector and Scene View rotation authoring with composed parent rotation, rotated picking/input/rendering, snapping, cancellation, and Undo/Redo.
 
 ### Display and Mobile Follow-Up
 
@@ -505,7 +506,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 These items are useful but should not interrupt the architecture work above unless required by an active workflow.
 
-- [ ] Optional safe-area overlays in Scene View.
+- [x] Optional safe-area overlays in Scene View.
 - [ ] Guide naming, locking, visibility groups, and persistence policies.
 - [ ] Additional snapping targets such as vertices, edges, pivots, and tile boundaries.
 - [ ] Add direct Scene View polygon authoring for `ShadowCaster2D`: select, move, insert, and delete vertices or edges; support snapping, closed-shape/winding validation, and one Undo/Redo command per gesture without requiring Inspector coordinate editing.
@@ -556,3 +557,4 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Select and move visible UI rectangles directly while preserving anchor-relative layout and Undo/Redo.
    - [x] Add anchor preset previews and direct component-backed entity creation to the Hierarchy.
    - [x] Add direct resize, anchor, and pivot handles.
+   - [x] Add direct rotation handles and platform safe-area preview overlays.

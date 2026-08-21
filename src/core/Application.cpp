@@ -30,6 +30,46 @@
 
 namespace Engine {
 
+namespace {
+
+SafeAreaInsets map_safe_area_to_reference(
+    const DisplayState& state,
+    const ProjectDisplaySettings& settings
+) {
+    const glm::vec2 destination{
+        static_cast<float>(std::max(state.pixel_width, 1)),
+        static_cast<float>(std::max(state.pixel_height, 1))
+    };
+    const glm::vec2 source{
+        static_cast<float>(std::max(settings.reference_width, 1)),
+        static_cast<float>(std::max(settings.reference_height, 1))
+    };
+    const PresentationMode mapping_mode = settings.presentation == PresentationMode::Responsive
+        ? PresentationMode::Stretch : settings.presentation;
+    const PresentationMapping mapping = calculate_presentation(source, destination, mapping_mode);
+    const glm::vec2 safe_min{state.safe_area.left, state.safe_area.top};
+    const glm::vec2 safe_max{
+        destination.x - state.safe_area.right,
+        destination.y - state.safe_area.bottom
+    };
+    const glm::vec2 display_size = glm::max(mapping.display_size, glm::vec2(1.0f));
+    const glm::vec2 uv_span = mapping.uv_max - mapping.uv_min;
+    const auto to_source = [&](const glm::vec2& point) {
+        const glm::vec2 normalized = (point - mapping.display_offset) / display_size;
+        return (mapping.uv_min + normalized * uv_span) * source;
+    };
+    const glm::vec2 mapped_min = glm::clamp(to_source(safe_min), glm::vec2(0.0f), source);
+    const glm::vec2 mapped_max = glm::clamp(to_source(safe_max), mapped_min, source);
+    return {
+        mapped_min.x,
+        mapped_min.y,
+        source.x - mapped_max.x,
+        source.y - mapped_max.y
+    };
+}
+
+} // namespace
+
 Application::Application(const std::string& name, int width, int height, bool start_with_editor)
 {
     Log::init("engine.log");
@@ -116,9 +156,14 @@ Application::Application(const std::string& name, int width, int height, bool st
         &m_project_settings
     );
     const auto& game_view = m_project_settings.display();
+    const SafeAreaInsets editor_safe_area = map_safe_area_to_reference(
+        m_display_manager->current_state(), game_view
+    );
+    viewport_panel->set_safe_area_preview(editor_safe_area);
     m_scene_manager.configure_view(RenderViewKind::Game, {
         game_view.reference_width, game_view.reference_height,
-        game_view.reference_width, game_view.reference_height
+        game_view.reference_width, game_view.reference_height,
+        editor_safe_area
     });
     auto hierarchy_panel = std::make_shared<SceneHierarchyPanel>(&m_scene_manager, m_window->get_sdl_renderer(), selection, command_history);
     auto inspector_panel = std::make_shared<InspectorPanel>(
@@ -304,9 +349,17 @@ void Application::apply_display_mode(bool editor_visible) {
         m_window->disable_logical_presentation();
         auto* viewport = m_editor_layer ? m_editor_layer->get_viewport_panel() : nullptr;
         if (viewport) {
+            const SafeAreaInsets preview_safe_area = map_safe_area_to_reference(
+                m_display_manager->current_state(), game_view
+            );
+            viewport->set_safe_area_preview(preview_safe_area);
             const int width = std::max(viewport->get_render_width(), 1);
             const int height = std::max(viewport->get_render_height(), 1);
-            m_scene_manager.configure_view(RenderViewKind::Editor, {width, height, width, height});
+            m_scene_manager.configure_view(RenderViewKind::Editor, {
+                width, height, width, height,
+                preview_safe_area,
+                viewport->show_safe_area_overlay()
+            });
         }
         return;
     }
@@ -319,12 +372,14 @@ void Application::apply_display_mode(bool editor_visible) {
         m_scene_manager.configure_view(view, {
             m_display_manager->current_state().pixel_width,
             m_display_manager->current_state().pixel_height,
-            game_view.reference_width, game_view.reference_height
+            game_view.reference_width, game_view.reference_height,
+            m_display_manager->current_state().safe_area
         });
     } else {
         m_scene_manager.configure_view(view, {
             game_view.reference_width, game_view.reference_height,
-            game_view.reference_width, game_view.reference_height
+            game_view.reference_width, game_view.reference_height,
+            map_safe_area_to_reference(m_display_manager->current_state(), game_view)
         });
     }
 }

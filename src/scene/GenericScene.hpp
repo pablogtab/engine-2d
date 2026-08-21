@@ -91,6 +91,8 @@ private:
     UIInputSystem m_ui_input_system;
     glm::vec2 m_ui_output_size{1920.0f, 1080.0f};
     SafeAreaInsets m_ui_safe_area{};
+    SafeAreaInsets m_ui_editor_safe_area{};
+    bool m_show_ui_safe_area_overlay{false};
     bool m_post_process_enabled{false};
     bool m_post_process_initialized{false};
 };

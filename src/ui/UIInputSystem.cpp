@@ -13,14 +13,8 @@ namespace {
 
 struct HitCandidate {
     EntityID entity{0};
-    UIRect rect;
+    ResolvedUILayout layout;
 };
-
-bool contains(const UIRect& rect, const glm::vec2& point) {
-    return point.x >= rect.position.x && point.y >= rect.position.y &&
-        point.x <= rect.position.x + rect.size.x &&
-        point.y <= rect.position.y + rect.size.y;
-}
 
 bool is_interactable(const EntityManager& entities, EntityID entity) {
     if (!entities.is_alive(entity) || !entities.has_component<UIButtonComponent>(entity)) return false;
@@ -62,7 +56,7 @@ std::vector<HitCandidate> collect_candidates(
                 entities, canvas_entity, viewport, &AssetDatabase::get()
             )) {
             if (is_interactable(entities, resolved.entity)) {
-                result.push_back({resolved.entity, resolved.screen_rect});
+                result.push_back({resolved.entity, resolved});
             }
         }
     }
@@ -102,7 +96,7 @@ UIInputResult UIInputSystem::update(
 
     m_hovered = 0;
     for (auto it = candidates.rbegin(); it != candidates.rend(); ++it) {
-        if (contains(it->rect, input.pointer_position)) {
+        if (point_in_resolved_ui_rect(it->layout, input.pointer_position)) {
             m_hovered = it->entity;
             break;
         }

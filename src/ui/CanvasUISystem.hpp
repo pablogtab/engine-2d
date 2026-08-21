@@ -45,6 +45,8 @@ public:
         Renderer2D& renderer,
         const AssetDatabase& database,
         const Camera2D& editor_camera,
+        const SafeAreaInsets& safe_area = {},
+        bool draw_safe_area_overlay = false,
         const IEntityRenderFilter* visibility_filter = nullptr
     );
 
@@ -61,6 +63,7 @@ private:
         const UIInputSystem* input,
         const IEntityRenderFilter* visibility_filter,
         bool draw_editor_frame,
+        bool draw_safe_area_overlay,
         CanvasUIRenderStats& stats
     );
     Font* resolve_font(SDL_Renderer* renderer, AssetHandle handle, const AssetDatabase& database);

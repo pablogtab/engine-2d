@@ -6,6 +6,8 @@
 #include "../commands/EntityCommands.hpp"
 #include "../commands/PrefabCommands.hpp"
 #include "../../core/AssetDatabase.hpp"
+#include "../../ecs/TransformSystem.hpp"
+#include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/UIComponents.hpp"
 #include "../../renderer/material/Material.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
@@ -37,6 +39,35 @@ void track(
     track_component_edit<Component>(
         em, entity, before, property, description, context,
         std::equal_to<Component>{}, {}, force_commit
+    );
+}
+
+bool authored_transform_equal(
+    const TransformComponent& lhs,
+    const TransformComponent& rhs
+) {
+    return lhs.position == rhs.position &&
+        lhs.scale == rhs.scale &&
+        lhs.rotation == rhs.rotation &&
+        lhs.pivot == rhs.pivot &&
+        lhs.skew == rhs.skew &&
+        lhs.visible == rhs.visible;
+}
+
+void track_ui_rotation(
+    EntityManager& em,
+    EntityID entity,
+    const TransformComponent& before,
+    const char* property,
+    const char* description,
+    const ComponentTransactionContext& context,
+    bool force_commit = false
+) {
+    track_component_edit<TransformComponent>(
+        em, entity, before, property, description, context,
+        authored_transform_equal,
+        [](EntityManager& manager, EntityID) { TransformSystem::update(manager); },
+        force_commit
     );
 }
 
@@ -463,6 +494,24 @@ void UIInspectorDrawer::draw_layout(
         "Edit UI Size Delta",
         Policies::UI::Coordinate
     );
+    if (em.has_component<TransformComponent>(entity)) {
+        auto& transform = em.get_component<TransformComponent>(entity);
+        const TransformComponent before = transform;
+        InspectorWidgets::property_axis_float(
+            "Rotation", "Z", &transform.rotation, Policies::Transform::Rotation, true
+        );
+        track_ui_rotation(
+            em, entity, before, "UILayout.Rotation", "Edit UI Rotation", context
+        );
+        if (InspectorWidgets::property_reset_button("R##ui_rotation")) {
+            const TransformComponent reset_before = transform;
+            transform.rotation = 0.0f;
+            track_ui_rotation(
+                em, entity, reset_before, "UILayout.ResetRotation",
+                "Reset UI Rotation", context, true
+            );
+        }
+    }
     if (ImGui::TreeNodeEx("Advanced Anchors", ImGuiTreeNodeFlags_SpanAvailWidth)) {
         draw_vec2("Anchor Min", layout.anchor_min, "UILayout.AnchorMin", "Edit UI Minimum Anchor", Policies::UI::Normalized);
         draw_vec2("Anchor Max", layout.anchor_max, "UILayout.AnchorMax", "Edit UI Maximum Anchor", Policies::UI::Normalized);

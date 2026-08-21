@@ -159,10 +159,7 @@ EntityID ViewportSelectionTool::pick_entity(
                     (em.has_component<UIButtonComponent>(candidate) &&
                      em.get_component<UIButtonComponent>(candidate).enabled);
                 if (!has_visual) continue;
-                const glm::vec2 minimum = resolved.screen_rect.min();
-                const glm::vec2 maximum = resolved.screen_rect.max();
-                if (screen_position.x >= minimum.x && screen_position.x <= maximum.x &&
-                    screen_position.y >= minimum.y && screen_position.y <= maximum.y) {
+                if (point_in_resolved_ui_rect(resolved, screen_position)) {
                     hit_entity = candidate;
                 }
             }

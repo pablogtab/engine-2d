@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../core/Display.hpp"
 #include <algorithm>
 #include <glm/glm.hpp>
 
@@ -29,6 +30,8 @@ struct RenderViewConfiguration {
     int output_height{720};
     int reference_width{1280};
     int reference_height{720};
+    SafeAreaInsets safe_area{};
+    bool show_safe_area_overlay{false};
 
     bool operator==(const RenderViewConfiguration&) const = default;
 };

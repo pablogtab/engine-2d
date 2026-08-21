@@ -86,6 +86,15 @@ struct DisplaySettings {
     bool operator==(const DisplaySettings&) const = default;
 };
 
+struct SafeAreaInsets {
+    float left{0.0f};
+    float top{0.0f};
+    float right{0.0f};
+    float bottom{0.0f};
+
+    bool operator==(const SafeAreaInsets&) const = default;
+};
+
 struct DisplayState {
     DisplaySettings settings;
     int logical_width{1280};
@@ -94,6 +103,7 @@ struct DisplayState {
     int pixel_height{720};
     float dpi_scale{1.0f};
     DisplayOrientation orientation{DisplayOrientation::Unknown};
+    SafeAreaInsets safe_area;
 
     bool operator==(const DisplayState&) const = default;
 };

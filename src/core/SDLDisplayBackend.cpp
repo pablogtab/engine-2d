@@ -114,6 +114,21 @@ DisplayState SDLDisplayBackend::query_state() const {
     state.orientation = from_sdl_orientation(
         SDL_GetCurrentDisplayOrientation(static_cast<SDL_DisplayID>(state.settings.display_id))
     );
+    SDL_Rect safe_area{};
+    if (SDL_GetWindowSafeArea(m_window, &safe_area)) {
+        const float scale_x = state.logical_width > 0
+            ? static_cast<float>(state.pixel_width) / static_cast<float>(state.logical_width)
+            : 1.0f;
+        const float scale_y = state.logical_height > 0
+            ? static_cast<float>(state.pixel_height) / static_cast<float>(state.logical_height)
+            : 1.0f;
+        state.safe_area = {
+            std::max(static_cast<float>(safe_area.x) * scale_x, 0.0f),
+            std::max(static_cast<float>(safe_area.y) * scale_y, 0.0f),
+            std::max(static_cast<float>(state.logical_width - safe_area.x - safe_area.w) * scale_x, 0.0f),
+            std::max(static_cast<float>(state.logical_height - safe_area.y - safe_area.h) * scale_y, 0.0f)
+        };
+    }
 
     const SDL_WindowFlags flags = SDL_GetWindowFlags(m_window);
     if ((flags & SDL_WINDOW_FULLSCREEN) != 0) {

@@ -144,11 +144,12 @@ void render_text(
     Renderer2D& renderer,
     const Font& font,
     const UITextComponent& text,
-    const UIRect& rect,
+    const ResolvedUILayout& resolved,
     const CanvasViewport& viewport,
     float z_layer,
     CanvasUIRenderStats& stats
 ) {
+    const UIRect& rect = resolved.screen_rect;
     const float canvas_scale = std::min(viewport.scale.x, viewport.scale.y);
     const float scale = std::max(text.font_size * canvas_scale / k_font_atlas_size, 0.001f);
     const UIRect content_rect = calculate_ui_text_content_rect(
@@ -181,7 +182,9 @@ void render_text(
             {0.0f, 0.0f},
             z_layer,
             false,
-            text.material
+            text.material,
+            resolved.rotation,
+            resolved.screen_pivot
         );
         y += line_height;
         ++stats.text_lines;
@@ -216,6 +219,7 @@ CanvasUIRenderStats CanvasUISystem::render(
             input,
             visibility_filter,
             false,
+            false,
             stats
         );
     }
@@ -227,6 +231,8 @@ CanvasUIRenderStats CanvasUISystem::render_editor_preview(
     Renderer2D& renderer,
     const AssetDatabase& database,
     const Camera2D& editor_camera,
+    const SafeAreaInsets& safe_area,
+    bool draw_safe_area_overlay,
     const IEntityRenderFilter* visibility_filter
 ) {
     CanvasUIRenderStats stats;
@@ -239,7 +245,7 @@ CanvasUIRenderStats CanvasUISystem::render_editor_preview(
             );
         }
         const CanvasViewport viewport = calculate_canvas_editor_viewport(
-            *canvas, world_position, editor_camera
+            *canvas, world_position, editor_camera, safe_area
         );
         render_canvas_contents(
             entities,
@@ -251,6 +257,7 @@ CanvasUIRenderStats CanvasUISystem::render_editor_preview(
             nullptr,
             visibility_filter,
             true,
+            draw_safe_area_overlay,
             stats
         );
     }
@@ -267,6 +274,7 @@ void CanvasUISystem::render_canvas_contents(
     const UIInputSystem* input,
     const IEntityRenderFilter* visibility_filter,
     bool draw_editor_frame,
+    bool draw_safe_area_overlay,
     CanvasUIRenderStats& stats
 ) {
     Texture* white = AssetManager::get().get_white_texture(renderer.get_sdl_renderer());
@@ -303,14 +311,19 @@ void CanvasUISystem::render_canvas_contents(
                 const ImageGeometry geometry = resolve_image_geometry(
                     *texture, scale_mode, resolved.screen_rect
                 );
+                const glm::vec2 safe_size = glm::max(
+                    geometry.destination.size, glm::vec2(0.0001f)
+                );
+                const glm::vec2 image_pivot =
+                    (resolved.screen_pivot - geometry.destination.position) / safe_size;
                 renderer.submit_screen_sprite(
                     texture,
-                    geometry.destination.position,
+                    resolved.screen_pivot,
                     geometry.destination.size,
-                    0.0f,
+                    resolved.rotation,
                     color,
                     geometry.has_source ? &geometry.source : nullptr,
-                    {0.0f, 0.0f},
+                    image_pivot,
                     z_layer,
                     false,
                     false,
@@ -326,30 +339,45 @@ void CanvasUISystem::render_canvas_contents(
             const auto& text = entities.get_component<UITextComponent>(entity);
             if (!text.enabled || text.text.empty()) continue;
             if (Font* font = resolve_font(renderer.get_sdl_renderer(), text.font_handle, database)) {
-                render_text(renderer, *font, text, resolved.screen_rect, viewport, z_layer, stats);
+                render_text(renderer, *font, text, resolved, viewport, z_layer, stats);
             }
         }
     }
 
     if (draw_editor_frame && white) {
         constexpr float thickness = 2.0f;
-        const auto& frame = viewport.physical_rect;
-        const auto submit_edge = [&](const glm::vec2& position, const glm::vec2& size) {
+        const auto& frame = viewport.output_rect;
+        const auto submit_edge = [&](const glm::vec2& position, const glm::vec2& size, SDL_Color color) {
             renderer.submit_screen_sprite(
-                white, position, size, 0.0f, k_editor_frame_color,
+                white, position, size, 0.0f, color,
                 nullptr, {0.0f, 0.0f}, z_layer, false, false, nullptr, false
             );
         };
-        submit_edge(frame.position, {frame.size.x, thickness});
+        submit_edge(frame.position, {frame.size.x, thickness}, k_editor_frame_color);
         submit_edge(
             {frame.position.x, frame.position.y + frame.size.y - thickness},
-            {frame.size.x, thickness}
+            {frame.size.x, thickness}, k_editor_frame_color
         );
-        submit_edge(frame.position, {thickness, frame.size.y});
+        submit_edge(frame.position, {thickness, frame.size.y}, k_editor_frame_color);
         submit_edge(
             {frame.position.x + frame.size.x - thickness, frame.position.y},
-            {thickness, frame.size.y}
+            {thickness, frame.size.y}, k_editor_frame_color
         );
+        const bool has_safe_area = viewport.platform_safe_rect != viewport.output_rect;
+        if (draw_safe_area_overlay && has_safe_area) {
+            constexpr SDL_Color safe_color{255, 188, 74, 210};
+            const auto& safe = viewport.platform_safe_rect;
+            submit_edge(safe.position, {safe.size.x, thickness}, safe_color);
+            submit_edge(
+                {safe.position.x, safe.position.y + safe.size.y - thickness},
+                {safe.size.x, thickness}, safe_color
+            );
+            submit_edge(safe.position, {thickness, safe.size.y}, safe_color);
+            submit_edge(
+                {safe.position.x + safe.size.x - thickness, safe.position.y},
+                {thickness, safe.size.y}, safe_color
+            );
+        }
         ++stats.editor_frames;
     }
 }

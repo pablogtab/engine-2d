@@ -160,14 +160,16 @@ void test_editor_preview_draws_a_camera_relative_canvas_frame() {
         SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
         SDL_RenderClear(sdl_renderer);
         renderer.begin_scene(camera);
-        const auto stats = ui.render_editor_preview(entities, renderer, database, camera);
+        const auto stats = ui.render_editor_preview(
+            entities, renderer, database, camera, {5.0f, 4.0f, 5.0f, 4.0f}, true
+        );
         renderer.end_scene();
         SDL_RenderPresent(sdl_renderer);
 
         assert(stats.canvases == 1);
         assert(stats.button_backgrounds == 1);
         assert(stats.editor_frames == 1);
-        assert(renderer.get_frame_metrics().stage(RenderStage::CanvasUI).sprites == 5);
+        assert(renderer.get_frame_metrics().stage(RenderStage::CanvasUI).sprites == 9);
 
         SDL_Color interior{};
         read_pixel(surface, 64, 64, interior);
@@ -176,6 +178,72 @@ void test_editor_preview_draws_a_camera_relative_canvas_frame() {
         SDL_Color border{};
         read_pixel(surface, 54, 59, border);
         assert(border.b > border.r && border.g > border.r);
+
+        SDL_Color safe_border{};
+        read_pixel(surface, 60, 61, safe_border);
+        assert(safe_border.r > safe_border.b && safe_border.g > safe_border.b);
+
+        std::filesystem::remove_all(asset_root, error);
+    }
+    AssetManager::get().clear();
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
+void test_ui_background_rotation_uses_the_resolved_pivot() {
+    SDL_Surface* surface = SDL_CreateSurface(64, 64, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        const std::filesystem::path asset_root = std::filesystem::temp_directory_path() /
+            "engine2d_canvas_ui_rotation_tests";
+        std::error_code error;
+        std::filesystem::remove_all(asset_root, error);
+        std::filesystem::create_directories(asset_root / "assets");
+        AssetDatabase database(asset_root);
+
+        EntityManager entities;
+        const EntityID canvas_entity = entities.create_entity();
+        CanvasComponent canvas;
+        canvas.reference_size = {64.0f, 64.0f};
+        canvas.scaling_policy = PresentationMode::Stretch;
+        canvas.use_safe_area = false;
+        entities.add_component<CanvasComponent>(canvas_entity, canvas);
+        entities.add_component<HierarchyComponent>(canvas_entity, HierarchyComponent{});
+
+        const EntityID button_entity = entities.create_entity();
+        UILayoutComponent layout;
+        layout.size_delta = {40.0f, 10.0f};
+        UIButtonComponent button;
+        button.normal_color = {255, 0, 0, 255};
+        TransformComponent transform;
+        transform.rotation = 90.0f;
+        entities.add_component<HierarchyComponent>(
+            button_entity, HierarchyComponent{canvas_entity}
+        );
+        entities.add_component<UILayoutComponent>(button_entity, layout);
+        entities.add_component<UIButtonComponent>(button_entity, button);
+        entities.add_component<TransformComponent>(button_entity, transform);
+        entities.get_component<HierarchyComponent>(canvas_entity).children.push_back(button_entity);
+
+        Renderer2D renderer(sdl_renderer);
+        Camera2D camera(64.0f, 64.0f);
+        CanvasUISystem ui;
+        SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+        SDL_RenderClear(sdl_renderer);
+        renderer.begin_scene(camera);
+        const auto stats = ui.render(entities, renderer, database, {64.0f, 64.0f});
+        renderer.end_scene();
+        SDL_RenderPresent(sdl_renderer);
+        assert(stats.button_backgrounds == 1);
+
+        SDL_Color vertical{};
+        read_pixel(surface, 32, 45, vertical);
+        assert(vertical.r == 255 && vertical.g == 0 && vertical.b == 0);
+        SDL_Color horizontal{};
+        read_pixel(surface, 45, 32, horizontal);
+        assert(horizontal.r == 0 && horizontal.g == 0 && horizontal.b == 0);
 
         std::filesystem::remove_all(asset_root, error);
     }
@@ -307,6 +375,7 @@ void test_text_fit_content_solves_percentage_insets() {
 int main() {
     test_canvas_rendering_uses_sorting_and_runtime_button_state();
     test_editor_preview_draws_a_camera_relative_canvas_frame();
+    test_ui_background_rotation_uses_the_resolved_pivot();
     test_centered_text_uses_the_font_baseline_inside_its_rect();
     test_text_margins_inset_the_content_rect_in_canvas_pixels();
     test_text_fit_content_solves_percentage_insets();

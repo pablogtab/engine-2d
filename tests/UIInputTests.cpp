@@ -20,6 +20,7 @@ EntityID add_button(
 ) {
     const EntityID entity = entities.create_entity();
     entities.add_component<HierarchyComponent>(entity, HierarchyComponent{parent});
+    entities.add_component<TransformComponent>(entity, TransformComponent{});
     entities.add_component<UILayoutComponent>(entity, layout);
     entities.add_component<UIButtonComponent>(entity, UIButtonComponent{});
     entities.get_component<HierarchyComponent>(parent).children.push_back(entity);
@@ -203,6 +204,21 @@ void test_hit_testing_uses_the_fit_content_rect() {
     assert(result.hovered == button);
 }
 
+void test_hit_testing_uses_rotated_ui_geometry() {
+    EntityManager entities;
+    const EntityID canvas = add_canvas(entities);
+    UILayoutComponent layout;
+    layout.size_delta = {80.0f, 20.0f};
+    const EntityID button = add_button(entities, canvas, layout);
+    entities.get_component<TransformComponent>(button).rotation = 90.0f;
+
+    UIInputSystem input;
+    auto result = input.update(entities, {100.0f, 100.0f}, {}, {{50.0f, 85.0f}});
+    assert(result.hovered == button);
+    result = input.update(entities, {100.0f, 100.0f}, {}, {{80.0f, 50.0f}});
+    assert(result.hovered == 0);
+}
+
 } // namespace
 
 int main() {
@@ -211,6 +227,7 @@ int main() {
     test_focus_navigation_activation_and_invalidation();
     test_hit_testing_uses_canvas_viewport_conversion();
     test_hit_testing_uses_the_fit_content_rect();
+    test_hit_testing_uses_rotated_ui_geometry();
     std::cout << "UI input tests passed\n";
     return 0;
 }
