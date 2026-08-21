@@ -603,6 +603,31 @@ void test_renderer_composes_lighting_before_global_post_process() {
     SDL_DestroySurface(surface);
 }
 
+void test_camera_render_layer_mask_filters_world_submissions() {
+    SDL_Surface* surface = SDL_CreateSurface(32, 32, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Engine::Renderer2D renderer(sdl_renderer);
+        Engine::Camera2D camera(32.0f, 32.0f);
+        camera.set_render_layer_mask(Engine::render_layer_mask(3));
+        std::unique_ptr<Engine::Texture> white(Engine::Texture::create_solid(sdl_renderer, 4, 4, 255, 255, 255, 255));
+        assert(white);
+
+        renderer.begin_scene(camera);
+        renderer.submit_sprite(white.get(), {0.0f, 0.0f, 0.0f}, {4.0f, 4.0f});
+        renderer.submit_sprite(white.get(), {0.0f, 0.0f, 0.0f}, {4.0f, 4.0f}, 0.0f,
+                               {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+                               false, false, 0, 0, nullptr, 3);
+        renderer.end_scene();
+        assert(renderer.get_rendered_sprite_count() == 1);
+        assert(renderer.get_culled_sprite_count() == 1);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
@@ -624,6 +649,7 @@ int main() {
     test_renderer_executes_local_effects_with_pooled_targets();
     test_renderer_chains_local_effects_and_releases_intermediates();
     test_renderer_composes_lighting_before_global_post_process();
+    test_camera_render_layer_mask_filters_world_submissions();
     std::cout << "PostProcessTests passed\n";
     return 0;
 }

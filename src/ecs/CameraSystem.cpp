@@ -49,6 +49,7 @@ bool CameraSystem::apply_to_runtime(
     runtime_camera.set_rotation(transform.world_rotation);
     runtime_camera.set_zoom(camera.zoom);
     runtime_camera.set_projection_mode(camera.projection);
+    runtime_camera.set_render_layer_mask(camera.render_layer_mask);
     return true;
 }
 

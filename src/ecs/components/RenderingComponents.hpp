@@ -3,6 +3,7 @@
 #include "../EcsTypes.hpp"
 #include "../../core/AssetHandle.hpp"
 #include "../../renderer/RenderView.hpp"
+#include "../../renderer/RenderLayer.hpp"
 #include "../../renderer/Texture.hpp"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
@@ -33,6 +34,7 @@ struct SpriteComponent {
     bool flip_y{false};
     std::int16_t sorting_layer{0};
     std::int16_t order_in_layer{0};
+    RenderLayer render_layer{DEFAULT_RENDER_LAYER};
 
     SpriteComponent() = default;
     explicit SpriteComponent(
@@ -52,6 +54,7 @@ struct CameraComponent {
     float follow_speed{6.0f};
     bool enable_bounds{false};
     glm::vec4 bounds{-2000.0f, -1000.0f, 2000.0f, 1000.0f};
+    RenderLayerMask render_layer_mask{ALL_RENDER_LAYERS};
 
     CameraComponent() = default;
     bool operator==(const CameraComponent& other) const {
@@ -61,7 +64,7 @@ struct CameraComponent {
             zoom == other.zoom && projection == other.projection &&
             follow_target == other.follow_target && follow_offset == other.follow_offset &&
             follow_speed == other.follow_speed && enable_bounds == other.enable_bounds &&
-            bounds == other.bounds;
+            bounds == other.bounds && render_layer_mask == other.render_layer_mask;
     }
 };
 

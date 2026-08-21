@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../renderer/RenderView.hpp"
+#include "../renderer/RenderLayer.hpp"
 #include <glm/glm.hpp>
 
 #include <SDL3/SDL.h>
@@ -38,6 +39,9 @@ public:
 
     void set_projection_mode(CameraProjectionMode mode) { m_projection_mode = mode; }
     CameraProjectionMode get_projection_mode() const { return m_projection_mode; }
+    void set_render_layer_mask(RenderLayerMask mask) { m_render_layer_mask = mask; }
+    [[nodiscard]] RenderLayerMask get_render_layer_mask() const { return m_render_layer_mask; }
+    [[nodiscard]] bool renders_layer(RenderLayer layer) const { return Engine::renders_layer(m_render_layer_mask, layer); }
     float get_projection_scale() const;
     glm::vec2 get_world_half_extents(float z = 0.0f) const;
 
@@ -66,6 +70,7 @@ private:
     float m_zoom{1.0f};
     float m_rotation{0.0f};
     CameraProjectionMode m_projection_mode{CameraProjectionMode::FixedHeight};
+    RenderLayerMask m_render_layer_mask{ALL_RENDER_LAYERS};
 };
 
 } // namespace Engine

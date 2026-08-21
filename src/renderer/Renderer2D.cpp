@@ -176,8 +176,13 @@ void Renderer2D::submit_sprite(
     bool flip_y,
     int16_t sorting_layer,
     int16_t order_in_layer,
-    std::shared_ptr<const Material> material
+    std::shared_ptr<const Material> material,
+    RenderLayer render_layer
 ) {
+    if (m_active_camera && !m_active_camera->renders_layer(render_layer)) {
+        ++m_culled_sprites;
+        return;
+    }
     // 2D Frustum Culling Check
     if (m_active_camera && !m_active_camera->is_visible(position, size)) {
         m_culled_sprites++;
@@ -193,6 +198,7 @@ void Renderer2D::submit_sprite(
     cmd.flip_y = flip_y;
     cmd.sorting_layer = sorting_layer;
     cmd.order_in_layer = order_in_layer;
+    cmd.render_layer = render_layer;
     cmd.material = std::move(material);
 
     if (is_overlay) {

@@ -38,6 +38,7 @@ void ParticleSystem2D::emit(const ParticleProps& props, int count) {
         p.active = true;
         p.position = props.position;
         p.z_layer = props.z_layer;
+        p.render_layer = props.render_layer;
         p.rotation = props.rotation + random_range(-180.0f, 180.0f);
         p.rotation_speed = props.rotation_speed + random_range(-90.0f, 90.0f);
         p.texture = tex;
@@ -124,7 +125,13 @@ void ParticleSystem2D::render(Renderer2D& renderer) {
             p.current_color,
             nullptr,
             glm::vec2(0.5f, 0.5f),
-            false
+            false,
+            false,
+            false,
+            0,
+            0,
+            nullptr,
+            p.render_layer
         );
     }
 }

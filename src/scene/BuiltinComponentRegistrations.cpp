@@ -190,7 +190,8 @@ void register_camera(ComponentRegistry& registry) {
                 {"follow_offset", {camera.follow_offset.x, camera.follow_offset.y}},
                 {"follow_speed", camera.follow_speed},
                 {"enable_bounds", camera.enable_bounds},
-                {"bounds", {camera.bounds.x, camera.bounds.y, camera.bounds.z, camera.bounds.w}}
+                {"bounds", {camera.bounds.x, camera.bounds.y, camera.bounds.z, camera.bounds.w}},
+                {"render_layer_mask", camera.render_layer_mask}
             };
         },
         .deserialize = [](CameraComponent& camera, const Json& value, const ComponentSerializationContext&, std::string& error) {
@@ -218,6 +219,7 @@ void register_camera(ComponentRegistry& registry) {
             camera.follow_speed = value.at("follow_speed").get<float>();
             camera.enable_bounds = value.at("enable_bounds").get<bool>();
             camera.bounds = {bounds[0].get<float>(), bounds[1].get<float>(), bounds[2].get<float>(), bounds[3].get<float>()};
+            camera.render_layer_mask = value.value("render_layer_mask", ALL_RENDER_LAYERS);
             return true;
         },
         .finalize = [](EntityManager& em, EntityID, CameraComponent& camera, const ComponentFinalizeContext&, std::string& error) {
@@ -462,6 +464,7 @@ void register_tilemap(ComponentRegistry& registry) {
                 {"is_trigger", tilemap.is_trigger}, {"is_one_way", tilemap.is_one_way},
                 {"category_bits", tilemap.category_bits}, {"mask_bits", tilemap.mask_bits},
                 {"friction", tilemap.friction}, {"restitution", tilemap.restitution},
+                {"render_layer", tilemap.render_layer},
                 {"tiles", std::move(tiles)}
             };
         },
@@ -480,6 +483,7 @@ void register_tilemap(ComponentRegistry& registry) {
             tilemap.mask_bits = value.at("mask_bits").get<std::uint16_t>();
             tilemap.friction = value.at("friction").get<float>();
             tilemap.restitution = value.at("restitution").get<float>();
+            tilemap.render_layer = value.value("render_layer", DEFAULT_RENDER_LAYER);
             for (const auto& tile : value.at("tiles")) {
                 tilemap.set_tile(tile.at("x").get<int>(), tile.at("y").get<int>(), tile.at("id").get<std::uint16_t>());
             }

@@ -893,9 +893,9 @@
                     1000.0
                 ],
                 "clear_color": [
-                    34,
-                    34,
-                    34,
+                    0,
+                    0,
+                    0,
                     255
                 ],
                 "enable_bounds": false,

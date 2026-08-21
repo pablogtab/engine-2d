@@ -257,6 +257,8 @@ These systems form the current baseline and should be extended rather than rewri
   - [x] Add the pooled local-effects stage with ordered pass chaining and automatic intermediate-surface release.
   - [x] Add the lighting stage with reusable compositing passes before global post-processing.
 - [ ] Introduce render layers shared by sprites, tilemaps, particles, lights, and cameras.
+  - [x] Add common layer identities and camera masks for sprites, tilemaps, and particles.
+  - [ ] Expose authored layer/mask controls and apply the contract to Light components when they exist.
 - [ ] Support entity- or layer-scoped multipass effects through managed intermediate surfaces.
 - [ ] Keep simple single-pass sprite materials on the direct fast path.
 - [ ] Define clear ownership and pooling for render targets.

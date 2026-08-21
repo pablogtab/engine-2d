@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../renderer/Texture.hpp"
+#include "../renderer/RenderLayer.hpp"
 #include <glm/glm.hpp>
 #include <unordered_map>
 #include <unordered_set>
@@ -41,6 +42,7 @@ struct TilemapComponent {
     uint16_t mask_bits{0xFFFF};     // CollisionCategory::ALL
     float friction{0.6f};
     float restitution{0.0f};
+    RenderLayer render_layer{DEFAULT_RENDER_LAYER};
 
     TilemapComponent() = default;
 

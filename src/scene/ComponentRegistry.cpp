@@ -399,6 +399,7 @@ ComponentRegistry& default_component_registry() {
                     {"visible", sprite.visible},
                     {"sorting_layer", sprite.sorting_layer},
                     {"order_in_layer", sprite.order_in_layer},
+                    {"render_layer", sprite.render_layer},
                     {"has_outline", sprite.has_outline},
                     {"outline_color", {
                         sprite.outline_color.r,
@@ -492,6 +493,7 @@ ComponentRegistry& default_component_registry() {
                 sprite.visible = value.at("visible").get<bool>();
                 sprite.sorting_layer = value.at("sorting_layer").get<std::int16_t>();
                 sprite.order_in_layer = value.at("order_in_layer").get<std::int16_t>();
+                sprite.render_layer = value.value("render_layer", DEFAULT_RENDER_LAYER);
                 sprite.has_outline = value.at("has_outline").get<bool>();
                 sprite.outline_color = {
                     outline_color[0].get<std::uint8_t>(), outline_color[1].get<std::uint8_t>(),

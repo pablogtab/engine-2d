@@ -118,7 +118,14 @@ public:
                         transform.world_rotation,
                         SDL_Color{255, 255, 255, 255},
                         &src_rect,
-                        glm::vec2(0.5f, 0.5f)
+                        glm::vec2(0.5f, 0.5f),
+                        false,
+                        false,
+                        false,
+                        0,
+                        0,
+                        nullptr,
+                        tilemap.render_layer
                     );
                 }
             }
@@ -149,14 +156,14 @@ private:
 
             // 8-directional dilation for full radial glow border
             float diag = thick * 0.7071f;
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, -thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer);
-            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(thick, 0.0f, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, -thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(0.0f, thick, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, -diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(-diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
+            renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer);
         }
 
         renderer.submit_sprite(
@@ -172,7 +179,8 @@ private:
             sprite.flip_y,
             sprite.sorting_layer,
             sprite.order_in_layer,
-            sprite.material
+            sprite.material,
+            sprite.render_layer
         );
     }
 public:

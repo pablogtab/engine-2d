@@ -34,6 +34,7 @@ struct Particle {
 
     Texture* texture{nullptr};
     float z_layer{-0.05f};
+    RenderLayer render_layer{DEFAULT_RENDER_LAYER};
     bool active{false};
 };
 

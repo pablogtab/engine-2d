@@ -268,6 +268,7 @@ void test_registered_snapshot_capture_and_restore() {
     SpriteComponent sprite;
     sprite.size = {80.0f, 24.0f};
     sprite.has_outline = true;
+    sprite.render_layer = 4;
     em.add_component<TransformComponent>(entity, transform);
     em.add_component<SpriteComponent>(entity, sprite);
 
@@ -315,6 +316,7 @@ void test_registered_json_round_trip_and_validation() {
     SpriteComponent sprite;
     sprite.color = {10, 20, 30, 40};
     sprite.outline_thickness = 3.5f;
+    sprite.render_layer = 4;
     em.add_component<TransformComponent>(source, transform);
     em.add_component<SpriteComponent>(source, sprite);
 
@@ -335,6 +337,7 @@ void test_registered_json_round_trip_and_validation() {
     assert(em.get_component<TransformComponent>(target).world_position == transform.position);
     assert(em.get_component<SpriteComponent>(target).color.r == 10);
     assert(em.get_component<SpriteComponent>(target).outline_thickness == 3.5f);
+    assert(em.get_component<SpriteComponent>(target).render_layer == 4);
 
     em.get_component<TransformComponent>(target).scale.x = 0.0f;
     const auto issues = default_component_registry().validate_entity(em, target);

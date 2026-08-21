@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../renderer/Texture.hpp"
+#include "../../renderer/RenderLayer.hpp"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
 
@@ -25,6 +26,7 @@ struct ParticleProps {
     float bounciness{0.6f};
     Texture* texture{nullptr};
     float z_layer{-0.05f};
+    RenderLayer render_layer{DEFAULT_RENDER_LAYER};
 };
 
 struct ParticleEmitter2DComponent {

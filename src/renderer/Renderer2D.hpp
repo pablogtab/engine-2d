@@ -4,6 +4,7 @@
 #include "RenderTargetPool.hpp"
 #include "LocalEffectPass.hpp"
 #include "LightingPass.hpp"
+#include "RenderLayer.hpp"
 #include "../scene/Camera2D.hpp"
 #include <glm/glm.hpp>
 #include <array>
@@ -58,6 +59,7 @@ struct SpriteCommand {
     bool is_screen_space{false};
     int16_t sorting_layer{0};
     int16_t order_in_layer{0};
+    RenderLayer render_layer{DEFAULT_RENDER_LAYER};
     std::shared_ptr<const Material> material;
 };
 
@@ -117,7 +119,8 @@ public:
         bool flip_y = false,
         int16_t sorting_layer = 0,
         int16_t order_in_layer = 0,
-        std::shared_ptr<const Material> material = nullptr
+        std::shared_ptr<const Material> material = nullptr,
+        RenderLayer render_layer = DEFAULT_RENDER_LAYER
     );
     void submit_screen_sprite(
         Texture* texture,
