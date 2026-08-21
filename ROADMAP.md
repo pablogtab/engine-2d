@@ -179,7 +179,8 @@ These systems form the current baseline and should be extended rather than rewri
 
 - [x] Derive scene dirty state from committed authoring commands and revision tracking.
 - [x] Add Save, Save As, and per-scene editorial sessions.
-- [ ] Add Save All and recent scenes.
+- [x] Add Save All and recent scenes.
+- [x] Keep loaded scenes in viewport tabs so switching preserves each scene session without a save prompt.
 - [x] Warn before loading, switching, closing, or entering destructive workflows with unsaved changes, featuring transactional discard rollback.
 - [ ] Add configurable autosave and crash/interruption recovery.
 - [x] Keep editor layout, snapping, guides, and view preferences separate from scene content.

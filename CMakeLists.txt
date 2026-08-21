@@ -99,6 +99,7 @@ set(SOURCES
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
     src/editor/state/EditorEntityStateStore.cpp
+    src/editor/state/RecentSceneList.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EditorEntityStateCommands.cpp
@@ -463,6 +464,18 @@ target_include_directories(EditorEntityStateStoreTests PRIVATE
 target_link_libraries(EditorEntityStateStoreTests PRIVATE glm::glm)
 add_test(NAME EditorEntityStateStoreTests COMMAND EditorEntityStateStoreTests)
 
+add_executable(RecentSceneListTests
+    tests/RecentSceneListTests.cpp
+    src/core/Log.cpp
+    src/editor/state/RecentSceneList.cpp
+)
+target_include_directories(RecentSceneListTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(RecentSceneListTests PRIVATE SDL3::SDL3)
+add_test(NAME RecentSceneListTests COMMAND RecentSceneListTests)
+
 add_executable(HierarchyCommandTests
     tests/HierarchyCommandTests.cpp
     src/core/AssetDatabase.cpp
@@ -721,6 +734,7 @@ foreach(runtime_test
     EntityManagerTests
     SceneValidatorTests
     EditorEntityStateStoreTests
+    RecentSceneListTests
     HierarchyCommandTests
     ViewportVisibilityTests
     SceneSerializerTests

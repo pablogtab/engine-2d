@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EditorPanel.hpp"
+#include "state/RecentSceneList.hpp"
 #include <SDL3/SDL.h>
 #include <vector>
 #include <memory>
@@ -92,8 +93,12 @@ public:
     bool request_destructive_action(PendingDestructiveAction action);
     bool request_exit();
     bool save_active_scene(const std::string& custom_path = "");
+    bool save_all_scenes();
     bool discard_active_scene_changes();
     void load_scene(const std::string& path);
+    void activate_scene(std::size_t index);
+    [[nodiscard]] bool is_scene_dirty(const Scene* scene) const;
+    [[nodiscard]] bool is_scene_tab_open(const Scene* scene) const;
     void create_new_scene(const std::string& name = "Untitled Scene");
     void open_prefab_stage(const std::string& prefab_path);
     [[nodiscard]] PrefabStageController* get_prefab_stage() const;
@@ -104,6 +109,10 @@ private:
     void update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch);
     void update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store, std::shared_ptr<EditorSelection> sel = nullptr);
     void render_prefab_stage_modals();
+    bool save_scene(Scene* scene, EditorSceneSession& session, const std::string& custom_path = "");
+    void record_recent_scene(const std::string& path);
+    void open_scene_tab(const Scene* scene);
+    [[nodiscard]] bool has_loaded_scene_path(const std::string& path, std::size_t& index);
 
     SDL_Window* m_window{nullptr};
     SDL_Renderer* m_renderer{nullptr};
@@ -115,6 +124,8 @@ private:
     std::shared_ptr<EditorSelection> m_selection{nullptr};
 
     std::unordered_map<const Scene*, EditorSceneSession> m_scene_sessions;
+    std::vector<const Scene*> m_open_scene_tabs;
+    RecentSceneList m_recent_scenes;
     const Scene* m_last_active_scene{nullptr};
 
     bool m_initialized{false};

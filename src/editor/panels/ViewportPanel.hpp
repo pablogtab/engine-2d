@@ -87,6 +87,15 @@ public:
     void set_on_load_scene_callback(std::function<void(const std::string&)> callback) {
         m_on_load_scene = std::move(callback);
     }
+    void set_on_activate_scene_callback(std::function<void(std::size_t)> callback) {
+        m_on_activate_scene = std::move(callback);
+    }
+    void set_is_scene_dirty_callback(std::function<bool(const Scene*)> callback) {
+        m_is_scene_dirty = std::move(callback);
+    }
+    void set_is_scene_tab_open_callback(std::function<bool(const Scene*)> callback) {
+        m_is_scene_tab_open = std::move(callback);
+    }
 
     void set_prefab_stage(PrefabStageController* stage) { m_prefab_stage = stage; }
     // Called by breadcrumb UI to request back-to-scene navigation (may show a dirty modal)
@@ -99,6 +108,9 @@ public:
 
 private:
     std::function<void(const std::string&)> m_on_load_scene;
+    std::function<void(std::size_t)> m_on_activate_scene;
+    std::function<bool(const Scene*)> m_is_scene_dirty;
+    std::function<bool(const Scene*)> m_is_scene_tab_open;
     std::function<void()> m_on_close_prefab_stage;
     std::function<void()> m_on_save_prefab;
     PrefabStageController* m_prefab_stage{nullptr};

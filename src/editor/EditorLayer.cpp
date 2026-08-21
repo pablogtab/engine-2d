@@ -36,6 +36,12 @@
 
 namespace Engine {
 
+namespace {
+
+constexpr const char* RECENT_SCENES_PATH = "config/editor_recent_scenes.json";
+
+} // namespace
+
 EditorLayer::~EditorLayer() {
     // PrefabStageController must be torn down before EditorLayer members.
     if (m_prefab_stage && m_prefab_stage->is_active()) {
@@ -50,6 +56,10 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
 
     m_window = window;
     m_renderer = renderer;
+    static_cast<void>(m_recent_scenes.load(RECENT_SCENES_PATH));
+    if (m_recent_scenes.remove_missing_files()) {
+        static_cast<void>(m_recent_scenes.save(RECENT_SCENES_PATH));
+    }
 
     // 1. Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -115,6 +125,19 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
         .mod_alt = false,
         .enable_repeat = false,
         .callback = [this]() { save_active_scene(); }
+    });
+
+    sm.register_shortcut({
+        .id = "editor.save_all_scenes",
+        .display_name = "Save All Scenes",
+        .category = "File",
+        .primary_key = ImGuiKey_S,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = true,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = [this]() { save_all_scenes(); }
     });
 
     sm.register_shortcut({
@@ -376,6 +399,11 @@ void EditorLayer::cleanup_stale_sessions() {
             ++it;
         }
     }
+    std::erase_if(m_open_scene_tabs, [&scenes](const Scene* scene) {
+        return std::none_of(scenes.begin(), scenes.end(), [scene](const std::shared_ptr<Scene>& candidate) {
+            return candidate.get() == scene;
+        });
+    });
 }
 
 void EditorLayer::sync_active_scene_session() {
@@ -402,6 +430,7 @@ void EditorLayer::sync_active_scene_session() {
     if (!active_scene) return;
 
     cleanup_stale_sessions();
+    if (m_open_scene_tabs.empty()) open_scene_tab(active_scene);
 
     if (active_scene != m_last_active_scene || m_command_history == nullptr || m_entity_state_store == nullptr) {
         m_last_active_scene = active_scene;
@@ -544,9 +573,46 @@ void EditorLayer::create_new_scene(const std::string& name) {
     session.file_path = "";
     session.initial_snapshot_json = SceneSerializer(new_scene.get(), m_renderer).serialize_to_string();
 
-    m_scene_manager->set_active_scene(name);
-    sync_active_scene_session();
+    const auto& scenes = m_scene_manager->get_scenes();
+    const auto scene_it = std::find_if(scenes.begin(), scenes.end(), [&new_scene](const std::shared_ptr<Scene>& scene) {
+        return scene.get() == new_scene.get();
+    });
+    if (scene_it != scenes.end()) {
+        activate_scene(static_cast<std::size_t>(std::distance(scenes.begin(), scene_it)));
+    }
     ENGINE_LOG_INFO("[EDITOR] Created new blank scene: '{}'", name);
+}
+
+bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const std::string& custom_path) {
+    if (!scene) return false;
+
+    std::string path = custom_path;
+    if (path.empty()) {
+        if (!session.file_path.empty()) {
+            path = session.file_path;
+        } else {
+            std::filesystem::create_directories("assets/scenes");
+            path = "assets/scenes/" + scene->get_name() + ".scene";
+        }
+    }
+
+    SceneSerializer serializer(scene, m_renderer);
+    if (!serializer.serialize(path)) {
+        ENGINE_LOG_ERROR("[EDITOR] Failed to save scene '{}' to '{}'", scene->get_name(), path);
+        return false;
+    }
+
+    session.file_path = path;
+    session.initial_snapshot_json.clear();
+    if (session.command_history) session.command_history->mark_saved();
+    record_recent_scene(path);
+    ENGINE_LOG_INFO("[EDITOR] Successfully saved scene '{}' to '{}'", scene->get_name(), path);
+    return true;
+}
+
+void EditorLayer::record_recent_scene(const std::string& path) {
+    m_recent_scenes.record(path);
+    static_cast<void>(m_recent_scenes.save(RECENT_SCENES_PATH));
 }
 
 bool EditorLayer::save_active_scene(const std::string& custom_path) {
@@ -569,30 +635,84 @@ bool EditorLayer::save_active_scene(const std::string& custom_path) {
         return false;
     }
 
-    std::string path = custom_path;
     auto& session = get_or_create_session(active_scene);
-    if (path.empty()) {
-        if (!session.file_path.empty()) {
-            path = session.file_path;
+    const bool saved = save_scene(active_scene, session, custom_path);
+    update_window_title();
+    return saved;
+}
+
+bool EditorLayer::save_all_scenes() {
+    bool succeeded = true;
+    std::size_t saved_count = 0;
+
+    if (m_prefab_stage && m_prefab_stage->is_active() && m_prefab_stage->is_dirty()) {
+        if (m_prefab_stage->save()) {
+            ++saved_count;
         } else {
-            std::filesystem::create_directories("assets/scenes");
-            path = "assets/scenes/" + active_scene->get_name() + ".scene";
+            succeeded = false;
         }
     }
 
-    SceneSerializer serializer(active_scene, m_renderer);
-    if (serializer.serialize(path)) {
-        session.file_path = path;
-        session.initial_snapshot_json.clear();
-        if (session.command_history) {
-            session.command_history->mark_saved();
+    if (m_scene_manager) {
+        for (const auto& scene : m_scene_manager->get_scenes()) {
+            if (!scene) continue;
+            auto& session = get_or_create_session(scene.get());
+            if (!session.command_history || !session.command_history->is_dirty()) continue;
+            if (save_scene(scene.get(), session)) {
+                ++saved_count;
+            } else {
+                succeeded = false;
+            }
         }
-        update_window_title();
-        ENGINE_LOG_INFO("[EDITOR] Successfully saved scene '{}' to '{}'", active_scene->get_name(), path);
-        return true;
     }
 
-    ENGINE_LOG_ERROR("[EDITOR] Failed to save scene '{}' to '{}'", active_scene->get_name(), path);
+    update_window_title();
+    if (succeeded) {
+        ENGINE_LOG_INFO("[EDITOR] Save All completed ({} item(s) saved)", saved_count);
+    } else {
+        ENGINE_LOG_ERROR("[EDITOR] Save All completed with failures ({} item(s) saved)", saved_count);
+    }
+    return succeeded;
+}
+
+bool EditorLayer::is_scene_dirty(const Scene* scene) const {
+    const auto session = m_scene_sessions.find(scene);
+    return session != m_scene_sessions.end() && session->second.command_history &&
+        session->second.command_history->is_dirty();
+}
+
+bool EditorLayer::is_scene_tab_open(const Scene* scene) const {
+    return std::find(m_open_scene_tabs.begin(), m_open_scene_tabs.end(), scene) != m_open_scene_tabs.end();
+}
+
+void EditorLayer::open_scene_tab(const Scene* scene) {
+    if (!scene || is_scene_tab_open(scene)) return;
+    m_open_scene_tabs.push_back(scene);
+}
+
+void EditorLayer::activate_scene(std::size_t index) {
+    if (!m_scene_manager || !m_scene_manager->is_editing() || index >= m_scene_manager->get_scene_count()) return;
+    const auto& scenes = m_scene_manager->get_scenes();
+    if (!scenes[index]) return;
+    open_scene_tab(scenes[index].get());
+    m_scene_manager->set_active_scene(index);
+    sync_active_scene_session();
+}
+
+bool EditorLayer::has_loaded_scene_path(const std::string& path, std::size_t& index) {
+    if (!m_scene_manager) return false;
+    const std::string normalized = std::filesystem::path(path).lexically_normal().generic_string();
+    const auto& scenes = m_scene_manager->get_scenes();
+    for (std::size_t scene_index = 0; scene_index < scenes.size(); ++scene_index) {
+        if (!scenes[scene_index]) continue;
+        const auto session = m_scene_sessions.find(scenes[scene_index].get());
+        if (session == m_scene_sessions.end() || session->second.file_path.empty()) continue;
+        const std::string loaded_path = std::filesystem::path(session->second.file_path).lexically_normal().generic_string();
+        if (loaded_path == normalized) {
+            index = scene_index;
+            return true;
+        }
+    }
     return false;
 }
 
@@ -632,6 +752,11 @@ bool EditorLayer::discard_active_scene_changes() {
 
 void EditorLayer::load_scene(const std::string& path) {
     if (!m_scene_manager) return;
+    std::size_t loaded_index = 0;
+    if (has_loaded_scene_path(path, loaded_index)) {
+        activate_scene(loaded_index);
+        return;
+    }
     std::filesystem::path p(path);
     std::string scene_name = p.stem().string();
 
@@ -644,9 +769,9 @@ void EditorLayer::load_scene(const std::string& path) {
         session.command_history->reset_clean_baseline(0);
         session.file_path = path;
         session.initial_snapshot_json.clear();
+        record_recent_scene(path);
 
-        m_scene_manager->set_active_scene(scene_name);
-        sync_active_scene_session();
+        activate_scene(static_cast<std::size_t>(m_scene_manager->get_active_index()));
         ENGINE_LOG_INFO("[EDITOR] Loaded scene '{}' from '{}'", scene_name, path);
     }
 }
@@ -779,8 +904,33 @@ void EditorLayer::render_main_menu_bar() {
             if (ImGui::MenuItem("Save Scene", save_lbl.empty() ? nullptr : save_lbl.c_str())) {
                 save_active_scene();
             }
+            std::string save_all_lbl = ShortcutManager::get().get_label("editor.save_all_scenes");
+            if (ImGui::MenuItem("Save All", save_all_lbl.empty() ? nullptr : save_all_lbl.c_str())) {
+                save_all_scenes();
+            }
             if (ImGui::MenuItem("Save Scene As...")) {
                 m_show_save_as_popup = true;
+            }
+            if (m_recent_scenes.remove_missing_files()) {
+                static_cast<void>(m_recent_scenes.save(RECENT_SCENES_PATH));
+            }
+            if (!m_recent_scenes.empty()) {
+                ImGui::Separator();
+                if (ImGui::BeginMenu("Open Recent")) {
+                    for (const std::string& path : m_recent_scenes.paths()) {
+                        const std::filesystem::path scene_path(path);
+                        const std::string label = scene_path.filename().string() + "##" + path;
+                        if (ImGui::MenuItem(label.c_str())) {
+                            load_scene(path);
+                        }
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Clear Recent Scenes")) {
+                        m_recent_scenes.clear();
+                        static_cast<void>(m_recent_scenes.save(RECENT_SCENES_PATH));
+                    }
+                    ImGui::EndMenu();
+                }
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4")) {
@@ -947,18 +1097,18 @@ void EditorLayer::render_main_menu_bar() {
                 int active_idx = m_scene_manager->get_active_index();
 
                 if (ImGui::MenuItem("🔄 Next Demo Scene", "TAB")) {
-                    request_destructive_action({
-                        .type = PendingActionType::SwitchScene,
-                        .target = "Next Demo Scene",
-                        .action = [this]() { m_scene_manager->next_scene(); sync_active_scene_session(); }
-                    });
+                    const int active_index = m_scene_manager->get_active_index();
+                    const std::size_t next_index = static_cast<std::size_t>(
+                        (active_index + 1 + static_cast<int>(scenes.size())) % static_cast<int>(scenes.size())
+                    );
+                    activate_scene(next_index);
                 }
                 if (ImGui::MenuItem("⏮️ Previous Demo Scene", "Shift+TAB")) {
-                    request_destructive_action({
-                        .type = PendingActionType::SwitchScene,
-                        .target = "Previous Demo Scene",
-                        .action = [this]() { m_scene_manager->previous_scene(); sync_active_scene_session(); }
-                    });
+                    const int active_index = m_scene_manager->get_active_index();
+                    const std::size_t previous_index = static_cast<std::size_t>(
+                        (active_index - 1 + static_cast<int>(scenes.size())) % static_cast<int>(scenes.size())
+                    );
+                    activate_scene(previous_index);
                 }
                 ImGui::Separator();
 
@@ -981,15 +1131,7 @@ void EditorLayer::render_main_menu_bar() {
                     }
 
                     if (ImGui::MenuItem(label.c_str(), nullptr, is_selected)) {
-                        size_t target_idx = i;
-                        request_destructive_action({
-                            .type = PendingActionType::SwitchScene,
-                            .target = scenes[target_idx]->get_name(),
-                            .action = [this, target_idx]() {
-                                m_scene_manager->set_active_scene(target_idx);
-                                sync_active_scene_session();
-                            }
-                        });
+                        activate_scene(i);
                     }
                 }
             }

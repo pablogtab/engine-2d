@@ -154,13 +154,7 @@ Application::Application(const std::string& name, int width, int height, bool st
 
     asset_browser->set_on_load_scene_callback([this](const std::string& scene_path) {
         if (m_editor_layer) {
-            m_editor_layer->request_destructive_action({
-                .type = PendingActionType::LoadScene,
-                .target = scene_path,
-                .action = [this, scene_path]() {
-                    m_editor_layer->load_scene(scene_path);
-                }
-            });
+            m_editor_layer->load_scene(scene_path);
         }
     });
 
@@ -178,14 +172,17 @@ Application::Application(const std::string& name, int width, int height, bool st
 
     viewport_panel->set_on_load_scene_callback([this](const std::string& scene_path) {
         if (m_editor_layer) {
-            m_editor_layer->request_destructive_action({
-                .type = PendingActionType::LoadScene,
-                .target = scene_path,
-                .action = [this, scene_path]() {
-                    m_editor_layer->load_scene(scene_path);
-                }
-            });
+            m_editor_layer->load_scene(scene_path);
         }
+    });
+    viewport_panel->set_on_activate_scene_callback([this](std::size_t index) {
+        if (m_editor_layer) m_editor_layer->activate_scene(index);
+    });
+    viewport_panel->set_is_scene_dirty_callback([this](const Scene* scene) {
+        return m_editor_layer && m_editor_layer->is_scene_dirty(scene);
+    });
+    viewport_panel->set_is_scene_tab_open_callback([this](const Scene* scene) {
+        return m_editor_layer && m_editor_layer->is_scene_tab_open(scene);
     });
 
     viewport_panel->set_prefab_stage(m_editor_layer->get_prefab_stage());

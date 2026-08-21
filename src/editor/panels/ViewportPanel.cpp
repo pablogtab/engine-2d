@@ -609,7 +609,40 @@ void ViewportPanel::on_gui() {
         const bool in_prefab_stage = m_prefab_stage && m_prefab_stage->is_active();
         ScenePlayState play_state = get_play_state();
 
-        ImGui::SetCursorPos(ImVec2(10.0f, 32.0f));
+        if (!in_prefab_stage && m_scene_manager && m_scene_manager->get_scene_count() > 0) {
+            ImGui::SetCursorPosX(12.0f);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("Scenes");
+            ImGui::SameLine();
+            const auto& scenes = m_scene_manager->get_scenes();
+            const bool can_activate = play_state == ScenePlayState::Edit;
+            for (std::size_t index = 0; index < scenes.size(); ++index) {
+                if (!scenes[index]) continue;
+                if (m_is_scene_tab_open && !m_is_scene_tab_open(scenes[index].get())) continue;
+
+                const bool is_active = m_scene_manager->get_active_index() == static_cast<int>(index);
+                const bool dirty = m_is_scene_dirty && m_is_scene_dirty(scenes[index].get());
+                std::string label = scenes[index]->get_name();
+                if (dirty) label += " *";
+                label += "##scene_tab_" + std::to_string(index);
+
+                if (!can_activate) ImGui::BeginDisabled();
+                if (is_active) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.30f, 0.23f, 0.62f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.38f, 0.30f, 0.75f, 1.0f));
+                }
+                if (ImGui::Button(label.c_str(), ImVec2(0.0f, 24.0f)) && !is_active && m_on_activate_scene) {
+                    m_on_activate_scene(index);
+                }
+                if (is_active) ImGui::PopStyleColor(2);
+                if (!can_activate) ImGui::EndDisabled();
+                if (index + 1 < scenes.size()) ImGui::SameLine();
+            }
+            ImGui::Separator();
+            ImGui::Spacing();
+        } else {
+            ImGui::SetCursorPos(ImVec2(10.0f, 32.0f));
+        }
 
         if (in_prefab_stage) {
             // === PREFAB STAGE TOOLBAR ===
@@ -687,29 +720,6 @@ void ViewportPanel::on_gui() {
                     if (ImGui::Button(" > Resume ", ImVec2(75, 24))) {
                         if (m_scene_manager) m_scene_manager->resume_play();
                     }
-                }
-            }
-
-            ImGui::SameLine();
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.0f);
-            if (m_scene_manager && m_scene_manager->get_scene_count() > 0) {
-                ImGui::SetNextItemWidth(260.0f);
-                Scene* current_sc = m_scene_manager->get_active_scene();
-                std::string preview_name = current_sc ? ("🎬 " + current_sc->get_name()) : "Select Scene";
-                if (ImGui::BeginCombo("##viewport_scene_select", preview_name.c_str())) {
-                    const auto& scenes = m_scene_manager->get_scenes();
-                    for (size_t i = 0; i < scenes.size(); ++i) {
-                        if (!scenes[i]) continue;
-                        bool is_sel = (m_scene_manager->get_active_index() == static_cast<int>(i));
-                        std::string item_name = std::to_string(i + 1) + ". " + scenes[i]->get_name();
-                        if (ImGui::Selectable(item_name.c_str(), is_sel)) {
-                            m_scene_manager->set_active_scene(i);
-                        }
-                        if (is_sel) {
-                            ImGui::SetItemDefaultFocus();
-                        }
-                    }
-                    ImGui::EndCombo();
                 }
             }
 
