@@ -578,10 +578,11 @@ void ViewportPanel::begin_render() {
     if (ensure_render_target() && m_renderer && m_viewport_texture) {
         configure_scene_view();
         SDL_SetRenderTarget(m_renderer, m_viewport_texture);
-        SDL_SetRenderDrawColor(m_renderer, 15, 18, 25, 255);
+        const Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
+        const SDL_Color clear_color = active_scene ? active_scene->get_clear_color() : SDL_Color{24, 28, 36, 255};
+        SDL_SetRenderDrawColor(m_renderer, clear_color.r, clear_color.g, clear_color.b, clear_color.a);
         SDL_RenderClear(m_renderer);
-        Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
-        if (auto* generic_scene = dynamic_cast<GenericScene*>(active_scene)) {
+        if (auto* generic_scene = dynamic_cast<GenericScene*>(m_scene_manager ? m_scene_manager->get_active_scene() : nullptr)) {
             m_visibility_filter.set_entity_manager(&generic_scene->get_entity_manager());
             generic_scene->set_render_filter(&m_visibility_filter);
             if (m_grid_settings.visible && m_scene_manager && m_scene_manager->is_editing()) {

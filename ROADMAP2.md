@@ -480,8 +480,8 @@ These items are useful but should not interrupt the architecture work above unle
 ## Next Concrete Increments
 
 1. **Inspector Multi-Selection Completion (Phase 3)**:
-   - Extend multi-selection property transactions to `SpriteComponent` (tint, size, flip X/Y, sorting layer, outline) and `CameraComponent` (zoom, projection, clear color, follow target, bounds).
+   - [x] Extend multi-selection property transactions to `SpriteComponent` (tint, size, flip X/Y, sorting layer, outline) and `CameraComponent` (zoom, projection, clear color, follow target, bounds).
 2. **Scene Hierarchy Search and Component Filtering (Phase 3)**:
-   - Quick search bar with type filters (`:sprite`, `:collider`, `:camera`, `:locked`, `:hidden`), match highlighting, and auto-expanding matched branches.
+   - [x] Quick search bar with type filters (`:sprite`, `:collider`, `:camera`, `:locked`, `:hidden`), match highlighting, and auto-expanding matched branches.
 3. **Prefab Handle References (Phase 4)**:
    - [x] Serialize prefab links and base-variant references with `AssetHandle`; resolve paths only through `AssetDatabase`.

@@ -946,6 +946,56 @@ void test_multiselection_camera_bounds_and_follow_target() {
     assert(em.get_component<CameraComponent>(c2).follow_target == target);
 }
 
+void test_multiselection_camera_clear_color_round_trips() {
+    EntityManager em;
+    EditorCommandHistory history;
+    EditorPropertyTransaction transactions;
+
+    const EntityID c1 = em.create_entity();
+    const EntityID c2 = em.create_entity();
+    em.add_component<CameraComponent>(c1, CameraComponent{});
+    em.add_component<CameraComponent>(c2, CameraComponent{});
+    em.get_component<CameraComponent>(c1).clear_color = {24, 28, 36, 255};
+    em.get_component<CameraComponent>(c2).clear_color = {100, 120, 140, 255};
+
+    const std::vector<EntityID> selection = {c1, c2};
+    const auto before = capture_selected_components<CameraComponent>(em, selection);
+    const auto key = EditorPropertyTransaction::make_key(selection_transaction_owner(selection), "MultiSelection.Camera.ClearColor");
+    assert(transactions.begin<SelectedComponentStates<CameraComponent>>(
+        key,
+        before,
+        [&]() -> std::optional<SelectedComponentStates<CameraComponent>> {
+            return capture_selected_components<CameraComponent>(em, selection);
+        },
+        [&](const SelectedComponentStates<CameraComponent>& states) {
+            for (const auto& [entity, component] : states) {
+                em.get_component<CameraComponent>(entity) = component;
+            }
+        },
+        "Edit Camera Clear Color",
+        [](const auto& lhs, const auto& rhs) {
+            return selected_component_states_equal(lhs, rhs, std::equal_to<CameraComponent>{});
+        }
+    ));
+
+    const SDL_Color edited{10, 200, 70, 180};
+    em.get_component<CameraComponent>(c1).clear_color = edited;
+    em.get_component<CameraComponent>(c2).clear_color = edited;
+    assert(transactions.commit(key, history));
+    assert(em.get_component<CameraComponent>(c1).clear_color.g == 200);
+    assert(em.get_component<CameraComponent>(c2).clear_color.a == 180);
+
+    history.undo();
+    assert(em.get_component<CameraComponent>(c1).clear_color.r == 24);
+    assert(em.get_component<CameraComponent>(c2).clear_color.b == 140);
+
+    history.redo();
+    const SDL_Color redone_c1 = em.get_component<CameraComponent>(c1).clear_color;
+    const SDL_Color redone_c2 = em.get_component<CameraComponent>(c2).clear_color;
+    assert(redone_c1.r == edited.r && redone_c1.g == edited.g && redone_c1.b == edited.b && redone_c1.a == edited.a);
+    assert(redone_c2.r == edited.r && redone_c2.g == edited.g && redone_c2.b == edited.b && redone_c2.a == edited.a);
+}
+
 void test_multiselection_escape_cancellation_restores_individual_values() {
     EntityManager em;
     EditorCommandHistory history;
@@ -1245,6 +1295,7 @@ int main() {
     test_multiselection_rigidbody_mixed_values_and_undo_redo();
     test_multiselection_collider_compatibility_and_mixed_edit();
     test_multiselection_camera_bounds_and_follow_target();
+    test_multiselection_camera_clear_color_round_trips();
     test_multiselection_escape_cancellation_restores_individual_values();
     test_multiselection_locked_state_disables_modifications();
     test_multiselection_gizmo_world_to_local_translation_and_orbit_rotation();

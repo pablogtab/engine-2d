@@ -44,6 +44,7 @@ struct SpriteComponent {
 
 struct CameraComponent {
     bool is_primary{false};
+    SDL_Color clear_color{24, 28, 36, 255};
     float zoom{1.0f};
     CameraProjectionMode projection{CameraProjectionMode::FixedHeight};
     EntityID follow_target{0};
@@ -53,7 +54,15 @@ struct CameraComponent {
     glm::vec4 bounds{-2000.0f, -1000.0f, 2000.0f, 1000.0f};
 
     CameraComponent() = default;
-    bool operator==(const CameraComponent&) const = default;
+    bool operator==(const CameraComponent& other) const {
+        return is_primary == other.is_primary &&
+            clear_color.r == other.clear_color.r && clear_color.g == other.clear_color.g &&
+            clear_color.b == other.clear_color.b && clear_color.a == other.clear_color.a &&
+            zoom == other.zoom && projection == other.projection &&
+            follow_target == other.follow_target && follow_offset == other.follow_offset &&
+            follow_speed == other.follow_speed && enable_bounds == other.enable_bounds &&
+            bounds == other.bounds;
+    }
 };
 
 } // namespace Engine

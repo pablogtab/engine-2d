@@ -183,6 +183,7 @@ void register_camera(ComponentRegistry& registry) {
         .serialize = [](const CameraComponent& camera, const ComponentSerializationContext&) {
             return Json{
                 {"is_primary", camera.is_primary},
+                {"clear_color", {camera.clear_color.r, camera.clear_color.g, camera.clear_color.b, camera.clear_color.a}},
                 {"zoom", camera.zoom},
                 {"projection", projection_to_string(camera.projection)},
                 {"follow_target", camera.follow_target},
@@ -196,7 +197,9 @@ void register_camera(ComponentRegistry& registry) {
             if (!value.is_object()) { error = "Camera must be an object"; return false; }
             const auto& offset = value.at("follow_offset");
             const auto& bounds = value.at("bounds");
-            if (!offset.is_array() || offset.size() != 2 || !bounds.is_array() || bounds.size() != 4) {
+            const auto& clear_color = value.at("clear_color");
+            if (!offset.is_array() || offset.size() != 2 || !bounds.is_array() || bounds.size() != 4 ||
+                !clear_color.is_array() || clear_color.size() != 4) {
                 error = "Camera vectors have invalid dimensions";
                 return false;
             }
@@ -205,6 +208,10 @@ void register_camera(ComponentRegistry& registry) {
                 return false;
             }
             camera.is_primary = value.at("is_primary").get<bool>();
+            camera.clear_color = {
+                clear_color[0].get<std::uint8_t>(), clear_color[1].get<std::uint8_t>(),
+                clear_color[2].get<std::uint8_t>(), clear_color[3].get<std::uint8_t>()
+            };
             camera.zoom = value.at("zoom").get<float>();
             camera.follow_target = value.at("follow_target").get<EntityID>();
             camera.follow_offset = {offset[0].get<float>(), offset[1].get<float>()};

@@ -268,6 +268,25 @@ void GenericScene::synchronize_game_camera(float delta_time, bool reset_controll
     }
 }
 
+SDL_Color GenericScene::get_clear_color() const {
+    EntityID first_camera = 0;
+    EntityID primary_camera = 0;
+    for (const EntityID entity : m_entity_manager.get_living_entities()) {
+        if (!m_entity_manager.has_component<CameraComponent>(entity) ||
+            !m_entity_manager.has_component<TransformComponent>(entity)) continue;
+        if (first_camera == 0) first_camera = entity;
+        if (m_entity_manager.get_component<CameraComponent>(entity).is_primary) {
+            primary_camera = entity;
+            break;
+        }
+    }
+    const EntityID active_camera = primary_camera != 0 ? primary_camera : first_camera;
+    if (active_camera != 0) {
+        return m_entity_manager.get_component<CameraComponent>(active_camera).clear_color;
+    }
+    return Scene::get_clear_color();
+}
+
 void GenericScene::on_render(Renderer2D& renderer) {
     Camera2D& active_cam = m_is_editing ? m_editor_camera : m_camera;
     initialize_post_process(renderer);

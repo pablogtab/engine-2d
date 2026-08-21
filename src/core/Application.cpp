@@ -419,6 +419,10 @@ void Application::run() {
 #if ENGINE_WITH_EDITOR
         ViewportPanel* vp = m_editor_layer ? m_editor_layer->get_viewport_panel() : nullptr;
         if (vp && m_editor_layer->is_visible()) {
+            const SDL_Color scene_clear_color = m_scene_manager.get_active_scene()
+                ? m_scene_manager.get_active_scene()->get_clear_color()
+                : SDL_Color{24, 28, 36, 255};
+            m_renderer->set_scene_clear_color(scene_clear_color);
             vp->begin_render();
             m_renderer->set_custom_render_target(vp->get_viewport_texture());
             on_render();
@@ -430,15 +434,21 @@ void Application::run() {
             m_window->clear(23, 26, 33, 255);
         } else {
             m_renderer->set_custom_render_target(nullptr);
-            m_renderer->set_scene_clear_color(SDL_Color{24, 28, 36, 255});
-            m_window->clear(24, 28, 36, 255);
+            const SDL_Color scene_clear_color = m_scene_manager.get_active_scene()
+                ? m_scene_manager.get_active_scene()->get_clear_color()
+                : SDL_Color{24, 28, 36, 255};
+            m_renderer->set_scene_clear_color(scene_clear_color);
+            m_window->clear(scene_clear_color.r, scene_clear_color.g, scene_clear_color.b, scene_clear_color.a);
             on_render();
             m_scene_manager.render(*m_renderer);
         }
 #else
         m_renderer->set_custom_render_target(nullptr);
-        m_renderer->set_scene_clear_color(SDL_Color{24, 28, 36, 255});
-        m_window->clear(24, 28, 36, 255);
+        const SDL_Color scene_clear_color = m_scene_manager.get_active_scene()
+            ? m_scene_manager.get_active_scene()->get_clear_color()
+            : SDL_Color{24, 28, 36, 255};
+        m_renderer->set_scene_clear_color(scene_clear_color);
+        m_window->clear(scene_clear_color.r, scene_clear_color.g, scene_clear_color.b, scene_clear_color.a);
         on_render();
         m_scene_manager.render(*m_renderer);
 #endif

@@ -8,8 +8,10 @@
 #include "../../ecs/components/RenderingComponents.hpp"
 #include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <string>
 
 namespace Engine {
@@ -85,6 +87,26 @@ void CameraInspectorDrawer::draw(
         context.command_history->execute_command(std::make_unique<SetPrimaryCameraCommand>(&em, entity));
     }
 
+    const CameraComponent clear_color_before = camera;
+    float clear_color[4] = {
+        camera.clear_color.r / 255.0f,
+        camera.clear_color.g / 255.0f,
+        camera.clear_color.b / 255.0f,
+        camera.clear_color.a / 255.0f
+    };
+    begin_property_interaction("Camera.ClearColor");
+    const bool clear_color_changed = ImGui::ColorEdit4("Clear Color", clear_color);
+    capture_property_interaction();
+    if (clear_color_changed) {
+        camera.clear_color = {
+            static_cast<std::uint8_t>(clear_color[0] * 255.0f),
+            static_cast<std::uint8_t>(clear_color[1] * 255.0f),
+            static_cast<std::uint8_t>(clear_color[2] * 255.0f),
+            static_cast<std::uint8_t>(clear_color[3] * 255.0f)
+        };
+    }
+    track(em, entity, clear_color_before, "Camera.ClearColor", "Edit Camera Clear Color", context);
+
     const CameraComponent zoom_before = camera;
     property_float("Camera Zoom", &camera.zoom, Policies::Camera::Zoom);
     track(em, entity, zoom_before, "Camera.Zoom", "Edit Camera Zoom", context);
@@ -159,6 +181,42 @@ void CameraInspectorDrawer::draw_multiple(
         ImGui::TextColored(ImVec4(0.35f, 0.78f, 0.52f, 1.0f), "Primary Scene Cameras");
     } else if (any_primary) {
         ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "[Mixed Primary State]");
+    }
+
+    {
+        const auto before = capture_selected_components<CameraComponent>(em, entities);
+        const SDL_Color first = before.front().second.clear_color;
+        const bool mixed = selected_values_mixed<CameraComponent, SDL_Color>(before,
+            [](const CameraComponent& camera) { return camera.clear_color; },
+            [](const SDL_Color& lhs, const SDL_Color& rhs) {
+                return lhs.r == rhs.r && lhs.g == rhs.g && lhs.b == rhs.b && lhs.a == rhs.a;
+            }
+        );
+        float clear_color[4] = {
+            first.r / 255.0f, first.g / 255.0f, first.b / 255.0f, first.a / 255.0f
+        };
+        begin_property_interaction("MultiCamera.ClearColor");
+        if (mixed) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+        const bool changed = ImGui::ColorEdit4("Clear Color", clear_color);
+        if (mixed) ImGui::PopItemFlag();
+        capture_property_interaction();
+        if (changed) {
+            const SDL_Color value{
+                static_cast<std::uint8_t>(clear_color[0] * 255.0f),
+                static_cast<std::uint8_t>(clear_color[1] * 255.0f),
+                static_cast<std::uint8_t>(clear_color[2] * 255.0f),
+                static_cast<std::uint8_t>(clear_color[3] * 255.0f)
+            };
+            for (const EntityID entity : entities) {
+                if (em.is_alive(entity) && em.has_component<CameraComponent>(entity)) {
+                    em.get_component<CameraComponent>(entity).clear_color = value;
+                }
+            }
+        }
+        track_selected_component_edit<CameraComponent>(
+            em, entities, before, "Camera.ClearColor", "Edit Camera Clear Color",
+            context, std::equal_to<CameraComponent>{}
+        );
     }
 
     // Zoom

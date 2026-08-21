@@ -23,6 +23,7 @@ public:
     void on_update(float delta_time) override;
     void on_render(Renderer2D& renderer) override;
     void on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) override;
+    [[nodiscard]] SDL_Color get_clear_color() const override;
     [[nodiscard]] PostProcessPipeline* get_post_process_pipeline() override { return m_post_process_enabled ? &m_post_process_pipeline : nullptr; }
     [[nodiscard]] PostProcessProfile* get_editable_post_process_profile() override { return m_post_process_enabled ? &m_post_process_profile : nullptr; }
     [[nodiscard]] bool supports_post_process_profile_assets() const override { return true; }

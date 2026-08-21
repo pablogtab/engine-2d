@@ -362,6 +362,7 @@ void test_builtin_components_round_trip_through_registry() {
     em.add_component<SpriteComponent>(source, SpriteComponent{});
 
     CameraComponent camera;
+    camera.clear_color = {12, 34, 56, 78};
     camera.zoom = 2.5f;
     camera.projection = CameraProjectionMode::Expand;
     camera.follow_offset = {3.0f, 4.0f};
@@ -403,6 +404,8 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<TagComponent>(target).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(target));
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
+    assert(em.get_component<CameraComponent>(target).clear_color.r == 12);
+    assert(em.get_component<CameraComponent>(target).clear_color.a == 78);
     assert(em.get_component<AnimationComponent>(target).clips.front().name == "Run");
     assert(em.get_component<RigidBodyComponent>(target).mass == 3.0f);
     assert(em.get_component<ColliderComponent>(target).shapes.front().radius == 14.0f);
@@ -422,6 +425,7 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<TagComponent>(restored).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(restored));
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
+    assert(em.get_component<CameraComponent>(restored).clear_color.g == 34);
     assert(em.get_component<AnimationComponent>(restored).clips.size() == 1);
     assert(em.get_component<RigidBodyComponent>(restored).body_type == BodyType::Dynamic);
     assert(em.get_component<ColliderComponent>(restored).shapes.size() == 1);
@@ -435,7 +439,7 @@ void test_finalization_runs_after_entity_references_exist() {
     em.add_component<TransformComponent>(camera_entity, TransformComponent{});
 
     nlohmann::json camera_json{
-        {"is_primary", true}, {"zoom", 1.0f}, {"projection", "fixed_height"},
+        {"is_primary", true}, {"clear_color", {24, 28, 36, 255}}, {"zoom", 1.0f}, {"projection", "fixed_height"},
         {"follow_target", 2}, {"follow_offset", {0.0f, 0.0f}},
         {"follow_speed", 6.0f}, {"enable_bounds", false},
         {"bounds", {-10.0f, -10.0f, 10.0f, 10.0f}}

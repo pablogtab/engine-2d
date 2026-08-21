@@ -4,6 +4,7 @@
 #include "../ecs/EntityManager.hpp"
 #include "../events/EventDispatcher.hpp"
 #include "../core/AssetHandle.hpp"
+#include <SDL3/SDL.h>
 
 namespace Engine {
 
@@ -21,6 +22,8 @@ public:
     virtual void on_update(float delta_time) {}
     virtual void on_render(Renderer2D& renderer) {}
     virtual void on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) {}
+
+    [[nodiscard]] virtual SDL_Color get_clear_color() const { return SDL_Color{24, 28, 36, 255}; }
 
     [[nodiscard]] virtual PostProcessPipeline* get_post_process_pipeline() { return nullptr; }
     [[nodiscard]] virtual PostProcessProfile* get_editable_post_process_profile() { return nullptr; }

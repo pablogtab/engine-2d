@@ -892,6 +892,12 @@
                     2000.0,
                     1000.0
                 ],
+                "clear_color": [
+                    34,
+                    34,
+                    34,
+                    255
+                ],
                 "enable_bounds": false,
                 "follow_offset": [
                     0.0,
