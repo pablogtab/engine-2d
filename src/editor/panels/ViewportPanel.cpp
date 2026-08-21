@@ -384,6 +384,8 @@ void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entit
     }
     bool first_label = true;
     component_label("Sprite", em.has_component<SpriteComponent>(entity), first_label);
+    component_label("Light", em.has_component<Light2DComponent>(entity), first_label);
+    component_label("Shadow Caster", em.has_component<ShadowCaster2DComponent>(entity), first_label);
     component_label("Tilemap", em.has_component<TilemapComponent>(entity), first_label);
     component_label("Collider", em.has_component<ColliderComponent>(entity), first_label);
     component_label("RigidBody", em.has_component<RigidBodyComponent>(entity), first_label);
@@ -1000,6 +1002,16 @@ void ViewportPanel::on_gui() {
             // the toolbar toggle reveals the complete physics layout.
             if (active_scene && active_cam) {
                 m_collider_overlay.render(
+                    active_scene->get_entity_manager(),
+                    m_selection.get(),
+                    *active_cam,
+                    img_min,
+                    img_size,
+                    uv_min,
+                    uv_max,
+                    &m_visibility_filter
+                );
+                m_lighting_overlay.render(
                     active_scene->get_entity_manager(),
                     m_selection.get(),
                     *active_cam,

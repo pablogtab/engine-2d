@@ -171,6 +171,32 @@ void test_invalid_colliders_and_tilemaps_are_reported() {
     assert(contains_code(diagnostics, SceneDiagnosticCode::InvalidTilemapDimensions));
 }
 
+void test_invalid_lighting_is_reported() {
+    EntityManager entities;
+
+    const EntityID light_entity = entities.create_entity();
+    Light2DComponent light;
+    light.radius = 0.0f;
+    light.intensity = 2.0f;
+    light.affected_layers = 0;
+    entities.add_component<Light2DComponent>(light_entity, light);
+
+    const EntityID collider_caster = entities.create_entity();
+    entities.add_component<ShadowCaster2DComponent>(collider_caster, ShadowCaster2DComponent{});
+
+    const EntityID static_caster = entities.create_entity();
+    ShadowCaster2DComponent caster;
+    caster.source = ShadowGeometrySource::StaticPolygon;
+    caster.vertices.resize(2);
+    caster.affected_layers = 0;
+    entities.add_component<ShadowCaster2DComponent>(static_caster, caster);
+
+    const auto diagnostics = SceneValidator::validate(entities);
+    assert(contains_code(diagnostics, SceneDiagnosticCode::InvalidLight2D));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingShadowCasterCollider));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::InvalidShadowCaster2D));
+}
+
 } // namespace
 
 int main() {
@@ -181,6 +207,7 @@ int main() {
     test_hierarchy_cycles_are_reported();
     test_missing_assets_are_reported_when_a_database_is_available();
     test_invalid_colliders_and_tilemaps_are_reported();
+    test_invalid_lighting_is_reported();
     std::cout << "SceneValidatorTests passed\n";
     return 0;
 }

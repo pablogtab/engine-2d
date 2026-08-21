@@ -1,10 +1,13 @@
 #include "renderer/Renderer2D.hpp"
+#include "renderer/Lighting2DSystem.hpp"
 #include "renderer/Texture.hpp"
 #include "renderer/material/FragmentShader.hpp"
 #include "renderer/material/Material.hpp"
 #include "renderer/material/SDLGPUMaterialBackend.hpp"
 #include "scene/Camera2D.hpp"
 #include <SDL3/SDL.h>
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -31,10 +34,10 @@ bool add_variant_if_present(
     return shader.add_variant_from_file(format, path.string(), entry_point);
 }
 
-Pixel read_center(SDL_Renderer* renderer, SDL_Texture* target, int width, int height) {
+Pixel read_pixel(SDL_Renderer* renderer, SDL_Texture* target, int x, int y) {
     Pixel result;
     if (!SDL_SetRenderTarget(renderer, target)) return result;
-    const SDL_Rect sample_rect{width / 2, height / 2, 1, 1};
+    const SDL_Rect sample_rect{x, y, 1, 1};
     SDL_Surface* sample = SDL_RenderReadPixels(renderer, &sample_rect);
     if (!sample) return result;
     SDL_ReadSurfacePixel(
@@ -48,6 +51,10 @@ Pixel read_center(SDL_Renderer* renderer, SDL_Texture* target, int width, int he
     );
     SDL_DestroySurface(sample);
     return result;
+}
+
+Pixel read_center(SDL_Renderer* renderer, SDL_Texture* target, int width, int height) {
+    return read_pixel(renderer, target, width / 2, height / 2);
 }
 
 bool matches_expected_grade(const Pixel& pixel) {
@@ -161,7 +168,14 @@ int main() {
                     width,
                     height
                 );
-                if (!sprite_target || !fullscreen_source || !fullscreen_target) {
+                SDL_Texture* lighting_target = SDL_CreateTexture(
+                    sdl_renderer,
+                    SDL_PIXELFORMAT_RGBA8888,
+                    SDL_TEXTUREACCESS_TARGET,
+                    width,
+                    height
+                );
+                if (!sprite_target || !fullscreen_source || !fullscreen_target || !lighting_target) {
                     std::cerr << "GPURenderSmokeTests failed: render target creation failed: "
                               << SDL_GetError() << '\n';
                 } else {
@@ -229,12 +243,72 @@ int main() {
                             height
                         );
 
+                        auto lighting = std::make_shared<Engine::Lighting2DPass>();
+                        Engine::Light2DComponent point;
+                        point.type = Engine::Light2DType::Point;
+                        point.color = {255, 32, 16, 255};
+                        point.intensity = 1.0f;
+                        point.radius = 28.0f;
+                        point.casts_shadows = false;
+                        const glm::vec2 light_position{7.3f, -5.7f};
+                        renderer.clear_lighting_passes();
+                        renderer.add_lighting_pass(lighting);
+                        renderer.set_material_backend(nullptr);
+                        renderer.set_custom_render_target(lighting_target);
+                        const auto render_lighting_probe = [&](Engine::Light2DBlendMode mode) {
+                            point.blend_mode = mode;
+                            lighting->update({{light_position, point}}, {});
+                            SDL_SetRenderTarget(sdl_renderer, lighting_target);
+                            SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+                            SDL_RenderClear(sdl_renderer);
+                            renderer.begin_scene(camera);
+                            renderer.submit_sprite(
+                                white.get(), {0.0f, 0.0f, 0.0f}, {48.0f, 48.0f}, 0.0f,
+                                {64, 128, 192, 255}
+                            );
+                            renderer.end_scene();
+                            const glm::vec2 sample = camera.world_to_screen(glm::vec3(light_position, 0.0f));
+                            return read_pixel(
+                                sdl_renderer,
+                                lighting_target,
+                                static_cast<int>(std::round(sample.x)),
+                                static_cast<int>(std::round(sample.y))
+                            );
+                        };
+                        const Pixel additive_pixel = render_lighting_probe(Engine::Light2DBlendMode::Additive);
+                        const Pixel multiply_pixel = render_lighting_probe(Engine::Light2DBlendMode::Multiply);
+                        const Pixel screen_pixel = render_lighting_probe(Engine::Light2DBlendMode::Screen);
+                        point.intensity = 0.09f;
+                        const Pixel zoom_100_pixel = render_lighting_probe(Engine::Light2DBlendMode::Additive);
+                        camera.set_zoom(0.9f);
+                        const Pixel zoom_090_pixel = render_lighting_probe(Engine::Light2DBlendMode::Additive);
+                        camera.set_zoom(0.75f);
+                        const Pixel zoom_075_pixel = render_lighting_probe(Engine::Light2DBlendMode::Additive);
+                        camera.set_zoom(0.5f);
+                        const Pixel zoom_050_pixel = render_lighting_probe(Engine::Light2DBlendMode::Additive);
+                        camera.set_zoom(1.0f);
+                        const auto channel_delta = [](Uint8 lhs, Uint8 rhs) {
+                            return std::abs(static_cast<int>(lhs) - static_cast<int>(rhs));
+                        };
+                        const bool lighting_matches =
+                            additive_pixel.red > 200 && additive_pixel.green > 140 &&
+                            multiply_pixel.red >= 48 && multiply_pixel.red <= 80 &&
+                            multiply_pixel.green < 80 && multiply_pixel.blue < 80 &&
+                            screen_pixel.red > 200 && screen_pixel.green > 140 &&
+                            screen_pixel.blue >= 180 && screen_pixel.alpha >= 247 &&
+                            channel_delta(zoom_100_pixel.red, zoom_090_pixel.red) <= 2 &&
+                            channel_delta(zoom_100_pixel.red, zoom_075_pixel.red) <= 2 &&
+                            channel_delta(zoom_100_pixel.red, zoom_050_pixel.red) <= 2 &&
+                            channel_delta(zoom_100_pixel.green, zoom_050_pixel.green) <= 2 &&
+                            channel_delta(zoom_100_pixel.blue, zoom_050_pixel.blue) <= 2;
+
                         if (renderer.get_frame_metrics().stage(
-                                Engine::RenderStage::SceneGeometry
-                            ).material_switches != 1 ||
+                                Engine::RenderStage::Lighting
+                            ).draw_calls != 1 ||
                             !fullscreen_drawn ||
                             !matches_expected_grade(sprite_pixel) ||
-                            !matches_expected_grade(fullscreen_pixel)) {
+                            !matches_expected_grade(fullscreen_pixel) ||
+                            !lighting_matches) {
                             std::cerr
                                 << "GPURenderSmokeTests failed on " << backend->backend_name()
                                 << ": sprite RGBA=(" << static_cast<int>(sprite_pixel.red) << ','
@@ -244,10 +318,26 @@ int main() {
                                 << static_cast<int>(fullscreen_pixel.red) << ','
                                 << static_cast<int>(fullscreen_pixel.green) << ','
                                 << static_cast<int>(fullscreen_pixel.blue) << ','
-                                << static_cast<int>(fullscreen_pixel.alpha) << ")\n";
+                                << static_cast<int>(fullscreen_pixel.alpha) << ") additive RGBA=("
+                                << static_cast<int>(additive_pixel.red) << ','
+                                << static_cast<int>(additive_pixel.green) << ','
+                                << static_cast<int>(additive_pixel.blue) << ','
+                                << static_cast<int>(additive_pixel.alpha) << ") multiply RGBA=("
+                                << static_cast<int>(multiply_pixel.red) << ','
+                                << static_cast<int>(multiply_pixel.green) << ','
+                                << static_cast<int>(multiply_pixel.blue) << ','
+                                << static_cast<int>(multiply_pixel.alpha) << ") screen RGBA=("
+                                << static_cast<int>(screen_pixel.red) << ','
+                                << static_cast<int>(screen_pixel.green) << ','
+                                << static_cast<int>(screen_pixel.blue) << ','
+                                << static_cast<int>(screen_pixel.alpha) << ") zoom 1.0/0.9/0.75/0.5 red=("
+                                << static_cast<int>(zoom_100_pixel.red) << ','
+                                << static_cast<int>(zoom_090_pixel.red) << ','
+                                << static_cast<int>(zoom_075_pixel.red) << ','
+                                << static_cast<int>(zoom_050_pixel.red) << ")\n";
                         } else {
                             std::cout << "GPURenderSmokeTests passed on " << backend->backend_name()
-                                      << ": sprite and fullscreen probes matched\n";
+                                      << ": sprite, fullscreen, blend, and zoom-stability probes matched\n";
                             exit_code = 0;
                         }
                     }
@@ -255,6 +345,7 @@ int main() {
                 if (sprite_target) SDL_DestroyTexture(sprite_target);
                 if (fullscreen_source) SDL_DestroyTexture(fullscreen_source);
                 if (fullscreen_target) SDL_DestroyTexture(fullscreen_target);
+                if (lighting_target) SDL_DestroyTexture(lighting_target);
             }
         }
     }

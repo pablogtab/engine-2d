@@ -47,6 +47,7 @@ set(SOURCES
     src/renderer/postprocess/PostProcessPipeline.cpp
     src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp
+    src/renderer/Lighting2DSystem.cpp
     src/renderer/RenderEffectSystem.cpp
     src/renderer/RenderLayerEffectProfile.cpp
     src/renderer/RenderTargetPool.cpp
@@ -93,6 +94,7 @@ set(SOURCES
     src/editor/inspector/RenderEffectInspectorDrawer.cpp
     src/editor/inspector/RigidBodyInspectorDrawer.cpp
     src/editor/inspector/ColliderInspectorDrawer.cpp
+    src/editor/inspector/LightingInspectorDrawer.cpp
     src/editor/inspector/TilemapInspectorDrawer.cpp
     src/editor/inspector/AnimationInspectorDrawer.cpp
     src/editor/inspector/EditorComponentRegistry.cpp
@@ -105,6 +107,7 @@ set(SOURCES
     src/editor/tools/EditorToolbox.cpp
     src/editor/tools/ViewportReferenceOverlay.cpp
     src/editor/tools/ViewportColliderOverlay.cpp
+    src/editor/tools/ViewportLightingOverlay.cpp
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
     src/editor/state/EditorEntityStateStore.cpp
@@ -406,6 +409,17 @@ target_include_directories(RenderMetricsTests PRIVATE
 )
 target_link_libraries(RenderMetricsTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME RenderMetricsTests COMMAND RenderMetricsTests)
+
+add_executable(Lighting2DTests
+    tests/Lighting2DTests.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+)
+target_include_directories(Lighting2DTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(Lighting2DTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME Lighting2DTests COMMAND Lighting2DTests)
 
 add_executable(GPURenderSmokeTests tests/GPURenderSmokeTests.cpp)
 target_include_directories(GPURenderSmokeTests PRIVATE
@@ -813,6 +827,7 @@ foreach(runtime_test
     RenderPipelineTests
     LocalEffectsTests
     RenderMetricsTests
+    Lighting2DTests
     GPURenderSmokeTests
     EditorPropertyTransactionTests
     EditorCommandHistoryTests

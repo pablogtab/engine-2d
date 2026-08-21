@@ -12,6 +12,7 @@
 #include "../tilemap/Tilemap.hpp"
 #include "../tilemap/TilemapColliderSystem.hpp"
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 namespace Engine {
@@ -42,6 +43,53 @@ bool projection_from_string(std::string_view value, CameraProjectionMode& result
     else if (value == "fixed_width") result = CameraProjectionMode::FixedWidth;
     else if (value == "expand") result = CameraProjectionMode::Expand;
     else if (value == "pixel_perfect") result = CameraProjectionMode::PixelPerfect;
+    else return false;
+    return true;
+}
+
+const char* light_type_to_string(Light2DType type) {
+    switch (type) {
+        case Light2DType::Ambient: return "Ambient";
+        case Light2DType::Point: return "Point";
+    }
+    return "Point";
+}
+
+bool light_type_from_string(std::string_view value, Light2DType& result) {
+    if (value == "Ambient") result = Light2DType::Ambient;
+    else if (value == "Point") result = Light2DType::Point;
+    else return false;
+    return true;
+}
+
+const char* light_blend_to_string(Light2DBlendMode mode) {
+    switch (mode) {
+        case Light2DBlendMode::Additive: return "Additive";
+        case Light2DBlendMode::Multiply: return "Multiply";
+        case Light2DBlendMode::Screen: return "Screen";
+    }
+    return "Additive";
+}
+
+bool light_blend_from_string(std::string_view value, Light2DBlendMode& result) {
+    if (value == "Additive") result = Light2DBlendMode::Additive;
+    else if (value == "Multiply") result = Light2DBlendMode::Multiply;
+    else if (value == "Screen") result = Light2DBlendMode::Screen;
+    else return false;
+    return true;
+}
+
+const char* shadow_source_to_string(ShadowGeometrySource source) {
+    switch (source) {
+        case ShadowGeometrySource::Collider: return "Collider";
+        case ShadowGeometrySource::StaticPolygon: return "StaticPolygon";
+    }
+    return "Collider";
+}
+
+bool shadow_source_from_string(std::string_view value, ShadowGeometrySource& result) {
+    if (value == "Collider") result = ShadowGeometrySource::Collider;
+    else if (value == "StaticPolygon") result = ShadowGeometrySource::StaticPolygon;
     else return false;
     return true;
 }
@@ -150,6 +198,116 @@ void register_render_effect(ComponentRegistry& registry) {
             }
             effect.profile_handle = *handle;
             return true;
+        }
+    });
+}
+
+void register_light(ComponentRegistry& registry) {
+    register_or_throw<Light2DComponent>(registry, {
+        .display_name = "Light 2D",
+        .serialized_key = "light_2d",
+        .serialize = [](const Light2DComponent& light, const ComponentSerializationContext&) {
+            return Json{
+                {"type", light_type_to_string(light.type)},
+                {"color", {light.color.r, light.color.g, light.color.b, light.color.a}},
+                {"intensity", light.intensity},
+                {"radius", light.radius},
+                {"falloff", light.falloff},
+                {"blend_mode", light_blend_to_string(light.blend_mode)},
+                {"affected_layers", light.affected_layers},
+                {"casts_shadows", light.casts_shadows},
+                {"enabled", light.enabled}
+            };
+        },
+        .deserialize = [](Light2DComponent& light, const Json& value, const ComponentSerializationContext&, std::string& error) {
+            if (!value.is_object()) { error = "Light 2D must be an object"; return false; }
+            const auto& color = value.at("color");
+            if (!color.is_array() || color.size() != 4) {
+                error = "Light 2D color must contain four channels";
+                return false;
+            }
+            if (!light_type_from_string(value.at("type").get<std::string>(), light.type)) {
+                error = "Light 2D type is invalid";
+                return false;
+            }
+            if (!light_blend_from_string(value.at("blend_mode").get<std::string>(), light.blend_mode)) {
+                error = "Light 2D blend mode is invalid";
+                return false;
+            }
+            light.color = {
+                color[0].get<std::uint8_t>(), color[1].get<std::uint8_t>(),
+                color[2].get<std::uint8_t>(), color[3].get<std::uint8_t>()
+            };
+            light.intensity = value.at("intensity").get<float>();
+            light.radius = value.at("radius").get<float>();
+            light.falloff = value.value("falloff", 1.0f);
+            light.affected_layers = value.at("affected_layers").get<RenderLayerMask>();
+            light.casts_shadows = value.at("casts_shadows").get<bool>();
+            light.enabled = value.at("enabled").get<bool>();
+            return true;
+        },
+        .validate = [](const Light2DComponent& light) -> std::optional<std::string> {
+            if (!std::isfinite(light.intensity) || light.intensity < 0.0f || light.intensity > 1.0f) {
+                return "Light intensity must be between 0 and 1";
+            }
+            if (!std::isfinite(light.radius) || (light.type == Light2DType::Point && light.radius <= 0.0f)) {
+                return "Point light radius must be positive";
+            }
+            if (!std::isfinite(light.falloff) || light.falloff < 0.1f || light.falloff > 8.0f) {
+                return "Light falloff must be between 0.1 and 8";
+            }
+            if (light.affected_layers == 0) return "Light must affect at least one render layer";
+            return std::nullopt;
+        }
+    });
+}
+
+void register_shadow_caster(ComponentRegistry& registry) {
+    register_or_throw<ShadowCaster2DComponent>(registry, {
+        .display_name = "Shadow Caster 2D",
+        .serialized_key = "shadow_caster_2d",
+        .serialize = [](const ShadowCaster2DComponent& caster, const ComponentSerializationContext&) {
+            Json vertices = Json::array();
+            for (const glm::vec2& vertex : caster.vertices) vertices.push_back({vertex.x, vertex.y});
+            return Json{
+                {"source", shadow_source_to_string(caster.source)},
+                {"vertices", std::move(vertices)},
+                {"affected_layers", caster.affected_layers},
+                {"enabled", caster.enabled}
+            };
+        },
+        .deserialize = [](ShadowCaster2DComponent& caster, const Json& value, const ComponentSerializationContext&, std::string& error) {
+            if (!value.is_object()) { error = "Shadow Caster 2D must be an object"; return false; }
+            if (!shadow_source_from_string(value.at("source").get<std::string>(), caster.source)) {
+                error = "Shadow caster source is invalid";
+                return false;
+            }
+            const auto& vertices = value.at("vertices");
+            if (!vertices.is_array()) { error = "Shadow caster vertices must be an array"; return false; }
+            caster.vertices.clear();
+            caster.vertices.reserve(vertices.size());
+            for (const auto& vertex : vertices) {
+                if (!vertex.is_array() || vertex.size() != 2) {
+                    error = "Shadow caster vertex must contain two coordinates";
+                    return false;
+                }
+                caster.vertices.emplace_back(vertex[0].get<float>(), vertex[1].get<float>());
+            }
+            caster.affected_layers = value.at("affected_layers").get<RenderLayerMask>();
+            caster.enabled = value.at("enabled").get<bool>();
+            return true;
+        },
+        .validate = [](const ShadowCaster2DComponent& caster) -> std::optional<std::string> {
+            if (caster.affected_layers == 0) return "Shadow caster must affect at least one render layer";
+            if (caster.source == ShadowGeometrySource::StaticPolygon && caster.vertices.size() < 3) {
+                return "Static shadow caster requires at least three vertices";
+            }
+            for (const glm::vec2& vertex : caster.vertices) {
+                if (!std::isfinite(vertex.x) || !std::isfinite(vertex.y)) {
+                    return "Shadow caster vertices must be finite";
+                }
+            }
+            return std::nullopt;
         }
     });
 }
@@ -556,6 +714,8 @@ void register_additional_builtin_components(ComponentRegistry& registry) {
     register_tag(registry);
     register_group(registry);
     register_render_effect(registry);
+    register_light(registry);
+    register_shadow_caster(registry);
     register_prefab_link(registry);
     register_camera(registry);
     register_animation(registry);

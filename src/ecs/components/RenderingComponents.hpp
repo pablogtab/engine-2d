@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace Engine {
 
@@ -51,6 +52,61 @@ struct RenderEffectComponent {
     bool enabled{true};
 
     bool operator==(const RenderEffectComponent&) const = default;
+};
+
+enum class Light2DType {
+    Ambient,
+    Point
+};
+
+enum class Light2DBlendMode {
+    Additive,
+    Multiply,
+    Screen
+};
+
+// Pure authored lighting data. Position comes from TransformComponent and the
+// runtime pass is built by Lighting2DSystem, never serialized into the scene.
+struct Light2DComponent {
+    Light2DType type{Light2DType::Point};
+    SDL_Color color{255, 244, 214, 255};
+    float intensity{1.0f};
+    float radius{256.0f};
+    float falloff{1.0f};
+    Light2DBlendMode blend_mode{Light2DBlendMode::Additive};
+    RenderLayerMask affected_layers{ALL_RENDER_LAYERS};
+    bool casts_shadows{true};
+    bool enabled{true};
+
+    bool operator==(const Light2DComponent& other) const {
+        return type == other.type &&
+            color.r == other.color.r && color.g == other.color.g &&
+            color.b == other.color.b && color.a == other.color.a &&
+            intensity == other.intensity && radius == other.radius && falloff == other.falloff &&
+            blend_mode == other.blend_mode && affected_layers == other.affected_layers &&
+            casts_shadows == other.casts_shadows && enabled == other.enabled;
+    }
+};
+
+enum class ShadowGeometrySource {
+    Collider,
+    StaticPolygon
+};
+
+// Shadow casting is presentation data kept separate from physics. Collider
+// mode reuses authored collider geometry; StaticPolygon owns local vertices.
+struct ShadowCaster2DComponent {
+    ShadowGeometrySource source{ShadowGeometrySource::Collider};
+    std::vector<glm::vec2> vertices{
+        {-32.0f, -32.0f},
+        {32.0f, -32.0f},
+        {32.0f, 32.0f},
+        {-32.0f, 32.0f}
+    };
+    RenderLayerMask affected_layers{ALL_RENDER_LAYERS};
+    bool enabled{true};
+
+    bool operator==(const ShadowCaster2DComponent&) const = default;
 };
 
 struct CameraComponent {

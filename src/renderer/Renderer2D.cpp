@@ -130,56 +130,31 @@ std::size_t Renderer2D::get_active_lighting_pass_count() const {
     ));
 }
 
-void Renderer2D::execute_lighting_stage(SDL_Texture* scene_target, int width, int height) {
+std::size_t Renderer2D::get_active_lighting_pass_count(RenderLayer layer) const {
+    return static_cast<std::size_t>(std::count_if(
+        m_lighting_passes.begin(), m_lighting_passes.end(),
+        [layer](const auto& pass) {
+            return pass && pass->is_enabled() && renders_layer(pass->affected_layers(), layer);
+        }
+    ));
+}
+
+void Renderer2D::execute_lighting_stage(
+    SDL_Texture* scene_target,
+    RenderLayer layer,
+    int width,
+    int height
+) {
     if (!scene_target || width <= 0 || height <= 0) return;
     auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::Lighting)];
     for (const auto& pass : m_lighting_passes) {
-        if (!pass || !pass->is_enabled()) continue;
+        if (!pass || !pass->is_enabled() || !renders_layer(pass->affected_layers(), layer)) continue;
         const auto stage_begin = std::chrono::high_resolution_clock::now();
-        if (pass->apply({m_sdl_renderer, scene_target, width, height})) ++metrics.draw_calls;
+        if (pass->apply({m_sdl_renderer, scene_target, m_active_camera, layer, width, height})) ++metrics.draw_calls;
         metrics.cpu_milliseconds += std::chrono::duration<float, std::milli>(
             std::chrono::high_resolution_clock::now() - stage_begin
         ).count();
     }
-}
-
-void Renderer2D::begin_lighting_capture() {
-    if (get_active_lighting_pass_count() == 0 || m_post_process_pipeline) return;
-    int width = 0;
-    int height = 0;
-    if (m_custom_render_target) {
-        float target_width = 0.0f;
-        float target_height = 0.0f;
-        SDL_GetTextureSize(m_custom_render_target, &target_width, &target_height);
-        width = static_cast<int>(target_width);
-        height = static_cast<int>(target_height);
-    } else {
-        SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &width, &height);
-    }
-    m_lighting_capture_target = acquire_local_effect_surface(width, height);
-    if (!m_lighting_capture_target || !SDL_SetRenderTarget(m_sdl_renderer, m_lighting_capture_target)) {
-        if (m_lighting_capture_target) release_local_effect_surface(m_lighting_capture_target);
-        m_lighting_capture_target = nullptr;
-        return;
-    }
-    SDL_SetRenderDrawColor(m_sdl_renderer, m_custom_render_target ? 0 : m_scene_clear_color.r,
-                           m_custom_render_target ? 0 : m_scene_clear_color.g,
-                           m_custom_render_target ? 0 : m_scene_clear_color.b,
-                           m_custom_render_target ? 0 : m_scene_clear_color.a);
-    SDL_RenderClear(m_sdl_renderer);
-    if (m_custom_render_target) SDL_RenderTexture(m_sdl_renderer, m_custom_render_target, nullptr, nullptr);
-}
-
-void Renderer2D::end_lighting_capture() {
-    if (!m_lighting_capture_target) return;
-    float texture_width = 0.0f;
-    float texture_height = 0.0f;
-    SDL_GetTextureSize(m_lighting_capture_target, &texture_width, &texture_height);
-    execute_lighting_stage(m_lighting_capture_target, static_cast<int>(texture_width), static_cast<int>(texture_height));
-    SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
-    SDL_RenderTexture(m_sdl_renderer, m_lighting_capture_target, nullptr, nullptr);
-    release_local_effect_surface(m_lighting_capture_target);
-    m_lighting_capture_target = nullptr;
 }
 
 void Renderer2D::begin_scene(const Camera2D& camera) {
@@ -194,14 +169,11 @@ void Renderer2D::begin_scene(const Camera2D& camera) {
         SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
     }
 
-    if (m_post_process_pipeline &&
-        (m_post_process_pipeline->get_active_pass_count() > 0 || get_active_lighting_pass_count() > 0)) {
+    if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
         // The editor clears its Viewport render target before scene rendering.
         // Include that backdrop in the capture so full-screen passes affect the
         // entire camera frame, not only geometry drawn after begin_scene().
         m_post_process_pipeline->begin_capture(m_custom_render_target, m_scene_clear_color);
-    } else {
-        begin_lighting_capture();
     }
 }
 
@@ -766,7 +738,9 @@ void Renderer2D::end_scene() {
         size_t layer_end = layer_start + 1;
         while (layer_end < screen_space_start && m_sprite_queue[layer_end].render_layer == layer) ++layer_end;
 
-        if (get_active_render_layer_effect_count(layer) == 0) {
+        const bool has_layer_effects = get_active_render_layer_effect_count(layer) > 0;
+        const bool has_lighting = get_active_lighting_pass_count(layer) > 0;
+        if (!has_layer_effects && !has_lighting) {
             flush_entity_effects(layer_start, layer_end, scene_target);
         } else {
             SDL_Texture* source = acquire_local_effect_surface(composition_width, composition_height);
@@ -778,14 +752,25 @@ void Renderer2D::end_scene() {
                 SDL_SetRenderDrawColor(m_sdl_renderer, 0, 0, 0, 0);
                 SDL_RenderClear(m_sdl_renderer);
                 flush_entity_effects(layer_start, layer_end, source);
-                std::vector<ILocalEffectPass*> passes;
-                for (const auto& pass : m_render_layer_effects[layer]) if (pass && pass->is_enabled()) passes.push_back(pass.get());
-                SDL_Texture* output = execute_local_effect_chain(
-                    passes, source, composition_width, composition_height
-                );
+                SDL_Texture* output = nullptr;
+                if (has_layer_effects) {
+                    std::vector<ILocalEffectPass*> passes;
+                    for (const auto& pass : m_render_layer_effects[layer]) {
+                        if (pass && pass->is_enabled()) passes.push_back(pass.get());
+                    }
+                    output = execute_local_effect_chain(
+                        passes, source, composition_width, composition_height
+                    );
+                }
+                SDL_Texture* const layer_target = output ? output : source;
+                if (has_lighting) {
+                    execute_lighting_stage(layer_target, layer, composition_width, composition_height);
+                }
                 SDL_SetRenderTarget(m_sdl_renderer, scene_target);
-                SDL_RenderTexture(m_sdl_renderer, output ? output : source, nullptr, nullptr);
-                ++m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::LocalEffects)].draw_calls;
+                SDL_RenderTexture(m_sdl_renderer, layer_target, nullptr, nullptr);
+                if (has_layer_effects) {
+                    ++m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::LocalEffects)].draw_calls;
+                }
                 if (output) release_local_effect_surface(output);
                 release_local_effect_surface(source);
             }
@@ -793,15 +778,9 @@ void Renderer2D::end_scene() {
         layer_start = layer_end;
     }
 
-    // B. Compose lighting over the captured scene before global processing.
-    if (m_post_process_pipeline && get_active_lighting_pass_count() > 0) {
-        execute_lighting_stage(m_post_process_pipeline->get_capture_target(),
-                               m_post_process_pipeline->get_width(), m_post_process_pipeline->get_height());
-    }
-
-    // C. Execute Post-Processing Shader Chain on world space and output to custom render target (or backbuffer).
-    if (m_post_process_pipeline &&
-        (m_post_process_pipeline->get_active_pass_count() > 0 || get_active_lighting_pass_count() > 0)) {
+    // B. Execute Post-Processing Shader Chain on the lit world and output to
+    // the custom render target (or backbuffer).
+    if (m_post_process_pipeline && m_post_process_pipeline->get_active_pass_count() > 0) {
         const auto post_process_begin = std::chrono::high_resolution_clock::now();
         const std::size_t active_passes = m_post_process_pipeline->get_active_pass_count();
         m_post_process_pipeline->end_capture_and_process(m_custom_render_target);
@@ -814,9 +793,7 @@ void Renderer2D::end_scene() {
     }
     m_post_process_pipeline = nullptr; // Reset per-frame
 
-    end_lighting_capture();
-
-    // D. Flush Screen-Space HUD / UI directly on top of the processed image (Crisp & Unaffected)
+    // C. Flush Screen-Space HUD / UI directly on top of the processed image (Crisp & Unaffected)
     if (m_custom_render_target) {
         SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
     }

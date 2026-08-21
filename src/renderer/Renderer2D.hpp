@@ -115,6 +115,7 @@ public:
     void add_lighting_pass(std::shared_ptr<ILightingPass> pass);
     void clear_lighting_passes();
     [[nodiscard]] std::size_t get_active_lighting_pass_count() const;
+    [[nodiscard]] std::size_t get_active_lighting_pass_count(RenderLayer layer) const;
 
     void reserve_capacity(size_t max_sprites);
     void begin_scene(const Camera2D& camera);
@@ -179,9 +180,7 @@ public:
     SDL_Renderer* get_sdl_renderer() const { return m_sdl_renderer; }
 
 private:
-    void execute_lighting_stage(SDL_Texture* scene_target, int width, int height);
-    void begin_lighting_capture();
-    void end_lighting_capture();
+    void execute_lighting_stage(SDL_Texture* scene_target, RenderLayer layer, int width, int height);
 
     SDL_Renderer* m_sdl_renderer{nullptr};
     SDL_Color m_scene_clear_color{24, 28, 36, 255};
@@ -192,7 +191,6 @@ private:
     std::unordered_map<AssetHandle, std::vector<std::shared_ptr<ILocalEffectPass>>> m_entity_effect_profiles;
     std::shared_ptr<IMaterialBackend> m_material_backend;
     SDL_Texture* m_custom_render_target{nullptr};
-    SDL_Texture* m_lighting_capture_target{nullptr};
     RenderTargetPool m_render_target_pool;
     const Camera2D* m_active_camera{nullptr};
     std::vector<SpriteCommand> m_sprite_queue;

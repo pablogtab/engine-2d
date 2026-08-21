@@ -248,10 +248,12 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 11);
+    assert(registry.descriptors().size() == 13);
     assert(registry.find_by_type(typeid(TagComponent)));
     assert(registry.find_by_type(typeid(GroupComponent)));
     assert(registry.find_by_type(typeid(RenderEffectComponent)));
+    assert(registry.find_by_type(typeid(Light2DComponent)));
+    assert(registry.find_by_type(typeid(ShadowCaster2DComponent)));
     assert(registry.find_by_type(typeid(PrefabLinkComponent)));
     assert(registry.find_by_type(typeid(CameraComponent)));
     assert(registry.find_by_type(typeid(AnimationComponent)));
@@ -365,6 +367,22 @@ void test_builtin_components_round_trip_through_registry() {
     em.add_component<GroupComponent>(source, GroupComponent{});
     em.add_component<SpriteComponent>(source, SpriteComponent{});
     em.add_component<RenderEffectComponent>(source, RenderEffectComponent{AssetHandle{0x1234}, false});
+    Light2DComponent light;
+    light.type = Light2DType::Point;
+    light.color = {40, 80, 160, 220};
+    light.intensity = 0.65f;
+    light.radius = 480.0f;
+    light.falloff = 0.75f;
+    light.blend_mode = Light2DBlendMode::Screen;
+    light.affected_layers = render_layer_mask(2) | render_layer_mask(5);
+    light.casts_shadows = false;
+    em.add_component<Light2DComponent>(source, light);
+
+    ShadowCaster2DComponent caster;
+    caster.source = ShadowGeometrySource::StaticPolygon;
+    caster.vertices = {{-10.0f, -8.0f}, {12.0f, -6.0f}, {0.0f, 16.0f}};
+    caster.affected_layers = render_layer_mask(5);
+    em.add_component<ShadowCaster2DComponent>(source, caster);
 
     CameraComponent camera;
     camera.clear_color = {12, 34, 56, 78};
@@ -394,7 +412,8 @@ void test_builtin_components_round_trip_through_registry() {
     nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
-    for (const char* key : {"tag", "group", "render_effect", "camera", "animation", "rigidbody", "collider", "tilemap"}) {
+    for (const char* key : {"tag", "group", "render_effect", "light_2d", "shadow_caster_2d",
+                            "camera", "animation", "rigidbody", "collider", "tilemap"}) {
         assert(value.contains(key));
     }
 
@@ -409,6 +428,8 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<TagComponent>(target).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(target));
     assert(em.get_component<RenderEffectComponent>(target) == RenderEffectComponent(AssetHandle{0x1234}, false));
+    assert(em.get_component<Light2DComponent>(target) == light);
+    assert(em.get_component<ShadowCaster2DComponent>(target) == caster);
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<CameraComponent>(target).clear_color.r == 12);
     assert(em.get_component<CameraComponent>(target).clear_color.a == 78);
@@ -431,6 +452,8 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<TagComponent>(restored).tag == "RegistryEntity");
     assert(em.has_component<GroupComponent>(restored));
     assert(em.get_component<RenderEffectComponent>(restored) == RenderEffectComponent(AssetHandle{0x1234}, false));
+    assert(em.get_component<Light2DComponent>(restored) == light);
+    assert(em.get_component<ShadowCaster2DComponent>(restored) == caster);
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
     assert(em.get_component<CameraComponent>(restored).clear_color.g == 34);
     assert(em.get_component<AnimationComponent>(restored).clips.size() == 1);

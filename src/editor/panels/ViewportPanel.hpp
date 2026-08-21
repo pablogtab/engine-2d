@@ -9,6 +9,7 @@
 #include "../tools/ViewportSelectionTool.hpp"
 #include "../tools/ViewportReferenceOverlay.hpp"
 #include "../tools/ViewportColliderOverlay.hpp"
+#include "../tools/ViewportLightingOverlay.hpp"
 #include "../tools/EditorEntityVisibilityFilter.hpp"
 #include "../tools/EditorToolbox.hpp"
 #include "../tools/TilemapPaintingTool.hpp"
@@ -139,6 +140,7 @@ private:
     ViewportGridSettings m_grid_settings;
     ViewportReferenceOverlay m_reference_overlay;
     ViewportColliderOverlay m_collider_overlay;
+    ViewportLightingOverlay m_lighting_overlay;
     EntityID m_context_entity{0};
     std::array<char, 128> m_context_rename_buffer{};
 

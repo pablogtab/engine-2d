@@ -302,6 +302,7 @@ void GenericScene::on_render(Renderer2D& renderer) {
     initialize_post_process(renderer);
     renderer.set_post_process_pipeline(m_post_process_enabled ? &m_post_process_pipeline : nullptr);
     m_render_effect_system.configure(m_entity_manager, renderer, AssetDatabase::get());
+    m_lighting_system.configure(m_entity_manager, renderer);
     renderer.begin_scene(active_cam);
 
     // Centralized rendering for Sprites, Tilemaps, and Outlines

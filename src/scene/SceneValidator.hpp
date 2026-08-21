@@ -28,7 +28,10 @@ enum class SceneDiagnosticCode {
     MissingPrefabAsset,
     MissingTilemapTileset,
     InvalidColliderShape,
-    InvalidTilemapDimensions
+    InvalidTilemapDimensions,
+    InvalidLight2D,
+    InvalidShadowCaster2D,
+    MissingShadowCasterCollider
 };
 
 struct SceneDiagnostic {

@@ -3,6 +3,7 @@
 #include "AnimationInspectorDrawer.hpp"
 #include "CameraInspectorDrawer.hpp"
 #include "ColliderInspectorDrawer.hpp"
+#include "LightingInspectorDrawer.hpp"
 #include "RigidBodyInspectorDrawer.hpp"
 #include "RenderEffectInspectorDrawer.hpp"
 #include "SpriteInspectorDrawer.hpp"
@@ -110,6 +111,50 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
             const EditorInspectorContext&,
             ComponentSnapshotSet& snapshot
         ) { snapshot.set(RenderEffectComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "light_2d",
+        .drawer_key = "Light2DHeader",
+        .display_name = "Light 2D",
+        .category = EditorComponentCategory::Rendering,
+        .icon = EditorIcon::Zap,
+        .dependencies = {"transform"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            LightingInspectorDrawer::draw_light(em, entity, {
+                context.command_history, context.transactions
+            });
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(Light2DComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "shadow_caster_2d",
+        .drawer_key = "ShadowCaster2DHeader",
+        .display_name = "Shadow Caster 2D",
+        .category = EditorComponentCategory::Rendering,
+        .icon = EditorIcon::Component,
+        .dependencies = {"transform"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            LightingInspectorDrawer::draw_shadow_caster(em, entity, {
+                context.command_history, context.transactions
+            });
+        },
+        .create_default = [](
+            EntityManager& em,
+            EntityID entity,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) {
+            ShadowCaster2DComponent caster;
+            caster.source = em.has_component<ColliderComponent>(entity)
+                ? ShadowGeometrySource::Collider
+                : ShadowGeometrySource::StaticPolygon;
+            snapshot.set(std::move(caster));
+        }
     });
     register_or_throw(registry, {
         .component_key = "rigidbody",

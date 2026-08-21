@@ -8,6 +8,7 @@
 #include "../tilemap/Tilemap.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <unordered_set>
 
 namespace Engine {
@@ -258,6 +259,52 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
                     "Tilemap tileset asset is missing or unavailable",
                     0,
                     tilemap.tileset_path
+                );
+            }
+        }
+
+        if (entities.has_component<Light2DComponent>(entity)) {
+            const auto& light = entities.get_component<Light2DComponent>(entity);
+            if (!std::isfinite(light.intensity) || light.intensity < 0.0f || light.intensity > 1.0f ||
+                !std::isfinite(light.radius) ||
+                (light.type == Light2DType::Point && light.radius <= 0.0f) ||
+                !std::isfinite(light.falloff) || light.falloff < 0.1f || light.falloff > 8.0f ||
+                light.affected_layers == 0) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::InvalidLight2D,
+                    entity,
+                    "Light 2D has invalid intensity, radius, falloff, or affected layers"
+                );
+            }
+        }
+
+        if (entities.has_component<ShadowCaster2DComponent>(entity)) {
+            const auto& caster = entities.get_component<ShadowCaster2DComponent>(entity);
+            if (caster.source == ShadowGeometrySource::Collider &&
+                !entities.has_component<ColliderComponent>(entity)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingShadowCasterCollider,
+                    entity,
+                    "Collider shadow caster requires a Collider 2D component"
+                );
+            }
+            const bool invalid_vertices = std::any_of(
+                caster.vertices.begin(), caster.vertices.end(), [](const glm::vec2& vertex) {
+                    return !std::isfinite(vertex.x) || !std::isfinite(vertex.y);
+                }
+            );
+            if (caster.affected_layers == 0 || invalid_vertices ||
+                (caster.source == ShadowGeometrySource::StaticPolygon && caster.vertices.size() < 3)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::InvalidShadowCaster2D,
+                    entity,
+                    "Shadow Caster 2D has invalid geometry or affected layers"
                 );
             }
         }

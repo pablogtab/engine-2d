@@ -101,4 +101,14 @@ inline constexpr auto GridPadding = bounded_float(1.0f, 0.0f, 8192.0f, "%.0f");
 inline constexpr auto FramesPerSecond = bounded_float(0.25f, 0.1f, 240.0f, "%.1f FPS");
 } // namespace Animation
 
+namespace Lighting {
+inline constexpr auto Intensity = bounded_float(0.01f, 0.0f, 1.0f, "%.2f");
+inline constexpr auto Radius = bounded_float(1.0f, 1.0f, 100000.0f, "%.0f px");
+inline constexpr auto Falloff = bounded_float(0.02f, 0.1f, 8.0f, "%.2f");
+inline constexpr auto Coordinate = unbounded_float(1.0f);
+inline constexpr auto RenderLayerMask = bounded_int(
+    1.0f, std::numeric_limits<int>::min(), std::numeric_limits<int>::max(), "0x%08X"
+);
+} // namespace Lighting
+
 } // namespace Engine::InspectorPropertyPolicies

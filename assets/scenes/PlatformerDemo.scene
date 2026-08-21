@@ -4,9 +4,11 @@
         "camera": 1,
         "collider": 1,
         "group": 1,
+        "light_2d": 1,
         "prefab_link": 1,
         "render_effect": 1,
         "rigidbody": 1,
+        "shadow_caster_2d": 1,
         "sprite": 1,
         "tag": 1,
         "tilemap": 1,
@@ -87,6 +89,29 @@
                 "restitution": 0.0,
                 "type": "Dynamic"
             },
+            "shadow_caster_2d": {
+                "affected_layers": 4294967295,
+                "enabled": true,
+                "source": "StaticPolygon",
+                "vertices": [
+                    [
+                        -2.0,
+                        -18.0
+                    ],
+                    [
+                        8.0,
+                        -17.0
+                    ],
+                    [
+                        8.0,
+                        14.0
+                    ],
+                    [
+                        -3.0,
+                        10.0
+                    ]
+                ]
+            },
             "sprite": {
                 "color": [
                     255,
@@ -129,8 +154,8 @@
                     0.5
                 ],
                 "position": [
-                    -95.2108154296875,
-                    -66.8538818359375,
+                    -73.42630004882813,
+                    -25.311294555664063,
                     0.0
                 ],
                 "rotation": 0.0,
@@ -1040,8 +1065,73 @@
                     0.5
                 ],
                 "position": [
-                    -107.0,
-                    27.5,
+                    -105.98677062988281,
+                    68.53595733642578,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.0,
+                    1.0
+                ],
+                "visible": true
+            }
+        },
+        {
+            "id": 15,
+            "light_2d": {
+                "affected_layers": 4294967295,
+                "blend_mode": "Additive",
+                "casts_shadows": true,
+                "color": [
+                    255,
+                    244,
+                    214,
+                    255
+                ],
+                "enabled": true,
+                "falloff": 1.0,
+                "intensity": 0.09000000357627869,
+                "radius": 263.0,
+                "type": "Point"
+            },
+            "sprite": {
+                "color": [
+                    255,
+                    255,
+                    255,
+                    0
+                ],
+                "flip_x": false,
+                "flip_y": false,
+                "has_outline": false,
+                "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
+                "render_layer": 0,
+                "size": [
+                    64.0,
+                    64.0
+                ],
+                "sorting_layer": 0,
+                "use_src_rect": false,
+                "visible": true
+            },
+            "tag": "New_Entity",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    32.0,
+                    13.0,
                     0.0
                 ],
                 "rotation": 0.0,

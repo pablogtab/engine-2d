@@ -100,6 +100,7 @@ class RecordingLightingPass final : public Engine::ILightingPass {
 public:
     [[nodiscard]] const char* name() const override { return "RecordingLight"; }
     [[nodiscard]] bool is_enabled() const override { return enabled; }
+    [[nodiscard]] Engine::RenderLayerMask affected_layers() const override { return layers; }
     bool apply(const Engine::LightingContext& context) override {
         ++apply_count;
         last_context = context;
@@ -107,6 +108,7 @@ public:
     }
     bool enabled{true};
     bool succeed{true};
+    Engine::RenderLayerMask layers{Engine::ALL_RENDER_LAYERS};
     int apply_count{0};
     Engine::LightingContext last_context{};
 };
@@ -630,6 +632,10 @@ void test_renderer_composes_lighting_before_global_post_process() {
     {
         Engine::Renderer2D renderer(sdl_renderer);
         Engine::Camera2D camera(static_cast<float>(width), static_cast<float>(height));
+        std::unique_ptr<Engine::Texture> white(
+            Engine::Texture::create_solid(sdl_renderer, 4, 4, 255, 255, 255, 255)
+        );
+        assert(white);
         auto light = std::make_shared<RecordingLightingPass>();
         renderer.add_lighting_pass(light);
 
@@ -637,14 +643,17 @@ void test_renderer_composes_lighting_before_global_post_process() {
         pipeline.init(sdl_renderer, width, height, width, height);
         renderer.set_post_process_pipeline(&pipeline);
         renderer.begin_scene(camera);
+        renderer.submit_sprite(white.get(), {0.0f, 0.0f, 0.0f}, {8.0f, 8.0f});
         renderer.end_scene();
         assert(light->apply_count == 1);
-        assert(light->last_context.scene_target == pipeline.get_capture_target());
+        assert(light->last_context.scene_target != nullptr);
+        assert(light->last_context.render_layer == Engine::DEFAULT_RENDER_LAYER);
         assert(renderer.get_frame_metrics().stage(Engine::RenderStage::Lighting).draw_calls == 1);
         assert(renderer.get_frame_metrics().stage(Engine::RenderStage::GlobalPostProcess).cpu_milliseconds >= 0.0f);
         pipeline.destroy_targets();
 
         renderer.begin_scene(camera);
+        renderer.submit_sprite(white.get(), {0.0f, 0.0f, 0.0f}, {8.0f, 8.0f});
         renderer.end_scene();
         assert(light->apply_count == 2);
         assert(renderer.get_render_target_pool_metrics().leased_targets == 0);

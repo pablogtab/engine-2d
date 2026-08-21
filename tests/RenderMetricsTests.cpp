@@ -53,6 +53,9 @@ class SleepingLightingPass final : public Engine::ILightingPass {
 public:
     [[nodiscard]] const char* name() const override { return "Sleeping Light"; }
     [[nodiscard]] bool is_enabled() const override { return true; }
+    [[nodiscard]] Engine::RenderLayerMask affected_layers() const override {
+        return Engine::ALL_RENDER_LAYERS;
+    }
     bool apply(const Engine::LightingContext&) override {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         return true;

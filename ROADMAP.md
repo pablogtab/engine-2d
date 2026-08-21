@@ -282,10 +282,14 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Lighting
 
-- [ ] Implement ambient and point lights with color, radius, intensity, and blend mode.
-- [ ] Apply shared render-layer identities and camera masks to Light components.
-- [ ] Add Light components, Inspector drawers, viewport gizmos, serialization, undo/redo, and validation.
-- [ ] Implement 2D shadow casters from colliders and static geometry.
+- [x] Implement ambient and point lights with color, radius, intensity, and blend mode.
+  - [x] Evaluate point-light falloff with output-resolution radial geometry so intensity remains stable across camera zoom.
+  - [x] Expose an authored falloff curve control with smooth center and edge transitions.
+- [x] Apply shared render-layer identities and camera masks to Light components.
+  - [x] Preserve render-layer identity through local effects and lighting before scene composition.
+- [x] Add Light components, Inspector drawers, viewport gizmos, serialization, undo/redo, and validation.
+- [x] Implement 2D shadow casters from colliders and static geometry.
+  - [x] Keep physics and presentation ownership separate through `ShadowCaster2DComponent`.
 
 ### Canvas and Responsive UI
 
@@ -434,7 +438,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 6 — Runtime Authoring Suites
 
-- [ ] `Lighting2DTests` — light bounds, intensity/color, layer masks, blending, shadow-caster geometry, serialization, and command restoration.
+- [x] `Lighting2DTests` — light bounds, intensity/color, layer masks, blending, shadow-caster geometry, serialization, and command restoration.
 - [ ] `CanvasLayoutTests` — anchors, pivots, nested layout, reference scaling, Fit/Fill/Stretch/Responsive behavior, and safe areas.
 - [ ] `UIInputTests` — hit testing, focus, navigation, pointer capture, viewport conversion, and overlap ordering.
 - [ ] `MobileSurfaceTests` — orientation, safe-area updates, surface recreation, suspend/resume, split-screen resize, and capability restrictions using a fake backend.
@@ -474,6 +478,7 @@ These items are useful but should not interrupt the architecture work above unle
 - [ ] Optional safe-area overlays in Scene View.
 - [ ] Guide naming, locking, visibility groups, and persistence policies.
 - [ ] Additional snapping targets such as vertices, edges, pivots, and tile boundaries.
+- [ ] Add direct Scene View polygon authoring for `ShadowCaster2D`: select, move, insert, and delete vertices or edges; support snapping, closed-shape/winding validation, and one Undo/Redo command per gesture without requiring Inspector coordinate editing.
 - [ ] Customizable toolbox composition and multiple reusable editor toolboxes.
 - [ ] Platform-specific DPI visual checks and final icon optical alignment.
 
@@ -508,3 +513,7 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Write dirty scene snapshots atomically outside authored scene files and discover them on the next editor launch.
    - [x] Require an explicit Recover or Discard choice; recovered content remains dirty until normally saved or discarded.
    - [x] Expose the interval and recovery storage policy in Editor Preferences, then add conflict handling for source files changed outside the editor.
+5. **Canvas Layout Foundations (Phase 6)**:
+   - [ ] Register serializable Canvas, text, image, and button components.
+   - [ ] Implement pure anchor, pivot, nested layout, scaling-policy, and safe-area calculations.
+   - [ ] Add `CanvasLayoutTests` before connecting rendering and input authoring.

@@ -7,6 +7,7 @@
 #include "../renderer/postprocess/PostProcessPipeline.hpp"
 #include "../renderer/postprocess/PostProcessProfile.hpp"
 #include "../renderer/RenderEffectSystem.hpp"
+#include "../renderer/Lighting2DSystem.hpp"
 #include <vector>
 
 namespace Engine {
@@ -83,6 +84,7 @@ private:
     PostProcessProfile m_post_process_profile;
     AssetHandle m_post_process_profile_handle{};
     RenderEffectSystem m_render_effect_system;
+    Lighting2DSystem m_lighting_system;
     bool m_post_process_enabled{false};
     bool m_post_process_initialized{false};
 };
