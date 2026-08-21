@@ -23,11 +23,22 @@ enum class AssetType {
 };
 
 enum class AssetStatus {
+    Loading,
     Ready,
     MissingSource,
     MissingDependency,
+    FailedImport,
     InvalidMetadata,
     DuplicateHandle
+};
+
+struct AssetImportSettings {
+    std::string filter{"linear"};
+    float pixels_per_unit{100.0f};
+    float pivot_x{0.5f};
+    float pivot_y{0.5f};
+    std::string compression{"default"};
+    std::unordered_map<std::string, std::string> platform_overrides;
 };
 
 struct AssetRecord {
@@ -35,6 +46,7 @@ struct AssetRecord {
     std::string source_path; // normalized, project-relative path
     AssetType type{AssetType::Unknown};
     AssetStatus status{AssetStatus::Ready};
+    AssetImportSettings import_settings{};
 };
 
 struct AssetScanResult {
@@ -57,6 +69,7 @@ public:
     [[nodiscard]] std::optional<AssetHandle> import_asset(const std::filesystem::path& source_path);
     [[nodiscard]] bool move_asset(const std::filesystem::path& source_path, const std::filesystem::path& destination_path);
     [[nodiscard]] bool remove_asset(const std::filesystem::path& source_path);
+    [[nodiscard]] bool update_import_settings(AssetHandle handle, AssetImportSettings settings);
     [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;
     [[nodiscard]] const AssetRecord* find_by_path(const std::filesystem::path& source_path) const;
     [[nodiscard]] std::string resolve(AssetHandle handle) const;

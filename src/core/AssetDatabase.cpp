@@ -25,12 +25,16 @@ AssetType type_from_name(const std::string& name) {
     return AssetType::Unknown;
 }
 AssetStatus status_from_name(const std::string& value) {
+    if (value == "loading") return AssetStatus::Loading;
     if (value == "missing") return AssetStatus::MissingSource;
-    return value == "missing_dependency" ? AssetStatus::MissingDependency : AssetStatus::Ready;
+    if (value == "missing_dependency") return AssetStatus::MissingDependency;
+    return value == "failed" ? AssetStatus::FailedImport : AssetStatus::Ready;
 }
 const char* status_name(AssetStatus value) {
+    if (value == AssetStatus::Loading) return "loading";
     if (value == AssetStatus::MissingSource) return "missing";
-    return value == AssetStatus::MissingDependency ? "missing_dependency" : "ready";
+    if (value == AssetStatus::MissingDependency) return "missing_dependency";
+    return value == AssetStatus::FailedImport ? "failed" : "ready";
 }
 } // namespace
 
@@ -122,6 +126,14 @@ bool AssetDatabase::remove_asset(const fs::path& source) {
     notify_assets_changed();
     return true;
 }
+bool AssetDatabase::update_import_settings(AssetHandle handle, AssetImportSettings settings) {
+    if (settings.pixels_per_unit <= 0.0f || settings.pivot_x < 0.0f || settings.pivot_x > 1.0f ||
+        settings.pivot_y < 0.0f || settings.pivot_y > 1.0f || settings.filter.empty() || settings.compression.empty()) return false;
+    const auto found = m_by_handle.find(handle.value);
+    if (found == m_by_handle.end()) return false;
+    m_records[found->second].import_settings = std::move(settings);
+    return save_database();
+}
 
 const AssetRecord* AssetDatabase::find(AssetHandle handle) const { const auto i = m_by_handle.find(handle.value); return i == m_by_handle.end() ? nullptr : &m_records[i->second]; }
 const AssetRecord* AssetDatabase::find_by_path(const fs::path& path) const { const auto relative = to_project_relative(path); if (!relative) return nullptr; const auto i = m_by_path.find(*relative); return i == m_by_path.end() ? nullptr : &m_records[i->second]; }
@@ -192,11 +204,21 @@ bool AssetDatabase::load_database() {
     if (json.is_discarded() || json.value("version", 0) != k_database_version || !json.contains("assets") || !json["assets"].is_array()) return false;
     for (const auto& item : json["assets"]) {
         const auto handle = AssetHandle::from_string(item.value("handle", std::string{}));
-        if (!handle || !item["path"].is_string() || !register_record({*handle, item["path"].get<std::string>(), type_from_name(item.value("type", "unknown")), status_from_name(item.value("status", "ready"))})) { clear(); return false; }
+        if (!handle || !item["path"].is_string()) { clear(); return false; }
+        AssetImportSettings settings;
+        if (const auto imported = item.find("import_settings"); imported != item.end() && imported->is_object()) {
+            settings.filter = imported->value("filter", settings.filter);
+            settings.pixels_per_unit = imported->value("pixels_per_unit", settings.pixels_per_unit);
+            settings.pivot_x = imported->value("pivot_x", settings.pivot_x);
+            settings.pivot_y = imported->value("pivot_y", settings.pivot_y);
+            settings.compression = imported->value("compression", settings.compression);
+            settings.platform_overrides = imported->value("platform_overrides", settings.platform_overrides);
+        }
+        if (!register_record({*handle, item["path"].get<std::string>(), type_from_name(item.value("type", "unknown")), status_from_name(item.value("status", "ready")), std::move(settings)})) { clear(); return false; }
     } return true;
 }
 bool AssetDatabase::save_database() const {
-    nlohmann::json assets=nlohmann::json::array(); for (const auto& r:m_records) assets.push_back({{"handle",r.handle.to_string()},{"path",r.source_path},{"type",type_name(r.type)},{"status",status_name(r.status)}});
+    nlohmann::json assets=nlohmann::json::array(); for (const auto& r:m_records) assets.push_back({{"handle",r.handle.to_string()},{"path",r.source_path},{"type",type_name(r.type)},{"status",status_name(r.status)},{"import_settings",{{"filter",r.import_settings.filter},{"pixels_per_unit",r.import_settings.pixels_per_unit},{"pivot_x",r.import_settings.pivot_x},{"pivot_y",r.import_settings.pivot_y},{"compression",r.import_settings.compression},{"platform_overrides",r.import_settings.platform_overrides}}}});
     return FileSystem::write_text_atomically(database_path().string(), nlohmann::json{{"version",k_database_version},{"assets",assets}}.dump(2)+"\n");
 }
 AssetHandle AssetDatabase::generate_handle() const { static std::mt19937_64 g{static_cast<std::uint64_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count())^std::random_device{}()}; AssetHandle h; do {h.value=g();} while(!h.is_valid()||m_by_handle.contains(h.value)); return h; }

@@ -545,6 +545,15 @@ void test_sprite_textures_persist_asset_handles() {
     assert(default_component_registry().deserialize_entity(em, target, serialized, context, error));
     assert(em.get_component<SpriteComponent>(target).texture_handle == texture_record->handle);
 
+    nlohmann::json missing_asset_serialized = serialized;
+    missing_asset_serialized["sprite"]["texture_handle"] = AssetHandle{999}.to_string();
+    missing_asset_serialized["sprite"]["material_handle"] = AssetHandle{1000}.to_string();
+    const EntityID missing_target = em.create_entity();
+    assert(default_component_registry().deserialize_entity(em, missing_target, missing_asset_serialized, context, error));
+    const auto& missing_sprite = em.get_component<SpriteComponent>(missing_target);
+    assert(missing_sprite.texture_handle == AssetHandle{999});
+    assert(missing_sprite.material_handle == AssetHandle{1000});
+
     fs::remove_all(root, ignored);
 }
 

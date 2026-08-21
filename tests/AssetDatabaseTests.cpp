@@ -54,6 +54,32 @@ int main() {
     require(imported_relative.has_value(), "project-relative source paths resolve against project root");
     require(database.find(*imported_relative)->type == Engine::AssetType::Audio, "relative import infers asset type");
 
+    const fs::path moved_theme = root / "assets/audio/music/theme.wav";
+    fs::create_directories(moved_theme.parent_path());
+    fs::rename(root / "assets/audio/theme.wav", moved_theme, error);
+    require(!error && database.move_asset("assets/audio/theme.wav", "assets/audio/music/theme.wav"),
+        "moving an asset preserves its central record");
+    require(database.find(*imported_relative)->source_path == "assets/audio/music/theme.wav",
+        "moved asset keeps its handle while changing source path");
+    Engine::AssetDatabase reloaded_database(root);
+    [[maybe_unused]] const auto moved_rescan = reloaded_database.scan(root / "assets");
+    require(reloaded_database.find_by_path("assets/audio/music/theme.wav")->handle == *imported_relative,
+        "moved asset handle persists after database reload");
+    Engine::AssetImportSettings import_settings;
+    import_settings.filter = "nearest";
+    import_settings.pixels_per_unit = 32.0f;
+    import_settings.pivot_x = 0.25f;
+    import_settings.compression = "lossless";
+    import_settings.platform_overrides.emplace("windows", "bc7");
+    require(reloaded_database.update_import_settings(*imported_relative, import_settings), "asset import settings save atomically");
+    Engine::AssetDatabase settings_reloaded_database(root);
+    [[maybe_unused]] const auto settings_rescan = settings_reloaded_database.scan(root / "assets");
+    const auto* configured_theme = settings_reloaded_database.find(*imported_relative);
+    require(configured_theme && configured_theme->import_settings.filter == "nearest" &&
+        configured_theme->import_settings.pixels_per_unit == 32.0f &&
+        configured_theme->import_settings.platform_overrides.at("windows") == "bc7",
+        "import settings persist across reload");
+
     const fs::path outside = root.parent_path() / "engine2d_asset_database_outside.prefab";
     write_file(outside, "{}");
     require(!database.import_asset(outside).has_value(), "outside project asset rejected");

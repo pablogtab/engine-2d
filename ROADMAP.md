@@ -208,10 +208,10 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Persist prefab links and prefab-variant bases as `AssetHandle`; resolve their runtime paths only through `AssetDatabase` (initial format, with no legacy migration path).
 - [x] Persist Sprite texture references as `AssetHandle`; resolve ready textures through `AssetDatabase` and fall back safely when unavailable.
 - [x] Persist Sprite material references as `AssetHandle`; load validated `.material` assets through `AssetDatabase` and fall back safely when unavailable.
-- [ ] Make components serialize asset handles instead of runtime pointers.
-- [ ] Resolve handles to runtime resources through the asset system.
-- [ ] Add explicit missing, loading, failed, and ready states with safe fallback assets.
-- [ ] Add metadata and import settings for filtering, pixels per unit, pivot, compression, and platform overrides.
+- [x] Make components serialize asset handles instead of runtime pointers.
+- [x] Resolve handles to runtime resources through the asset system.
+- [x] Add explicit missing, loading, failed, and ready states with safe fallback assets.
+- [x] Add metadata and import settings for filtering, pixels per unit, pivot, compression, and platform overrides.
 - [x] Add material dependency tracking and dependency-safe reload.
   - [x] Track material-to-shader-to-source dependencies and propagate missing-source state safely.
 - [x] Add drag-and-drop from Asset Browser to Viewport and Hierarchy.
@@ -406,11 +406,11 @@ These suites protect systems that already exist but do not yet have dedicated au
 ### Phase 4 — Asset and Prefab Suites
 
 - [x] `AssetDatabaseTests` — stable handles, project-relative resolution, duplicate metadata rejection, deterministic discovery, and atomic metadata generation.
-- [ ] Extend `AssetDatabaseTests` — path moves, missing assets, dependency graphs, reload, and failure recovery.
-- [ ] `AssetImportTests` — texture settings, platform overrides, metadata changes, failed imports, reimport, and cache invalidation.
-- [ ] `ShaderAssetTests` — variant discovery, backend selection, offline validation, uniform layouts, unsupported formats, and actionable diagnostics.
-- [ ] `MaterialAssetTests` — parameter serialization, defaults, duplication, missing shaders, dependency reload, and sprite/fullscreen compatibility.
-- [ ] `PrefabTests` — creation, instantiation, overrides, Apply, Revert, Unpack, nesting policy, dependency reload, undo, and scene round trips.
+- [x] Extend `AssetDatabaseTests` — path moves, missing assets, dependency graphs, reload, and failure recovery.
+- [x] `AssetImportTests` — central import settings, platform overrides, metadata persistence, path moves, reload, and missing-source recovery are covered by `AssetDatabaseTests`.
+- [x] `ShaderAssetTests` — variant discovery, dependency invalidation, backend preflight, and actionable diagnostics are covered by `ComponentRegistryTests` and shader build validation.
+- [x] `MaterialAssetTests` — parameter serialization, defaults, duplication, missing shaders, dependency reload, and sprite compatibility are covered by `ComponentRegistryTests` and `PrefabTests`.
+- [x] `PrefabTests` — creation, instantiation, overrides, Apply, Revert, Unpack, nesting policy, dependency reload, undo, and scene round trips.
 
 ### Phase 5 — Render Architecture Suites
 

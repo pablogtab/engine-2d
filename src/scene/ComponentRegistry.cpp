@@ -449,8 +449,12 @@ ComponentRegistry& default_component_registry() {
                     }
                     const auto handle = AssetHandle::from_string(value["texture_handle"].get<std::string>());
                     const AssetRecord* texture = context.asset_database && handle ? context.asset_database->find(*handle) : nullptr;
-                    if (texture && texture->status == AssetStatus::Ready && texture->type == AssetType::Texture) {
+                    if (handle) {
+                        // The handle is authored data even when its runtime resource
+                        // is unavailable. Keep it for diagnostics and later reload.
                         sprite.texture_handle = *handle;
+                    }
+                    if (texture && texture->status == AssetStatus::Ready && texture->type == AssetType::Texture) {
                         if (context.renderer && context.asset_manager) {
                             sprite.texture = context.asset_manager->get_texture(context.renderer, texture->source_path);
                         }
@@ -462,8 +466,8 @@ ComponentRegistry& default_component_registry() {
                     if (!value["material_handle"].is_string()) { deserialize_error = "Sprite material_handle must be a string"; return false; }
                     const auto handle = AssetHandle::from_string(value["material_handle"].get<std::string>());
                     if (handle && context.asset_database) {
+                        sprite.material_handle = *handle;
                         sprite.material = MaterialAsset::load(*handle, *context.asset_database);
-                        if (sprite.material) sprite.material_handle = *handle;
                     }
                 }
                 if (!sprite.texture && context.renderer && context.asset_manager) {
