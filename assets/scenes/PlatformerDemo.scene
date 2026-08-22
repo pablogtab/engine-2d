@@ -616,6 +616,7 @@
                     18.0
                 ],
                 "sorting_layer": 0,
+                "texture_handle": "e0c904c6ba4fe575",
                 "use_src_rect": false,
                 "visible": true
             },
@@ -1396,8 +1397,8 @@
                     0.5
                 ],
                 "position": [
-                    320.0,
-                    -230.0,
+                    18.390228271484375,
+                    -206.3799591064453,
                     0.0
                 ],
                 "rotation": 0.0,

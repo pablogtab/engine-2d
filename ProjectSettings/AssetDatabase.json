@@ -461,6 +461,20 @@
       "path": "assets/textures/collectible_coin_gold.png",
       "status": "ready",
       "type": "texture"
+    },
+    {
+      "handle": "e0c904c6ba4fe575",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
+      "path": "assets/textures/trampoline-surface-v2.png",
+      "status": "ready",
+      "type": "texture"
     }
   ],
   "version": 1
