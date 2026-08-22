@@ -55,6 +55,7 @@ public:
     void update(float delta_time);
     void render(Renderer2D& renderer);
     void configure_view(RenderViewKind view, const RenderViewConfiguration& configuration);
+    void invalidate_render_resources();
     [[nodiscard]] MaterialAssetRefreshResult refresh_material_assets(const AssetDatabase& database);
     [[nodiscard]] std::size_t preview_material_asset(
         AssetHandle handle,

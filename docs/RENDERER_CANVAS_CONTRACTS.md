@@ -64,11 +64,51 @@ pixel insets before storing `DisplayState`. Fixed-resolution views map those ins
 into their reference target; responsive views keep physical output coordinates.
 Safe-area data is runtime state and is never serialized into a scene or prefab.
 
+Rotation, safe-area, pixel-size, display-scale, restored, and display hot-plug events
+all enter through this same path. A split-screen resize is therefore a regular
+surface/display refresh, not a separate Canvas or camera mode.
+
 Game View Device Preview replaces the view's output dimensions and safe-area insets
 with an editor-only profile. The scene still receives them through the same
 `RenderViewConfiguration` contract as a real display change. Preview selection,
 orientation, and custom insets are never authored content. Project orientation policy
 is separate: `Application` applies it through `SDL_HINT_ORIENTATIONS` before SDL starts.
+
+## Application lifecycle and render surfaces
+
+SDL application events are observed with an event watch because mobile lifecycle
+events are not guaranteed to arrive through ordinary polling. The watch only stores
+atomic pending flags; `Window::poll_events` drains them and invokes `Application` on
+the main thread. No SDL, renderer, audio, scene, or editor resource is mutated from
+the event-watch callback.
+
+The lifecycle transition contract is:
+
+```text
+Will/Did Enter Background
+  -> disable and clear game input
+  -> suspend Time and audio
+  -> invalidate transient render-surface resources
+  -> stop simulation and rendering
+
+Will/Did Enter Foreground
+  -> restore renderer and editor device resources
+  -> refresh size, orientation, DPI, and safe area
+  -> rebuild the active RenderView
+  -> resume audio and Time with a zero first-frame delta
+  -> resume simulation and rendering
+```
+
+Duplicate and out-of-order lifecycle events are idempotent. `LowMemory` trims pooled
+render targets, lighting intermediates, scene post-process targets, editor previews,
+and unused material state without changing application state. `Terminating` performs
+the suspend/invalidation path once and requests a clean loop exit.
+
+`Renderer2D` owns pooled targets and backend material states. Each `Scene` may release
+its own derived render resources through `on_render_resources_invalidated`; persistent
+authored data and asset identity remain intact. SDL continues to own the window,
+platform surface, renderer, and persistent SDL textures. The engine rebuilds only
+resources whose contents or device state depend on the current render surface.
 
 ## Canvas viewport rectangles
 
@@ -141,6 +181,9 @@ Changes to this area should update the smallest relevant focused suite:
 - `UIInputTests`: resolved-geometry interaction and rotated hit testing.
 - `CanvasUIRenderTests`: final screen-space pixels and ordering.
 - `DisplayManagerTests`: display-state propagation and notifications.
+- `MobileSurfaceTests`: lifecycle ordering, suspension-safe Time, scene resource
+  invalidation, fake mobile orientation/safe-area/split-screen refresh, and immutable
+  mobile display capabilities.
 - `RenderPipelineTests`, `PostProcessTests`, or `GPURenderSmokeTests`: stage order,
   target lifetime, and backend integration.
 - `RenderResolutionTests`: fixed/dynamic policy normalization, bounds, timing

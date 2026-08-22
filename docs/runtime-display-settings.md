@@ -122,6 +122,18 @@ Games should hide unsupported controls using `DisplayCapabilities` and consume t
 read-only size, DPI, and orientation in `DisplayState`. Surface and orientation
 changes automatically update the active `RenderView` and Canvas safe area.
 
+Backgrounding pauses simulation time, clears game input, suspends audio, and releases
+transient render resources. Foregrounding restores those resources, queries the
+current surface again, and propagates any rotation, safe-area, DPI, or split-screen
+size change before simulation resumes. The first resumed frame has a zero delta, so
+time spent in the background cannot become a physics or animation spike.
+
+The engine keeps the SDL window and renderer alive across this transition. SDL owns
+the native mobile surface; Engine2D recreates pooled targets, lighting and
+post-processing intermediates, material backend state, the editor viewport, and
+preview textures lazily against the restored surface. Duplicate or out-of-order
+lifecycle notifications are safe.
+
 `ProjectDisplaySettings::orientation_policy` controls the orientations allowed by
 the exported game. The runtime maps this policy to `SDL_HINT_ORIENTATIONS` before
 SDL initialization, so changing the policy in Project Settings requires restarting

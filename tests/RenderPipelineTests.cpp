@@ -2,6 +2,7 @@
 #include "renderer/Texture.hpp"
 #include "renderer/postprocess/IPostProcessPass.hpp"
 #include "renderer/postprocess/PostProcessPipeline.hpp"
+#include "renderer/material/IMaterialBackend.hpp"
 #include "scene/Camera2D.hpp"
 #include <SDL3/SDL.h>
 #include <cassert>
@@ -11,6 +12,31 @@
 #include <vector>
 
 namespace {
+
+class SurfaceMaterialBackend final : public Engine::IMaterialBackend {
+public:
+    bool is_available() const override { return available; }
+    const char* backend_name() const override { return "surface-test"; }
+    bool bind(const Engine::Material&, const Engine::MaterialRenderContext&) override { return false; }
+    void unbind() override {}
+    bool draw_fullscreen(
+        const Engine::Material&, SDL_Texture*, const Engine::MaterialRenderContext&
+    ) override { return false; }
+    void discard_unused() override { ++trim_count; }
+    void invalidate_device_resources() override {
+        available = false;
+        ++invalidate_count;
+    }
+    void restore_device_resources() override {
+        available = true;
+        ++restore_count;
+    }
+
+    bool available{true};
+    int trim_count{0};
+    int invalidate_count{0};
+    int restore_count{0};
+};
 
 class OrderedLocalPass final : public Engine::ILocalEffectPass {
 public:
@@ -289,6 +315,44 @@ void test_internal_world_resolution_keeps_camera_and_canvas_native() {
     SDL_DestroySurface(surface);
 }
 
+void test_render_surface_resources_are_released_and_restored() {
+    SDL_Surface* surface = SDL_CreateSurface(64, 32, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Engine::Renderer2D renderer(sdl_renderer);
+        auto backend = std::make_shared<SurfaceMaterialBackend>();
+        renderer.set_material_backend(backend);
+        renderer.set_render_resolution(0.5f);
+        Engine::Camera2D camera(64.0f, 32.0f);
+
+        renderer.begin_scene(camera);
+        renderer.end_scene();
+        assert(renderer.get_render_target_pool_metrics().allocated_targets == 1);
+        renderer.trim_transient_resources();
+        assert(renderer.get_render_target_pool_metrics().allocated_targets == 0);
+        assert(backend->trim_count == 1);
+
+        renderer.invalidate_render_surface();
+        assert(!renderer.is_render_surface_available());
+        assert(!backend->available && backend->invalidate_count == 1);
+        renderer.begin_scene(camera);
+        renderer.end_scene();
+        assert(renderer.get_frame_metrics().output_width == 0);
+
+        renderer.restore_render_surface();
+        assert(renderer.is_render_surface_available());
+        assert(backend->available && backend->restore_count == 1);
+        renderer.begin_scene(camera);
+        renderer.end_scene();
+        assert(renderer.get_frame_metrics().internal_width == 32);
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
@@ -296,6 +360,7 @@ int main() {
     test_fast_path_and_frame_state_reset();
     test_pipeline_resize_recreates_intermediate_surfaces();
     test_internal_world_resolution_keeps_camera_and_canvas_native();
+    test_render_surface_resources_are_released_and_restored();
     std::cout << "RenderPipelineTests passed\n";
     return 0;
 }

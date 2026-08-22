@@ -71,6 +71,9 @@ public:
     void render_dockspace();
     void render_panels(float delta_time);
     void end_frame(SDL_Renderer* renderer);
+    void invalidate_render_resources();
+    void restore_render_resources();
+    void trim_render_resources();
 
     // Modular panel registration
     void register_panel(std::shared_ptr<EditorPanel> panel);

@@ -33,6 +33,36 @@ void Renderer2D::set_render_resolution(
     m_resolution_measured_fps = std::max(measured_fps, 0.0f);
 }
 
+void Renderer2D::trim_transient_resources() {
+    if (m_frame_world_target_leased) return;
+    m_render_target_pool.clear();
+    for (const auto& pass : m_lighting_passes) {
+        if (pass) pass->invalidate_resources();
+    }
+    if (m_material_backend) m_material_backend->discard_unused();
+}
+
+void Renderer2D::invalidate_render_surface() {
+    if (!m_render_surface_available) return;
+    if (m_sdl_renderer) SDL_SetRenderTarget(m_sdl_renderer, nullptr);
+    if (m_frame_world_target_leased && m_frame_world_target) {
+        m_render_target_pool.release(m_frame_world_target);
+    }
+    m_frame_world_target = nullptr;
+    m_frame_world_target_leased = false;
+    m_custom_render_target = nullptr;
+    trim_transient_resources();
+    if (m_material_backend) m_material_backend->invalidate_device_resources();
+    m_render_surface_available = false;
+}
+
+void Renderer2D::restore_render_surface() {
+    if (m_render_surface_available) return;
+    if (m_material_backend) m_material_backend->restore_device_resources();
+    m_render_target_pool.set_renderer(m_sdl_renderer);
+    m_render_surface_available = true;
+}
+
 void Renderer2D::reserve_capacity(size_t max_sprites) {
     m_sprite_queue.reserve(max_sprites);
     m_sort_temp_buffer.reserve(max_sprites);
@@ -185,6 +215,12 @@ void Renderer2D::execute_lighting_stage(
 }
 
 void Renderer2D::begin_scene(const Camera2D& camera) {
+    if (!m_render_surface_available) {
+        m_active_camera = nullptr;
+        m_sprite_queue.clear();
+        m_frame_metrics = {};
+        return;
+    }
     m_active_camera = &camera;
     m_sprite_queue.clear();
     m_draw_calls = 0;
@@ -933,7 +969,7 @@ void Renderer2D::end_scene() {
 }
 
 bool Renderer2D::present() {
-    if (!m_sdl_renderer) return false;
+    if (!m_sdl_renderer || !m_render_surface_available) return false;
     const auto stage_begin = std::chrono::high_resolution_clock::now();
     const bool presented = SDL_RenderPresent(m_sdl_renderer);
     auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::Presentation)];

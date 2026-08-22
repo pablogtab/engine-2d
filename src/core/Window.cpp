@@ -9,6 +9,10 @@ namespace Engine {
 namespace {
     const char* STATE_FILE_PRIMARY = "build/.window_state";
     const char* STATE_FILE_FALLBACK = ".window_state";
+
+    constexpr std::uint32_t lifecycle_event_bit(ApplicationLifecycleEvent event) {
+        return 1U << static_cast<std::uint32_t>(event);
+    }
 }
 
 void Window::save_state() {
@@ -54,6 +58,10 @@ Window::Window(const std::string& title, int width, int height, bool persist_edi
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
         ENGINE_LOG_ERROR("Failed to initialize SDL3: {}", SDL_GetError());
         return;
+    }
+    m_lifecycle_watch_registered = SDL_AddEventWatch(&Window::lifecycle_event_watch, this);
+    if (!m_lifecycle_watch_registered) {
+        ENGINE_LOG_WARN("[LIFECYCLE] Could not register SDL event watch: {}", SDL_GetError());
     }
 
     int saved_x = 0, saved_y = 0, saved_w = 0, saved_h = 0;
@@ -115,6 +123,10 @@ Window::Window(const std::string& title, int width, int height, bool persist_edi
 
 Window::~Window() {
     save_state();
+    if (m_lifecycle_watch_registered) {
+        SDL_RemoveEventWatch(&Window::lifecycle_event_watch, this);
+        m_lifecycle_watch_registered = false;
+    }
     if (m_renderer) {
         SDL_DestroyRenderer(m_renderer);
     }
@@ -122,6 +134,38 @@ Window::~Window() {
         SDL_DestroyWindow(m_window);
     }
     SDL_Quit();
+}
+
+bool SDLCALL Window::lifecycle_event_watch(void* userdata, SDL_Event* event) {
+    auto* window = static_cast<Window*>(userdata);
+    if (!window || !event) return true;
+    const auto lifecycle_event = application_lifecycle_event_from_sdl(event->type);
+    if (lifecycle_event) {
+        window->m_pending_lifecycle_events.fetch_or(
+            lifecycle_event_bit(*lifecycle_event),
+            std::memory_order_release
+        );
+    }
+    return true;
+}
+
+void Window::drain_lifecycle_events() {
+    const std::uint32_t pending = m_pending_lifecycle_events.exchange(
+        0,
+        std::memory_order_acquire
+    );
+    if (!m_lifecycle_callback || pending == 0) return;
+    constexpr ApplicationLifecycleEvent ordered_events[]{
+        ApplicationLifecycleEvent::LowMemory,
+        ApplicationLifecycleEvent::WillEnterBackground,
+        ApplicationLifecycleEvent::DidEnterBackground,
+        ApplicationLifecycleEvent::WillEnterForeground,
+        ApplicationLifecycleEvent::DidEnterForeground,
+        ApplicationLifecycleEvent::Terminating
+    };
+    for (const ApplicationLifecycleEvent event : ordered_events) {
+        if ((pending & lifecycle_event_bit(event)) != 0) m_lifecycle_callback(event);
+    }
 }
 
 void Window::update_sizes() {
@@ -147,6 +191,7 @@ void Window::request_close() {
 }
 
 void Window::poll_events() {
+    drain_lifecycle_events();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (m_uses_logical_presentation) SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
@@ -204,6 +249,7 @@ void Window::poll_events() {
             Input::process_event(event);
         }
     }
+    drain_lifecycle_events();
 }
 
 void Window::set_logical_presentation(int reference_width, int reference_height, PresentationMode mode) {

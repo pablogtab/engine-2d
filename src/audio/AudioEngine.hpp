@@ -13,6 +13,9 @@ public:
 
     // Shuts down the audio engine cleanly and frees background mixing threads
     static void shutdown();
+    static void suspend();
+    static void resume();
+    [[nodiscard]] static bool is_suspended();
 
     // Plays a sound effect file from disk (WAV, MP3, FLAC, OGG) with volume and pitch control
     static void play_sound(const std::string& filepath, float volume = 1.0f, float pitch = 1.0f);

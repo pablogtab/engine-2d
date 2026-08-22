@@ -27,6 +27,7 @@ public:
     ~AssetBrowserPanel() override;
 
     void on_gui() override;
+    void on_render_resources_invalidated() override { destroy_material_previews(); }
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
     void set_on_load_scene_callback(std::function<void(const std::string&)> cb) {

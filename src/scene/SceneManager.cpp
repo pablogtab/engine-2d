@@ -247,6 +247,13 @@ void SceneManager::configure_view(RenderViewKind view, const RenderViewConfigura
     }
 }
 
+void SceneManager::invalidate_render_resources() {
+    for (const auto& scene : m_scenes) {
+        if (scene) scene->on_render_resources_invalidated();
+    }
+    if (m_transient_scene) m_transient_scene->on_render_resources_invalidated();
+}
+
 void SceneManager::apply_active_view() {
     Scene* active = get_active_scene();
     if (!active) return;

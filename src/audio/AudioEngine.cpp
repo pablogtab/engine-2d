@@ -14,6 +14,7 @@ static float s_music_volume = 0.5f;
 static float s_sfx_volume = 0.7f;
 static ma_sound s_music;
 static bool s_music_loaded = false;
+static bool s_suspended = false;
 
 bool AudioEngine::init() {
     if (s_initialized) return true;
@@ -27,6 +28,7 @@ bool AudioEngine::init() {
 
     s_initialized = true;
     ma_engine_set_volume(&s_engine, s_master_volume);
+    if (s_suspended) ma_engine_stop(&s_engine);
     ENGINE_LOG_INFO("[AUDIO] AudioEngine initialized successfully (cross-platform driver).");
     return true;
 }
@@ -41,11 +43,34 @@ void AudioEngine::shutdown() {
 
     ma_engine_uninit(&s_engine);
     s_initialized = false;
+    s_suspended = false;
     ENGINE_LOG_INFO("[AUDIO] AudioEngine shutdown cleanly.");
 }
 
-void AudioEngine::play_sound(const std::string& filepath, float volume, float pitch) {
+void AudioEngine::suspend() {
+    if (s_suspended) return;
+    s_suspended = true;
     if (!s_initialized) return;
+    const ma_result result = ma_engine_stop(&s_engine);
+    if (result != MA_SUCCESS) {
+        ENGINE_LOG_WARN("[AUDIO] Failed to suspend audio device. Code: {}", static_cast<int>(result));
+    }
+}
+
+void AudioEngine::resume() {
+    if (!s_suspended) return;
+    s_suspended = false;
+    if (!s_initialized) return;
+    const ma_result result = ma_engine_start(&s_engine);
+    if (result != MA_SUCCESS) {
+        ENGINE_LOG_WARN("[AUDIO] Failed to resume audio device. Code: {}", static_cast<int>(result));
+    }
+}
+
+bool AudioEngine::is_suspended() { return s_suspended; }
+
+void AudioEngine::play_sound(const std::string& filepath, float volume, float pitch) {
+    if (!s_initialized || s_suspended) return;
 
     ma_sound* sound = new ma_sound();
     ma_result res = ma_sound_init_from_file(&s_engine, filepath.c_str(), 0, nullptr, nullptr, sound);
@@ -60,7 +85,7 @@ void AudioEngine::play_sound(const std::string& filepath, float volume, float pi
 }
 
 void AudioEngine::play_sound_from_memory(const void* data, size_t size, float volume, float pitch) {
-    if (!s_initialized || !data || size == 0) return;
+    if (!s_initialized || s_suspended || !data || size == 0) return;
 
     // Allocate memory buffer copy for playback lifecycle
     uint8_t* mem_copy = new uint8_t[size];
@@ -88,7 +113,7 @@ void AudioEngine::play_sound_from_memory(const void* data, size_t size, float vo
 }
 
 void AudioEngine::play_music(const std::string& filepath, float volume, bool loop) {
-    if (!s_initialized) return;
+    if (!s_initialized || s_suspended) return;
 
     if (s_music_loaded) {
         ma_sound_stop(&s_music);

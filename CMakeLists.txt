@@ -22,6 +22,7 @@ include(cmake/ShaderCompilation.cmake)
 set(SOURCES
     src/audio/AudioEngine.cpp
     src/core/Application.cpp
+    src/core/ApplicationLifecycle.cpp
     src/core/AssetDatabase.cpp
     src/core/AssetManager.cpp
     src/core/BinarySerializer.cpp
@@ -311,6 +312,16 @@ target_include_directories(Camera2DTests PRIVATE
 )
 target_link_libraries(Camera2DTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME Camera2DTests COMMAND Camera2DTests)
+
+add_executable(MobileSurfaceTests
+    tests/MobileSurfaceTests.cpp
+    src/core/ApplicationLifecycle.cpp
+)
+target_include_directories(MobileSurfaceTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(MobileSurfaceTests PRIVATE SDL3::SDL3)
+add_test(NAME MobileSurfaceTests COMMAND MobileSurfaceTests)
 
 add_executable(RenderResolutionTests
     tests/RenderResolutionTests.cpp
@@ -859,6 +870,7 @@ endfunction()
 
 foreach(runtime_test
     Camera2DTests
+    MobileSurfaceTests
     RenderResolutionTests
     DisplayManagerTests
     AssetDatabaseTests

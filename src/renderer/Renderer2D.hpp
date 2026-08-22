@@ -91,6 +91,10 @@ public:
         float target_fps = 0.0f,
         float measured_fps = 0.0f
     );
+    void trim_transient_resources();
+    void invalidate_render_surface();
+    void restore_render_surface();
+    [[nodiscard]] bool is_render_surface_available() const { return m_render_surface_available; }
 
     void set_post_process_pipeline(PostProcessPipeline* pipeline) { m_post_process_pipeline = pipeline; }
     PostProcessPipeline* get_post_process_pipeline() const { return m_post_process_pipeline; }
@@ -232,6 +236,7 @@ private:
     float m_resolution_target_fps{0.0f};
     float m_resolution_measured_fps{0.0f};
     RenderScaleMode m_render_scale_mode{RenderScaleMode::Fixed};
+    bool m_render_surface_available{true};
     bool m_low_latency_mode{true};
 };
 

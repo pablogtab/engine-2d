@@ -5,6 +5,7 @@
 #include "AssetManager.hpp"
 #include "ThreadPool.hpp"
 #include "ProjectSettings.hpp"
+#include "ApplicationLifecycle.hpp"
 #include "DisplayManager.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "scene/SceneManager.hpp"
@@ -53,10 +54,20 @@ protected:
     virtual void on_render() {}
     virtual void on_resize(int width, int height) {}
     virtual void on_display_changed(const DisplayState& state) {}
+    virtual void on_application_suspended() {}
+    virtual void on_application_resumed() {}
+    virtual void on_low_memory() {}
+    virtual void on_terminating() {}
     virtual void on_shutdown() {}
 
 private:
     void apply_display_mode(bool editor_visible);
+    void handle_lifecycle_event(ApplicationLifecycleEvent event);
+    void invalidate_render_surface();
+    void restore_render_surface();
+    void trim_render_resources();
+    void handle_render_surface_changed();
+    [[nodiscard]] bool editor_visible() const;
 
     std::unique_ptr<Window> m_window;
     std::unique_ptr<DisplayManager> m_display_manager;
@@ -68,6 +79,8 @@ private:
     ThreadPool m_thread_pool;
     ProjectSettings m_project_settings;
     DynamicResolutionController m_dynamic_resolution;
+    ApplicationLifecycle m_lifecycle;
+    bool m_reset_frame_clock_requested{false};
     bool m_running{true};
 };
 

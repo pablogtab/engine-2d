@@ -36,6 +36,10 @@ public:
     // Releases cached states whose material instances are no longer referenced
     // by scenes after an asset reload.
     virtual void discard_unused() {}
+    // Surface loss invalidates backend-owned GPU state without changing the
+    // authored Material instances that reference shader assets.
+    virtual void invalidate_device_resources() {}
+    virtual void restore_device_resources() {}
 };
 
 } // namespace Engine

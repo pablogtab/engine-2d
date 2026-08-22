@@ -32,6 +32,7 @@ public:
     [[nodiscard]] virtual bool is_enabled() const = 0;
     [[nodiscard]] virtual RenderLayerMask affected_layers() const = 0;
     virtual bool apply(const LightingContext& context) = 0;
+    virtual void invalidate_resources() {}
 };
 
 } // namespace Engine

@@ -69,6 +69,11 @@ void GenericScene::on_detach() {
     m_post_process_initialized = false;
 }
 
+void GenericScene::on_render_resources_invalidated() {
+    m_post_process_pipeline.destroy_targets();
+    m_canvas_ui_system.clear();
+}
+
 bool GenericScene::set_post_process_profile_handle(AssetHandle handle, const AssetDatabase& database) {
     if (!handle.is_valid()) {
         m_post_process_profile_handle = {};

@@ -53,6 +53,7 @@ public:
     ~ViewportPanel() override;
 
     void on_gui() override;
+    void on_render_resources_invalidated() override;
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
     void begin_render();
