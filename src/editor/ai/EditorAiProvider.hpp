@@ -63,6 +63,7 @@ struct EditorAiProviderRequest {
     std::string codex_executable;
     std::string provider_thread_id;
     bool persist_thread{false};
+    bool compact_thread_before_turn{false};
     std::size_t max_tool_rounds{8};
     std::size_t max_tool_failures{3};
 };
@@ -79,6 +80,7 @@ struct EditorAiProviderResult {
     std::size_t input_tokens{0};
     std::size_t output_tokens{0};
     std::size_t total_tokens{0};
+    bool context_compacted{false};
 };
 
 class IEditorAiProvider {

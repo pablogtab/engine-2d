@@ -250,6 +250,143 @@ void test_persistent_thread_can_be_resumed_without_history_reinjection() {
     assert(resume_state->writes.at(3).at("method") == "turn/start");
 }
 
+void test_resumed_thread_can_be_compacted_before_turn() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {
+            {"id", "thread-large"}, {"sessionId", "session-large"}, {"ephemeral", false}
+        }}}}}),
+        json_line({{"id", 7}, {"result", nlohmann::json::object()}}),
+        json_line({{"method", "turn/started"}, {"params", {
+            {"threadId", "thread-large"},
+            {"turn", {{"id", "turn-compact"}, {"status", "inProgress"}}}
+        }}}),
+        json_line({
+            {"method", "item/started"},
+            {"params", {
+                {"item", {
+                    {"type", "contextCompaction"}, {"id", "server-compaction"}
+                }},
+                {"threadId", "thread-large"},
+                {"turnId", "turn-compact"}
+            }}
+        }),
+        json_line({
+            {"method", "item/completed"},
+            {"params", {
+                {"item", {
+                    {"type", "contextCompaction"}, {"id", "server-compaction"}
+                }},
+                {"threadId", "thread-large"},
+                {"turnId", "turn-compact"}
+            }}
+        }),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-large"},
+            {"turn", {{"id", "turn-compact"}, {"status", "completed"},
+                {"items", nlohmann::json::array()}}}
+        }}}),
+        json_line({{"id", 4}, {"result", {{"turn", {
+            {"id", "turn-after-compact"}, {"status", "inProgress"}
+        }}}}}),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-large"},
+            {"turn", {{"id", "turn-after-compact"}, {"status", "completed"},
+                {"items", nlohmann::json::array()}}}
+        }}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    EditorAiProviderRequest request = basic_request();
+    request.provider_thread_id = "thread-large";
+    request.persist_thread = true;
+    request.compact_thread_before_turn = true;
+    std::vector<EditorAiProviderEvent> events;
+
+    const EditorAiProviderResult result = provider.run(
+        request,
+        [&events](const EditorAiProviderEvent& event) { events.push_back(event); }
+    );
+
+    assert(result.status == EditorAiProviderStatus::Completed);
+    assert(result.context_compacted);
+    assert(result.response_id == "turn-after-compact");
+    assert(state->read_index == state->reads.size());
+    assert(state->writes.at(2).at("method") == "thread/resume");
+    assert(state->writes.at(3).at("method") == "thread/compact/start");
+    assert(state->writes.at(3).at("params").at("threadId") == "thread-large");
+    assert(state->writes.at(4).at("method") == "turn/start");
+    const auto compact_started = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::ItemStarted &&
+            event.item_type == "contextCompaction";
+    });
+    const auto compact_completed = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::ItemCompleted &&
+            event.item_type == "contextCompaction";
+    });
+    assert(compact_started != events.end());
+    assert(compact_completed != events.end());
+    assert(compact_started < compact_completed);
+}
+
+void test_failed_compaction_does_not_start_turn() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-large"}}}}}}),
+        json_line({{"id", 7}, {"error", {
+            {"code", -32000}, {"message", "scripted compaction failure"}
+        }}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    EditorAiProviderRequest request = basic_request();
+    request.provider_thread_id = "thread-large";
+    request.persist_thread = true;
+    request.compact_thread_before_turn = true;
+
+    const EditorAiProviderResult result = provider.run(request, {});
+
+    assert(result.status == EditorAiProviderStatus::Failed);
+    assert(result.error == "scripted compaction failure");
+    assert(!result.context_compacted);
+    assert(state->writes.size() == 4);
+    assert(state->writes.back().at("method") == "thread/compact/start");
+}
+
+void test_failed_compaction_turn_does_not_start_user_turn() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-large"}}}}}}),
+        json_line({{"id", 7}, {"result", nlohmann::json::object()}}),
+        json_line({{"method", "turn/started"}, {"params", {
+            {"threadId", "thread-large"},
+            {"turn", {{"id", "turn-compact"}, {"status", "inProgress"}}}
+        }}}),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-large"},
+            {"turn", {
+                {"id", "turn-compact"},
+                {"status", "failed"},
+                {"error", {{"message", "remote compaction failed"}}}
+            }}
+        }}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    EditorAiProviderRequest request = basic_request();
+    request.provider_thread_id = "thread-large";
+    request.persist_thread = true;
+    request.compact_thread_before_turn = true;
+
+    const EditorAiProviderResult result = provider.run(request, {});
+
+    assert(result.status == EditorAiProviderStatus::Failed);
+    assert(result.error == "remote compaction failed");
+    assert(!result.context_compacted);
+    assert(state->writes.size() == 4);
+    assert(state->writes.back().at("method") == "thread/compact/start");
+}
+
 void test_read_only_history_and_dynamic_tool_bridge() {
     auto state = std::make_shared<FakeTransportState>();
     state->reads = {
@@ -437,6 +574,9 @@ int main() {
     test_read_only_history_and_dynamic_tool_bridge();
     test_skill_input_and_generated_image_event();
     test_persistent_thread_can_be_resumed_without_history_reinjection();
+    test_resumed_thread_can_be_compacted_before_turn();
+    test_failed_compaction_does_not_start_turn();
+    test_failed_compaction_turn_does_not_start_user_turn();
     test_failure_and_early_cancellation();
     test_invalid_tool_call_budget_interrupts_turn();
     test_live_app_server_when_requested();

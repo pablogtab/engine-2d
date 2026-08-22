@@ -29,6 +29,9 @@ Engine::EditorAiConversationRecord make_conversation(
         .title = {},
         .model = "gpt-5.6-sol",
         .tool_contract_version = 2,
+        .last_input_tokens = 24000,
+        .last_output_tokens = 500,
+        .last_total_tokens = 24500,
         .updated_at_unix_ms = updated_at,
         .messages = {
             {"user", std::move(prompt)},
@@ -62,6 +65,9 @@ void test_persists_active_conversation_and_messages() {
     assert(loaded.active_conversation()->messages.back().content == "Applied successfully.");
     assert(loaded.active_conversation()->title == "Explain the renderer");
     assert(loaded.active_conversation()->tool_contract_version == 2);
+    assert(loaded.active_conversation()->last_input_tokens == 24000);
+    assert(loaded.active_conversation()->last_output_tokens == 500);
+    assert(loaded.active_conversation()->last_total_tokens == 24500);
 }
 
 void test_switches_and_clears_active_conversation_without_deleting_history() {

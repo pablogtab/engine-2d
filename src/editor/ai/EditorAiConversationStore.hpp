@@ -15,6 +15,9 @@ struct EditorAiConversationRecord {
     std::string title;
     std::string model;
     std::uint32_t tool_contract_version{0};
+    std::size_t last_input_tokens{0};
+    std::size_t last_output_tokens{0};
+    std::size_t last_total_tokens{0};
     std::int64_t updated_at_unix_ms{0};
     std::vector<EditorAiChatMessage> messages;
 };

@@ -204,6 +204,7 @@ private:
     bool m_open_session_settings_requested{false};
     bool m_image_generation_requested{false};
     bool m_conversation_has_generated_image{false};
+    bool m_compact_before_next_request{false};
     std::atomic_bool m_cancel_requested{false};
     std::thread m_request_thread;
     std::uint64_t m_viewport_capture_sequence{0};

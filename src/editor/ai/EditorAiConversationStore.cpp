@@ -33,6 +33,15 @@ std::string string_field(const nlohmann::json& value, const char* key) {
     return found != value.end() && found->is_string() ? found->get<std::string>() : "";
 }
 
+std::size_t size_field(const nlohmann::json& value, const char* key) {
+    const auto found = value.find(key);
+    if (found == value.end()) return 0;
+    if (found->is_number_unsigned()) return found->get<std::size_t>();
+    if (!found->is_number_integer()) return 0;
+    const std::int64_t parsed = found->get<std::int64_t>();
+    return parsed >= 0 ? static_cast<std::size_t>(parsed) : 0;
+}
+
 nlohmann::json serialize_message(const EditorAiChatMessage& message) {
     return {{"role", message.role}, {"content", message.content}};
 }
@@ -48,6 +57,9 @@ nlohmann::json serialize_conversation(const EditorAiConversationRecord& conversa
         {"title", conversation.title},
         {"model", conversation.model},
         {"tool_contract_version", conversation.tool_contract_version},
+        {"last_input_tokens", conversation.last_input_tokens},
+        {"last_output_tokens", conversation.last_output_tokens},
+        {"last_total_tokens", conversation.last_total_tokens},
         {"updated_at_unix_ms", conversation.updated_at_unix_ms},
         {"messages", std::move(messages)}
     };
@@ -116,6 +128,9 @@ bool EditorAiConversationStore::load(std::string& error) {
                     item.at("tool_contract_version").get<std::int64_t>() >= 0
                 ? item.at("tool_contract_version").get<std::uint32_t>()
                 : 0,
+            .last_input_tokens = size_field(item, "last_input_tokens"),
+            .last_output_tokens = size_field(item, "last_output_tokens"),
+            .last_total_tokens = size_field(item, "last_total_tokens"),
             .updated_at_unix_ms = item.contains("updated_at_unix_ms") &&
                     item.at("updated_at_unix_ms").is_number_integer()
                 ? item.at("updated_at_unix_ms").get<std::int64_t>()

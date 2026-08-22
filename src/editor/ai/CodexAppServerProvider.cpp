@@ -10,6 +10,7 @@ constexpr int INITIALIZE_ID = 1;
 constexpr int THREAD_OPEN_ID = 2;
 constexpr int HISTORY_INJECT_ID = 3;
 constexpr int TURN_START_ID = 4;
+constexpr int THREAD_COMPACT_ID = 7;
 
 void emit_event(
     const std::function<void(const EditorAiProviderEvent&)>& callback,
@@ -248,6 +249,99 @@ EditorAiProviderResult CodexAppServerProvider::run(
             {"method", "thread/inject_items"},
             {"params", {{"threadId", thread_id}, {"items", prior_items}}}
         }) || !wait_for_response(HISTORY_INJECT_ID)) return result;
+    }
+
+    if (request.compact_thread_before_turn && resuming_thread) {
+        if (!send({
+            {"id", THREAD_COMPACT_ID},
+            {"method", "thread/compact/start"},
+            {"params", {{"threadId", thread_id}}}
+        })) return result;
+
+        bool request_acknowledged = false;
+        bool turn_completed = false;
+        std::string compaction_turn_id;
+        while (!request_acknowledged || !turn_completed) {
+            const auto message = read_message();
+            if (!message) {
+                if (result.status == EditorAiProviderStatus::Cancelled &&
+                    !compaction_turn_id.empty()) {
+                    send({
+                        {"id", 8},
+                        {"method", "turn/interrupt"},
+                        {"params", {
+                            {"threadId", thread_id},
+                            {"turnId", compaction_turn_id}
+                        }}
+                    });
+                }
+                return result;
+            }
+            if (message->contains("id") && message->at("id") == THREAD_COMPACT_ID) {
+                if (message->contains("error")) {
+                    result.error = protocol_error(
+                        *message, "Codex could not start context compaction"
+                    );
+                    return result;
+                }
+                if (!message->contains("result")) {
+                    result.error = "Codex context compaction response did not contain a result";
+                    return result;
+                }
+                request_acknowledged = true;
+                continue;
+            }
+
+            const std::string method = message->value("method", "");
+            const auto& params = message->value("params", nlohmann::json::object());
+            if (params.value("threadId", "") != thread_id) continue;
+            if (method == "turn/started") {
+                compaction_turn_id = params.value(
+                    "turn", nlohmann::json::object()
+                ).value("id", "");
+            } else if (method == "item/started") {
+                const auto& item = params.value("item", nlohmann::json::object());
+                if (item.value("type", "") != "contextCompaction") continue;
+                if (compaction_turn_id.empty()) {
+                    compaction_turn_id = params.value("turnId", "");
+                }
+                EditorAiProviderEvent event;
+                event.type = EditorAiProviderEventType::ItemStarted;
+                event.item_id = item.value("id", "");
+                event.item_type = "contextCompaction";
+                event.item_status = "inProgress";
+                emit_event(on_event, std::move(event));
+            } else if (method == "item/completed") {
+                const auto& item = params.value("item", nlohmann::json::object());
+                if (item.value("type", "") != "contextCompaction") continue;
+                EditorAiProviderEvent event;
+                event.type = EditorAiProviderEventType::ItemCompleted;
+                event.item_id = item.value("id", "");
+                event.item_type = "contextCompaction";
+                event.item_status = "completed";
+                emit_event(on_event, std::move(event));
+            } else if (method == "turn/completed") {
+                const auto& turn = params.value("turn", nlohmann::json::object());
+                const std::string completed_turn_id = turn.value("id", "");
+                if (!compaction_turn_id.empty() &&
+                    completed_turn_id != compaction_turn_id) {
+                    continue;
+                }
+                compaction_turn_id = completed_turn_id;
+                const std::string status = turn.value("status", "failed");
+                if (status != "completed") {
+                    result.status = status == "interrupted"
+                        ? EditorAiProviderStatus::Cancelled
+                        : EditorAiProviderStatus::Failed;
+                    result.error = status == "interrupted"
+                        ? "Codex context compaction was interrupted"
+                        : turn_error(turn);
+                    return result;
+                }
+                turn_completed = true;
+            }
+        }
+        result.context_compacted = true;
     }
 
     nlohmann::json turn_input = nlohmann::json::array();

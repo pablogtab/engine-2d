@@ -31,6 +31,7 @@ std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
 constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 6;
+constexpr std::size_t AUTO_COMPACT_INPUT_TOKEN_THRESHOLD = 24000;
 std::string project_root();
 
 const char* diagnostic_code_name(SceneDiagnosticCode code) {
@@ -884,6 +885,7 @@ void AiAssistantPanel::start_new_conversation() {
     m_codex_session_id.clear();
     m_superseded_thread_id.clear();
     m_conversation_has_generated_image = false;
+    m_compact_before_next_request = false;
     m_last_input_tokens = 0;
     m_last_output_tokens = 0;
     m_last_total_tokens = 0;
@@ -921,6 +923,7 @@ void AiAssistantPanel::restore_conversation(const std::string& thread_id) {
     }
     m_messages = conversation->messages;
     m_conversation_has_generated_image = false;
+    m_compact_before_next_request = false;
     m_streamed_response.clear();
     m_reasoning_summary.clear();
     m_request_error.clear();
@@ -932,9 +935,9 @@ void AiAssistantPanel::restore_conversation(const std::string& thread_id) {
     m_ui_feedback = conversation->tool_contract_version == EDITOR_AI_TOOL_CONTRACT_VERSION
         ? "Conversation restored."
         : "Conversation restored; the next message will upgrade its editor tools.";
-    m_last_input_tokens = 0;
-    m_last_output_tokens = 0;
-    m_last_total_tokens = 0;
+    m_last_input_tokens = conversation->last_input_tokens;
+    m_last_output_tokens = conversation->last_output_tokens;
+    m_last_total_tokens = conversation->last_total_tokens;
     m_last_tool_calls = 0;
     m_last_request_duration_ms = 0;
     m_scroll_chat_to_bottom = true;
@@ -988,6 +991,7 @@ void AiAssistantPanel::delete_conversation(const std::string& thread_id) {
         m_codex_session_id.clear();
         m_superseded_thread_id.clear();
         m_conversation_has_generated_image = false;
+        m_compact_before_next_request = false;
         m_live_activity = "Idle";
         m_activity_entries.clear();
         m_request_started_at = {};
@@ -1046,6 +1050,9 @@ void AiAssistantPanel::persist_current_conversation_locked(const std::string& mo
         .title = make_editor_ai_conversation_title(m_messages),
         .model = model,
         .tool_contract_version = EDITOR_AI_TOOL_CONTRACT_VERSION,
+        .last_input_tokens = m_last_input_tokens,
+        .last_output_tokens = m_last_output_tokens,
+        .last_total_tokens = m_last_total_tokens,
         .updated_at_unix_ms = updated_at,
         .messages = m_messages
     });
@@ -1326,7 +1333,16 @@ void AiAssistantPanel::start_request() {
             request.tools.push_back(schema);
         }
     }
-    request.instructions = authoring_available
+    request.instructions = image_generation_requested && authoring_available
+        ? "Complete one bounded texture workflow. Resolve the requested target with selection context "
+          "or find_scene_entities, then generate exactly one suitable PNG with the attached imagegen "
+          "skill. After ImageGen returns savedPath, you MUST call propose_import_generated_texture "
+          "exactly once before replying. Use that exact savedPath, a descriptive new or versioned path "
+          "under assets/textures/, and assign the sprite or ui_image target when uniquely resolved. If "
+          "the target remains ambiguous, import with an empty assignments array rather than discarding "
+          "the generated image. Tool success means queued for editor validation, not applied. Do not "
+          "finish with only a description of the generated image. Reply with one concise sentence."
+        : authoring_available
         ? "For an authoring request, act directly and do not narrate intermediate reasoning. The tool "
           "schemas are the source of truth: do not inspect workspace files to discover argument shapes. "
           "Use find_scene_entities before changing an existing target and pass its numeric entity_id. "
@@ -1352,7 +1368,7 @@ void AiAssistantPanel::start_request() {
     if (!previous_receipt.empty()) {
         request.instructions += " Previous editor result: " + previous_receipt;
     }
-    if (viewport_available) {
+    if (viewport_available && !image_generation_requested) {
         request.instructions +=
             " You can inspect the live Scene Viewport without changing authored content. Use "
             "find_scene_entities before focus_viewport_entities. Navigate with pan, zoom, focus, "
@@ -1361,28 +1377,29 @@ void AiAssistantPanel::start_request() {
             "only when visual evidence materially helps and at most four times per request. Viewport "
             "navigation is ephemeral and never part of scene Undo history.";
     }
-    if (image_generation_requested) {
-        request.instructions +=
-            " The imagegen skill is attached for this turn and uses Codex's built-in image generation, "
-            "not OPENAI_API_KEY. Generate or edit one PNG suitable for the requested game texture. If the "
-            "user refers to an image generated earlier in this persistent thread, preserve it and apply only "
-            "the requested refinement. After ImageGen "
-            "returns savedPath, call propose_import_generated_texture exactly once with that exact path, a descriptive "
-            "new or versioned destination under assets/, and one assignments array containing every requested "
-            "sprite or ui_image target. Never repeat the import to assign the same image to multiple entities. "
-            "The editor will preview and import it only after validation.";
-    }
     request.project_root = project_root();
     request.codex_executable = m_codex_executable;
     request.persist_thread = using_codex;
     request.max_tool_rounds = 12;
     request.max_tool_failures = 3;
+    std::string compaction_source = "none";
+    std::size_t previous_input_tokens = 0;
     {
         std::lock_guard lock(m_request_mutex);
         request.provider_thread_id = using_codex ? m_codex_thread_id : "";
         request.history = request.provider_thread_id.empty()
             ? recent_history(m_messages)
             : std::vector<EditorAiChatMessage>{};
+        previous_input_tokens = m_last_input_tokens;
+        const bool automatic_compaction = previous_input_tokens >=
+            AUTO_COMPACT_INPUT_TOKEN_THRESHOLD;
+        request.compact_thread_before_turn = using_codex &&
+            !request.provider_thread_id.empty() &&
+            (m_compact_before_next_request || automatic_compaction);
+        if (request.compact_thread_before_turn) {
+            compaction_source = m_compact_before_next_request ? "manual" : "automatic";
+            m_compact_before_next_request = false;
+        }
         m_messages.push_back({"user", prompt});
         m_streamed_response.clear();
         m_reasoning_summary.clear();
@@ -1394,9 +1411,6 @@ void AiAssistantPanel::start_request() {
         m_request_started_at = request_started;
         m_authoring_feedback.clear();
         m_ui_feedback.clear();
-        m_last_input_tokens = 0;
-        m_last_output_tokens = 0;
-        m_last_total_tokens = 0;
         m_last_tool_calls = 0;
         m_last_request_duration_ms = 0;
         m_request_running = true;
@@ -1413,7 +1427,8 @@ void AiAssistantPanel::start_request() {
     ENGINE_LOG_INFO(
         "[AI AUDIT] request={} phase=start backend={} model={} effort={} mode={} scene={} "
         "baseline_revision={} history_messages={} history_chars={} context_chars={} tools={} "
-        "tool_schema_chars={} instructions_chars={} prompt_chars={} thread={} persistent={}",
+        "tool_schema_chars={} instructions_chars={} prompt_chars={} thread={} persistent={} "
+        "compact_before_turn={} compact_source={} previous_input_tokens={}",
         request_id,
         m_backend == ProviderBackend::CodexSubscription ? "codex_subscription" : "openai_api",
         model,
@@ -1429,7 +1444,10 @@ void AiAssistantPanel::start_request() {
         request.instructions.size(),
         prompt.size(),
         request.provider_thread_id.empty() ? "new" : request.provider_thread_id,
-        request.persist_thread
+        request.persist_thread,
+        request.compact_thread_before_turn,
+        compaction_source,
+        previous_input_tokens
     );
     request.execute_tool = [
         this,
@@ -1697,9 +1715,14 @@ void AiAssistantPanel::start_request() {
         std::lock_guard lock(m_request_mutex);
         m_request_running = false;
         m_active_tool.clear();
-        m_last_input_tokens = result.input_tokens;
-        m_last_output_tokens = result.output_tokens;
-        m_last_total_tokens = result.total_tokens;
+        if (result.total_tokens > 0) {
+            m_last_input_tokens = result.input_tokens;
+            m_last_output_tokens = result.output_tokens;
+            m_last_total_tokens = result.total_tokens;
+        }
+        if (request.compact_thread_before_turn && !result.context_compacted) {
+            m_compact_before_next_request = true;
+        }
         m_last_tool_calls = result.tool_call_count;
         if (!result.provider_thread_id.empty()) {
             m_codex_thread_id = result.provider_thread_id;
@@ -1719,6 +1742,9 @@ void AiAssistantPanel::start_request() {
         m_live_activity = result.status == EditorAiProviderStatus::Completed
             ? "Completed"
             : (result.status == EditorAiProviderStatus::Cancelled ? "Cancelled" : "Failed");
+        if (result.context_compacted) {
+            m_ui_feedback = "Codex context was compacted before this message.";
+        }
         m_activity_entries.push_back({
             m_live_activity,
             result.error.empty() ? "Turn finished" : result.error,
@@ -1727,7 +1753,7 @@ void AiAssistantPanel::start_request() {
         ENGINE_LOG_INFO(
             "[AI AUDIT] request={} phase=finish status={} duration_ms={} tool_calls={} "
             "proposal_actions={} input_tokens={} output_tokens={} total_tokens={} thread={} "
-            "session={} error={}",
+            "session={} context_compacted={} error={}",
             request_id,
             status,
             m_last_request_duration_ms,
@@ -1738,6 +1764,7 @@ void AiAssistantPanel::start_request() {
             result.total_tokens,
             result.provider_thread_id.empty() ? "none" : result.provider_thread_id,
             result.provider_session_id.empty() ? "none" : result.provider_session_id,
+            result.context_compacted,
             result.error.empty() ? "none" : result.error
         );
         if (result.status == EditorAiProviderStatus::Completed) {
@@ -1848,6 +1875,7 @@ void AiAssistantPanel::on_gui() {
     std::string codex_session_id;
     std::vector<EditorAiConversationRecord> conversations;
     bool scroll_chat_to_bottom = false;
+    bool compact_before_next_request = false;
     bool open_rename_conversation = false;
     bool open_delete_conversation = false;
     {
@@ -1875,6 +1903,7 @@ void AiAssistantPanel::on_gui() {
         codex_session_id = m_codex_session_id;
         if (m_conversation_store) conversations = m_conversation_store->conversations();
         scroll_chat_to_bottom = m_scroll_chat_to_bottom;
+        compact_before_next_request = m_compact_before_next_request;
         m_scroll_chat_to_bottom = false;
     }
 
@@ -1998,6 +2027,10 @@ void AiAssistantPanel::on_gui() {
             ImGui::TextDisabled(
                 "Sandbox: engine read-only; game authoring requires validated editor tools"
             );
+            ImGui::TextDisabled(
+                "Context: automatic compaction after %zu input tokens",
+                AUTO_COMPACT_INPUT_TOKEN_THRESHOLD
+            );
         }
         const std::string current_model(m_model.data());
         int model_preset = current_model == "gpt-5.6-luna" ? 0
@@ -2077,6 +2110,30 @@ void AiAssistantPanel::on_gui() {
             copy_to_clipboard(
                 codex_resume_command(codex_thread_id),
                 "Codex resume command copied."
+            );
+        }
+        ImGui::Separator();
+        ImGui::BeginDisabled(running || pending_proposal.has_value() || !using_codex);
+        if (ImGui::MenuItem(
+            "Compact context before next message",
+            nullptr,
+            compact_before_next_request
+        )) {
+            m_compact_before_next_request = !compact_before_next_request;
+            compact_before_next_request = m_compact_before_next_request;
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = compact_before_next_request
+                ? "Codex context will be compacted before the next message."
+                : "Manual context compaction cancelled.";
+            ENGINE_LOG_INFO(
+                "[AI AUDIT] ui_action=context_compaction_scheduled enabled={}",
+                compact_before_next_request
+            );
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip(
+                "Keeps the Codex thread but compresses its remote working context before the next turn"
             );
         }
         ImGui::Separator();
@@ -2455,6 +2512,13 @@ void AiAssistantPanel::on_gui() {
             output_tokens,
             total_tokens
         );
+        if (using_codex && !codex_thread_id.empty() &&
+            (compact_before_next_request || input_tokens >= AUTO_COMPACT_INPUT_TOKEN_THRESHOLD)) {
+            ImGui::TextColored(
+                ImVec4(0.76f, 0.68f, 0.36f, 1.0f),
+                "Context compaction scheduled for the next message"
+            );
+        }
     }
     ImGui::TextDisabled("Audit logs: Console + engine.log");
     if (ImGui::IsItemHovered()) {
