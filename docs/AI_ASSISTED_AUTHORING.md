@@ -65,6 +65,35 @@ tool declarations on `thread/start`, not `thread/resume`.
 - `propose_instantiate_prefab`: resolves a ready prefab handle through the asset
   database, creates an alias for its root, and uses the normal prefab command.
 - `propose_unpack_prefab`: reversibly removes prefab links from an instance.
+- `propose_import_generated_texture`: accepts only a PNG emitted by Codex ImageGen
+  during the current request, copies it to a new path under `assets/`, registers its
+  stable handle, and assigns that one imported asset to up to 20 Sprite Renderer or
+  UI Image targets in the same transaction. Repeated imports of the same generated
+  source or destination are rejected while the proposal is still being built.
+
+## Codex texture generation
+
+Codex-subscription conversations can attach the installed `imagegen` skill when
+the prompt requests a texture/image or when **Generate PNG with Codex** is enabled
+from the composer `+` menu. This uses App Server's built-in image-generation
+capability and does not require `OPENAI_API_KEY` or API credits.
+
+App Server writes its generated artifact outside the read-only workspace. The
+editor accepts only a bounded PNG reported by the current turn, copies it to a
+temporary `Library/EditorAi/TexturePreviews` entry, and shows that preview with the
+pending proposal. Confirming imports the bytes through `CreateBinaryAssetCommand`;
+dismissing, cancelling, or rejecting removes the cached preview. The original
+Codex artifact is not deleted. Once imported, the generated asset participates in
+the normal AssetDatabase and can be found by stable handle on later conversation
+turns. During the same persistent Codex thread, follow-ups such as "make it darker"
+reattach ImageGen and edit the previously generated image into a new versioned
+asset instead of losing the visual context.
+
+Assistant tool results mean "queued for validation", never "already applied".
+The conversation records a separate Editor message after Apply, automatic apply,
+rejection, or dismissal so its visible history reflects the real transaction
+result. A failed grouped import removes both its temporary file and any new
+unreferenced MissingSource identity once the failed command is abandoned.
 
 ## Safety and rollback
 
@@ -96,15 +125,24 @@ Every request emits `[AI AUDIT]` records to the editor Console and the current
 run's `engine.log`. A request ID connects its start, tool calls, completion,
 application or rejection, and optional AI-session undo. Records include backend,
 model, reasoning effort, editor mode, scene revision, bounded-context sizes,
-provider startup, time to first text/tool, per-tool result and duration, queued
-action count, request duration, and token usage. Prompt/message content, API keys,
-and credentials are never logged.
+provider startup, App Server item lifecycle, time to first reasoning summary,
+text or tool, gaps between provider events, per-item and per-tool duration,
+queued action count, request duration, and token usage. Prompt/message content,
+reasoning-summary text, API keys, and credentials are never logged.
+
+Codex turns request the App Server's public `auto` reasoning summary. The panel
+streams this summary into a collapsible Activity block together with timestamped
+item and editor-tool lifecycle entries. Raw `item/reasoning/textDelta` content is
+intentionally ignored: the UI exposes the supported summary, not private model
+reasoning. Activity is transient request diagnostics and is not persisted in the
+conversation store.
 
 Every successful application also emits a structured receipt containing the
 request ID, before/after revisions, queued action summaries, and bounded lists of
-added, removed, and updated entities. The panel can display and copy this JSON,
-and its compact summary is supplied to the next turn so iterative requests know
-what the editor actually applied.
+added, removed, and updated entities and assets. For a newly generated texture,
+the compact receipt includes its path and stable handle. The panel can display and
+copy this JSON, and its summary is supplied to the next turn so iterative requests
+know what the editor actually applied.
 
 Interactive authoring defaults to low reasoning effort, keeps only the most recent
 bounded conversation history, limits tool rounds and invalid calls, and asks the

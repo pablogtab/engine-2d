@@ -71,6 +71,9 @@ public:
     [[nodiscard]] std::optional<AssetHandle> import_asset(const std::filesystem::path& source_path);
     [[nodiscard]] bool move_asset(const std::filesystem::path& source_path, const std::filesystem::path& destination_path);
     [[nodiscard]] bool remove_asset(const std::filesystem::path& source_path);
+    // Removes only an unreferenced MissingSource record when an uncommitted
+    // asset-creation command is abandoned and no Redo can still restore it.
+    [[nodiscard]] bool discard_missing_asset_record(const std::filesystem::path& source_path);
     [[nodiscard]] bool update_import_settings(AssetHandle handle, AssetImportSettings settings);
     [[nodiscard]] const AssetRecord* find(AssetHandle handle) const;
     [[nodiscard]] const AssetRecord* find_by_path(const std::filesystem::path& source_path) const;

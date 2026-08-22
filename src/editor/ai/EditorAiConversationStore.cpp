@@ -60,7 +60,10 @@ std::vector<EditorAiChatMessage> parse_messages(const nlohmann::json& value) {
         if (!item.is_object()) continue;
         const std::string role = string_field(item, "role");
         const std::string content = string_field(item, "content");
-        if ((role != "user" && role != "assistant") || content.empty()) continue;
+        if ((role != "user" && role != "assistant" && role != "editor") ||
+            content.empty()) {
+            continue;
+        }
         messages.push_back({role, content});
     }
     if (messages.size() > EditorAiConversationStore::MAX_MESSAGES_PER_CONVERSATION) {

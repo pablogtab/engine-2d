@@ -10,6 +10,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -24,6 +25,7 @@ class SceneManager;
 class Scene;
 class EditorCommandHistory;
 class EditorEntityStateStore;
+class Texture;
 
 class AiAssistantPanel final : public EditorPanel {
 public:
@@ -75,6 +77,8 @@ private:
         std::uint64_t baseline_revision{0};
         std::string scene_name;
         nlohmann::json before_entity_index{nlohmann::json::array()};
+        nlohmann::json before_asset_index{nlohmann::json::array()};
+        nlohmann::json generated_texture_previews{nlohmann::json::object()};
         bool auto_apply{false};
     };
 
@@ -84,6 +88,12 @@ private:
         std::weak_ptr<EditorCommandHistory> command_history;
         std::uint64_t after_revision{0};
         std::string description;
+    };
+
+    struct AiActivityEntry {
+        std::string label;
+        std::string detail;
+        std::uint64_t elapsed_ms{0};
     };
 
     [[nodiscard]] std::string current_context_json() const;
@@ -112,6 +122,7 @@ private:
     std::unique_ptr<OpenAiResponsesProvider> m_openai_provider;
     std::unique_ptr<EditorAiConversationStore> m_conversation_store;
     std::string m_codex_executable;
+    std::string m_imagegen_skill_path;
     std::array<char, 1024> m_prompt{};
     std::array<char, 64> m_model{};
     std::array<char, 128> m_conversation_title{};
@@ -122,8 +133,12 @@ private:
     mutable std::mutex m_request_mutex;
     std::vector<EditorAiChatMessage> m_messages;
     std::string m_streamed_response;
+    std::string m_reasoning_summary;
     std::string m_request_error;
     std::string m_active_tool;
+    std::string m_live_activity{"Idle"};
+    std::vector<AiActivityEntry> m_activity_entries;
+    std::chrono::steady_clock::time_point m_request_started_at{};
     std::string m_authoring_feedback;
     std::string m_last_receipt_summary;
     nlohmann::json m_last_application_receipt{nlohmann::json::object()};
@@ -134,6 +149,8 @@ private:
     std::string m_conversation_action_thread_id;
     std::optional<PendingProposal> m_pending_proposal;
     std::optional<AppliedAiSession> m_last_applied_session;
+    std::unique_ptr<Texture> m_generated_texture_preview;
+    std::string m_loaded_texture_preview_id;
     std::size_t m_last_input_tokens{0};
     std::size_t m_last_output_tokens{0};
     std::size_t m_last_total_tokens{0};
@@ -144,6 +161,8 @@ private:
     bool m_focus_requested{false};
     bool m_focus_prompt_requested{false};
     bool m_open_session_settings_requested{false};
+    bool m_image_generation_requested{false};
+    bool m_conversation_has_generated_image{false};
     std::atomic_bool m_cancel_requested{false};
     std::thread m_request_thread;
 };

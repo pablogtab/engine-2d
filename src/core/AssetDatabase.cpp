@@ -126,6 +126,19 @@ bool AssetDatabase::remove_asset(const fs::path& source) {
     notify_assets_changed();
     return true;
 }
+bool AssetDatabase::discard_missing_asset_record(const fs::path& source) {
+    const auto path = to_project_relative(source); if (!path) return false;
+    const auto found = m_by_path.find(*path); if (found == m_by_path.end()) return false;
+    const AssetRecord& record = m_records[found->second];
+    const auto dependents = m_dependents.find(record.handle.value);
+    if (record.status != AssetStatus::MissingSource ||
+        (dependents != m_dependents.end() && !dependents->second.empty())) return false;
+    m_records.erase(m_records.begin() + static_cast<std::ptrdiff_t>(found->second));
+    rebuild_indexes(); rebuild_dependencies();
+    if (!save_database()) return false;
+    notify_assets_changed();
+    return true;
+}
 bool AssetDatabase::update_import_settings(AssetHandle handle, AssetImportSettings settings) {
     if (settings.pixels_per_unit <= 0.0f || settings.pivot_x < 0.0f || settings.pivot_x > 1.0f ||
         settings.pivot_y < 0.0f || settings.pivot_y > 1.0f || settings.filter.empty() || settings.compression.empty()) return false;

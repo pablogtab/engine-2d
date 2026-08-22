@@ -250,13 +250,28 @@ EditorAiProviderResult CodexAppServerProvider::run(
         }) || !wait_for_response(HISTORY_INJECT_ID)) return result;
     }
 
+    nlohmann::json turn_input = nlohmann::json::array();
+    for (const EditorAiSkillReference& skill : request.skills) {
+        if (skill.name.empty() || skill.path.empty()) continue;
+        turn_input.push_back({
+            {"type", "skill"},
+            {"name", skill.name},
+            {"path", skill.path}
+        });
+    }
+    turn_input.push_back({
+        {"type", "text"},
+        {"text", request.prompt},
+        {"text_elements", nlohmann::json::array()}
+    });
     if (!send({
         {"id", TURN_START_ID},
         {"method", "turn/start"},
         {"params", {
             {"threadId", thread_id},
-            {"input", nlohmann::json::array({{{"type", "text"}, {"text", request.prompt}}})},
-            {"effort", request.reasoning_effort.empty() ? "low" : request.reasoning_effort}
+            {"input", std::move(turn_input)},
+            {"effort", request.reasoning_effort.empty() ? "low" : request.reasoning_effort},
+            {"summary", request.reasoning_summary.empty() ? "auto" : request.reasoning_summary}
         }}
     })) return result;
     emit_event(on_event, {EditorAiProviderEventType::Started, {}, {}});
@@ -293,6 +308,22 @@ EditorAiProviderResult CodexAppServerProvider::run(
             const std::string delta = message->value("params", nlohmann::json::object()).value("delta", "");
             result.text += delta;
             emit_event(on_event, {EditorAiProviderEventType::TextDelta, delta, {}});
+        } else if (method == "item/reasoning/summaryTextDelta") {
+            const auto& params = message->value("params", nlohmann::json::object());
+            EditorAiProviderEvent event;
+            event.type = EditorAiProviderEventType::ReasoningSummaryDelta;
+            event.text = params.value("delta", "");
+            event.item_id = params.value("itemId", "");
+            emit_event(on_event, std::move(event));
+        } else if (method == "item/reasoning/summaryPartAdded") {
+            const auto& params = message->value("params", nlohmann::json::object());
+            if (params.value("summaryIndex", std::size_t{0}) > 0) {
+                EditorAiProviderEvent event;
+                event.type = EditorAiProviderEventType::ReasoningSummaryDelta;
+                event.text = "\n\n";
+                event.item_id = params.value("itemId", "");
+                emit_event(on_event, std::move(event));
+            }
         } else if (method == "thread/tokenUsage/updated") {
             const auto& params = message->value("params", nlohmann::json::object());
             if (params.contains("tokenUsage") && params.at("tokenUsage").contains("last")) {
@@ -301,6 +332,45 @@ EditorAiProviderResult CodexAppServerProvider::run(
                 result.output_tokens = usage.value("outputTokens", std::size_t{0});
                 result.total_tokens = usage.value("totalTokens", std::size_t{0});
             }
+        } else if (method == "item/started") {
+            const auto& params = message->value("params", nlohmann::json::object());
+            const auto& item = params.value("item", nlohmann::json::object());
+            EditorAiProviderEvent activity;
+            activity.type = EditorAiProviderEventType::ItemStarted;
+            activity.item_id = item.value("id", "");
+            activity.item_type = item.value("type", "unknown");
+            activity.item_status = item.value("status", "inProgress");
+            emit_event(on_event, std::move(activity));
+            if (item.value("type", "") == "imageGeneration") {
+                emit_event(on_event, {
+                    EditorAiProviderEventType::ToolStarted, {}, "Codex ImageGen"
+                });
+            }
+        } else if (method == "item/completed") {
+            const auto& params = message->value("params", nlohmann::json::object());
+            const auto& item = params.value("item", nlohmann::json::object());
+            EditorAiProviderEvent activity;
+            activity.type = EditorAiProviderEventType::ItemCompleted;
+            activity.item_id = item.value("id", "");
+            activity.item_type = item.value("type", "unknown");
+            activity.item_status = item.value("status", "completed");
+            emit_event(on_event, std::move(activity));
+            const bool image_generation_item = item.value("type", "") == "imageGeneration";
+            if (image_generation_item &&
+                item.value("status", "") == "completed" &&
+                item.contains("savedPath") && item.at("savedPath").is_string()) {
+                EditorAiProviderEvent event;
+                event.type = EditorAiProviderEventType::ImageGenerated;
+                event.artifact_id = item.value("id", "");
+                event.artifact_path = item.at("savedPath").get<std::string>();
+                event.transparent_background = item.value("transparentBackground", false);
+                emit_event(on_event, std::move(event));
+            }
+            if (image_generation_item) emit_event(on_event, {
+                EditorAiProviderEventType::ToolFinished,
+                item.value("status", "") == "completed" ? "success" : "failed",
+                "Codex ImageGen"
+            });
         } else if (method == "item/tool/call" && message->contains("id")) {
             const auto& params = message->value("params", nlohmann::json::object());
             const std::string name = params.value("tool", "");

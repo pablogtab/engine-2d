@@ -2,11 +2,13 @@
 
 #include "../EditorSelection.hpp"
 #include "../commands/EditorCommandHistory.hpp"
+#include "../commands/AssetFileCommands.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
 #include "../commands/PrefabCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../../core/AssetDatabase.hpp"
+#include "../../core/FileSystem.hpp"
 #include "../../core/Log.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../tilemap/Tilemap.hpp"
@@ -15,7 +17,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <filesystem>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <unordered_map>
@@ -38,6 +42,7 @@ constexpr const char* DUPLICATE_ENTITIES_TOOL = "propose_duplicate_entities";
 constexpr const char* DELETE_ENTITIES_TOOL = "propose_delete_entities";
 constexpr const char* INSTANTIATE_PREFAB_TOOL = "propose_instantiate_prefab";
 constexpr const char* UNPACK_PREFAB_TOOL = "propose_unpack_prefab";
+constexpr const char* IMPORT_GENERATED_TEXTURE_TOOL = "propose_import_generated_texture";
 
 struct EntityTarget {
     EntityID entity_id{0};
@@ -110,8 +115,8 @@ bool finite_vector_range(
 }
 
 std::optional<EntityTarget> read_target(const Json& arguments, std::string& error) {
-    const bool has_id = arguments.contains("entity_id");
-    const bool has_alias = arguments.contains("entity_alias");
+    const bool has_id = arguments.contains("entity_id") && !arguments.at("entity_id").is_null();
+    const bool has_alias = arguments.contains("entity_alias") && !arguments.at("entity_alias").is_null();
     if (has_id == has_alias) {
         error = "Exactly one of entity_id or entity_alias is required";
         return std::nullopt;
@@ -742,6 +747,17 @@ std::vector<EntityID> read_entity_id_list(const Json& arguments, std::string& er
     return result;
 }
 
+bool valid_generated_texture_destination(const std::string& path_text) {
+    if (path_text.empty() || path_text.size() > 240 || path_text.find('\\') != std::string::npos) return false;
+    const std::filesystem::path path(path_text);
+    if (path.is_absolute() || path.extension() != ".png") return false;
+    const std::filesystem::path normalized = path.lexically_normal();
+    if (normalized.empty() || *normalized.begin() != "assets") return false;
+    return std::none_of(normalized.begin(), normalized.end(), [](const auto& part) {
+        return part == ".." || part == ".";
+    });
+}
+
 } // namespace
 
 EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* component_registry)
@@ -815,6 +831,25 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         {"rotation", nullable_schema({{"type", "number"}})},
         {"parent_entity_id", {{"type", Json::array({"integer", "null"})}, {"minimum", 1}}},
         {"parent_entity_alias", {{"type", Json::array({"string", "null"})}}}
+    };
+    Json generated_texture_assignment_properties = target_properties();
+    generated_texture_assignment_properties["component_key"] = {
+        {"type", "string"}, {"enum", {"sprite", "ui_image"}}
+    };
+    const Json generated_texture_assignment_schema{
+        {"type", "object"},
+        {"properties", generated_texture_assignment_properties},
+        {"required", Json::array({"entity_id", "entity_alias", "component_key"})},
+        {"additionalProperties", false}
+    };
+    const Json generated_texture_properties{
+        {"generated_path", {{"type", "string"}}},
+        {"destination_path", {{"type", "string"}}},
+        {"assignments", {
+            {"type", "array"},
+            {"items", generated_texture_assignment_schema},
+            {"maxItems", 20}
+        }}
     };
 
     m_tool_schemas = Json::array({
@@ -911,6 +946,14 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
             {"parameters", {{"type", "object"}, {"properties", target_properties()},
                 {"required", Json::array({"entity_id", "entity_alias"})}, {"additionalProperties", false}}},
             {"strict", true}
+        },
+        {
+            {"type", "function"}, {"name", IMPORT_GENERATED_TEXTURE_TOOL},
+            {"description", "Queues one import of a PNG produced by Codex ImageGen in this turn. Pass its exact savedPath and one new .png destination under assets/. assignments may update up to 20 existing or request-local sprite/ui_image targets using this single imported asset. Call this tool exactly once per generated image and destination."},
+            {"parameters", {{"type", "object"}, {"properties", generated_texture_properties},
+                {"required", Json::array({"generated_path", "destination_path", "assignments"})},
+                {"additionalProperties", false}}},
+            {"strict", true}
         }
     });
 }
@@ -922,7 +965,7 @@ bool EditorAiAuthoringRegistry::is_authoring_tool(const std::string& tool_name) 
         tool_name == REPARENT_ENTITY_TOOL ||
         tool_name == DELETE_ENTITY_TOOL || tool_name == DUPLICATE_ENTITIES_TOOL ||
         tool_name == DELETE_ENTITIES_TOOL || tool_name == INSTANTIATE_PREFAB_TOOL ||
-        tool_name == UNPACK_PREFAB_TOOL;
+        tool_name == UNPACK_PREFAB_TOOL || tool_name == IMPORT_GENERATED_TEXTURE_TOOL;
 }
 
 EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
@@ -950,6 +993,7 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
 
     std::string error;
     std::string summary;
+    Json stored_arguments = arguments;
     const auto alias_was_created = [&actions](const std::string& alias) {
         return std::any_of(actions.begin(), actions.end(), [&alias](const auto& action) {
             return (action.tool_name == CREATE_ENTITY_TOOL ||
@@ -980,7 +1024,74 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
         return frozen_context && frozen_context->contains("entity_index") &&
             frozen_context->at("entity_index").is_array();
     };
-    if (tool_name == INSTANTIATE_PREFAB_TOOL) {
+    if (tool_name == IMPORT_GENERATED_TEXTURE_TOOL) {
+        if (!only_keys(arguments, {"generated_path", "destination_path", "assignments"}) ||
+            !arguments.contains("generated_path") || !arguments.at("generated_path").is_string() ||
+            arguments.at("generated_path").get<std::string>().empty() ||
+            !arguments.contains("destination_path") || !arguments.at("destination_path").is_string() ||
+            !valid_generated_texture_destination(arguments.at("destination_path").get<std::string>()) ||
+            !arguments.contains("assignments") || !arguments.at("assignments").is_array() ||
+            arguments.at("assignments").size() > 20) {
+            return {false, {}, "Generated texture import requires ImageGen's savedPath, one new assets/*.png destination, and at most 20 assignments"};
+        }
+        bool path_was_generated = false;
+        if (frozen_context && frozen_context->contains("generated_texture_previews") &&
+            frozen_context->at("generated_texture_previews").is_object()) {
+            for (const auto& [id, preview] : frozen_context->at("generated_texture_previews").items()) {
+                static_cast<void>(id);
+                if (preview.is_object() && !preview.value("preview_path", "").empty() &&
+                    preview.value("source_path", "") ==
+                        arguments.at("generated_path").get<std::string>()) {
+                    path_was_generated = true;
+                    stored_arguments["generated_path"] = preview.value("preview_path", "");
+                    break;
+                }
+            }
+        }
+        if (!path_was_generated) {
+            return {false, {}, "generated_path was not produced by Codex ImageGen during this request"};
+        }
+        const std::string destination_path = arguments.at("destination_path").get<std::string>();
+        const std::string preview_path = stored_arguments.at("generated_path").get<std::string>();
+        for (const EditorAiAuthoringAction& action : actions) {
+            if (action.tool_name != IMPORT_GENERATED_TEXTURE_TOOL) continue;
+            if (action.arguments.value("destination_path", "") == destination_path) {
+                return {false, {}, "Generated texture destination is already queued; use one import action with all assignments"};
+            }
+            if (action.arguments.value("generated_path", "") == preview_path) {
+                return {false, {}, "Generated image is already queued; use one import action with all assignments"};
+            }
+        }
+        std::unordered_set<std::string> assignment_targets;
+        for (const Json& assignment : arguments.at("assignments")) {
+            if (!only_keys(assignment, {"entity_id", "entity_alias", "component_key"}) ||
+                !assignment.contains("component_key") || !assignment.at("component_key").is_string() ||
+                (assignment.at("component_key") != "sprite" && assignment.at("component_key") != "ui_image")) {
+                return {false, {}, "Each generated texture assignment requires one entity target and a sprite or ui_image component_key"};
+            }
+            const auto target = read_target(assignment, error);
+            if (!target) return {false, {}, "Texture assignment requires exactly one entity target"};
+            if (!target->alias.empty()) {
+                if (const auto alias_error = require_declared_alias(assignment, "entity_alias")) {
+                    return {false, {}, *alias_error};
+                }
+            } else if (frozen_index_available() && !find_frozen_entity(target->entity_id)) {
+                return {false, {}, "Texture assignment target was not found in the frozen scene"};
+            }
+            const std::string assignment_key = target_label(*target) + ":" +
+                assignment.at("component_key").get<std::string>();
+            if (!assignment_targets.insert(assignment_key).second) {
+                return {false, {}, "Generated texture assignments contain a duplicate entity component target"};
+            }
+        }
+        summary = "Import generated texture to '" +
+            destination_path + "'";
+        const std::size_t assignment_count = arguments.at("assignments").size();
+        if (assignment_count > 0) {
+            summary += " and assign it to " + std::to_string(assignment_count) +
+                (assignment_count == 1 ? " component" : " components");
+        }
+    } else if (tool_name == INSTANTIATE_PREFAB_TOOL) {
         if (!only_keys(arguments, {"asset_handle", "alias", "position", "scale", "rotation", "parent_entity_id", "parent_entity_alias"}) ||
             !arguments.contains("asset_handle") || !arguments.at("asset_handle").is_string() ||
             !arguments.contains("alias") || !arguments.at("alias").is_string() ||
@@ -1253,7 +1364,7 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
         }
     }
 
-    actions.push_back({tool_name, arguments, summary});
+    actions.push_back({tool_name, std::move(stored_arguments), summary});
     return {
         true,
         {{"queued", true}, {"action_index", actions.size() - 1}, {"summary", summary}},
@@ -1283,6 +1394,8 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
 
     auto aliases = std::make_shared<AliasState>();
     std::unordered_set<std::string> declared_aliases;
+    std::unordered_set<std::string> generated_texture_destinations;
+    std::unordered_set<std::string> generated_texture_sources;
     auto group = std::make_unique<EditorCommandGroup>(
         "AI Session (" + std::to_string(actions.size()) +
         (actions.size() == 1 ? " action)" : " actions)")
@@ -1332,6 +1445,70 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
         if (!is_authoring_tool(action.tool_name)) {
             error = "Proposal contains an unknown action: " + action.tool_name;
             return nullptr;
+        }
+        if (action.tool_name == IMPORT_GENERATED_TEXTURE_TOOL) {
+            AssetDatabase* database = context.serialization.asset_database;
+            if (!database) {
+                error = "The project asset database is unavailable";
+                return nullptr;
+            }
+            const std::filesystem::path preview_path =
+                action.arguments.at("generated_path").get<std::string>();
+            constexpr std::size_t MAX_GENERATED_PNG_BYTES = 32 * 1024 * 1024;
+            constexpr std::uint8_t PNG_SIGNATURE[] = {137, 80, 78, 71, 13, 10, 26, 10};
+            std::error_code preview_error;
+            const std::uintmax_t preview_size = std::filesystem::file_size(preview_path, preview_error);
+            if (preview_error || preview_path.extension() != ".png" ||
+                preview_size < std::size(PNG_SIGNATURE) || preview_size > MAX_GENERATED_PNG_BYTES) {
+                error = "Generated texture preview is missing or invalid";
+                return nullptr;
+            }
+            std::vector<std::uint8_t> png_bytes = FileSystem::read_bytes(preview_path.string());
+            if (png_bytes.size() < std::size(PNG_SIGNATURE) || png_bytes.size() > MAX_GENERATED_PNG_BYTES ||
+                !std::equal(std::begin(PNG_SIGNATURE), std::end(PNG_SIGNATURE), png_bytes.begin())) {
+                error = "Generated texture preview is missing or invalid";
+                return nullptr;
+            }
+            const std::filesystem::path relative = action.arguments.at("destination_path").get<std::string>();
+            const std::filesystem::path destination = (database->project_root() / relative).lexically_normal();
+            if (!valid_generated_texture_destination(relative.generic_string()) ||
+                std::filesystem::exists(destination)) {
+                error = "Generated texture destination is invalid or already exists";
+                return nullptr;
+            }
+            if (!generated_texture_destinations.insert(destination.string()).second ||
+                !generated_texture_sources.insert(preview_path.string()).second) {
+                error = "Generated texture imports must use one action with all assignments";
+                return nullptr;
+            }
+            group->add_command(std::make_unique<CreateBinaryAssetCommand>(
+                database, destination, std::move(png_bytes)
+            ));
+            for (const Json& assignment : action.arguments.at("assignments")) {
+                const auto target = target_for(assignment);
+                if (!target || !validate_target(*target)) return nullptr;
+                const EntityTarget captured_target = *target;
+                const std::string component_key = assignment.at("component_key").get<std::string>();
+                group->add_command(std::make_unique<DeferredEditorCommand>(
+                    [entities = context.entities, registry, state_store = context.entity_state_store,
+                     serialization = context.serialization, aliases, captured_target,
+                     component_key, destination]() -> std::unique_ptr<IEditorCommand> {
+                        AssetDatabase* asset_database = serialization.asset_database;
+                        const AssetRecord* asset = asset_database
+                            ? asset_database->find_by_path(destination) : nullptr;
+                        const EntityID entity = resolve_target(captured_target, aliases);
+                        if (!asset || asset->type != AssetType::Texture ||
+                            asset->status != AssetStatus::Ready || !entities->is_alive(entity)) return nullptr;
+                        return std::make_unique<PatchAiComponentCommand>(
+                            entities, registry, state_store, serialization, aliases,
+                            captured_target, component_key,
+                            Json{{"texture_handle", asset->handle.to_string()}}
+                        );
+                    },
+                    action.summary
+                ));
+            }
+            continue;
         }
         if (action.tool_name == INSTANTIATE_PREFAB_TOOL) {
             if (!context.serialization.asset_database) {

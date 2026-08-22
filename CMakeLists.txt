@@ -795,6 +795,7 @@ add_executable(EditorAiAuthoringTests
     src/editor/ai/EditorAiAuthoring.cpp
     src/editor/commands/EditorCommandGroup.cpp
     src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/AssetFileCommands.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp
     src/editor/commands/PrefabCommands.cpp

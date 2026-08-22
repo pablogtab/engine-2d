@@ -419,6 +419,9 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Validate every proposed tool call before execution and present a human-readable preview requiring explicit confirmation by default, with an opt-in safe autonomous mode using the same gates.
 - [x] Execute an approved proposal as one atomic command group with exact Undo/Redo and rollback on partial failure.
 - [x] Add correlated AI audit logs and interactive latency controls: request/tool durations, usage, bounded history, low reasoning effort, model presets, and retry budgets without logging prompts or credentials.
+- [x] Stream Codex reasoning summaries into an Activity timeline and audit App Server item durations/event gaps without persisting private reasoning or conversation content.
+- [x] Generate PNG textures through the Codex subscription ImageGen skill, preview them, and import/assign them through the same atomic Undo/Redo transaction with stable asset receipts.
+- [x] Import each generated texture once with bulk component assignments, reject duplicate queued imports, and record the editor's real apply/reject result in conversation history.
 - [ ] Add an optional MCP adapter over the same tool registry for external Codex clients; do not create a second mutation path.
 
 **Completion criteria:** The assistant can inspect only intentionally exposed context, cannot bypass editor validation or command history, and every approved authoring request is previewable, atomic, reversible, and covered by deterministic tests.

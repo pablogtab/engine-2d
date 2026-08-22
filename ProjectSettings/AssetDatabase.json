@@ -433,6 +433,20 @@
       "path": "assets/scenes/TestScene.scene",
       "status": "ready",
       "type": "scene"
+    },
+    {
+      "handle": "2a109a0ec6a05e0a",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
+      "path": "assets/textures/collectible_coin_gold.png",
+      "status": "ready",
+      "type": "texture"
     }
   ],
   "version": 1

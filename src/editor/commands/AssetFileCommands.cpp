@@ -55,6 +55,58 @@ std::string CreateAssetCommand::get_description() const {
     return "Create Asset " + m_path.filename().string();
 }
 
+CreateBinaryAssetCommand::CreateBinaryAssetCommand(
+    AssetDatabase* database,
+    fs::path path,
+    std::vector<std::uint8_t> content
+) : m_database(database), m_path(std::move(path)), m_content(std::move(content)) {}
+
+CreateBinaryAssetCommand::~CreateBinaryAssetCommand() {
+    if (m_database && m_initialized && !m_applied && !m_had_database_record) {
+        static_cast<void>(m_database->discard_missing_asset_record(m_path));
+    }
+}
+
+bool CreateBinaryAssetCommand::execute() {
+    std::error_code error;
+    if (!m_database || m_content.empty() || fs::exists(m_path, error) || error) return false;
+    if (!m_initialized) m_had_database_record = m_database->find_by_path(m_path) != nullptr;
+    fs::create_directories(m_path.parent_path(), error);
+    if (error) return false;
+    const fs::path temporary = m_path.string() + ".ai-import.tmp";
+    fs::remove(temporary, error);
+    error.clear();
+    if (!FileSystem::write_bytes(temporary.string(), m_content)) return false;
+    fs::rename(temporary, m_path, error);
+    if (error) {
+        fs::remove(temporary, error);
+        return false;
+    }
+    if (!m_initialized) {
+        if (!m_database->import_asset(m_path).has_value()) {
+            fs::remove(m_path, error);
+            return false;
+        }
+        m_initialized = true;
+    }
+    rescan(m_database);
+    m_applied = true;
+    return true;
+}
+
+bool CreateBinaryAssetCommand::undo() {
+    std::error_code error;
+    if (!fs::remove(m_path, error) || error) return false;
+    static_cast<void>(m_database->remove_asset(m_path));
+    rescan(m_database);
+    m_applied = false;
+    return true;
+}
+
+std::string CreateBinaryAssetCommand::get_description() const {
+    return "Create Binary Asset " + m_path.filename().string();
+}
+
 ModifyAssetCommand::ModifyAssetCommand(
     AssetDatabase* database,
     fs::path path,

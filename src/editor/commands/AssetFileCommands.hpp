@@ -28,6 +28,28 @@ private:
     bool m_initialized{false};
 };
 
+class CreateBinaryAssetCommand final : public IEditorCommand {
+public:
+    CreateBinaryAssetCommand(
+        AssetDatabase* database,
+        std::filesystem::path path,
+        std::vector<std::uint8_t> content
+    );
+    ~CreateBinaryAssetCommand() override;
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override;
+    [[nodiscard]] EditorCommandScope get_scope() const override { return EditorCommandScope::EditorSession; }
+
+private:
+    AssetDatabase* m_database{nullptr};
+    std::filesystem::path m_path;
+    std::vector<std::uint8_t> m_content;
+    bool m_initialized{false};
+    bool m_applied{false};
+    bool m_had_database_record{false};
+};
+
 class ModifyAssetCommand final : public IEditorCommand {
 public:
     ModifyAssetCommand(

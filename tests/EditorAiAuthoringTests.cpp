@@ -1,5 +1,7 @@
 #include "editor/ai/EditorAiAuthoring.hpp"
+#include "core/AssetDatabase.hpp"
 #include "core/AssetManager.hpp"
+#include "core/FileSystem.hpp"
 #include "editor/EditorSelection.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/state/EditorEntityStateStore.hpp"
@@ -11,6 +13,7 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cassert>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 
@@ -480,6 +483,115 @@ void test_asset_handles_and_prefabs_are_validated_from_frozen_context() {
     ).success);
 }
 
+void test_generated_png_import_is_allowlisted_and_reversible() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_ai_generated_texture_tests";
+    std::error_code filesystem_error;
+    fs::remove_all(root, filesystem_error);
+    const fs::path preview = root / "Library/EditorAi/TexturePreviews/texture_1_0.png";
+    const std::vector<std::uint8_t> png_bytes{137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4};
+    assert(FileSystem::write_bytes(preview.string(), png_bytes));
+
+    AssetDatabase database(root);
+    TestSession session;
+    const EntityID target = create_basic_entity(session, "Generated Texture Target");
+    session.entities.add_component<SpriteComponent>(target, SpriteComponent{});
+    const EntityID second_target = create_basic_entity(session, "Second Generated Texture Target");
+    session.entities.add_component<SpriteComponent>(second_target, SpriteComponent{});
+    EditorAiAuthoringContext context = session.context();
+    context.serialization.asset_database = &database;
+    EditorAiAuthoringRegistry registry;
+    const std::string generated_source = "/codex/generated/image.png";
+    const nlohmann::json frozen_context{
+        {"entity_index", nlohmann::json::array({{
+            {"entity_id", target},
+            {"components", nlohmann::json::array({"tag", "transform", "sprite"})}
+        }, {
+            {"entity_id", second_target},
+            {"components", nlohmann::json::array({"tag", "transform", "sprite"})}
+        }})},
+        {"generated_texture_previews", {
+            {"image-1", {
+                {"source_path", generated_source},
+                {"preview_path", preview.string()}
+            }}
+        }}
+    };
+
+    std::vector<EditorAiAuthoringAction> rejected;
+    assert(!registry.queue_action("propose_import_generated_texture", {
+        {"generated_path", "/untrusted/image.png"},
+        {"destination_path", "assets/generated/untrusted.png"},
+        {"assignments", nlohmann::json::array()}
+    }, rejected, &frozen_context).success);
+
+    std::vector<EditorAiAuthoringAction> actions;
+    assert(registry.queue_action("propose_import_generated_texture", {
+        {"generated_path", generated_source},
+        {"destination_path", "assets/generated/enemy.png"},
+        {"assignments", nlohmann::json::array({
+            {{"entity_id", target}, {"entity_alias", nullptr}, {"component_key", "sprite"}},
+            {{"entity_id", second_target}, {"entity_alias", nullptr}, {"component_key", "sprite"}}
+        })}
+    }, actions, &frozen_context).success);
+    assert(actions.at(0).arguments.at("generated_path") == preview.string());
+    assert(!registry.queue_action("propose_import_generated_texture", {
+        {"generated_path", generated_source},
+        {"destination_path", "assets/generated/enemy.png"},
+        {"assignments", nlohmann::json::array()}
+    }, actions, &frozen_context).success);
+    assert(!registry.queue_action("propose_import_generated_texture", {
+        {"generated_path", generated_source},
+        {"destination_path", "assets/generated/enemy-copy.png"},
+        {"assignments", nlohmann::json::array()}
+    }, actions, &frozen_context).success);
+    assert(actions.size() == 1);
+
+    std::string error;
+    auto group = registry.build_command_group(actions, context, error);
+    assert(group && error.empty());
+    assert(session.history.execute_command(std::move(group)));
+    const fs::path destination = root / "assets/generated/enemy.png";
+    assert(FileSystem::read_bytes(destination.string()) == png_bytes);
+    assert(database.find_by_path(destination) != nullptr);
+    assert(database.find_by_path(destination)->type == AssetType::Texture);
+    const AssetHandle handle = database.find_by_path(destination)->handle;
+    assert(session.entities.get_component<SpriteComponent>(target).texture_handle == handle);
+    assert(session.entities.get_component<SpriteComponent>(second_target).texture_handle == handle);
+    session.history.undo();
+    assert(!fs::exists(destination));
+    assert(database.find_by_path(destination) != nullptr);
+    assert(database.find_by_path(destination)->status == AssetStatus::MissingSource);
+    assert(!session.entities.get_component<SpriteComponent>(target).texture_handle.is_valid());
+    assert(!session.entities.get_component<SpriteComponent>(second_target).texture_handle.is_valid());
+    session.history.redo();
+    assert(FileSystem::read_bytes(destination.string()) == png_bytes);
+    assert(database.find_by_path(destination)->handle == handle);
+    assert(session.entities.get_component<SpriteComponent>(target).texture_handle == handle);
+    assert(session.entities.get_component<SpriteComponent>(second_target).texture_handle == handle);
+
+    const EntityID invalid_target = create_basic_entity(session, "Missing Sprite Target");
+    std::vector<EditorAiAuthoringAction> invalid_actions{{
+        "propose_import_generated_texture",
+        {
+            {"generated_path", preview.string()},
+            {"destination_path", "assets/generated/rolled-back.png"},
+            {"assignments", nlohmann::json::array({{
+                {"entity_id", invalid_target},
+                {"component_key", "sprite"}
+            }})}
+        },
+        "Import then fail assignment"
+    }};
+    auto invalid_group = registry.build_command_group(invalid_actions, context, error);
+    assert(invalid_group && error.empty());
+    assert(!session.history.execute_command(std::move(invalid_group)));
+    const fs::path rolled_back = root / "assets/generated/rolled-back.png";
+    assert(!fs::exists(rolled_back));
+    assert(database.find_by_path(rolled_back) == nullptr);
+    fs::remove_all(root, filesystem_error);
+}
+
 void test_proposal_rejects_a_stale_scene_revision() {
     TestSession session;
     const EntityID entity = create_basic_entity(session, "Original");
@@ -522,6 +634,7 @@ int main() {
     test_existing_entity_delete_is_reversible();
     test_bulk_duplicate_and_delete_are_single_reversible_actions();
     test_asset_handles_and_prefabs_are_validated_from_frozen_context();
+    test_generated_png_import_is_allowlisted_and_reversible();
     test_proposal_rejects_a_stale_scene_revision();
     std::cout << "Editor AI authoring tests passed\n";
     return 0;

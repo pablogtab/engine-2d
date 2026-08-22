@@ -200,6 +200,28 @@ std::string find_default_codex_executable() {
     return newest.string();
 }
 
+std::string find_default_codex_skill_path(const std::string& skill_name) {
+    if (skill_name.empty() || skill_name.find('/') != std::string::npos ||
+        skill_name.find('\\') != std::string::npos || skill_name == "." || skill_name == "..") {
+        return {};
+    }
+    std::vector<std::filesystem::path> roots;
+    if (const char* codex_home = std::getenv("CODEX_HOME")) {
+        if (codex_home[0] != '\0') roots.emplace_back(codex_home);
+    }
+    if (const char* home_value = std::getenv("HOME")) {
+        if (home_value[0] != '\0') roots.emplace_back(std::filesystem::path(home_value) / ".codex");
+    }
+    for (const std::filesystem::path& root : roots) {
+        for (const std::filesystem::path& candidate : {
+                 root / "skills" / ".system" / skill_name / "SKILL.md",
+                 root / "skills" / skill_name / "SKILL.md"}) {
+            if (is_executable_file(candidate)) return candidate.string();
+        }
+    }
+    return {};
+}
+
 std::unique_ptr<ICodexAppServerTransport> create_default_codex_app_server_transport() {
     return std::make_unique<SdlCodexAppServerTransport>();
 }

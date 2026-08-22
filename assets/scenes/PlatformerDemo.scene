@@ -666,8 +666,8 @@
             "sprite": {
                 "color": [
                     255,
-                    215,
-                    0,
+                    255,
+                    255,
                     255
                 ],
                 "flip_x": false,
@@ -688,6 +688,7 @@
                     28.0
                 ],
                 "sorting_layer": 0,
+                "texture_handle": "2a109a0ec6a05e0a",
                 "use_src_rect": false,
                 "visible": true
             },
@@ -744,8 +745,8 @@
             "sprite": {
                 "color": [
                     255,
-                    215,
-                    0,
+                    255,
+                    255,
                     255
                 ],
                 "flip_x": false,
@@ -766,6 +767,7 @@
                     28.0
                 ],
                 "sorting_layer": 0,
+                "texture_handle": "2a109a0ec6a05e0a",
                 "use_src_rect": false,
                 "visible": true
             },
@@ -822,8 +824,8 @@
             "sprite": {
                 "color": [
                     255,
-                    215,
-                    0,
+                    255,
+                    255,
                     255
                 ],
                 "flip_x": false,
@@ -844,6 +846,7 @@
                     28.0
                 ],
                 "sorting_layer": 0,
+                "texture_handle": "2a109a0ec6a05e0a",
                 "use_src_rect": false,
                 "visible": true
             },
@@ -1071,6 +1074,7 @@
                     28.0
                 ],
                 "sorting_layer": 0,
+                "texture_handle": "2a109a0ec6a05e0a",
                 "use_src_rect": false,
                 "visible": true
             },

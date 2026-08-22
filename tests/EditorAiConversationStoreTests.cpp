@@ -41,7 +41,9 @@ void test_persists_active_conversation_and_messages() {
     const auto filepath = make_test_directory() / "conversations.json";
     Engine::EditorAiConversationStore store(filepath.string());
     store.record(make_conversation("thread-first", "Create a player", 100));
-    store.record(make_conversation("thread-second", "Explain the renderer", 200));
+    auto second = make_conversation("thread-second", "Explain the renderer", 200);
+    second.messages.push_back({"editor", "Applied successfully."});
+    store.record(std::move(second));
     assert(store.active_thread_id() == "thread-second");
 
     std::string error;
@@ -55,7 +57,9 @@ void test_persists_active_conversation_and_messages() {
     assert(loaded.conversations().front().thread_id == "thread-second");
     assert(loaded.active_thread_id() == "thread-second");
     assert(loaded.active_conversation());
-    assert(loaded.active_conversation()->messages.size() == 2);
+    assert(loaded.active_conversation()->messages.size() == 3);
+    assert(loaded.active_conversation()->messages.back().role == "editor");
+    assert(loaded.active_conversation()->messages.back().content == "Applied successfully.");
     assert(loaded.active_conversation()->title == "Explain the renderer");
     assert(loaded.active_conversation()->tool_contract_version == 2);
 }

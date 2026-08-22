@@ -2,7 +2,9 @@
 
 #include "../../scene/ComponentRegistry.hpp"
 #include "../../scene/SceneManager.hpp"
+#include "../../core/FileSystem.hpp"
 #include "../../core/Log.hpp"
+#include "../../renderer/Texture.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../tools/EditorIcons.hpp"
@@ -15,6 +17,7 @@
 #include <cctype>
 #include <chrono>
 #include <filesystem>
+#include <iterator>
 #include <numeric>
 #include <unordered_map>
 
@@ -24,7 +27,76 @@ namespace {
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
-constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 3;
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 5;
+std::string project_root();
+
+bool prompt_requests_generated_image(const std::string& prompt) {
+    std::string lower;
+    lower.reserve(prompt.size());
+    std::transform(prompt.begin(), prompt.end(), std::back_inserter(lower), [](unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+    });
+    const bool generation_verb = lower.find("gener") != std::string::npos ||
+        lower.find("crea") != std::string::npos || lower.find("make ") != std::string::npos ||
+        lower.find("draw ") != std::string::npos || lower.find("design ") != std::string::npos;
+    const bool image_noun = lower.find("textura") != std::string::npos ||
+        lower.find("texture") != std::string::npos || lower.find("imagen") != std::string::npos ||
+        lower.find("image") != std::string::npos || lower.find("png") != std::string::npos ||
+        lower.find("sprite") != std::string::npos || lower.find("icon") != std::string::npos;
+    return generation_verb && image_noun;
+}
+
+bool prompt_refines_generated_image(const std::string& prompt) {
+    std::string lower;
+    lower.reserve(prompt.size());
+    std::transform(prompt.begin(), prompt.end(), std::back_inserter(lower), [](unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+    });
+    return lower.find("hacela") != std::string::npos ||
+        lower.find("cambiala") != std::string::npos || lower.find("modif") != std::string::npos ||
+        lower.find("ajust") != std::string::npos || lower.find("variante") != std::string::npos ||
+        lower.find("variant") != std::string::npos || lower.find("make it") != std::string::npos ||
+        lower.find("change it") != std::string::npos;
+}
+
+std::optional<nlohmann::json> cache_generated_png(
+    std::uint64_t request_id,
+    const EditorAiProviderEvent& event,
+    std::size_t ordinal,
+    std::string& error
+) {
+    constexpr std::size_t MAX_GENERATED_PNG_BYTES = 32 * 1024 * 1024;
+    constexpr std::uint8_t PNG_SIGNATURE[] = {137, 80, 78, 71, 13, 10, 26, 10};
+    const std::filesystem::path source_path(event.artifact_path);
+    std::error_code source_error;
+    const std::uintmax_t source_size = std::filesystem::file_size(source_path, source_error);
+    if (source_error || source_path.extension() != ".png" ||
+        source_size < std::size(PNG_SIGNATURE) || source_size > MAX_GENERATED_PNG_BYTES) {
+        error = "Codex ImageGen returned an invalid PNG path or size";
+        return std::nullopt;
+    }
+    const std::vector<std::uint8_t> bytes = FileSystem::read_bytes(event.artifact_path);
+    if (bytes.size() < std::size(PNG_SIGNATURE) || bytes.size() > MAX_GENERATED_PNG_BYTES ||
+        !std::equal(std::begin(PNG_SIGNATURE), std::end(PNG_SIGNATURE), bytes.begin())) {
+        error = "Codex ImageGen did not return a valid PNG";
+        return std::nullopt;
+    }
+    const std::string preview_id = "texture_" + std::to_string(request_id) + "_" +
+        std::to_string(ordinal);
+    const std::filesystem::path preview_path = std::filesystem::path(project_root()) /
+        "Library" / "EditorAi" / "TexturePreviews" / (preview_id + ".png");
+    if (!FileSystem::write_bytes(preview_path.string(), bytes)) {
+        error = "Could not cache the generated PNG for review";
+        return std::nullopt;
+    }
+    return nlohmann::json{
+        {"preview_id", preview_id},
+        {"source_path", event.artifact_path},
+        {"preview_path", preview_path.string()},
+        {"byte_count", bytes.size()},
+        {"transparent_background", event.transparent_background}
+    };
+}
 
 std::vector<EditorAiChatMessage> recent_history(
     const std::vector<EditorAiChatMessage>& messages
@@ -90,7 +162,8 @@ std::string conversation_transcript(const std::vector<EditorAiChatMessage>& mess
     std::string transcript;
     for (const EditorAiChatMessage& message : messages) {
         if (!transcript.empty()) transcript += "\n\n";
-        transcript += message.role == "user" ? "You\n" : "Codex\n";
+        transcript += message.role == "user" ? "You\n"
+            : (message.role == "editor" ? "Editor\n" : "Codex\n");
         transcript += message.content;
     }
     return transcript;
@@ -113,13 +186,50 @@ nlohmann::json receipt_entity(const nlohmann::json& entity) {
     };
 }
 
+std::unordered_map<std::string, nlohmann::json> asset_map(const nlohmann::json& index) {
+    std::unordered_map<std::string, nlohmann::json> result;
+    if (!index.is_array()) return result;
+    for (const nlohmann::json& asset : index) {
+        const std::string handle = asset.value("asset_handle", "");
+        if (!handle.empty()) result.emplace(handle, asset);
+    }
+    return result;
+}
+
+nlohmann::json receipt_asset(const nlohmann::json& asset) {
+    return {
+        {"asset_handle", asset.value("asset_handle", "")},
+        {"path", asset.value("path", "")},
+        {"type", asset.value("type", "")},
+        {"status", asset.value("status", "")}
+    };
+}
+
+void remove_cached_texture_previews(const nlohmann::json& previews) {
+    if (!previews.is_object()) return;
+    const std::filesystem::path allowed_directory = (
+        std::filesystem::path(project_root()) / "Library" / "EditorAi" / "TexturePreviews"
+    ).lexically_normal();
+    for (const auto& [id, preview] : previews.items()) {
+        static_cast<void>(id);
+        if (!preview.is_object()) continue;
+        const std::filesystem::path path =
+            std::filesystem::path(preview.value("preview_path", "")).lexically_normal();
+        if (path.empty() || path.parent_path() != allowed_directory) continue;
+        std::error_code error;
+        std::filesystem::remove(path, error);
+    }
+}
+
 nlohmann::json build_application_receipt(
     std::uint64_t request_id,
     std::uint64_t revision_before,
     std::uint64_t revision_after,
     const std::vector<EditorAiAuthoringAction>& actions,
     const nlohmann::json& before_index,
-    const nlohmann::json& after_index
+    const nlohmann::json& after_index,
+    const nlohmann::json& before_asset_index,
+    const nlohmann::json& after_asset_index
 ) {
     const auto before = entity_map(before_index);
     const auto after = entity_map(after_index);
@@ -130,6 +240,14 @@ nlohmann::json build_application_receipt(
     std::size_t added_count = 0;
     std::size_t removed_count = 0;
     std::size_t updated_count = 0;
+    const auto before_assets = asset_map(before_asset_index);
+    const auto after_assets = asset_map(after_asset_index);
+    nlohmann::json added_assets = nlohmann::json::array();
+    nlohmann::json removed_assets = nlohmann::json::array();
+    nlohmann::json updated_assets = nlohmann::json::array();
+    std::size_t added_asset_count = 0;
+    std::size_t removed_asset_count = 0;
+    std::size_t updated_asset_count = 0;
 
     for (const auto& [id, entity] : after) {
         const auto previous = before.find(id);
@@ -157,6 +275,27 @@ nlohmann::json build_application_receipt(
             removed.push_back(receipt_entity(entity));
         } else if (!after.contains(id)) ++removed_count;
     }
+    for (const auto& [handle, asset] : after_assets) {
+        const auto previous = before_assets.find(handle);
+        if (previous == before_assets.end()) {
+            ++added_asset_count;
+            if (added_assets.size() < MAX_RECEIPT_ENTITIES) {
+                added_assets.push_back(receipt_asset(asset));
+            }
+        } else if (previous->second != asset) {
+            ++updated_asset_count;
+            if (updated_assets.size() < MAX_RECEIPT_ENTITIES) {
+                updated_assets.push_back(receipt_asset(asset));
+            }
+        }
+    }
+    for (const auto& [handle, asset] : before_assets) {
+        if (after_assets.contains(handle)) continue;
+        ++removed_asset_count;
+        if (removed_assets.size() < MAX_RECEIPT_ENTITIES) {
+            removed_assets.push_back(receipt_asset(asset));
+        }
+    }
 
     nlohmann::json action_summaries = nlohmann::json::array();
     for (const EditorAiAuthoringAction& action : actions) action_summaries.push_back(action.summary);
@@ -165,7 +304,8 @@ nlohmann::json build_application_receipt(
         {"request_id", request_id},
         {"status", "applied"},
         {"verified", revision_after == revision_before + 1 &&
-            (added_count + removed_count + updated_count) > 0},
+            (added_count + removed_count + updated_count + added_asset_count +
+             removed_asset_count + updated_asset_count) > 0},
         {"revision_before", revision_before},
         {"revision_after", revision_after},
         {"action_count", actions.size()},
@@ -181,20 +321,41 @@ nlohmann::json build_application_receipt(
                 removed_count > MAX_RECEIPT_ENTITIES || updated_count > MAX_RECEIPT_ENTITIES},
             {"before_entity_count", before.size()},
             {"after_entity_count", after.size()}
+        }},
+        {"asset_changes", {
+            {"added", std::move(added_assets)},
+            {"removed", std::move(removed_assets)},
+            {"updated", std::move(updated_assets)},
+            {"added_count", added_asset_count},
+            {"removed_count", removed_asset_count},
+            {"updated_count", updated_asset_count},
+            {"before_asset_count", before_assets.size()},
+            {"after_asset_count", after_assets.size()}
         }}
     };
 }
 
 std::string receipt_summary(const nlohmann::json& receipt) {
     const auto& changes = receipt.at("changes");
-    return std::string(receipt.value("verified", false)
+    const auto& assets = receipt.value("asset_changes", nlohmann::json::object());
+    std::string summary = std::string(receipt.value("verified", false)
         ? "Verified editor receipt: "
         : "Editor receipt (no serialized change observed): ") +
         std::to_string(changes.value("added_count", 0U)) + " added, " +
         std::to_string(changes.value("removed_count", 0U)) + " removed, " +
         std::to_string(changes.value("updated_count", 0U)) + " updated; revision " +
         std::to_string(receipt.value("revision_before", 0ULL)) + " -> " +
-        std::to_string(receipt.value("revision_after", 0ULL)) + ".";
+        std::to_string(receipt.value("revision_after", 0ULL)) + ". Assets: " +
+        std::to_string(assets.value("added_count", 0U)) + " added, " +
+        std::to_string(assets.value("removed_count", 0U)) + " removed, " +
+        std::to_string(assets.value("updated_count", 0U)) + " updated.";
+    if (assets.value("added_count", 0U) == 1U && assets.contains("added") &&
+        assets.at("added").is_array() && !assets.at("added").empty()) {
+        const auto& asset = assets.at("added").front();
+        summary += " New asset: " + asset.value("path", "") + " (handle " +
+            asset.value("asset_handle", "") + ").";
+    }
+    return summary;
 }
 
 void draw_codex_badge() {
@@ -260,6 +421,18 @@ std::string compact_model_name(const std::string& model) {
     return model;
 }
 
+std::string activity_item_label(const std::string& item_type) {
+    if (item_type == "reasoning") return "Reasoning";
+    if (item_type == "agentMessage") return "Writing response";
+    if (item_type == "imageGeneration") return "Generating image";
+    if (item_type == "dynamicToolCall") return "Using editor tool";
+    if (item_type == "webSearch") return "Searching the web";
+    if (item_type == "commandExecution") return "Running command";
+    if (item_type == "fileChange") return "Preparing file changes";
+    if (item_type == "contextCompaction") return "Compacting context";
+    return item_type.empty() ? "Codex activity" : item_type;
+}
+
 bool draw_chat_message(
     const EditorAiChatMessage& message,
     int index,
@@ -267,6 +440,7 @@ bool draw_chat_message(
 ) {
     bool copy_requested = false;
     const bool is_user = message.role == "user";
+    const bool is_editor = message.role == "editor";
     const float bubble_width = std::max(
         140.0f,
         available_width * (is_user ? 0.82f : 0.94f)
@@ -277,10 +451,14 @@ bool draw_chat_message(
 
     const ImVec4 background = is_user
         ? ImVec4(0.17f, 0.18f, 0.27f, 1.0f)
-        : ImVec4(0.12f, 0.13f, 0.17f, 1.0f);
+        : (is_editor
+            ? ImVec4(0.19f, 0.18f, 0.13f, 1.0f)
+            : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
     const ImVec4 label_color = is_user
         ? ImVec4(0.72f, 0.69f, 1.0f, 1.0f)
-        : ImVec4(0.40f, 0.82f, 0.62f, 1.0f);
+        : (is_editor
+            ? ImVec4(0.88f, 0.70f, 0.28f, 1.0f)
+            : ImVec4(0.40f, 0.82f, 0.62f, 1.0f));
     const float text_width = std::max(1.0f, bubble_width - 20.0f);
     const float text_height = ImGui::CalcTextSize(
         message.content.c_str(),
@@ -300,7 +478,11 @@ bool draw_chat_message(
         false,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
     );
-    ImGui::TextColored(label_color, "%s", is_user ? "You" : "Codex");
+    ImGui::TextColored(
+        label_color,
+        "%s",
+        is_user ? "You" : (is_editor ? "Editor" : "Codex")
+    );
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + text_width);
     ImGui::TextUnformatted(message.content.c_str());
     ImGui::PopTextWrapPos();
@@ -337,7 +519,8 @@ AiAssistantPanel::AiAssistantPanel(
     m_conversation_store(std::make_unique<EditorAiConversationStore>(
         (std::filesystem::path(project_root()) / "Library/EditorAi/conversations.json").string()
     )),
-    m_codex_executable(find_default_codex_executable()) {
+    m_codex_executable(find_default_codex_executable()),
+    m_imagegen_skill_path(find_default_codex_skill_path("imagegen")) {
     is_open = false;
     std::snprintf(m_model.data(), m_model.size(), "%s", "gpt-5.6-sol");
     std::string load_error;
@@ -397,13 +580,18 @@ void AiAssistantPanel::start_new_conversation() {
     if (m_request_running || m_pending_proposal) return;
     m_messages.clear();
     m_streamed_response.clear();
+    m_reasoning_summary.clear();
     m_request_error.clear();
     m_active_tool.clear();
+    m_live_activity = "Idle";
+    m_activity_entries.clear();
+    m_request_started_at = {};
     m_authoring_feedback.clear();
     m_ui_feedback = "New conversation ready.";
     m_codex_thread_id.clear();
     m_codex_session_id.clear();
     m_superseded_thread_id.clear();
+    m_conversation_has_generated_image = false;
     m_last_input_tokens = 0;
     m_last_output_tokens = 0;
     m_last_total_tokens = 0;
@@ -440,9 +628,14 @@ void AiAssistantPanel::restore_conversation(const std::string& thread_id) {
         m_superseded_thread_id = conversation->thread_id;
     }
     m_messages = conversation->messages;
+    m_conversation_has_generated_image = false;
     m_streamed_response.clear();
+    m_reasoning_summary.clear();
     m_request_error.clear();
     m_active_tool.clear();
+    m_live_activity = "Idle";
+    m_activity_entries.clear();
+    m_request_started_at = {};
     m_authoring_feedback.clear();
     m_ui_feedback = conversation->tool_contract_version == EDITOR_AI_TOOL_CONTRACT_VERSION
         ? "Conversation restored."
@@ -498,9 +691,14 @@ void AiAssistantPanel::delete_conversation(const std::string& thread_id) {
     if (m_codex_thread_id == thread_id || m_superseded_thread_id == thread_id) {
         m_messages.clear();
         m_streamed_response.clear();
+        m_reasoning_summary.clear();
         m_codex_thread_id.clear();
         m_codex_session_id.clear();
         m_superseded_thread_id.clear();
+        m_conversation_has_generated_image = false;
+        m_live_activity = "Idle";
+        m_activity_entries.clear();
+        m_request_started_at = {};
         m_last_input_tokens = 0;
         m_last_output_tokens = 0;
         m_last_total_tokens = 0;
@@ -592,8 +790,17 @@ void AiAssistantPanel::dismiss_pending_proposal() {
             m_pending_proposal->baseline_revision
         );
     }
+    if (m_pending_proposal) {
+        remove_cached_texture_previews(m_pending_proposal->generated_texture_previews);
+    }
     m_pending_proposal.reset();
+    m_generated_texture_preview.reset();
+    m_loaded_texture_preview_id.clear();
     m_authoring_feedback = "AI proposal dismissed without changing the scene.";
+    m_last_receipt_summary = "The previous editor proposal was dismissed; no changes were applied.";
+    m_messages.push_back({"editor", m_last_receipt_summary});
+    m_scroll_chat_to_bottom = true;
+    persist_current_conversation_locked(m_model.data());
 }
 
 void AiAssistantPanel::apply_pending_proposal() {
@@ -604,11 +811,20 @@ void AiAssistantPanel::apply_pending_proposal() {
         proposal = *m_pending_proposal;
     }
 
-    const auto reject = [this, request_id = proposal.request_id](std::string message) {
+    const auto reject = [this, request_id = proposal.request_id,
+                         previews = proposal.generated_texture_previews](std::string message) {
         ENGINE_LOG_WARN("[AI AUDIT] request={} proposal=rejected reason={}", request_id, message);
+        remove_cached_texture_previews(previews);
         std::lock_guard lock(m_request_mutex);
         m_pending_proposal.reset();
-        m_authoring_feedback = "Proposal rejected: " + std::move(message);
+        m_generated_texture_preview.reset();
+        m_loaded_texture_preview_id.clear();
+        m_authoring_feedback = "Proposal rejected: " + message;
+        m_last_receipt_summary = "The previous editor proposal failed and was rolled back: " +
+            message + ". No scene changes were kept.";
+        m_messages.push_back({"editor", m_last_receipt_summary});
+        m_scroll_chat_to_bottom = true;
+        persist_current_conversation_locked(m_model.data());
     };
 
     const std::shared_ptr<Scene> scene = proposal.target_scene.lock();
@@ -657,15 +873,23 @@ void AiAssistantPanel::apply_pending_proposal() {
         proposal.command_history->get_current_revision(),
         proposal.actions,
         proposal.before_entity_index,
-        after_snapshot.value("entity_index", nlohmann::json::array())
+        after_snapshot.value("entity_index", nlohmann::json::array()),
+        proposal.before_asset_index,
+        after_snapshot.value("asset_index", nlohmann::json::array())
     );
     const std::string summary = receipt_summary(receipt);
+    remove_cached_texture_previews(proposal.generated_texture_previews);
 
     std::lock_guard lock(m_request_mutex);
     m_pending_proposal.reset();
+    m_generated_texture_preview.reset();
+    m_loaded_texture_preview_id.clear();
     m_last_application_receipt = receipt;
     m_last_receipt_summary = summary;
     m_authoring_feedback = description + " applied. " + summary + " One Undo restores the previous state.";
+    m_messages.push_back({"editor", "Applied successfully. " + summary});
+    m_scroll_chat_to_bottom = true;
+    persist_current_conversation_locked(m_model.data());
     ENGINE_LOG_INFO(
         "[AI AUDIT] request={} proposal=applied actions={} revision={} description={}",
         proposal.request_id,
@@ -748,12 +972,17 @@ void AiAssistantPanel::start_request() {
         ? "high"
         : (m_reasoning_effort == ReasoningEffort::Medium ? "medium" : "low");
 
+    bool image_generation_requested = false;
     {
         std::lock_guard lock(m_request_mutex);
         if (m_pending_proposal) {
             m_request_error = "Apply or dismiss the pending AI proposal before sending another request.";
             return;
         }
+        image_generation_requested = using_codex && !m_imagegen_skill_path.empty() &&
+            (m_image_generation_requested || prompt_requests_generated_image(prompt) ||
+             (m_conversation_has_generated_image && prompt_refines_generated_image(prompt)));
+        m_image_generation_requested = false;
     }
 
     const std::shared_ptr<Scene> active_scene = m_scene_manager
@@ -767,11 +996,15 @@ void AiAssistantPanel::start_request() {
         ? command_history->get_current_revision() : 0;
     const AuthoringMode authoring_mode = m_authoring_mode;
     auto proposal_actions = std::make_shared<std::vector<EditorAiAuthoringAction>>();
-    const nlohmann::json frozen_context = m_tool_registry.build_context_snapshot(
-        active_scene.get(), selection.get(), m_serialization_context
+    auto request_context = std::make_shared<nlohmann::json>(
+        m_tool_registry.build_context_snapshot(active_scene.get(), selection.get(), m_serialization_context)
     );
-    const nlohmann::json before_entity_index = frozen_context.value(
+    (*request_context)["generated_texture_previews"] = nlohmann::json::object();
+    const nlohmann::json before_entity_index = request_context->value(
         "entity_index", nlohmann::json::array()
+    );
+    const nlohmann::json before_asset_index = request_context->value(
+        "asset_index", nlohmann::json::array()
     );
     std::string previous_receipt;
     {
@@ -784,6 +1017,9 @@ void AiAssistantPanel::start_request() {
     request.model = model;
     request.prompt = prompt;
     request.reasoning_effort = reasoning_effort;
+    if (image_generation_requested) {
+        request.skills.push_back({"imagegen", m_imagegen_skill_path});
+    }
     request.tools = m_tool_registry.tool_schemas();
     if (authoring_available) {
         for (const auto& schema : m_authoring_registry.tool_schemas()) {
@@ -799,11 +1035,13 @@ void AiAssistantPanel::start_request() {
           "proposal. On later conversation turns, resolve previously created entities again because aliases "
           "do not persist. Creating a root entity does not require inspection. Fold the final name, transform, and components of a new entity "
           "into one propose_create_entity call instead of queuing redundant follow-up actions. A successful "
-          "queued result is final: do not wait for another editor response and do not retry it. If a call "
+          "queued result is final for this turn: do not wait for another editor response and do not retry it. If a call "
           "is invalid, correct it once from the returned error without reading files. Use find_project_assets "
           "for stable handles and prefer bulk duplicate/delete tools for sets. Queue at most 25 focused actions. "
           "New entities and prefab roots can be referenced by @alias. Reply with one concise sentence. "
-          "The editor applies the proposal atomically through Undo history."
+          "Tool success means the proposal was queued, not applied. Never claim that a scene or asset change "
+          "was created or applied; say that the proposal is prepared for editor validation. The editor reports "
+          "the real application result separately and applies successful proposals atomically through Undo history."
         : "Live authoring tools are unavailable for this request. Stay read-only and explain that the "
           "editor must be in Edit mode with an active scene before changes can be proposed.";
     if (authoring_available && authoring_mode == AuthoringMode::ConfirmBeforeApply) {
@@ -813,6 +1051,17 @@ void AiAssistantPanel::start_request() {
     }
     if (!previous_receipt.empty()) {
         request.instructions += " Previous editor result: " + previous_receipt;
+    }
+    if (image_generation_requested) {
+        request.instructions +=
+            " The imagegen skill is attached for this turn and uses Codex's built-in image generation, "
+            "not OPENAI_API_KEY. Generate or edit one PNG suitable for the requested game texture. If the "
+            "user refers to an image generated earlier in this persistent thread, preserve it and apply only "
+            "the requested refinement. After ImageGen "
+            "returns savedPath, call propose_import_generated_texture exactly once with that exact path, a descriptive "
+            "new or versioned destination under assets/, and one assignments array containing every requested "
+            "sprite or ui_image target. Never repeat the import to assign the same image to multiple entities. "
+            "The editor will preview and import it only after validation.";
     }
     request.project_root = project_root();
     request.codex_executable = m_codex_executable;
@@ -827,8 +1076,13 @@ void AiAssistantPanel::start_request() {
             : std::vector<EditorAiChatMessage>{};
         m_messages.push_back({"user", prompt});
         m_streamed_response.clear();
+        m_reasoning_summary.clear();
         m_request_error.clear();
         m_active_tool.clear();
+        m_live_activity = "Connecting to Codex";
+        m_activity_entries.clear();
+        m_activity_entries.push_back({"Request sent", model, 0});
+        m_request_started_at = request_started;
         m_authoring_feedback.clear();
         m_ui_feedback.clear();
         m_last_input_tokens = 0;
@@ -860,7 +1114,7 @@ void AiAssistantPanel::start_request() {
         baseline_revision,
         request.history.size(),
         history_characters,
-        frozen_context.dump().size(),
+        request_context->dump().size(),
         request.tools.size(),
         request.tools.dump().size(),
         request.instructions.size(),
@@ -870,7 +1124,7 @@ void AiAssistantPanel::start_request() {
     );
     request.execute_tool = [
         this,
-        frozen_context,
+        request_context,
         proposal_actions,
         authoring_available,
         request_id,
@@ -904,10 +1158,10 @@ void AiAssistantPanel::start_request() {
                 return audited({false, {}, "Authoring is unavailable for this request"});
             }
             return audited(m_authoring_registry.queue_action(
-                name, arguments, *proposal_actions, &frozen_context
+                name, arguments, *proposal_actions, request_context.get()
             ));
         }
-        return audited(m_tool_registry.execute_snapshot(name, arguments, frozen_context));
+        return audited(m_tool_registry.execute_snapshot(name, arguments, *request_context));
     };
     m_prompt.fill('\0');
     if (m_request_thread.joinable()) m_request_thread.join();
@@ -924,6 +1178,8 @@ void AiAssistantPanel::start_request() {
         selection,
         baseline_revision,
         before_entity_index,
+        before_asset_index,
+        request_context,
         authoring_mode,
         using_codex,
         model,
@@ -931,41 +1187,184 @@ void AiAssistantPanel::start_request() {
         request_started
     ]() mutable {
         bool first_text_logged = false;
+        bool first_reasoning_summary_logged = false;
+        auto last_event_at = request_started;
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> item_started_at;
+        std::unordered_map<std::string, std::size_t> reasoning_summary_characters;
         const EditorAiProviderResult result = provider->run(
             request,
-            [this, request_id, request_started, &first_text_logged](const EditorAiProviderEvent& event) {
+            [
+                this,
+                request_id,
+                request_started,
+                request_context,
+                &first_text_logged,
+                &first_reasoning_summary_logged,
+                &last_event_at,
+                &item_started_at,
+                &reasoning_summary_characters
+            ](const EditorAiProviderEvent& event) {
+                const auto event_at = std::chrono::steady_clock::now();
                 const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - request_started
+                    event_at - request_started
                 ).count();
+                const auto gap = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    event_at - last_event_at
+                ).count();
+                last_event_at = event_at;
                 if (event.type == EditorAiProviderEventType::Started) {
                     ENGINE_LOG_INFO(
-                        "[AI AUDIT] request={} phase=provider_started elapsed_ms={}",
+                        "[AI AUDIT] request={} phase=provider_started elapsed_ms={} gap_ms={}",
                         request_id,
-                        elapsed
+                        elapsed,
+                        gap
                     );
                 } else if (event.type == EditorAiProviderEventType::TextDelta && !first_text_logged) {
                     first_text_logged = true;
                     ENGINE_LOG_INFO(
-                        "[AI AUDIT] request={} phase=first_text elapsed_ms={}",
+                        "[AI AUDIT] request={} phase=first_text elapsed_ms={} gap_ms={}",
                         request_id,
-                        elapsed
+                        elapsed,
+                        gap
+                    );
+                } else if (event.type == EditorAiProviderEventType::ReasoningSummaryDelta) {
+                    reasoning_summary_characters[event.item_id] += event.text.size();
+                    if (!first_reasoning_summary_logged && !event.text.empty()) {
+                        first_reasoning_summary_logged = true;
+                        ENGINE_LOG_INFO(
+                            "[AI AUDIT] request={} phase=reasoning_summary_started item={} "
+                            "elapsed_ms={} gap_ms={}",
+                            request_id,
+                            event.item_id.empty() ? "unknown" : event.item_id,
+                            elapsed,
+                            gap
+                        );
+                    }
+                } else if (event.type == EditorAiProviderEventType::ItemStarted) {
+                    if (!event.item_id.empty()) item_started_at[event.item_id] = event_at;
+                    ENGINE_LOG_INFO(
+                        "[AI AUDIT] request={} phase=item_started type={} item={} elapsed_ms={} gap_ms={}",
+                        request_id,
+                        event.item_type,
+                        event.item_id.empty() ? "unknown" : event.item_id,
+                        elapsed,
+                        gap
+                    );
+                } else if (event.type == EditorAiProviderEventType::ItemCompleted) {
+                    std::int64_t item_duration = 0;
+                    const auto started = item_started_at.find(event.item_id);
+                    if (started != item_started_at.end()) {
+                        item_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            event_at - started->second
+                        ).count();
+                        item_started_at.erase(started);
+                    }
+                    const auto summary_characters = reasoning_summary_characters.find(event.item_id);
+                    const std::size_t summary_size = summary_characters ==
+                            reasoning_summary_characters.end()
+                        ? 0
+                        : summary_characters->second;
+                    if (summary_characters != reasoning_summary_characters.end()) {
+                        reasoning_summary_characters.erase(summary_characters);
+                    }
+                    ENGINE_LOG_INFO(
+                        "[AI AUDIT] request={} phase=item_completed type={} item={} status={} "
+                        "elapsed_ms={} duration_ms={} gap_ms={} summary_chars={}",
+                        request_id,
+                        event.item_type,
+                        event.item_id.empty() ? "unknown" : event.item_id,
+                        event.item_status.empty() ? "unknown" : event.item_status,
+                        elapsed,
+                        item_duration,
+                        gap,
+                        event.item_type == "reasoning" ? summary_size : 0
                     );
                 } else if (event.type == EditorAiProviderEventType::ToolStarted) {
                     ENGINE_LOG_INFO(
-                        "[AI AUDIT] request={} phase=tool_started name={} elapsed_ms={}",
+                        "[AI AUDIT] request={} phase=tool_started name={} elapsed_ms={} gap_ms={}",
                         request_id,
                         event.tool_name,
-                        elapsed
+                        elapsed,
+                        gap
                     );
+                } else if (event.type == EditorAiProviderEventType::ImageGenerated) {
+                    std::string cache_error;
+                    auto preview = cache_generated_png(
+                        request_id,
+                        event,
+                        request_context->at("generated_texture_previews").size(),
+                        cache_error
+                    );
+                    if (preview) {
+                        std::string artifact_id = event.artifact_id;
+                        if (artifact_id.empty()) {
+                            artifact_id = preview->at("preview_id").get<std::string>();
+                        }
+                        (*request_context)["generated_texture_previews"][artifact_id] = *preview;
+                        ENGINE_LOG_INFO(
+                            "[AI AUDIT] request={} phase=image_generated artifact={} bytes={} elapsed_ms={}",
+                            request_id,
+                            artifact_id,
+                            preview->value("byte_count", std::size_t{0}),
+                            elapsed
+                        );
+                        std::lock_guard image_lock(m_request_mutex);
+                        m_conversation_has_generated_image = true;
+                    } else {
+                        ENGINE_LOG_WARN(
+                            "[AI AUDIT] request={} phase=image_rejected reason={} elapsed_ms={}",
+                            request_id,
+                            cache_error,
+                            elapsed
+                        );
+                    }
                 }
                 std::lock_guard lock(m_request_mutex);
-                if (event.type == EditorAiProviderEventType::TextDelta) {
+                const auto add_activity = [this, elapsed](
+                    std::string label,
+                    std::string detail
+                ) {
+                    constexpr std::size_t MAX_ACTIVITY_ENTRIES = 80;
+                    if (m_activity_entries.size() >= MAX_ACTIVITY_ENTRIES) {
+                        m_activity_entries.erase(m_activity_entries.begin());
+                    }
+                    m_activity_entries.push_back({
+                        std::move(label),
+                        std::move(detail),
+                        static_cast<std::uint64_t>(std::max<std::int64_t>(0, elapsed))
+                    });
+                };
+                if (event.type == EditorAiProviderEventType::Started) {
+                    m_live_activity = "Codex started";
+                    add_activity("Codex started", "Provider connected");
+                } else if (event.type == EditorAiProviderEventType::TextDelta) {
                     m_streamed_response += event.text;
+                    m_live_activity = "Writing response";
                     m_scroll_chat_to_bottom = true;
+                } else if (event.type == EditorAiProviderEventType::ReasoningSummaryDelta) {
+                    m_reasoning_summary += event.text;
+                    m_live_activity = "Reasoning";
+                    m_scroll_chat_to_bottom = true;
+                } else if (event.type == EditorAiProviderEventType::ItemStarted) {
+                    const std::string label = activity_item_label(event.item_type);
+                    m_live_activity = label;
+                    add_activity(label, "Started");
+                    m_scroll_chat_to_bottom = true;
+                } else if (event.type == EditorAiProviderEventType::ItemCompleted) {
+                    const std::string label = activity_item_label(event.item_type);
+                    add_activity(
+                        label,
+                        event.item_status.empty() ? "Completed" : event.item_status
+                    );
+                    m_live_activity = "Codex is working";
                 } else if (event.type == EditorAiProviderEventType::ToolStarted) {
                     m_active_tool = event.tool_name;
+                    m_live_activity = "Using " + event.tool_name;
+                    add_activity("Tool", event.tool_name + " started");
                 } else if (event.type == EditorAiProviderEventType::ToolFinished) {
                     m_active_tool.clear();
+                    m_live_activity = "Codex is working";
+                    add_activity("Tool", event.tool_name + " " + event.text);
                 }
             },
             [this]() { return m_cancel_requested.load(); }
@@ -993,6 +1392,14 @@ void AiAssistantPanel::start_request() {
         const char* status = result.status == EditorAiProviderStatus::Completed
             ? "completed"
             : (result.status == EditorAiProviderStatus::Cancelled ? "cancelled" : "failed");
+        m_live_activity = result.status == EditorAiProviderStatus::Completed
+            ? "Completed"
+            : (result.status == EditorAiProviderStatus::Cancelled ? "Cancelled" : "Failed");
+        m_activity_entries.push_back({
+            m_live_activity,
+            result.error.empty() ? "Turn finished" : result.error,
+            m_last_request_duration_ms
+        });
         ENGINE_LOG_INFO(
             "[AI AUDIT] request={} phase=finish status={} duration_ms={} tool_calls={} "
             "proposal_actions={} input_tokens={} output_tokens={} total_tokens={} thread={} "
@@ -1023,18 +1430,28 @@ void AiAssistantPanel::start_request() {
                     .baseline_revision = baseline_revision,
                     .scene_name = active_scene ? active_scene->get_name() : "",
                     .before_entity_index = before_entity_index,
+                    .before_asset_index = before_asset_index,
+                    .generated_texture_previews = request_context->value(
+                        "generated_texture_previews", nlohmann::json::object()
+                    ),
                     .auto_apply = authoring_mode == AuthoringMode::AutonomousSafe
                 };
                 m_authoring_feedback = m_pending_proposal->auto_apply
                     ? "Proposal validated by the tool boundary; applying on the editor thread..."
                     : "Proposal ready for review. The scene has not changed yet.";
+            } else if (!request_context->at("generated_texture_previews").empty()) {
+                remove_cached_texture_previews(request_context->at("generated_texture_previews"));
+                m_authoring_feedback =
+                    "Codex generated an image but did not queue a valid project import.";
             }
         } else if (result.status == EditorAiProviderStatus::Cancelled) {
+            remove_cached_texture_previews(request_context->at("generated_texture_previews"));
             m_request_error = "Request cancelled.";
             if (!proposal_actions->empty()) {
                 m_authoring_feedback = "Cancelled proposal discarded without changing the scene.";
             }
         } else {
+            remove_cached_texture_previews(request_context->at("generated_texture_previews"));
             m_request_error = result.error;
             if (!proposal_actions->empty()) {
                 m_authoring_feedback = "Failed proposal discarded without changing the scene.";
@@ -1078,8 +1495,12 @@ void AiAssistantPanel::on_gui() {
     const bool credentials_available = using_codex || api_key_available;
     bool running = false;
     std::string streamed_response;
+    std::string reasoning_summary;
     std::string request_error;
     std::string active_tool;
+    std::string live_activity;
+    std::vector<AiActivityEntry> activity_entries;
+    std::chrono::steady_clock::time_point request_started_at;
     std::vector<EditorAiChatMessage> messages;
     std::size_t input_tokens = 0;
     std::size_t output_tokens = 0;
@@ -1101,8 +1522,12 @@ void AiAssistantPanel::on_gui() {
         std::lock_guard lock(m_request_mutex);
         running = m_request_running;
         streamed_response = m_streamed_response;
+        reasoning_summary = m_reasoning_summary;
         request_error = m_request_error;
         active_tool = m_active_tool;
+        live_activity = m_live_activity;
+        activity_entries = m_activity_entries;
+        request_started_at = m_request_started_at;
         messages = m_messages;
         input_tokens = m_last_input_tokens;
         output_tokens = m_last_output_tokens;
@@ -1430,11 +1855,71 @@ void AiAssistantPanel::on_gui() {
             "reversible scene change."
         );
     }
+    const std::uint64_t activity_elapsed_ms = running &&
+            request_started_at != std::chrono::steady_clock::time_point{}
+        ? static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - request_started_at
+        ).count())
+        : request_duration_ms;
+    const auto draw_activity = [&]() {
+        if (activity_entries.empty() && reasoning_summary.empty()) return;
+        const std::string phase = live_activity.empty() ? "Activity" : live_activity;
+        char header[160];
+        std::snprintf(
+            header,
+            sizeof(header),
+            "%s  %.1fs##AIActivity",
+            phase.c_str(),
+            static_cast<double>(activity_elapsed_ms) / 1000.0
+        );
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.16f, 0.17f, 0.22f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.20f, 0.21f, 0.28f, 1.0f));
+        const bool open = ImGui::CollapsingHeader(
+            header,
+            ImGuiTreeNodeFlags_DefaultOpen
+        );
+        ImGui::PopStyleColor(2);
+        if (!open) return;
+        ImGui::Indent(8.0f);
+        if (!reasoning_summary.empty()) {
+            ImGui::TextColored(
+                ImVec4(0.58f, 0.62f, 0.74f, 1.0f),
+                "Reasoning summary"
+            );
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+            ImGui::TextUnformatted(reasoning_summary.c_str());
+            ImGui::PopTextWrapPos();
+            if (!activity_entries.empty()) ImGui::Spacing();
+        }
+        for (const AiActivityEntry& entry : activity_entries) {
+            ImGui::TextDisabled("%5.1fs", static_cast<double>(entry.elapsed_ms) / 1000.0);
+            ImGui::SameLine();
+            ImGui::TextWrapped(
+                "%s%s%s",
+                entry.label.c_str(),
+                entry.detail.empty() ? "" : " - ",
+                entry.detail.c_str()
+            );
+        }
+        ImGui::Unindent(8.0f);
+        ImGui::Spacing();
+    };
     int message_index = 0;
-    for (const EditorAiChatMessage& message : messages) {
+    bool activity_drawn = false;
+    for (std::size_t index = 0; index < messages.size(); ++index) {
+        const EditorAiChatMessage& message = messages[index];
+        if (!running && !activity_drawn && index + 1 == messages.size() &&
+            message.role == "assistant") {
+            draw_activity();
+            activity_drawn = true;
+        }
         if (draw_chat_message(message, message_index++, ImGui::GetContentRegionAvail().x)) {
             copy_to_clipboard(message.content, "Response copied.");
         }
+    }
+    if (running) {
+        draw_activity();
+        activity_drawn = true;
     }
     if (running && !streamed_response.empty()) {
         if (draw_chat_message(
@@ -1446,7 +1931,14 @@ void AiAssistantPanel::on_gui() {
         }
     }
     if (running && streamed_response.empty()) {
-        ImGui::TextColored(ImVec4(0.40f, 0.82f, 0.62f, 1.0f), "Codex is working...");
+        ImGui::TextColored(
+            ImVec4(0.40f, 0.82f, 0.62f, 1.0f),
+            "%s...",
+            live_activity.empty() ? "Codex is working" : live_activity.c_str()
+        );
+    }
+    if (!activity_drawn && !activity_entries.empty()) {
+        draw_activity();
     }
     if (scroll_chat_to_bottom) {
         ImGui::SetScrollHereY(1.0f);
@@ -1504,8 +1996,10 @@ void AiAssistantPanel::on_gui() {
     if (editor_icon_button(
         "composer_actions",
         EditorIcon::Plus,
-        "Add context or start a new conversation",
-        ImGui::IsPopupOpen("AIComposerActions"),
+        m_image_generation_requested
+            ? "Codex ImageGen is enabled for the next message"
+            : "Add context or enable image generation",
+        ImGui::IsPopupOpen("AIComposerActions") || m_image_generation_requested,
         ImVec2(24.0f, 24.0f)
     )) {
         ImGui::OpenPopup("AIComposerActions");
@@ -1564,6 +2058,23 @@ void AiAssistantPanel::on_gui() {
     }
 
     if (ImGui::BeginPopup("AIComposerActions")) {
+        ImGui::BeginDisabled(!using_codex || m_imagegen_skill_path.empty());
+        if (ImGui::MenuItem(
+            "Generate PNG with Codex",
+            nullptr,
+            m_image_generation_requested
+        )) {
+            m_image_generation_requested = !m_image_generation_requested;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip(
+                m_imagegen_skill_path.empty()
+                    ? "The Codex imagegen skill was not found"
+                    : "Uses the Codex subscription; no API key required"
+            );
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Copy scene context")) {
             copy_to_clipboard(current_context_json(), "Scene context copied.");
         }
@@ -1631,6 +2142,44 @@ void AiAssistantPanel::on_gui() {
             pending_proposal->scene_name.c_str(),
             static_cast<unsigned long long>(pending_proposal->baseline_revision)
         );
+        if (pending_proposal->generated_texture_previews.is_object() &&
+            !pending_proposal->generated_texture_previews.empty()) {
+            const nlohmann::json& preview =
+                pending_proposal->generated_texture_previews.begin().value();
+            const std::string preview_id = preview.value("preview_id", "");
+            const std::string preview_path = preview.value("preview_path", "");
+            if (!preview_id.empty() && preview_id != m_loaded_texture_preview_id) {
+                m_generated_texture_preview.reset();
+                m_loaded_texture_preview_id = preview_id;
+                if (m_serialization_context.renderer && !preview_path.empty()) {
+                    m_generated_texture_preview.reset(Texture::load_from_file(
+                        m_serialization_context.renderer, preview_path
+                    ));
+                }
+            }
+            ImGui::TextDisabled("Generated PNG preview");
+            if (m_generated_texture_preview && m_generated_texture_preview->get_sdl_texture()) {
+                const float width = static_cast<float>(
+                    std::max(1, m_generated_texture_preview->get_width())
+                );
+                const float height = static_cast<float>(
+                    std::max(1, m_generated_texture_preview->get_height())
+                );
+                const float scale = std::min({1.0f, 280.0f / width, 190.0f / height});
+                ImGui::Image(
+                    m_generated_texture_preview->get_sdl_texture(),
+                    ImVec2(width * scale, height * scale)
+                );
+                ImGui::TextDisabled(
+                    "%d x %d px | %zu bytes",
+                    m_generated_texture_preview->get_width(),
+                    m_generated_texture_preview->get_height(),
+                    preview.value("byte_count", std::size_t{0})
+                );
+            } else {
+                ImGui::TextDisabled("PNG cached and ready to import");
+            }
+        }
         ImGui::BeginChild("AIPendingProposal", ImVec2(0.0f, 118.0f), true);
         for (const EditorAiAuthoringAction& action : pending_proposal->actions) {
             ImGui::BulletText("%s", action.summary.c_str());

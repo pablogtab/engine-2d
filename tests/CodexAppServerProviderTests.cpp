@@ -1,5 +1,6 @@
 #include "editor/ai/CodexAppServerProvider.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <filesystem>
@@ -139,6 +140,72 @@ void test_subscription_protocol_streaming_and_read_only_sandbox() {
     assert(thread.at("params").at("dynamicTools").at(0).at("inputSchema").at("type") == "object");
     assert(state->writes.at(3).at("method") == "turn/start");
     assert(state->writes.at(3).at("params").at("effort") == "low");
+    assert(state->writes.at(3).at("params").at("summary") == "auto");
+}
+
+void test_reasoning_summary_stream_and_item_lifecycle() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-reasoning"}}}}}}),
+        json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-reasoning"}, {"status", "inProgress"}}}}}}),
+        json_line({{"method", "item/started"}, {"params", {{"item", {
+            {"type", "reasoning"}, {"id", "reasoning-1"},
+            {"summary", nlohmann::json::array()}, {"content", nlohmann::json::array()}
+        }}}}}),
+        json_line({{"method", "item/reasoning/summaryPartAdded"}, {"params", {
+            {"threadId", "thread-reasoning"}, {"turnId", "turn-reasoning"},
+            {"itemId", "reasoning-1"}, {"summaryIndex", 0}
+        }}}),
+        json_line({{"method", "item/reasoning/summaryTextDelta"}, {"params", {
+            {"threadId", "thread-reasoning"}, {"turnId", "turn-reasoning"},
+            {"itemId", "reasoning-1"}, {"delta", "Inspecting the scene."},
+            {"summaryIndex", 0}
+        }}}),
+        json_line({{"method", "item/reasoning/textDelta"}, {"params", {
+            {"threadId", "thread-reasoning"}, {"turnId", "turn-reasoning"},
+            {"itemId", "reasoning-1"}, {"delta", "private reasoning"},
+            {"contentIndex", 0}
+        }}}),
+        json_line({{"method", "item/completed"}, {"params", {{"item", {
+            {"type", "reasoning"}, {"id", "reasoning-1"},
+            {"summary", nlohmann::json::array({"Inspecting the scene."})},
+            {"content", nlohmann::json::array()}
+        }}}}}),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-reasoning"},
+            {"turn", {{"id", "turn-reasoning"}, {"status", "completed"},
+                {"items", nlohmann::json::array()}}}
+        }}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    std::vector<EditorAiProviderEvent> events;
+    const EditorAiProviderResult result = provider.run(
+        basic_request(),
+        [&events](const EditorAiProviderEvent& event) { events.push_back(event); }
+    );
+
+    assert(result.status == EditorAiProviderStatus::Completed);
+    const auto started = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::ItemStarted;
+    });
+    assert(started != events.end());
+    assert(started->item_id == "reasoning-1");
+    assert(started->item_type == "reasoning");
+    const auto summary = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::ReasoningSummaryDelta;
+    });
+    assert(summary != events.end());
+    assert(summary->text == "Inspecting the scene.");
+    assert(std::none_of(events.begin(), events.end(), [](const auto& event) {
+        return event.text == "private reasoning";
+    }));
+    const auto completed = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::ItemCompleted;
+    });
+    assert(completed != events.end());
+    assert(completed->item_id == "reasoning-1");
+    assert(completed->item_type == "reasoning");
 }
 
 void test_persistent_thread_can_be_resumed_without_history_reinjection() {
@@ -238,6 +305,51 @@ void test_read_only_history_and_dynamic_tool_bridge() {
     assert(output.at("result").at("entity_count") == 1);
 }
 
+void test_skill_input_and_generated_image_event() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-image"}}}}}}),
+        json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-image"}, {"status", "inProgress"}}}}}}),
+        json_line({{"method", "item/started"}, {"params", {{"item", {
+            {"type", "imageGeneration"}, {"id", "image-1"}, {"status", "inProgress"}
+        }}}}}),
+        json_line({{"method", "item/completed"}, {"params", {{"item", {
+            {"type", "imageGeneration"}, {"id", "image-1"}, {"status", "completed"},
+            {"result", "ignored"}, {"savedPath", "/tmp/codex/texture.png"},
+            {"transparentBackground", true}, {"failure", nullptr}
+        }}}}}),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-image"},
+            {"turn", {{"id", "turn-image"}, {"status", "completed"}, {"items", nlohmann::json::array()}}}
+        }}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    EditorAiProviderRequest request = basic_request();
+    request.skills.push_back({"imagegen", "/skills/imagegen/SKILL.md"});
+    std::vector<EditorAiProviderEvent> events;
+    const EditorAiProviderResult result = provider.run(
+        request,
+        [&events](const EditorAiProviderEvent& event) { events.push_back(event); }
+    );
+
+    assert(result.status == EditorAiProviderStatus::Completed);
+    const auto& input = state->writes.at(3).at("params").at("input");
+    assert(input.size() == 2);
+    assert(input.at(0).at("type") == "skill");
+    assert(input.at(0).at("name") == "imagegen");
+    assert(input.at(0).at("path") == "/skills/imagegen/SKILL.md");
+    assert(input.at(1).at("type") == "text");
+    assert(input.at(1).at("text_elements") == nlohmann::json::array());
+    const auto generated = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::ImageGenerated;
+    });
+    assert(generated != events.end());
+    assert(generated->artifact_id == "image-1");
+    assert(generated->artifact_path == "/tmp/codex/texture.png");
+    assert(generated->transparent_background);
+}
+
 void test_failure_and_early_cancellation() {
     auto failed_state = std::make_shared<FakeTransportState>();
     failed_state->start_succeeds = false;
@@ -312,7 +424,9 @@ void test_live_app_server_when_requested() {
 
 int main() {
     test_subscription_protocol_streaming_and_read_only_sandbox();
+    test_reasoning_summary_stream_and_item_lifecycle();
     test_read_only_history_and_dynamic_tool_bridge();
+    test_skill_input_and_generated_image_event();
     test_persistent_thread_can_be_resumed_without_history_reinjection();
     test_failure_and_early_cancellation();
     test_invalid_tool_call_budget_interrupts_turn();

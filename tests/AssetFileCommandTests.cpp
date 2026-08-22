@@ -1,4 +1,5 @@
 #include "core/AssetDatabase.hpp"
+#include "core/FileSystem.hpp"
 #include "editor/commands/AssetFileCommands.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 
@@ -55,6 +56,38 @@ int main() {
     history.undo();
     require(fs::exists(scene) && database.resolve(handle) == scene.string(), "undo move restores pair and handle");
     history.redo();
+
+    const fs::path texture = root / "assets/generated/texture.png";
+    const std::vector<std::uint8_t> png_bytes{137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4};
+    history.execute_command(std::make_unique<Engine::CreateBinaryAssetCommand>(
+        &database, texture, png_bytes
+    ));
+    require(fs::exists(texture), "binary create writes source asset");
+    require(database.find_by_path(texture) != nullptr, "binary create imports asset");
+    require(database.find_by_path(texture)->type == Engine::AssetType::Texture, "binary create detects texture type");
+    const Engine::AssetHandle texture_handle = database.find_by_path(texture)->handle;
+    history.undo();
+    require(!fs::exists(texture), "undo binary create removes source asset");
+    history.redo();
+    require(Engine::FileSystem::read_bytes(texture.string()) == png_bytes, "redo binary create restores exact bytes");
+    require(database.find_by_path(texture)->handle == texture_handle, "redo binary create preserves handle");
+
+    const fs::path abandoned_texture = root / "assets/generated/abandoned.png";
+    {
+        auto abandoned = std::make_unique<Engine::CreateBinaryAssetCommand>(
+            &database, abandoned_texture, png_bytes
+        );
+        require(abandoned->execute(), "uncommitted binary create executes");
+        require(abandoned->undo(), "uncommitted binary create rolls back");
+        require(
+            database.find_by_path(abandoned_texture) != nullptr,
+            "rollback retains identity while command can still redo"
+        );
+    }
+    require(
+        database.find_by_path(abandoned_texture) == nullptr,
+        "abandoned binary create removes its missing database record"
+    );
 
     const std::string before_modify = read(renamed);
     const std::string after_modify = "{\"scene_name\":\"Modified\"}\n";

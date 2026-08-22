@@ -17,14 +17,29 @@ struct EditorAiChatMessage {
 enum class EditorAiProviderEventType {
     Started,
     TextDelta,
+    ReasoningSummaryDelta,
+    ItemStarted,
+    ItemCompleted,
     ToolStarted,
-    ToolFinished
+    ToolFinished,
+    ImageGenerated
 };
 
 struct EditorAiProviderEvent {
     EditorAiProviderEventType type{EditorAiProviderEventType::Started};
     std::string text;
     std::string tool_name;
+    std::string artifact_id;
+    std::string artifact_path;
+    std::string item_id;
+    std::string item_type;
+    std::string item_status;
+    bool transparent_background{false};
+};
+
+struct EditorAiSkillReference {
+    std::string name;
+    std::string path;
 };
 
 enum class EditorAiProviderStatus {
@@ -39,7 +54,9 @@ struct EditorAiProviderRequest {
     std::string prompt;
     std::string instructions;
     std::string reasoning_effort{"low"};
+    std::string reasoning_summary{"auto"};
     std::vector<EditorAiChatMessage> history;
+    std::vector<EditorAiSkillReference> skills;
     nlohmann::json tools{nlohmann::json::array()};
     std::function<EditorAiToolResult(const std::string&, const nlohmann::json&)> execute_tool;
     std::string project_root{"."};

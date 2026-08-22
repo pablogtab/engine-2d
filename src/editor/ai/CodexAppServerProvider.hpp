@@ -47,6 +47,7 @@ private:
 };
 
 [[nodiscard]] std::string find_default_codex_executable();
+[[nodiscard]] std::string find_default_codex_skill_path(const std::string& skill_name);
 [[nodiscard]] std::unique_ptr<ICodexAppServerTransport> create_default_codex_app_server_transport();
 
 } // namespace Engine
