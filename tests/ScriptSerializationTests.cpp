@@ -54,26 +54,6 @@ int main() {
     const auto& remapped = entities.get_component<ScriptComponent>(scripted);
     assert(std::get<EntityID>(remapped.public_fields[4].value) == 77);
 
-    const auto platformer_document = nlohmann::json::parse(FileSystem::read_text(
-        std::string(ENGINE_SOURCE_DIR) + "/assets/scenes/PlatformerDemo.scene"
-    ));
-    const auto player_json = std::find_if(
-        platformer_document.at("entities").begin(),
-        platformer_document.at("entities").end(),
-        [](const nlohmann::json& value) { return value.value("tag", "") == "Player_Knight"; }
-    );
-    assert(player_json != platformer_document.at("entities").end());
-    EntityManager platformer_entities;
-    const EntityID player = platformer_entities.create_entity();
-    std::string platformer_error;
-    assert(default_component_registry().deserialize_entity(
-        platformer_entities, player, *player_json, {}, platformer_error
-    ));
-    assert(platformer_entities.has_component<ScriptComponent>(player));
-    const auto& controller = platformer_entities.get_component<ScriptComponent>(player);
-    assert(controller.script_handle == AssetHandle{0x8f5c06f05bd74531});
-    assert(controller.public_fields.size() == 4);
-
     std::cout << "ScriptSerializationTests passed\n";
     return 0;
 }

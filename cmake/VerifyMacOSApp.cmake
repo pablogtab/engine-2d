@@ -9,12 +9,16 @@ set(contents_dir "${ENGINE_APP_DIR}/Contents")
 set(executable "${contents_dir}/MacOS/Engine2DStandalone")
 set(resources_dir "${contents_dir}/Resources")
 set(frameworks_dir "${contents_dir}/Frameworks")
+file(READ "${resources_dir}/project.engine2d" project_json)
+string(JSON startup_scene GET "${project_json}" startup_scene)
+string(JSON shader_descriptor GET "${project_json}" runtime_shader descriptor)
 
 foreach(required_path
     "${contents_dir}/Info.plist"
     "${executable}"
-    "${resources_dir}/assets/scenes/PlatformerDemo.scene"
-    "${resources_dir}/assets/shaders/NightVision.shader"
+    "${resources_dir}/project.engine2d"
+    "${resources_dir}/${startup_scene}"
+    "${resources_dir}/${shader_descriptor}"
     "${resources_dir}/ProjectSettings/AssetDatabase.json"
     "${frameworks_dir}/libSDL3.0.dylib"
     "${frameworks_dir}/libglm.dylib"

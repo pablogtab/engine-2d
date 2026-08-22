@@ -2,6 +2,7 @@
 #include "Log.hpp"
 #include "Input.hpp"
 #include "Time.hpp"
+#include "FileSystem.hpp"
 #include "SDLDisplayBackend.hpp"
 #include "../audio/AudioEngine.hpp"
 #if ENGINE_WITH_EDITOR
@@ -71,13 +72,15 @@ SafeAreaInsets map_safe_area_to_reference(
 
 } // namespace
 
-Application::Application(const std::string& name, int width, int height, bool start_with_editor)
-{
-    Log::init("engine.log");
-    ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{})", name, width, height);
-    m_project_settings.load();
+Application::Application(ProjectContext project, const std::string& name, int width, int height, bool start_with_editor)
+    : m_project(std::move(project)) {
+    Log::init((m_project.library_directory() / "engine.log").string());
+    ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{}) | Project: '{}'", name, width, height, m_project.root().string());
+    FileSystem::init("Engine2D", m_project.descriptor().name, true, m_project.root());
+    AssetDatabase::get().set_project_root(m_project.root());
+    m_project_settings.load((m_project.settings_directory() / "Project.json").string());
     m_dynamic_resolution.configure(m_project_settings.display().render_resolution);
-    [[maybe_unused]] const AssetScanResult asset_scan = AssetDatabase::get().scan("assets");
+    [[maybe_unused]] const AssetScanResult asset_scan = AssetDatabase::get().scan("Assets");
 
     Input::init();
     Time::reset();
@@ -138,7 +141,7 @@ Application::Application(const std::string& name, int width, int height, bool st
 #if ENGINE_WITH_EDITOR
     if (start_with_editor) {
         m_editor_layer = std::make_unique<EditorLayer>();
-        m_editor_layer->init(m_window->get_sdl_window(), m_window->get_sdl_renderer());
+        m_editor_layer->init(m_window->get_sdl_window(), m_window->get_sdl_renderer(), m_project.root());
         m_editor_layer->set_window_wrapper(m_window.get());
         m_editor_layer->set_visible(true);
         m_editor_layer->set_scene_manager(&m_scene_manager);
@@ -190,7 +193,7 @@ Application::Application(const std::string& name, int width, int height, bool st
     );
     diagnostics_panel->set_command_history(command_history);
     diagnostics_panel->is_open = false;
-    auto asset_browser = std::make_shared<AssetBrowserPanel>(&get_asset_database(), "assets");
+    auto asset_browser = std::make_shared<AssetBrowserPanel>(&get_asset_database(), m_project.assets_directory().string());
     asset_browser->set_renderer(m_window->get_sdl_renderer());
     asset_browser->set_material_backend(m_renderer->get_material_backend());
     asset_browser->set_command_history(command_history);

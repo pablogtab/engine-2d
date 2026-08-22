@@ -66,8 +66,8 @@ private:
     float m_palette_cell_size{48.0f}; // Zoomable preview cell size
     bool m_random_box_fill{true};    // In BoxFill mode, use random variants if pool is active
 
-    std::string m_tileset_path{"assets/textures/tilesets/terrain_tileset.png"};
-    char m_tileset_input_buf[256]{"assets/textures/tilesets/terrain_tileset.png"};
+    std::string m_tileset_path{"Assets/Textures/tilesets/terrain_tileset.png"};
+    char m_tileset_input_buf[256]{"Assets/Textures/tilesets/terrain_tileset.png"};
 
     // Multi-Variant Random Tile Pool
     std::vector<TileVariant> m_random_pool;

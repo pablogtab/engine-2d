@@ -253,7 +253,11 @@ void AssetBrowserPanel::refresh() {
 void AssetBrowserPanel::reveal_asset_path(const std::string& path) {
     if (path.empty()) return;
 
-    const std::filesystem::path target = std::filesystem::path(path).lexically_normal();
+    std::filesystem::path target(path);
+    if (target.is_relative() && m_asset_database) {
+        target = m_asset_database->project_root() / target;
+    }
+    target = target.lexically_normal();
     std::filesystem::path directory = target.parent_path();
     while (!directory.empty() && !std::filesystem::exists(directory)) {
         directory = directory.parent_path();
@@ -304,7 +308,7 @@ AssetHandle AssetBrowserPanel::duplicate_material_asset(AssetHandle source_handl
     const AssetRecord* source = m_asset_database->find(source_handle);
     const auto description = MaterialAsset::read(source_handle, *m_asset_database);
     if (!source || !description) return {};
-    const std::filesystem::path source_path = source->source_path;
+    const std::filesystem::path source_path = m_asset_database->resolve(source_handle);
     const std::filesystem::path file = unique_asset_path(
         source_path.parent_path(), source_path.stem().string() + "_Copy", ".material"
     );
@@ -377,7 +381,11 @@ void AssetBrowserPanel::on_gui() {
         ImGui::TextColored(ImVec4(0.5f, 0.7f, 1.0f, 1.0f), "Path: ");
         ImGui::SameLine();
         
-        std::string rel_path = m_current_path.string();
+        std::error_code relative_error;
+        std::string rel_path = m_asset_database
+            ? std::filesystem::relative(m_current_path, m_asset_database->project_root(), relative_error).string()
+            : m_current_path.string();
+        if (relative_error) rel_path = m_current_path.string();
         std::replace(rel_path.begin(), rel_path.end(), '\\', '/');
         ImGui::TextUnformatted(rel_path.c_str());
 

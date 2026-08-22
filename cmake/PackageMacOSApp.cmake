@@ -4,8 +4,8 @@ foreach(required ENGINE_STAGE_DIR ENGINE_APP_DIR ENGINE_EXECUTABLE)
     endif()
 endforeach()
 
-if(NOT EXISTS "${ENGINE_STAGE_DIR}/assets")
-    message(FATAL_ERROR "Runtime assets are missing: ${ENGINE_STAGE_DIR}/assets")
+if(NOT EXISTS "${ENGINE_STAGE_DIR}/Assets")
+    message(FATAL_ERROR "Runtime assets are missing: ${ENGINE_STAGE_DIR}/Assets")
 endif()
 if(NOT EXISTS "${ENGINE_STAGE_DIR}/ProjectSettings")
     message(FATAL_ERROR "Runtime project settings are missing: ${ENGINE_STAGE_DIR}/ProjectSettings")
@@ -28,8 +28,9 @@ set(bundle_executable "${macos_dir}/${executable_name}")
 # ENGINE_APP_DIR is an exact build output owned by this target.
 file(REMOVE_RECURSE "${ENGINE_APP_DIR}")
 file(MAKE_DIRECTORY "${macos_dir}" "${resources_dir}" "${frameworks_dir}")
-file(COPY "${ENGINE_STAGE_DIR}/assets" DESTINATION "${resources_dir}")
+file(COPY "${ENGINE_STAGE_DIR}/Assets" DESTINATION "${resources_dir}")
 file(COPY "${ENGINE_STAGE_DIR}/ProjectSettings" DESTINATION "${resources_dir}")
+file(COPY_FILE "${ENGINE_STAGE_DIR}/project.engine2d" "${resources_dir}/project.engine2d")
 file(COPY_FILE "${ENGINE_EXECUTABLE}" "${bundle_executable}")
 
 file(WRITE "${contents_dir}/Info.plist" [=[<?xml version="1.0" encoding="UTF-8"?>

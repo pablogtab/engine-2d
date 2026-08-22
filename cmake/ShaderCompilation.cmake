@@ -5,7 +5,27 @@ set(ENGINE_SHADERCROSS_EXECUTABLE "" CACHE FILEPATH
 
 set(ENGINE_SHADERCROSS_REVISION "e55cf5e31ced6f3d1be5cc6d0c50e99384f9f4ba")
 set(ENGINE_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shader_assets")
-set(ENGINE_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/assets/shaders/night_vision.frag.hlsl")
+set(ENGINE_RUNTIME_SHADER_SOURCE "")
+set(ENGINE_RUNTIME_SHADER_DESCRIPTOR "")
+set(ENGINE_RUNTIME_SHADER_VARIANT_BASE "")
+if(ENGINE_PROJECT_DIR AND EXISTS "${ENGINE_PROJECT_DIR}/project.engine2d")
+    file(READ "${ENGINE_PROJECT_DIR}/project.engine2d" engine_project_json)
+    string(JSON ENGINE_RUNTIME_SHADER_SOURCE ERROR_VARIABLE shader_source_error
+        GET "${engine_project_json}" runtime_shader source)
+    string(JSON ENGINE_RUNTIME_SHADER_DESCRIPTOR ERROR_VARIABLE shader_descriptor_error
+        GET "${engine_project_json}" runtime_shader descriptor)
+    string(JSON ENGINE_RUNTIME_SHADER_VARIANT_BASE ERROR_VARIABLE shader_variant_error
+        GET "${engine_project_json}" runtime_shader variant_base)
+    if(shader_source_error OR shader_descriptor_error OR shader_variant_error)
+        message(FATAL_ERROR "project.engine2d requires runtime_shader source, descriptor, and variant_base")
+    endif()
+endif()
+set(ENGINE_SHADER_SOURCE "${ENGINE_PROJECT_DIR}/${ENGINE_RUNTIME_SHADER_SOURCE}")
+get_filename_component(ENGINE_SHADER_OUTPUT_BASENAME "${ENGINE_RUNTIME_SHADER_VARIANT_BASE}" NAME)
+
+if(NOT ENGINE_PROJECT_DIR OR NOT EXISTS "${ENGINE_PROJECT_DIR}/project.engine2d")
+    message(STATUS "No Engine2D project selected; runtime shader/export targets require -DENGINE_PROJECT_DIR=<path>")
+endif()
 
 if(ENGINE_SHADERCROSS_EXECUTABLE)
     set(engine_shadercross_command "${ENGINE_SHADERCROSS_EXECUTABLE}")
@@ -35,7 +55,7 @@ else()
 endif()
 
 function(engine_add_shader_variant format extension)
-    set(output "${ENGINE_SHADER_OUTPUT_DIR}/night_vision.frag.${extension}")
+    set(output "${ENGINE_SHADER_OUTPUT_DIR}/${ENGINE_SHADER_OUTPUT_BASENAME}.${extension}")
     add_custom_command(
         OUTPUT "${output}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${ENGINE_SHADER_OUTPUT_DIR}"

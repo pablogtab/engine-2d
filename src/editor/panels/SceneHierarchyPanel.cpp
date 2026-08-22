@@ -20,6 +20,7 @@
 #include "../../tilemap/Tilemap.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../core/Log.hpp"
+#include "../../core/FileSystem.hpp"
 #include "../tools/EditorHierarchyFilter.hpp"
 #include <imgui.h>
 #include <cstring>
@@ -570,7 +571,8 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
                 if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
             }
             if (clean_name.empty()) clean_name = "Prefab";
-            std::string filepath = "assets/prefabs/" + clean_name + ".prefab";
+            const std::string filepath = (std::filesystem::path(FileSystem::get_project_directory()) /
+                "Assets/Prefabs" / (clean_name + ".prefab")).string();
             static_cast<void>(PrefabSerializer::save_to_file(em, id, filepath, m_renderer));
         }
 
@@ -582,7 +584,8 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
                     if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
                 }
                 if (clean_name.empty()) clean_name = "Variant";
-                std::string variant_path = "assets/prefabs/" + clean_name + "_Variant.prefab";
+                const std::string variant_path = (std::filesystem::path(FileSystem::get_project_directory()) /
+                    "Assets/Prefabs" / (clean_name + "_Variant.prefab")).string();
                 if (m_command_history) {
                     m_command_history->execute_command(
                         std::make_unique<CreatePrefabVariantCommand>(&em, id, variant_path, m_renderer, m_entity_state_store.get())

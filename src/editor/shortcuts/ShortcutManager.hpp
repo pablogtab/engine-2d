@@ -57,8 +57,8 @@ public:
     void update(float dt, bool want_text_input);
 
     // Load / Save user customization to JSON file
-    void save_to_file(const std::string& filepath = "config/shortcuts.json");
-    void load_from_file(const std::string& filepath = "config/shortcuts.json");
+    void save_to_file(const std::string& filepath = "");
+    void load_from_file(const std::string& filepath);
     void reset_to_defaults();
 
     [[nodiscard]] const std::unordered_map<std::string, ShortcutBinding>& get_shortcuts() const { return m_shortcuts; }
@@ -66,6 +66,7 @@ public:
 private:
     std::unordered_map<std::string, ShortcutBinding> m_shortcuts;
     std::unordered_map<std::string, ShortcutBinding> m_default_shortcuts;
+    std::string m_filepath{"ProjectSettings/EditorShortcuts.json"};
 };
 
 } // namespace Engine

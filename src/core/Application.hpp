@@ -5,6 +5,7 @@
 #include "AssetManager.hpp"
 #include "ThreadPool.hpp"
 #include "ProjectSettings.hpp"
+#include "ProjectContext.hpp"
 #include "ApplicationLifecycle.hpp"
 #include "DisplayManager.hpp"
 #include "renderer/Renderer2D.hpp"
@@ -22,6 +23,7 @@ class EditorLayer;
 class Application {
 public:
     Application(
+        ProjectContext project,
         const std::string& name = "2D Engine",
         int width = 1280,
         int height = 720,
@@ -39,6 +41,7 @@ public:
     DisplayManager& get_display() { return *m_display_manager; }
     const DisplayManager& get_display() const { return *m_display_manager; }
     const ProjectSettings& get_project_settings() const { return m_project_settings; }
+    const ProjectContext& get_project() const { return m_project; }
     Renderer2D* get_renderer() { return m_renderer.get(); }
     EditorLayer* get_editor_layer() {
 #if ENGINE_WITH_EDITOR
@@ -77,6 +80,7 @@ private:
 #endif
     SceneManager m_scene_manager;
     ThreadPool m_thread_pool;
+    ProjectContext m_project;
     ProjectSettings m_project_settings;
     DynamicResolutionController m_dynamic_resolution;
     ApplicationLifecycle m_lifecycle;

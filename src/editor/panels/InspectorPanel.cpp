@@ -22,6 +22,7 @@
 #include "../../ecs/components/RenderingComponents.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../core/AssetManager.hpp"
+#include "../../core/FileSystem.hpp"
 #include "../../scene/ComponentRegistry.hpp"
 #include "../../scene/PrefabSerializer.hpp"
 #include "../../scene/PrefabOverrides.hpp"
@@ -29,6 +30,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -586,7 +588,8 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                         if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
                     }
                     if (clean_name.empty()) clean_name = "Prefab";
-                    std::string var_path = "assets/prefabs/" + clean_name + "_Variant.prefab";
+                    const std::string var_path = (std::filesystem::path(FileSystem::get_project_directory()) /
+                        "Assets/Prefabs" / (clean_name + "_Variant.prefab")).string();
                     if (m_command_history) {
                         m_command_history->execute_command(std::make_unique<CreatePrefabVariantCommand>(
                             &em, entity, var_path, m_renderer, m_entity_state_store.get()
@@ -615,7 +618,8 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                 if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
             }
             if (clean_name.empty()) clean_name = "Prefab";
-            std::string filepath = "assets/prefabs/" + clean_name + ".prefab";
+            const std::string filepath = (std::filesystem::path(FileSystem::get_project_directory()) /
+                "Assets/Prefabs" / (clean_name + ".prefab")).string();
             static_cast<void>(PrefabSerializer::save_to_file(em, entity, filepath, m_renderer));
         }
     }

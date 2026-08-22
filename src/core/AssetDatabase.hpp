@@ -64,8 +64,10 @@ public:
 
     static AssetDatabase& get();
 
+    void set_project_root(const std::filesystem::path& project_root);
+
     // Scans an asset root, persisting identity in ProjectSettings/AssetDatabase.json.
-    [[nodiscard]] AssetScanResult scan(const std::filesystem::path& assets_root = "assets");
+    [[nodiscard]] AssetScanResult scan(const std::filesystem::path& assets_root = "Assets");
     [[nodiscard]] AssetScanResult rescan();
     void clear();
 
@@ -101,7 +103,7 @@ private:
     void notify_assets_changed();
 
     std::filesystem::path m_project_root;
-    std::filesystem::path m_scanned_root{"assets"};
+    std::filesystem::path m_scanned_root{"Assets"};
     std::vector<AssetRecord> m_records;
     std::unordered_map<std::uint64_t, std::size_t> m_by_handle;
     std::unordered_map<std::string, std::size_t> m_by_path;

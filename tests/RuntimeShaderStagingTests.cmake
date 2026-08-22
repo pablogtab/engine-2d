@@ -3,6 +3,7 @@ foreach(required ENGINE_SOURCE_DIR ENGINE_TEST_BINARY_DIR)
         message(FATAL_ERROR "${required} is required")
     endif()
 endforeach()
+set(fixture_project "${ENGINE_SOURCE_DIR}/tests/fixtures/runtime_project")
 
 set(test_root "${ENGINE_TEST_BINARY_DIR}/runtime_shader_staging")
 file(REMOVE_RECURSE "${test_root}")
@@ -27,11 +28,14 @@ foreach(index RANGE ${last_case})
     execute_process(
         COMMAND "${CMAKE_COMMAND}"
             "-DENGINE_SOURCE_DIR=${ENGINE_SOURCE_DIR}"
+            "-DENGINE_PROJECT_DIR=${fixture_project}"
             "-DENGINE_STAGE_DIR=${stage_dir}"
             "-DENGINE_EXECUTABLE=${dummy_executable}"
             "-DENGINE_SHADER_VARIANT=${shader_variant}"
             "-DENGINE_SHADER_FORMAT=${format}"
             "-DENGINE_SHADER_ENTRY_POINT=${entry_point}"
+            "-DENGINE_SHADER_DESCRIPTOR=Assets/Shaders/NightVision.shader"
+            "-DENGINE_SHADER_VARIANT_BASE=Assets/Shaders/night_vision.frag"
             -P "${ENGINE_SOURCE_DIR}/cmake/StageRuntimeAssets.cmake"
         RESULT_VARIABLE stage_result
         OUTPUT_VARIABLE stage_output
@@ -41,7 +45,7 @@ foreach(index RANGE ${last_case})
         message(FATAL_ERROR "${format} staging failed: ${stage_output}${stage_error}")
     endif()
 
-    set(descriptor_path "${stage_dir}/assets/shaders/NightVision.shader")
+    set(descriptor_path "${stage_dir}/Assets/Shaders/NightVision.shader")
     file(READ "${descriptor_path}" descriptor_json)
     string(JSON staged_format GET "${descriptor_json}" variants 0 format)
     string(JSON staged_entry_point GET "${descriptor_json}" variants 0 entry_point)
@@ -51,14 +55,14 @@ foreach(index RANGE ${last_case})
     if(NOT staged_entry_point STREQUAL entry_point)
         message(FATAL_ERROR "${format} descriptor kept entry point '${staged_entry_point}'")
     endif()
-    if(NOT EXISTS "${stage_dir}/assets/shaders/night_vision.frag.${extension}")
+    if(NOT EXISTS "${stage_dir}/Assets/Shaders/night_vision.frag.${extension}")
         message(FATAL_ERROR "${format} shader was not staged")
     endif()
 
     file(READ "${stage_dir}/ProjectSettings/AssetDatabase.json" database_json)
     string(FIND
         "${database_json}"
-        "\"path\": \"assets/shaders/night_vision.frag.${extension}\""
+        "\"path\": \"Assets/Shaders/night_vision.frag.${extension}\""
         staged_path_offset
     )
     if(staged_path_offset EQUAL -1)

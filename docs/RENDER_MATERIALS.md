@@ -38,16 +38,16 @@ auto shader = std::make_shared<Engine::FragmentShader>("NightVision");
 shader->set_uniform_buffer_count(1);
 shader->add_variant_from_file(
     Engine::ShaderBinaryFormat::Msl,
-    "assets/shaders/night_vision.frag.msl",
+    "Assets/Shaders/night_vision.frag.msl",
     "main0"
 );
 shader->add_variant_from_file(
     Engine::ShaderBinaryFormat::SpirV,
-    "assets/shaders/night_vision.frag.spv"
+    "Assets/Shaders/night_vision.frag.spv"
 );
 shader->add_variant_from_file(
     Engine::ShaderBinaryFormat::Dxil,
-    "assets/shaders/night_vision.frag.dxil"
+    "Assets/Shaders/night_vision.frag.dxil"
 );
 
 auto material = std::make_shared<Engine::Material>("NightVisionEnemy", shader);
@@ -71,7 +71,7 @@ The isolated post-processing demo contains the first real shared GPU material:
 - `9` composes the reusable profile at entity and layer scope before global
   post-processing, then draws the HUD without post-processing.
 
-The canonical source is `assets/shaders/night_vision.frag.hlsl`. The checked-in
+The canonical project source is `Assets/Shaders/night_vision.frag.hlsl`. The
 MSL variant makes the vertical slice executable on Metal today. The pinned
 SDL_shadercross build toolchain compiles and structurally validates matching
 MSL, SPIR-V, and DXIL artifacts with:
@@ -85,6 +85,10 @@ downloaded and built only by that target, or a developer can point
 `ENGINE_SHADERCROSS_EXECUTABLE` to a prebuilt `shadercross` executable. The
 generated files live under `build/shader_assets`. Stage a runnable project
 root with the platform-specific variant using:
+
+The selected project's `project.engine2d` declares the canonical source,
+shader descriptor, and variant base under `runtime_shader`; export tooling does
+not assume a shader filename from the engine source tree.
 
 ```sh
 cmake --build build --target stage_runtime_assets
@@ -103,7 +107,7 @@ native shader variants report a CTest skip instead of failing the headless
 suite. Non-Apple hardware builds generate the SPIR-V and DXIL variants before
 building the smoke executable.
 
-The target copies `assets/`, `ProjectSettings/`, and the standalone executable
+The target copies `project.engine2d`, `Assets/`, `ProjectSettings/`, and the standalone executable
 into `build/runtime/`. It keeps the stable source handle and replaces its file
 with MSL on macOS, DXIL on Windows, or SPIR-V on Linux; the staged descriptor
 declares that corresponding format. Native library bundling and code-signing

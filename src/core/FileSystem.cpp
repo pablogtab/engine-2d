@@ -20,13 +20,16 @@ namespace fs = std::filesystem;
 namespace Engine {
 
 std::unordered_map<std::string, std::string> FileSystem::s_mount_points;
-std::string FileSystem::s_assets_dir = "assets/";
+std::string FileSystem::s_assets_dir = "Assets/";
 std::string FileSystem::s_save_dir = "saves/";
 std::string FileSystem::s_app_dir = "./";
+std::string FileSystem::s_project_dir = "./";
 bool FileSystem::s_initialized = false;
 
-void FileSystem::init(const std::string& org_name, const std::string& app_name, bool use_local_save_dir) {
-    if (s_initialized) return;
+void FileSystem::init(const std::string& org_name, const std::string& app_name, bool use_local_save_dir,
+                      const fs::path& project_root) {
+    s_mount_points.clear();
+    s_project_dir = fs::absolute(project_root).lexically_normal().string();
 
     // Base Application directory
     const char* base_path = SDL_GetBasePath();
@@ -38,19 +41,19 @@ void FileSystem::init(const std::string& org_name, const std::string& app_name, 
 
     // Save directory
     if (use_local_save_dir) {
-        s_save_dir = "saves/";
+        s_save_dir = (fs::absolute(project_root) / "Saves").lexically_normal().string();
     } else {
         char* pref_path = SDL_GetPrefPath(org_name.c_str(), app_name.c_str());
         if (pref_path) {
             s_save_dir = pref_path;
             SDL_free(pref_path);
         } else {
-            s_save_dir = "saves/";
+            s_save_dir = (fs::absolute(project_root) / "Saves").lexically_normal().string();
         }
     }
 
     // Assets directory
-    s_assets_dir = "assets/";
+    s_assets_dir = (fs::absolute(project_root) / "Assets").lexically_normal().string();
 
     // Ensure save directory exists physically
     create_directories(s_save_dir);
@@ -94,7 +97,9 @@ std::string FileSystem::resolve_path(const std::string& path) {
             return physical + sub;
         }
     }
-    return path;
+    const fs::path filesystem_path(path);
+    if (filesystem_path.is_absolute()) return filesystem_path.lexically_normal().string();
+    return (fs::path(s_project_dir) / filesystem_path).lexically_normal().string();
 }
 
 const std::string& FileSystem::get_assets_directory() {
@@ -107,6 +112,10 @@ const std::string& FileSystem::get_save_directory() {
 
 const std::string& FileSystem::get_app_directory() {
     return s_app_dir;
+}
+
+const std::string& FileSystem::get_project_directory() {
+    return s_project_dir;
 }
 
 std::string FileSystem::read_text(const std::string& path) {

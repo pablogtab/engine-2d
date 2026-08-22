@@ -1,6 +1,7 @@
 #include "stb/stb_image.h"
 #include "Texture.hpp"
 #include "../core/Log.hpp"
+#include "../core/FileSystem.hpp"
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -31,8 +32,9 @@ Texture::~Texture() {
 }
 
 Texture* Texture::load_from_file(SDL_Renderer* renderer, const std::string& filepath) {
+    const std::string resolved_path = FileSystem::resolve_path(filepath);
     int w = 0, h = 0, channels = 0;
-    stbi_uc* data = stbi_load(filepath.c_str(), &w, &h, &channels, STBI_rgb_alpha);
+    stbi_uc* data = stbi_load(resolved_path.c_str(), &w, &h, &channels, STBI_rgb_alpha);
 
     if (!data) {
         ENGINE_LOG_ERROR("Failed to load image asset '{}': {}", filepath, stbi_failure_reason());

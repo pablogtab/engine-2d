@@ -1,9 +1,0 @@
-{
-  "name": "ManualNightVision",
-  "passes": [
-    {
-      "enabled": true,
-      "material_handle": "dbd2385da3441a11"
-    }
-  ]
-}

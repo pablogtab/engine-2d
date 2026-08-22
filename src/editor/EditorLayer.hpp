@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <functional>
 #include <utility>
+#include <filesystem>
 
 namespace Engine {
 
@@ -52,7 +53,11 @@ public:
     EditorLayer(const EditorLayer&) = delete;
     EditorLayer& operator=(const EditorLayer&) = delete;
 
-    void init(SDL_Window* window, SDL_Renderer* renderer);
+    void init(
+        SDL_Window* window,
+        SDL_Renderer* renderer,
+        const std::filesystem::path& project_root
+    );
     void shutdown();
 
     // Event & Input routing
@@ -125,6 +130,7 @@ private:
     void record_recent_scene(const std::string& path);
     void open_scene_tab(const Scene* scene);
     [[nodiscard]] bool has_loaded_scene_path(const std::string& path, std::size_t& index);
+    [[nodiscard]] std::filesystem::path scenes_directory() const;
 
     SDL_Window* m_window{nullptr};
     SDL_Renderer* m_renderer{nullptr};
@@ -139,6 +145,9 @@ private:
     std::vector<const Scene*> m_open_scene_tabs;
     RecentSceneList m_recent_scenes;
     AutosaveRecovery m_autosave_recovery;
+    std::filesystem::path m_project_root{"."};
+    std::filesystem::path m_recent_scenes_path{"ProjectSettings/EditorRecentScenes.json"};
+    std::filesystem::path m_autosave_preferences_path{"ProjectSettings/EditorAutosave.json"};
     std::vector<AutosaveRecord> m_pending_recoveries;
     const Scene* m_last_active_scene{nullptr};
 
@@ -152,7 +161,7 @@ private:
     bool m_recovery_scan_complete{false};
     float m_autosave_elapsed{0.0f};
     int m_autosave_interval_seconds{60};
-    char m_autosave_directory[256]{"Library/Autosaves"};
+    char m_autosave_directory[1024]{"Library/Autosaves"};
     PendingDestructiveAction m_pending_action;
     char m_save_as_buf[128]{"NewLevel.scene"};
 

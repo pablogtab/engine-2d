@@ -1,0 +1,11 @@
+{
+  "assets": [
+    {
+      "handle": "7215eb4de35c643b",
+      "path": "Assets/Shaders/night_vision.frag.msl",
+      "status": "ready",
+      "type": "unknown"
+    }
+  ],
+  "version": 1
+}

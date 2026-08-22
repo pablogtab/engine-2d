@@ -137,7 +137,7 @@ int main() {
         bool has_variant = add_variant_if_present(
             *shader,
             Engine::ShaderBinaryFormat::Msl,
-            source_dir / "assets/shaders/night_vision.frag.msl",
+            source_dir / "tests/fixtures/shaders/night_vision.frag.msl",
             "main0"
         );
         has_variant = add_variant_if_present(

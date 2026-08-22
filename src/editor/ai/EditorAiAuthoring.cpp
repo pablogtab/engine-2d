@@ -752,7 +752,7 @@ bool valid_generated_texture_destination(const std::string& path_text) {
     const std::filesystem::path path(path_text);
     if (path.is_absolute() || path.extension() != ".png") return false;
     const std::filesystem::path normalized = path.lexically_normal();
-    if (normalized.empty() || *normalized.begin() != "assets") return false;
+    if (normalized.empty() || *normalized.begin() != "Assets") return false;
     return std::none_of(normalized.begin(), normalized.end(), [](const auto& part) {
         return part == ".." || part == ".";
     });
@@ -949,7 +949,7 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         },
         {
             {"type", "function"}, {"name", IMPORT_GENERATED_TEXTURE_TOOL},
-            {"description", "Queues one import of a PNG produced by Codex ImageGen in this turn. Pass its exact savedPath and one new .png destination under assets/. assignments may update up to 20 existing or request-local sprite/ui_image targets using this single imported asset. Call this tool exactly once per generated image and destination."},
+            {"description", "Queues one import of a PNG produced by Codex ImageGen in this turn. Pass its exact savedPath and one new .png destination under Assets/. assignments may update up to 20 existing or request-local sprite/ui_image targets using this single imported asset. Call this tool exactly once per generated image and destination."},
             {"parameters", {{"type", "object"}, {"properties", generated_texture_properties},
                 {"required", Json::array({"generated_path", "destination_path", "assignments"})},
                 {"additionalProperties", false}}},
@@ -1032,7 +1032,7 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
             !valid_generated_texture_destination(arguments.at("destination_path").get<std::string>()) ||
             !arguments.contains("assignments") || !arguments.at("assignments").is_array() ||
             arguments.at("assignments").size() > 20) {
-            return {false, {}, "Generated texture import requires ImageGen's savedPath, one new assets/*.png destination, and at most 20 assignments"};
+            return {false, {}, "Generated texture import requires ImageGen's savedPath, one new Assets/*.png destination, and at most 20 assignments"};
         }
         bool path_was_generated = false;
         if (frozen_context && frozen_context->contains("generated_texture_previews") &&

@@ -28,12 +28,12 @@ int main() {
     const fs::path root = fs::temp_directory_path() / "engine2d_asset_file_command_tests";
     std::error_code error;
     fs::remove_all(root, error);
-    fs::create_directories(root / "assets/scenes", error);
+    fs::create_directories(root / "Assets/scenes", error);
 
     Engine::AssetDatabase database(root);
     Engine::EditorCommandHistory history;
-    const fs::path scene = root / "assets/scenes/Created.scene";
-    const fs::path renamed = root / "assets/scenes/Renamed.scene";
+    const fs::path scene = root / "Assets/scenes/Created.scene";
+    const fs::path renamed = root / "Assets/scenes/Renamed.scene";
 
     history.execute_command(std::make_unique<Engine::CreateAssetCommand>(
         &database, scene, "{\"scene_name\":\"Created\"}\n"));
@@ -57,7 +57,7 @@ int main() {
     require(fs::exists(scene) && database.resolve(handle) == scene.string(), "undo move restores pair and handle");
     history.redo();
 
-    const fs::path texture = root / "assets/generated/texture.png";
+    const fs::path texture = root / "Assets/generated/texture.png";
     const std::vector<std::uint8_t> png_bytes{137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4};
     history.execute_command(std::make_unique<Engine::CreateBinaryAssetCommand>(
         &database, texture, png_bytes
@@ -72,7 +72,7 @@ int main() {
     require(Engine::FileSystem::read_bytes(texture.string()) == png_bytes, "redo binary create restores exact bytes");
     require(database.find_by_path(texture)->handle == texture_handle, "redo binary create preserves handle");
 
-    const fs::path abandoned_texture = root / "assets/generated/abandoned.png";
+    const fs::path abandoned_texture = root / "Assets/generated/abandoned.png";
     {
         auto abandoned = std::make_unique<Engine::CreateBinaryAssetCommand>(
             &database, abandoned_texture, png_bytes

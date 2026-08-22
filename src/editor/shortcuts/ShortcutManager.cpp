@@ -145,8 +145,9 @@ void ShortcutManager::update(float dt, bool want_text_input) {
 }
 
 void ShortcutManager::save_to_file(const std::string& filepath) {
+    const std::string destination = filepath.empty() ? m_filepath : filepath;
     try {
-        std::filesystem::create_directories(std::filesystem::path(filepath).parent_path());
+        std::filesystem::create_directories(std::filesystem::path(destination).parent_path());
         json root;
 
         for (const auto& [id, b] : m_shortcuts) {
@@ -159,10 +160,10 @@ void ShortcutManager::save_to_file(const std::string& filepath) {
             root[id] = item;
         }
 
-        std::ofstream file(filepath);
+        std::ofstream file(destination);
         if (file.is_open()) {
             file << root.dump(4);
-            ENGINE_LOG_INFO("[SHORTCUTS] Saved preferences to '{}'", filepath);
+            ENGINE_LOG_INFO("[SHORTCUTS] Saved preferences to '{}'", destination);
         }
     } catch (const std::exception& e) {
         ENGINE_LOG_ERROR("[SHORTCUTS] Failed to save shortcuts: {}", e.what());
@@ -170,6 +171,7 @@ void ShortcutManager::save_to_file(const std::string& filepath) {
 }
 
 void ShortcutManager::load_from_file(const std::string& filepath) {
+    m_filepath = filepath;
     if (!std::filesystem::exists(filepath)) return;
 
     try {

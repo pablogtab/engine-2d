@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
+#include <filesystem>
 
 namespace Engine {
 
@@ -20,7 +21,8 @@ public:
     // If false, it uses OS-appropriate paths (SDL_GetPrefPath).
     static void init(const std::string& org_name = "Engine2D",
                      const std::string& app_name = "Engine2DApp",
-                     bool use_local_save_dir = true);
+                     bool use_local_save_dir = true,
+                     const std::filesystem::path& project_root = ".");
 
     // Mounts a virtual prefix (e.g. "mods://") to a physical filesystem folder.
     static void mount(const std::string& virtual_prefix, const std::string& physical_path);
@@ -34,6 +36,7 @@ public:
     [[nodiscard]] static const std::string& get_assets_directory();
     [[nodiscard]] static const std::string& get_save_directory();
     [[nodiscard]] static const std::string& get_app_directory();
+    [[nodiscard]] static const std::string& get_project_directory();
 
     // --- File Reading & Writing ---
     [[nodiscard]] static std::string read_text(const std::string& path);
@@ -63,6 +66,7 @@ private:
     static std::string s_assets_dir;
     static std::string s_save_dir;
     static std::string s_app_dir;
+    static std::string s_project_dir;
     static bool s_initialized;
 };
 

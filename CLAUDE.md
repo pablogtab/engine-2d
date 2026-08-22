@@ -23,7 +23,9 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
 4. **Estructura del Proyecto:**
    - Mantener `src/` exclusivamente para código propio del motor.
    - Las librerías de terceros residen en `vendor/` (ej. `vendor/stb/stb_image.h` y `stb_impl.cpp`).
-   - Los assets están organizados en `assets/` por tipo (`assets/textures/`, etc.).
+   - El repositorio del motor no contiene gameplay ni assets de un juego.
+   - Cada juego vive en una raíz independiente con `project.engine2d`, `Assets/`, `ProjectSettings/` y `Library/`; seguir `docs/PROJECTS.md`.
+   - Los scripts Luau se editan externamente; no agregar un editor de código embebido.
 
 5. **Sin Código Legacy ni Retrocompatibilidad en Desarrollo Activo:**
    - **NO mantener capas de compatibilidad hacia atrás o soporte legacy** mientras el motor esté en desarrollo activo.
@@ -66,7 +68,7 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
 
 - **Configure & Generate Build Files:**
   ```bash
-  cmake -B build -S .
+  cmake -B build -S . -DENGINE_PROJECT_DIR=/absolute/path/to/GameProject
   ```
 - **Live Auto-Reload Development Mode (Watch & Rebuild):**
   ```bash
@@ -74,7 +76,7 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
   ```
 - **Manual Build & Run:**
   ```bash
-  cmake --build build && ./build/Engine2D
+  cmake --build build && ./build/Engine2D --project /absolute/path/to/GameProject
   ```
 
 ---
@@ -115,10 +117,11 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
 - **2D Frustum Culling (Optimization 2.2):** $O(1)$ early discard check (`Camera2D::is_visible`) before pushing out-of-screen sprites to render queues.
 - **Cropping & Animations (`SpriteSheet` & `Animation2D`):** Full support for texture cropping (`src_rect`), grid sprite sheets, FPS control and clip loops.
 
-### 3. Testbed & Active Sandbox Scenes (`Engine::SceneManager`)
-- **Scene 1 (`Sandbox::AnimatedSpriteDemoScene`):** 2D sprite sheet animations (*Idle*, *Run*, *Spin*) loaded via PNG asset `assets/textures/player.png`.
-- **Scene 2 (`Sandbox::DepthDemoScene`):** 2.5D Parallax & Depth Layers.
-- **Scene 3 (`Sandbox::StressTestScene`):** Performance stress test rendering 3,000 animated sprites with real-time GPU/Culling telemetry.
+### 3. Project Boundary (`Engine::ProjectContext`)
+- The editor and standalone player open one explicit external project root.
+- `project.engine2d` owns project identity and startup scene selection.
+- `AssetDatabase`, filesystem mounts, editor sessions, autosaves, recent scenes, AI state, and export staging resolve through that project root.
+- Sandbox sources are optional engine validation helpers and are never implicit game content.
 
 ### 4. Native 2D Particle Engine (`Engine::ParticleSystem2D`)
 - **Zero-Allocation Memory Pool**: Pre-allocated circular ring buffer (`reserve_capacity(n)`). Zero dynamic allocations during runtime.

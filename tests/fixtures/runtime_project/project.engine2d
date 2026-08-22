@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "RuntimeFixture",
+  "startup_scene": "Assets/Scenes/Test.scene",
+  "runtime_shader": {
+    "source": "Assets/Shaders/night_vision.frag.hlsl",
+    "descriptor": "Assets/Shaders/NightVision.shader",
+    "variant_base": "Assets/Shaders/night_vision.frag"
+  }
+}

@@ -322,7 +322,7 @@ bool PrefabSerializer::save_variant_to_file(
 }
 
 bool PrefabSerializer::is_variant_file(const std::string& filepath, std::string* out_base_path) {
-    if (filepath.empty() || !std::filesystem::exists(filepath)) return false;
+    if (filepath.empty() || !std::filesystem::exists(FileSystem::resolve_path(filepath))) return false;
     std::string json_text = FileSystem::read_text(filepath);
     if (json_text.empty()) return false;
     try {

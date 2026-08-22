@@ -1,5 +1,6 @@
 #include "AudioEngine.hpp"
 #include "../core/Log.hpp"
+#include "../core/FileSystem.hpp"
 #include <miniaudio/miniaudio.h>
 #include <algorithm>
 #include <vector>
@@ -73,7 +74,8 @@ void AudioEngine::play_sound(const std::string& filepath, float volume, float pi
     if (!s_initialized || s_suspended) return;
 
     ma_sound* sound = new ma_sound();
-    ma_result res = ma_sound_init_from_file(&s_engine, filepath.c_str(), 0, nullptr, nullptr, sound);
+    const std::string resolved_path = FileSystem::resolve_path(filepath);
+    ma_result res = ma_sound_init_from_file(&s_engine, resolved_path.c_str(), 0, nullptr, nullptr, sound);
     if (res == MA_SUCCESS) {
         ma_sound_set_volume(sound, volume * s_sfx_volume);
         ma_sound_set_pitch(sound, pitch);
@@ -121,8 +123,9 @@ void AudioEngine::play_music(const std::string& filepath, float volume, bool loo
         s_music_loaded = false;
     }
 
+    const std::string resolved_path = FileSystem::resolve_path(filepath);
     ma_result res = ma_sound_init_from_file(
-        &s_engine, filepath.c_str(), MA_SOUND_FLAG_STREAM, nullptr, nullptr, &s_music
+        &s_engine, resolved_path.c_str(), MA_SOUND_FLAG_STREAM, nullptr, nullptr, &s_music
     );
 
     if (res == MA_SUCCESS) {

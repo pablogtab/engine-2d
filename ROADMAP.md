@@ -68,6 +68,15 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Editor property transaction and Inspector command tests.
 - [x] Clean CMake build and CTest execution.
 
+### External Project Boundary
+
+- [x] Introduce a strict `project.engine2d` descriptor and explicit `--project` launch contract.
+- [x] Move gameplay assets, project settings, scripts, caches, autosaves, recent scenes, and AI state out of the engine repository.
+- [x] Resolve editor and runtime assets through one project-root-aware filesystem and Asset Database.
+- [x] Load only the project's configured startup scene; sandbox helpers are no longer implicit editor content.
+- [x] Stage and package the selected external project while excluding `Library/` and editor resources.
+- [x] Keep Luau authoring external to the editor and document the VSCode workflow.
+
 ---
 
 ## Phase 1 — Editor Mutation Architecture

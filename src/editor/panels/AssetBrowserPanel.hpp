@@ -23,7 +23,7 @@ class IMaterialBackend;
 
 class AssetBrowserPanel : public EditorPanel {
 public:
-    explicit AssetBrowserPanel(AssetDatabase* asset_database, std::string root_path = "assets");
+    explicit AssetBrowserPanel(AssetDatabase* asset_database, std::string root_path = "Assets");
     ~AssetBrowserPanel() override;
 
     void on_gui() override;

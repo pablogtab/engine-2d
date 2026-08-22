@@ -521,14 +521,14 @@ void test_generated_png_import_is_allowlisted_and_reversible() {
     std::vector<EditorAiAuthoringAction> rejected;
     assert(!registry.queue_action("propose_import_generated_texture", {
         {"generated_path", "/untrusted/image.png"},
-        {"destination_path", "assets/generated/untrusted.png"},
+        {"destination_path", "Assets/Generated/untrusted.png"},
         {"assignments", nlohmann::json::array()}
     }, rejected, &frozen_context).success);
 
     std::vector<EditorAiAuthoringAction> actions;
     assert(registry.queue_action("propose_import_generated_texture", {
         {"generated_path", generated_source},
-        {"destination_path", "assets/generated/enemy.png"},
+        {"destination_path", "Assets/Generated/enemy.png"},
         {"assignments", nlohmann::json::array({
             {{"entity_id", target}, {"entity_alias", nullptr}, {"component_key", "sprite"}},
             {{"entity_id", second_target}, {"entity_alias", nullptr}, {"component_key", "sprite"}}
@@ -537,12 +537,12 @@ void test_generated_png_import_is_allowlisted_and_reversible() {
     assert(actions.at(0).arguments.at("generated_path") == preview.string());
     assert(!registry.queue_action("propose_import_generated_texture", {
         {"generated_path", generated_source},
-        {"destination_path", "assets/generated/enemy.png"},
+        {"destination_path", "Assets/Generated/enemy.png"},
         {"assignments", nlohmann::json::array()}
     }, actions, &frozen_context).success);
     assert(!registry.queue_action("propose_import_generated_texture", {
         {"generated_path", generated_source},
-        {"destination_path", "assets/generated/enemy-copy.png"},
+        {"destination_path", "Assets/Generated/enemy-copy.png"},
         {"assignments", nlohmann::json::array()}
     }, actions, &frozen_context).success);
     assert(actions.size() == 1);
@@ -551,7 +551,7 @@ void test_generated_png_import_is_allowlisted_and_reversible() {
     auto group = registry.build_command_group(actions, context, error);
     assert(group && error.empty());
     assert(session.history.execute_command(std::move(group)));
-    const fs::path destination = root / "assets/generated/enemy.png";
+    const fs::path destination = root / "Assets/Generated/enemy.png";
     assert(FileSystem::read_bytes(destination.string()) == png_bytes);
     assert(database.find_by_path(destination) != nullptr);
     assert(database.find_by_path(destination)->type == AssetType::Texture);
@@ -575,7 +575,7 @@ void test_generated_png_import_is_allowlisted_and_reversible() {
         "propose_import_generated_texture",
         {
             {"generated_path", preview.string()},
-            {"destination_path", "assets/generated/rolled-back.png"},
+            {"destination_path", "Assets/Generated/rolled-back.png"},
             {"assignments", nlohmann::json::array({{
                 {"entity_id", invalid_target},
                 {"component_key", "sprite"}
@@ -586,7 +586,7 @@ void test_generated_png_import_is_allowlisted_and_reversible() {
     auto invalid_group = registry.build_command_group(invalid_actions, context, error);
     assert(invalid_group && error.empty());
     assert(!session.history.execute_command(std::move(invalid_group)));
-    const fs::path rolled_back = root / "assets/generated/rolled-back.png";
+    const fs::path rolled_back = root / "Assets/Generated/rolled-back.png";
     assert(!fs::exists(rolled_back));
     assert(database.find_by_path(rolled_back) == nullptr);
     fs::remove_all(root, filesystem_error);

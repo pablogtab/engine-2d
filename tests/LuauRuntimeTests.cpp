@@ -61,11 +61,10 @@ return script
 )");
     write_file(root / "assets/scripts/NoStrict.luau", "return {}\n");
     const std::string platformer_source = FileSystem::read_text(
-        std::string(ENGINE_SOURCE_DIR) + "/assets/scripts/PlatformerPlayer.luau"
+        std::string(ENGINE_SOURCE_DIR) + "/tests/fixtures/scripts/PlatformerPlayer.luau"
     );
     assert(!platformer_source.empty());
     write_file(root / "assets/scripts/PlatformerPlayer.luau", platformer_source);
-
     AssetDatabase database(root);
     const AssetScanResult scan = database.scan(root / "assets");
     assert(scan.ready == 3);

@@ -1,4 +1,5 @@
 #include "AiAssistantPanel.hpp"
+#include "../../core/AssetDatabase.hpp"
 
 #include "../../scene/ComponentRegistry.hpp"
 #include "../../scene/SceneManager.hpp"
@@ -176,7 +177,7 @@ std::vector<EditorAiComponentProbe> build_component_probes() {
     return probes;
 }
 
-std::string project_root() {
+std::string engine_source_root() {
 #if defined(ENGINE_SOURCE_DIR)
     return ENGINE_SOURCE_DIR;
 #else
@@ -184,6 +185,10 @@ std::string project_root() {
     const std::filesystem::path current = std::filesystem::current_path(error);
     return error ? "." : current.string();
 #endif
+}
+
+std::string project_root() {
+    return AssetDatabase::get().project_root().string();
 }
 
 std::string abbreviated_id(const std::string& id) {
@@ -555,7 +560,7 @@ AiAssistantPanel::AiAssistantPanel(
 ) : m_scene_manager(scene_manager),
     m_selection(std::move(selection)),
     m_serialization_context(serialization_context),
-    m_tool_registry(build_component_probes(), project_root()),
+    m_tool_registry(build_component_probes(), engine_source_root()),
     m_authoring_registry(&default_component_registry()),
     m_codex_provider(std::make_unique<CodexAppServerProvider>(
         create_default_codex_app_server_transport()
@@ -1339,7 +1344,7 @@ void AiAssistantPanel::start_request() {
           "or find_scene_entities, then generate exactly one suitable PNG with the attached imagegen "
           "skill. After ImageGen returns savedPath, you MUST call propose_import_generated_texture "
           "exactly once before replying. Use that exact savedPath, a descriptive new or versioned path "
-          "under assets/textures/, and assign the sprite or ui_image target when uniquely resolved. If "
+          "under Assets/Textures/, and assign the sprite or ui_image target when uniquely resolved. If "
           "the target remains ambiguous, import with an empty assignments array rather than discarding "
           "the generated image. Tool success means queued for editor validation, not applied. Do not "
           "finish with only a description of the generated image. Reply with one concise sentence."

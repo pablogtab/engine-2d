@@ -22,6 +22,13 @@ echo "$$" > "$LOCKFILE"
 
 BUILD_DIR="build"
 EXE="./build/Engine2D"
+PROJECT_DIR="${ENGINE2D_PROJECT:-../projecto}"
+if [ ! -f "$PROJECT_DIR/project.engine2d" ]; then
+    echo "[DEV] Invalid Engine2D project: $PROJECT_DIR"
+    echo "[DEV] Set ENGINE2D_PROJECT or create ../projecto/project.engine2d"
+    exit 1
+fi
+PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
 
 # Kill any lingering orphaned Engine2D processes before starting
 pkill -f "build/Engine2D" 2>/dev/null || true
@@ -29,7 +36,7 @@ pkill -f "build/Engine2D" 2>/dev/null || true
 # Ensure build directory exists
 if [ ! -d "$BUILD_DIR" ]; then
     echo "[DEV] Initializing CMake build environment..."
-    cmake -B "$BUILD_DIR" -S .
+    cmake -B "$BUILD_DIR" -S . -DENGINE_PROJECT_DIR="$PROJECT_DIR"
 fi
 
 echo "[DEV] Initial build..."
@@ -53,7 +60,7 @@ stop_app() {
 start_app() {
     stop_app
     echo "[DEV] Launching Engine2D..."
-    $EXE &
+    $EXE --project "$PROJECT_DIR" &
     PID=$!
 }
 

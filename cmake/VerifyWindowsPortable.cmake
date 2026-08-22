@@ -8,15 +8,20 @@ if(NOT EXISTS "${ENGINE_OBJDUMP_EXECUTABLE}")
 endif()
 
 set(executable "${ENGINE_OUTPUT_DIR}/Engine2DStandalone.exe")
+file(READ "${ENGINE_OUTPUT_DIR}/project.engine2d" project_json)
+string(JSON startup_scene GET "${project_json}" startup_scene)
+string(JSON shader_descriptor GET "${project_json}" runtime_shader descriptor)
+string(JSON shader_variant_base GET "${project_json}" runtime_shader variant_base)
 foreach(required_path
     "${executable}"
     "${ENGINE_OUTPUT_DIR}/SDL3.dll"
     "${ENGINE_OUTPUT_DIR}/libgcc_s_seh-1.dll"
     "${ENGINE_OUTPUT_DIR}/libstdc++-6.dll"
     "${ENGINE_OUTPUT_DIR}/libwinpthread-1.dll"
-    "${ENGINE_OUTPUT_DIR}/assets/scenes/PlatformerDemo.scene"
-    "${ENGINE_OUTPUT_DIR}/assets/shaders/night_vision.frag.dxil"
-    "${ENGINE_OUTPUT_DIR}/assets/shaders/NightVision.shader"
+    "${ENGINE_OUTPUT_DIR}/project.engine2d"
+    "${ENGINE_OUTPUT_DIR}/${startup_scene}"
+    "${ENGINE_OUTPUT_DIR}/${shader_variant_base}.dxil"
+    "${ENGINE_OUTPUT_DIR}/${shader_descriptor}"
     "${ENGINE_OUTPUT_DIR}/ProjectSettings/AssetDatabase.json"
 )
     if(NOT EXISTS "${required_path}")
@@ -27,11 +32,11 @@ if(EXISTS "${ENGINE_OUTPUT_DIR}/editor_assets")
     message(FATAL_ERROR "Portable Windows runtime includes editor-only assets")
 endif()
 
-file(READ "${ENGINE_OUTPUT_DIR}/assets/shaders/night_vision.frag.dxil" dxil_header LIMIT 4 HEX)
+file(READ "${ENGINE_OUTPUT_DIR}/${shader_variant_base}.dxil" dxil_header LIMIT 4 HEX)
 if(NOT dxil_header STREQUAL "44584243")
     message(FATAL_ERROR "Packaged DXIL shader has an invalid header: ${dxil_header}")
 endif()
-file(READ "${ENGINE_OUTPUT_DIR}/assets/shaders/NightVision.shader" descriptor_json)
+file(READ "${ENGINE_OUTPUT_DIR}/${shader_descriptor}" descriptor_json)
 if(NOT descriptor_json MATCHES "\"format\"[ \t]*:[ \t]*\"dxil\"")
     message(FATAL_ERROR "Packaged shader descriptor does not select DXIL")
 endif()

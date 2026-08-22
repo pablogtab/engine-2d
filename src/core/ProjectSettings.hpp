@@ -42,7 +42,7 @@ struct ProjectDisplaySettings {
 
 class ProjectSettings {
 public:
-    bool load(const std::string& filepath = "config/project.json");
+    bool load(const std::string& filepath = "ProjectSettings/Project.json");
     bool save() const;
 
     [[nodiscard]] const ProjectDisplaySettings& display() const { return m_display; }
@@ -50,7 +50,7 @@ public:
     void set_display(const ProjectDisplaySettings& settings);
 
 private:
-    std::string m_filepath{"config/project.json"};
+    std::string m_filepath{"ProjectSettings/Project.json"};
     ProjectDisplaySettings m_display;
 };
 

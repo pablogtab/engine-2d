@@ -1,84 +1,121 @@
 #include "core/Application.hpp"
 #include "core/AssetDatabase.hpp"
 #include "core/FileSystem.hpp"
-#include "core/Log.hpp"
-#include "renderer/material/ShaderAsset.hpp"
+#include "core/ProjectContext.hpp"
 #include "scene/GenericScene.hpp"
 #include "scene/SceneSerializer.hpp"
-#include <SDL3/SDL.h>
+
 #include <filesystem>
 #include <iostream>
 #include <memory>
-#include <string_view>
+#include <string>
 
 namespace {
 
-class StandaloneApp final : public Engine::Application {
-public:
-    StandaloneApp()
-        : Application("Engine2D", 1280, 720, false) {
-        Engine::FileSystem::init("Engine2D", "Engine2D");
+std::filesystem::path packaged_project_root(const char* executable_argument) {
+    if (!executable_argument) return {};
+    std::error_code error;
+    const auto executable = std::filesystem::absolute(executable_argument, error);
+    if (error) return {};
+    const auto portable_root = executable.parent_path();
+    if (std::filesystem::is_regular_file(portable_root / "project.engine2d", error)) {
+        return portable_root;
     }
+    error.clear();
+    const auto resources = executable.parent_path().parent_path() / "Resources";
+    return std::filesystem::is_regular_file(resources / "project.engine2d", error)
+        ? resources : std::filesystem::path{};
+}
+
+class StandaloneApplication final : public Engine::Application {
+public:
+    explicit StandaloneApplication(Engine::ProjectContext project)
+        : Application(
+            project,
+            project.descriptor().name,
+            1280,
+            720,
+            false
+        ) {}
 
 protected:
     void on_init() override {
-        auto scene = std::make_shared<Engine::GenericScene>("PlatformerDemo");
+        const auto scene_path = get_project().resolve(get_project().descriptor().startup_scene);
+        auto scene = std::make_shared<Engine::GenericScene>(get_project().descriptor().name);
         Engine::SceneSerializer serializer(scene.get(), get_window().get_sdl_renderer());
-        if (serializer.deserialize("assets/scenes/PlatformerDemo.scene")) {
-            get_scene_manager().add_scene(scene);
-            get_scene_manager().set_active_scene("PlatformerDemo");
-            get_scene_manager().start_play();
+        if (!serializer.deserialize(scene_path.string())) {
+            std::cerr << "Cannot load startup scene: " << scene_path << '\n';
+            return;
         }
+        get_scene_manager().add_scene(scene);
+        get_scene_manager().set_active_scene(scene->get_name());
+        get_scene_manager().start_play();
     }
 };
 
-} // namespace
-
-int run_runtime_smoke_test() {
+int run_smoke_test(const Engine::ProjectContext& project) {
+    Engine::FileSystem::init("Engine2D", project.descriptor().name, true, project.root());
     auto& database = Engine::AssetDatabase::get();
-    const auto scan_result = database.scan("assets");
-    const auto* scene = database.find_by_path("assets/scenes/PlatformerDemo.scene");
-    const auto* shader = database.find_by_path("assets/shaders/NightVision.shader");
-    if (!scene || scene->status != Engine::AssetStatus::Ready ||
-        !shader || shader->status != Engine::AssetStatus::Ready) {
-        std::cerr << "[RUNTIME SMOKE] Required scene or shader asset is unavailable\n";
+    database.set_project_root(project.root());
+    const auto scan = database.scan("Assets");
+    const auto* scene = database.find_by_path(project.descriptor().startup_scene);
+    if (!scene || scene->status != Engine::AssetStatus::Ready) {
+        std::cerr << "[RUNTIME SMOKE] Startup scene is unavailable\n";
         return 1;
     }
-
-    std::string shader_error;
-    if (!Engine::ShaderAsset::load(shader->handle, database, &shader_error)) {
-        std::cerr << "[RUNTIME SMOKE] Failed to load packaged shader: " << shader_error << '\n';
+    Engine::GenericScene loaded_scene(project.descriptor().name);
+    Engine::SceneSerializer serializer(&loaded_scene);
+    if (!serializer.deserialize(project.resolve(project.descriptor().startup_scene).string())) {
+        std::cerr << "[RUNTIME SMOKE] Startup scene could not be deserialized\n";
         return 1;
     }
-
-    std::cout << "[RUNTIME SMOKE] Assets=" << scan_result.ready
-              << " Scene=PlatformerDemo Shader=NightVision\n";
+    std::cout << "[RUNTIME SMOKE] Project=" << project.descriptor().name
+              << " Assets=" << scan.ready
+              << " Scene=" << project.descriptor().startup_scene.generic_string() << '\n';
     return 0;
 }
 
+void print_usage() {
+    std::cout << "Usage: Engine2DStandalone --project <project-directory> [--smoke-test]\n";
+}
+
+} // namespace
+
 int main(int argc, char* argv[]) {
-    // Development runs use the current project directory. An exported macOS
-    // bundle keeps exactly the same project-relative layout in Resources.
-    // Switch to it before Application loads settings or scans assets.
-    if (argc > 0 && argv[0] != nullptr) {
-        std::error_code error;
-        const auto executable = std::filesystem::absolute(argv[0], error);
-        const auto resources = executable.parent_path().parent_path() / "Resources";
-        if (!error && std::filesystem::is_directory(resources / "assets", error)) {
-            std::filesystem::current_path(resources, error);
+    std::filesystem::path project_path = packaged_project_root(argc > 0 ? argv[0] : nullptr);
+    bool smoke_test = false;
+    for (int index = 1; index < argc; ++index) {
+        const std::string argument = argv[index];
+        if (argument == "--project" && index + 1 < argc) {
+            project_path = argv[++index];
+        } else if (argument.rfind("--project=", 0) == 0) {
+            project_path = argument.substr(10);
+        } else if (argument == "--smoke-test") {
+            smoke_test = true;
+        } else if (argument == "--help" || argument == "-h") {
+            print_usage();
+            return 0;
+        } else {
+            std::cerr << "Unknown argument: " << argument << '\n';
+            print_usage();
+            return 2;
         }
     }
-
-    if (char* preference_path = SDL_GetPrefPath("Engine2D", "Engine2D")) {
-        Engine::Log::init((std::filesystem::path(preference_path) / "engine.log").string());
-        SDL_free(preference_path);
+    if (project_path.empty()) {
+        std::cerr << "No project selected.\n";
+        print_usage();
+        return 2;
     }
 
-    if (argc > 1 && std::string_view(argv[1]) == "--smoke-test") {
-        return run_runtime_smoke_test();
+    std::string error;
+    auto project = Engine::ProjectContext::open(project_path, &error);
+    if (!project) {
+        std::cerr << error << '\n';
+        return 2;
     }
+    if (smoke_test) return run_smoke_test(*project);
 
-    StandaloneApp app;
-    app.run();
+    StandaloneApplication application(std::move(*project));
+    application.run();
     return 0;
 }

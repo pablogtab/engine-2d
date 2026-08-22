@@ -43,8 +43,6 @@ namespace Engine {
 
 namespace {
 
-constexpr const char* RECENT_SCENES_PATH = "config/editor_recent_scenes.json";
-constexpr const char* AUTOSAVE_PREFERENCES_PATH = "config/editor_autosave.json";
 constexpr int MIN_AUTOSAVE_INTERVAL_SECONDS = 15;
 constexpr int MAX_AUTOSAVE_INTERVAL_SECONDS = 3600;
 
@@ -79,15 +77,21 @@ EditorLayer::~EditorLayer() {
     shutdown();
 }
 
-void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
+void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::filesystem::path& project_root) {
     if (m_initialized) return;
 
     m_window = window;
     m_renderer = renderer;
-    static_cast<void>(m_recent_scenes.load(RECENT_SCENES_PATH));
+    m_project_root = std::filesystem::absolute(project_root).lexically_normal();
+    m_recent_scenes_path = m_project_root / "ProjectSettings/EditorRecentScenes.json";
+    m_autosave_preferences_path = m_project_root / "ProjectSettings/EditorAutosave.json";
+    const std::string autosave_directory = (m_project_root / "Library/Autosaves").string();
+    std::snprintf(m_autosave_directory, sizeof(m_autosave_directory), "%s", autosave_directory.c_str());
+    m_autosave_recovery.set_directory(autosave_directory);
+    static_cast<void>(m_recent_scenes.load(m_recent_scenes_path.string()));
     load_autosave_preferences();
     if (m_recent_scenes.remove_missing_files()) {
-        static_cast<void>(m_recent_scenes.save(RECENT_SCENES_PATH));
+        static_cast<void>(m_recent_scenes.save(m_recent_scenes_path.string()));
     }
 
     // 1. Setup Dear ImGui context
@@ -295,7 +299,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer) {
         .callback = nullptr
     });
 
-    sm.load_from_file("config/shortcuts.json");
+    sm.load_from_file((m_project_root / "ProjectSettings/EditorShortcuts.json").string());
 
     m_prefab_stage = std::make_unique<PrefabStageController>();
 
@@ -315,9 +319,9 @@ void EditorLayer::shutdown() {
 }
 
 void EditorLayer::load_autosave_preferences() {
-    if (!std::filesystem::exists(AUTOSAVE_PREFERENCES_PATH)) return;
+    if (!std::filesystem::exists(m_autosave_preferences_path)) return;
     try {
-        const nlohmann::json preferences = nlohmann::json::parse(FileSystem::read_text(AUTOSAVE_PREFERENCES_PATH));
+        const nlohmann::json preferences = nlohmann::json::parse(FileSystem::read_text(m_autosave_preferences_path.string()));
         m_autosave_interval_seconds = std::clamp(
             preferences.value("interval_seconds", m_autosave_interval_seconds),
             MIN_AUTOSAVE_INTERVAL_SECONDS,
@@ -338,7 +342,7 @@ void EditorLayer::save_autosave_preferences() const {
         {"interval_seconds", m_autosave_interval_seconds},
         {"directory", m_autosave_directory}
     };
-    if (!FileSystem::write_text_atomically(AUTOSAVE_PREFERENCES_PATH, preferences.dump(2))) {
+    if (!FileSystem::write_text_atomically(m_autosave_preferences_path.string(), preferences.dump(2))) {
         ENGINE_LOG_ERROR("[AUTOSAVE] Failed saving editor preferences");
     }
 }
@@ -396,8 +400,9 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
 
         std::string scene_name = scene->get_name();
         if (scene_name.empty()) scene_name = default_name;
-        if (std::filesystem::exists("assets/scenes/" + scene_name + ".scene")) {
-            session.file_path = "assets/scenes/" + scene_name + ".scene";
+        const std::filesystem::path expected_path = scenes_directory() / (scene_name + ".scene");
+        if (std::filesystem::exists(expected_path)) {
+            session.file_path = expected_path.string();
         } else {
             // Save initial snapshot for rollback on discard
             SceneEditorMetadata editor_metadata = capture_scene_editor_metadata(session.entity_state_store.get());
@@ -669,8 +674,8 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
         if (!session.file_path.empty()) {
             path = session.file_path;
         } else {
-            std::filesystem::create_directories("assets/scenes");
-            path = "assets/scenes/" + scene->get_name() + ".scene";
+            std::filesystem::create_directories(scenes_directory());
+            path = (scenes_directory() / (scene->get_name() + ".scene")).string();
         }
     }
 
@@ -694,7 +699,7 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
 
 void EditorLayer::record_recent_scene(const std::string& path) {
     m_recent_scenes.record(path);
-    static_cast<void>(m_recent_scenes.save(RECENT_SCENES_PATH));
+    static_cast<void>(m_recent_scenes.save(m_recent_scenes_path.string()));
 }
 
 bool EditorLayer::save_active_scene(const std::string& custom_path) {
@@ -912,7 +917,7 @@ void EditorLayer::render_dockspace() {
     }
 
     if (ImGui::BeginPopupModal("Save Scene As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Enter Scene Filename (saved in assets/scenes/):");
+        ImGui::Text("Enter Scene Filename (saved in Assets/Scenes/):");
         ImGui::InputText("##saveasname", m_save_as_buf, sizeof(m_save_as_buf));
         ImGui::Spacing();
 
@@ -920,8 +925,8 @@ void EditorLayer::render_dockspace() {
             std::string fname = m_save_as_buf;
             if (!fname.empty()) {
                 if (fname.find(".scene") == std::string::npos) fname += ".scene";
-                std::filesystem::create_directories("assets/scenes");
-                save_active_scene("assets/scenes/" + fname);
+                std::filesystem::create_directories(scenes_directory());
+                save_active_scene((scenes_directory() / fname).string());
             }
             ImGui::CloseCurrentPopup();
         }
@@ -1032,7 +1037,7 @@ void EditorLayer::render_main_menu_bar() {
                 m_show_save_as_popup = true;
             }
             if (m_recent_scenes.remove_missing_files()) {
-                static_cast<void>(m_recent_scenes.save(RECENT_SCENES_PATH));
+                static_cast<void>(m_recent_scenes.save(m_recent_scenes_path.string()));
             }
             if (!m_recent_scenes.empty()) {
                 ImGui::Separator();
@@ -1047,7 +1052,7 @@ void EditorLayer::render_main_menu_bar() {
                     ImGui::Separator();
                     if (ImGui::MenuItem("Clear Recent Scenes")) {
                         m_recent_scenes.clear();
-                        static_cast<void>(m_recent_scenes.save(RECENT_SCENES_PATH));
+                        static_cast<void>(m_recent_scenes.save(m_recent_scenes_path.string()));
                     }
                     ImGui::EndMenu();
                 }
@@ -1489,6 +1494,10 @@ std::shared_ptr<EditorPanel> EditorLayer::get_panel(const std::string& name) con
 
 PrefabStageController* EditorLayer::get_prefab_stage() const {
     return m_prefab_stage.get();
+}
+
+std::filesystem::path EditorLayer::scenes_directory() const {
+    return m_project_root / "Assets/Scenes";
 }
 
 void EditorLayer::open_prefab_stage(const std::string& prefab_path) {

@@ -66,7 +66,7 @@ tool declarations on `thread/start`, not `thread/resume`.
   database, creates an alias for its root, and uses the normal prefab command.
 - `propose_unpack_prefab`: reversibly removes prefab links from an instance.
 - `propose_import_generated_texture`: accepts only a PNG emitted by Codex ImageGen
-  during the current request, copies it to a new path under `assets/`, registers its
+  during the current request, copies it to a new path under `Assets/`, registers its
   stable handle, and assigns that one imported asset to up to 20 Sprite Renderer or
   UI Image targets in the same transaction. Repeated imports of the same generated
   source or destination are rejected while the proposal is still being built.

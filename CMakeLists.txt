@@ -17,6 +17,14 @@ find_package(SDL3 3.4 REQUIRED)
 find_package(glm REQUIRED)
 find_package(CURL QUIET)
 
+set(ENGINE_PROJECT_DIR "" CACHE PATH "Project directory used by runtime and export targets")
+if(NOT ENGINE_PROJECT_DIR AND DEFINED ENV{ENGINE2D_PROJECT})
+    set(ENGINE_PROJECT_DIR "$ENV{ENGINE2D_PROJECT}" CACHE PATH "Project directory used by runtime and export targets" FORCE)
+elseif(NOT ENGINE_PROJECT_DIR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../projecto/project.engine2d")
+    get_filename_component(_engine_default_project "${CMAKE_CURRENT_SOURCE_DIR}/../projecto" ABSOLUTE)
+    set(ENGINE_PROJECT_DIR "${_engine_default_project}" CACHE PATH "Project directory used by runtime and export targets" FORCE)
+endif()
+
 include(cmake/ShaderCompilation.cmake)
 
 # Source files
@@ -32,6 +40,7 @@ set(SOURCES
     src/core/Input.cpp
     src/core/Log.cpp
     src/core/PlayerPrefs.cpp
+    src/core/ProjectContext.cpp
     src/core/ProjectSettings.cpp
     src/core/SDLDisplayBackend.cpp
     src/core/SaveSystem.cpp
@@ -181,7 +190,7 @@ list(FILTER ENGINE_RUNTIME_SOURCES EXCLUDE REGEX "^src/sandbox/")
 list(FILTER ENGINE_RUNTIME_SOURCES EXCLUDE REGEX "^vendor/imgui/")
 
 set(ENGINE_EDITOR_SOURCES ${SOURCES})
-list(FILTER ENGINE_EDITOR_SOURCES INCLUDE REGEX "^(src/editor/|src/sandbox/|vendor/imgui/)")
+list(FILTER ENGINE_EDITOR_SOURCES INCLUDE REGEX "^(src/editor/|vendor/imgui/)")
 
 add_library(EngineRuntime STATIC ${ENGINE_RUNTIME_SOURCES})
 target_include_directories(EngineRuntime PUBLIC
@@ -224,11 +233,14 @@ endif()
 add_custom_target(stage_runtime_assets
     COMMAND "${CMAKE_COMMAND}"
         "-DENGINE_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        "-DENGINE_PROJECT_DIR=${ENGINE_PROJECT_DIR}"
         "-DENGINE_STAGE_DIR=${CMAKE_BINARY_DIR}/runtime"
         "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"
         "-DENGINE_SHADER_VARIANT=${ENGINE_SHADER_OUTPUT_DIR}/night_vision.frag.${ENGINE_RUNTIME_SHADER_EXTENSION}"
         "-DENGINE_SHADER_FORMAT=${ENGINE_RUNTIME_SHADER_FORMAT}"
         "-DENGINE_SHADER_ENTRY_POINT=${ENGINE_RUNTIME_SHADER_ENTRY_POINT}"
+        "-DENGINE_SHADER_DESCRIPTOR=${ENGINE_RUNTIME_SHADER_DESCRIPTOR}"
+        "-DENGINE_SHADER_VARIANT_BASE=${ENGINE_RUNTIME_SHADER_VARIANT_BASE}"
         -P "${CMAKE_SOURCE_DIR}/cmake/StageRuntimeAssets.cmake"
     DEPENDS Engine2DStandalone compile_shaders
     COMMENT "Staging runtime assets with the platform shader variant"
@@ -564,6 +576,10 @@ add_test(
         "-DENGINE_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/test-output"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/RuntimeShaderStagingTests.cmake"
 )
+
+add_executable(ProjectContextTests tests/ProjectContextTests.cpp)
+target_link_libraries(ProjectContextTests PRIVATE EngineRuntime)
+add_test(NAME ProjectContextTests COMMAND ProjectContextTests)
 
 add_executable(EditorPropertyTransactionTests
     tests/EditorPropertyTransactionTests.cpp

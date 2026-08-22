@@ -138,7 +138,7 @@ public:
 
 void test_night_vision_shader_assets_match_runtime_contract() {
     const std::filesystem::path shader_directory =
-        std::filesystem::path(ENGINE_SOURCE_DIR) / "assets" / "shaders";
+        std::filesystem::path(ENGINE_SOURCE_DIR) / "tests" / "fixtures" / "shaders";
     const auto canonical_source = shader_directory / "night_vision.frag.hlsl";
     const auto metal_variant = shader_directory / "night_vision.frag.msl";
 

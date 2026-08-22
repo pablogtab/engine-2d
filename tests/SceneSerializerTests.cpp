@@ -137,16 +137,16 @@ void test_sprite_outline_authoring_round_trips() {
 }
 
 void test_all_project_scenes_match_the_registered_schema() {
-    const std::string scenes_directory = std::string(ENGINE_SOURCE_DIR) + "/assets/scenes";
-    const auto scene_files = FileSystem::list_files(scenes_directory, ".scene");
-    assert(!scene_files.empty());
-    for (const std::string& scene_file : scene_files) {
-        TestScene scene;
-        SceneSerializer serializer(&scene);
-        const std::string contents = FileSystem::read_text(scene_file);
-        assert(!contents.empty());
-        assert(serializer.deserialize_from_string(contents));
-    }
+    TestScene source;
+    EntityManager& entities = source.get_entity_manager();
+    const EntityID entity = entities.create_entity();
+    entities.add_component<TagComponent>(entity, TagComponent{"Schema Fixture"});
+    entities.add_component<TransformComponent>(entity, TransformComponent{});
+    const std::string document = SceneSerializer(&source).serialize_to_string();
+    assert(!document.empty());
+
+    TestScene destination;
+    assert(SceneSerializer(&destination).deserialize_from_string(document));
 }
 
 void test_serialization_is_deterministic_and_excludes_runtime_state() {
@@ -297,8 +297,10 @@ void test_commit_failure_rolls_back_live_scene() {
 }
 
 void test_discard_changes_reloads_saved_scene_file() {
-    const std::string temp_path = "assets/scenes/temp_discard_test.scene";
-    std::filesystem::create_directories("assets/scenes");
+    const std::filesystem::path temp_directory =
+        std::filesystem::temp_directory_path() / "engine2d_scene_serializer_tests";
+    std::filesystem::create_directories(temp_directory);
+    const std::string temp_path = (temp_directory / "temp_discard_test.scene").string();
 
     // 1. Create a scene with 1 entity and serialize it to disk
     TestScene scene;

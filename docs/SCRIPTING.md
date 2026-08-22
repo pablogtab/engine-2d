@@ -63,7 +63,8 @@ the entity that owns the script and report a runtime error when the required
 component is absent. `play_animation` returns `false` when the requested clip
 does not exist.
 
-`assets/scripts/PlatformerPlayer.luau` is the first authored gameplay example.
+`Assets/Scripts/PlatformerPlayer.luau` in the external Platformer project is the
+first authored gameplay example.
 It drives the saved platformer player's horizontal velocity, jump, facing, and
 Idle/Run/Jump/Fall clips. The scene owns its speed and input names as editable
 public fields. The temporary trampoline behavior and generated jump sound remain
@@ -86,3 +87,7 @@ including script components and public values.
 Current scope intentionally excludes hot reload, Play Mode apply-back, audio,
 collision events, arbitrary asset APIs, display APIs, and scene loading. These
 remain Phase 7 work.
+
+Engine2D intentionally has no embedded script editor. Open the external game
+project in VSCode and use the Luau Language Server; the Inspector remains the
+authoring surface for serialized public field values.

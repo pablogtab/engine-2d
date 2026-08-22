@@ -23,7 +23,7 @@ struct TilemapComponent {
     float tile_size{32.0f};            // Pixel size of each tile in world units
     int tile_pixel_size{32};           // Pixel resolution in tileset texture (e.g. 32x32)
 
-    std::string tileset_path{"assets/textures/tilesets/terrain_tileset.png"};
+    std::string tileset_path{"Assets/Textures/tilesets/terrain_tileset.png"};
     Texture* tileset_texture{nullptr};
     int tileset_cols{4};
     int tileset_rows{4};
