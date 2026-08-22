@@ -21,6 +21,9 @@ namespace Engine {
 namespace {
 
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
+// App Server binds dynamic tools on thread/start. Bump this whenever the editor
+// tool schemas or their identity semantics change so saved threads are replaced.
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 2;
 
 std::vector<EditorAiChatMessage> recent_history(
     const std::vector<EditorAiChatMessage>& messages
@@ -48,7 +51,7 @@ std::vector<EditorAiChatMessage> recent_history(
 std::vector<EditorAiComponentProbe> build_component_probes() {
     std::vector<EditorAiComponentProbe> probes;
     for (const ComponentDescriptor& descriptor : default_component_registry().descriptors()) {
-        probes.push_back({descriptor.serialized_key, descriptor.has});
+        probes.push_back({descriptor.serialized_key, descriptor.has, descriptor.serialize});
     }
     return probes;
 }
@@ -239,17 +242,25 @@ AiAssistantPanel::AiAssistantPanel(
     if (!m_conversation_store->load(load_error)) {
         ENGINE_LOG_WARN("[AI AUDIT] conversation_store=load_failed error={}", load_error);
     } else if (const auto* conversation = m_conversation_store->active_conversation()) {
-        m_codex_thread_id = conversation->thread_id;
-        m_codex_session_id = conversation->session_id;
         m_messages = conversation->messages;
+        if (conversation->tool_contract_version == EDITOR_AI_TOOL_CONTRACT_VERSION) {
+            m_codex_thread_id = conversation->thread_id;
+            m_codex_session_id = conversation->session_id;
+        } else {
+            m_superseded_thread_id = conversation->thread_id;
+            m_ui_feedback = "Editor tools changed; the next message will upgrade this conversation.";
+        }
         if (!conversation->model.empty()) {
             std::snprintf(m_model.data(), m_model.size(), "%s", conversation->model.c_str());
         }
         m_scroll_chat_to_bottom = true;
         ENGINE_LOG_INFO(
-            "[AI AUDIT] conversation_store=restored thread={} messages={}",
+            "[AI AUDIT] conversation_store=restored thread={} messages={} contract={} current_contract={} compatible={}",
             conversation->thread_id,
-            conversation->messages.size()
+            conversation->messages.size(),
+            conversation->tool_contract_version,
+            EDITOR_AI_TOOL_CONTRACT_VERSION,
+            conversation->tool_contract_version == EDITOR_AI_TOOL_CONTRACT_VERSION
         );
     }
 }
@@ -261,7 +272,9 @@ AiAssistantPanel::~AiAssistantPanel() {
 
 std::string AiAssistantPanel::current_context_json() const {
     const Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
-    nlohmann::json context = m_tool_registry.build_context_snapshot(active_scene, m_selection.get());
+    nlohmann::json context = m_tool_registry.build_context_snapshot(
+        active_scene, m_selection.get(), m_serialization_context
+    );
     context["authoring"] = {
         {"mode", m_authoring_mode == AuthoringMode::AutonomousSafe
             ? "autonomous_safe" : "confirm_before_apply"},
@@ -288,6 +301,7 @@ void AiAssistantPanel::start_new_conversation() {
     m_ui_feedback = "New conversation ready.";
     m_codex_thread_id.clear();
     m_codex_session_id.clear();
+    m_superseded_thread_id.clear();
     m_last_input_tokens = 0;
     m_last_output_tokens = 0;
     m_last_total_tokens = 0;
@@ -314,14 +328,23 @@ void AiAssistantPanel::restore_conversation(const std::string& thread_id) {
         m_request_error = "The selected conversation is no longer available.";
         return;
     }
-    m_codex_thread_id = conversation->thread_id;
-    m_codex_session_id = conversation->session_id;
+    if (conversation->tool_contract_version == EDITOR_AI_TOOL_CONTRACT_VERSION) {
+        m_codex_thread_id = conversation->thread_id;
+        m_codex_session_id = conversation->session_id;
+        m_superseded_thread_id.clear();
+    } else {
+        m_codex_thread_id.clear();
+        m_codex_session_id.clear();
+        m_superseded_thread_id = conversation->thread_id;
+    }
     m_messages = conversation->messages;
     m_streamed_response.clear();
     m_request_error.clear();
     m_active_tool.clear();
     m_authoring_feedback.clear();
-    m_ui_feedback = "Conversation restored.";
+    m_ui_feedback = conversation->tool_contract_version == EDITOR_AI_TOOL_CONTRACT_VERSION
+        ? "Conversation restored."
+        : "Conversation restored; the next message will upgrade its editor tools.";
     m_last_input_tokens = 0;
     m_last_output_tokens = 0;
     m_last_total_tokens = 0;
@@ -370,11 +393,12 @@ void AiAssistantPanel::delete_conversation(const std::string& thread_id) {
         m_request_error = "The selected conversation is no longer available.";
         return;
     }
-    if (m_codex_thread_id == thread_id) {
+    if (m_codex_thread_id == thread_id || m_superseded_thread_id == thread_id) {
         m_messages.clear();
         m_streamed_response.clear();
         m_codex_thread_id.clear();
         m_codex_session_id.clear();
+        m_superseded_thread_id.clear();
         m_last_input_tokens = 0;
         m_last_output_tokens = 0;
         m_last_total_tokens = 0;
@@ -429,9 +453,21 @@ void AiAssistantPanel::persist_current_conversation_locked(const std::string& mo
         .session_id = m_codex_session_id,
         .title = make_editor_ai_conversation_title(m_messages),
         .model = model,
+        .tool_contract_version = EDITOR_AI_TOOL_CONTRACT_VERSION,
         .updated_at_unix_ms = updated_at,
         .messages = m_messages
     });
+    if (!m_superseded_thread_id.empty() && m_superseded_thread_id != m_codex_thread_id) {
+        const std::string previous_thread = m_superseded_thread_id;
+        static_cast<void>(m_conversation_store->erase(previous_thread));
+        m_superseded_thread_id.clear();
+        ENGINE_LOG_INFO(
+            "[AI AUDIT] conversation_store=contract_upgraded old_thread={} new_thread={} contract={}",
+            previous_thread,
+            m_codex_thread_id,
+            EDITOR_AI_TOOL_CONTRACT_VERSION
+        );
+    }
     std::string save_error;
     if (!m_conversation_store->save(save_error)) {
         m_request_error = save_error;
@@ -609,7 +645,7 @@ void AiAssistantPanel::start_request() {
     const AuthoringMode authoring_mode = m_authoring_mode;
     auto proposal_actions = std::make_shared<std::vector<EditorAiAuthoringAction>>();
     const nlohmann::json frozen_context = m_tool_registry.build_context_snapshot(
-        active_scene.get(), selection.get()
+        active_scene.get(), selection.get(), m_serialization_context
     );
 
     EditorAiProviderRequest request;
@@ -626,8 +662,11 @@ void AiAssistantPanel::start_request() {
     request.instructions = authoring_available
         ? "For an authoring request, act directly and do not narrate intermediate reasoning. The tool "
           "schemas are the source of truth: do not inspect workspace files to discover argument shapes. "
-          "Use get_scene_summary only when an existing target must be identified; creating a root entity "
-          "does not require inspection. Fold the final name, transform, and components of a new entity "
+          "Use find_scene_entities before changing an existing target and pass its numeric entity_id. "
+          "If a search returns multiple matches, narrow it or use selection context instead of guessing. "
+          "entity_alias is request-local and may only reference an entity created earlier in the same "
+          "proposal. On later conversation turns, resolve previously created entities again because aliases "
+          "do not persist. Creating a root entity does not require inspection. Fold the final name, transform, and components of a new entity "
           "into one propose_create_entity call instead of queuing redundant follow-up actions. A successful "
           "queued result is final: do not wait for another editor response and do not retry it. If a call "
           "is invalid, correct it once from the returned error without reading files. Queue at most 10 "
@@ -729,22 +768,11 @@ void AiAssistantPanel::start_request() {
             if (!authoring_available) {
                 return audited({false, {}, "Authoring is unavailable for this request"});
             }
-            return audited(m_authoring_registry.queue_action(name, arguments, *proposal_actions));
+            return audited(m_authoring_registry.queue_action(
+                name, arguments, *proposal_actions, &frozen_context
+            ));
         }
-        if (name == "get_scene_summary" || name == "get_selection_context") {
-            if (!arguments.is_object() || !arguments.empty()) {
-                return audited({false, {}, "Tool arguments must be an empty object"});
-            }
-            const char* key = name == "get_scene_summary" ? "scene" : "selection";
-            if (!frozen_context.contains(key) || frozen_context.at(key).contains("error")) {
-                const std::string error = frozen_context.contains(key)
-                    ? frozen_context.at(key).value("error", "Context is unavailable")
-                    : "Context is unavailable";
-                return audited({false, {}, error});
-            }
-            return audited({true, frozen_context.at(key), {}});
-        }
-        return audited(m_tool_registry.execute(name, arguments, nullptr, nullptr));
+        return audited(m_tool_registry.execute_snapshot(name, arguments, frozen_context));
     };
     m_prompt.fill('\0');
     if (m_request_thread.joinable()) m_request_thread.join();
@@ -875,7 +903,8 @@ void AiAssistantPanel::start_request() {
                 m_authoring_feedback = "Failed proposal discarded without changing the scene.";
             }
         }
-        if (using_codex && !m_codex_thread_id.empty()) {
+        if (using_codex && result.status == EditorAiProviderStatus::Completed &&
+            !m_codex_thread_id.empty()) {
             persist_current_conversation_locked(model);
         }
     });

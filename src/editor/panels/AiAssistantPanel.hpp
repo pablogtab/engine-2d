@@ -127,6 +127,7 @@ private:
     std::string m_ui_feedback;
     std::string m_codex_thread_id;
     std::string m_codex_session_id;
+    std::string m_superseded_thread_id;
     std::string m_conversation_action_thread_id;
     std::optional<PendingProposal> m_pending_proposal;
     std::optional<AppliedAiSession> m_last_applied_session;

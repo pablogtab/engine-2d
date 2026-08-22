@@ -94,6 +94,11 @@ void test_tool_validation_and_limits() {
     assert(!registry.queue_action(
         "propose_add_component", {{"entity_alias", "enemy"}, {"component_key", "prefab_link"}}, actions
     ).success);
+    assert(!registry.queue_action(
+        "propose_configure_component",
+        {{"entity_alias", "enemy"}, {"component_key", "sprite"}, {"patch_json", "not json"}},
+        actions
+    ).success);
 
     std::vector<EditorAiAuthoringAction> strict_arguments;
     assert(registry.queue_action("propose_create_entity", {
@@ -113,6 +118,27 @@ void test_tool_validation_and_limits() {
     assert(!registry.queue_action(
         "propose_rename_entity", {{"entity_alias", "enemy"}, {"name", "Too Many"}}, actions
     ).success);
+
+    const nlohmann::json frozen_context{
+        {"entity_index", nlohmann::json::array({{
+            {"entity_id", 42},
+            {"components", nlohmann::json::array({"tag", "transform"})}
+        }})}
+    };
+    std::vector<EditorAiAuthoringAction> frozen_actions;
+    const EditorAiToolResult missing_id = registry.queue_action(
+        "propose_delete_entity", {{"entity_id", 99}}, frozen_actions, &frozen_context
+    );
+    assert(!missing_id.success);
+    assert(missing_id.error.find("find_scene_entities") != std::string::npos);
+    const EditorAiToolResult missing_component = registry.queue_action(
+        "propose_configure_component",
+        {{"entity_id", 42}, {"component_key", "sprite"}, {"patch_json", R"({"size":[8,8]})"}},
+        frozen_actions,
+        &frozen_context
+    );
+    assert(!missing_component.success);
+    assert(missing_component.error.find("does not contain component") != std::string::npos);
 }
 
 void test_alias_session_executes_as_one_undoable_transaction() {
@@ -159,6 +185,39 @@ void test_alias_session_executes_as_one_undoable_transaction() {
     assert(session.entities.find_by_tag("Elite Enemy") == created);
     assert(session.entities.has_component<SpriteComponent>(created));
     assert(session.entities.has_component<ColliderComponent>(created));
+}
+
+void test_component_data_can_be_configured_and_replayed() {
+    TestSession session;
+    EditorAiAuthoringRegistry registry;
+    std::vector<EditorAiAuthoringAction> actions;
+    queue(registry, actions, "propose_create_entity", {
+        {"alias", "visual"}, {"name", "Visual"}, {"components", {"sprite"}}
+    });
+    queue(registry, actions, "propose_configure_component", {
+        {"entity_alias", "visual"},
+        {"component_key", "sprite"},
+        {"patch_json", R"({"size":[96.0,48.0],"color":[255,64,32,255],"order_in_layer":7})"}
+    });
+
+    std::string error;
+    auto group = registry.build_command_group(actions, session.context(), error);
+    assert(group && error.empty());
+    assert(session.history.execute_command(std::move(group)));
+    const EntityID entity = session.entities.find_by_tag("Visual");
+    assert(entity != 0);
+    const SpriteComponent sprite = session.entities.get_component<SpriteComponent>(entity);
+    assert(sprite.size == glm::vec2(96.0f, 48.0f));
+    assert(sprite.color.r == 255 && sprite.color.g == 64 && sprite.color.b == 32 && sprite.color.a == 255);
+    assert(sprite.order_in_layer == 7);
+
+    session.history.undo();
+    assert(!session.entities.is_alive(entity));
+    session.history.redo();
+    assert(session.entities.is_alive(entity));
+    const SpriteComponent replayed = session.entities.get_component<SpriteComponent>(entity);
+    assert(replayed.size == glm::vec2(96.0f, 48.0f));
+    assert(replayed.order_in_layer == 7);
 }
 
 void test_2d_positions_default_or_preserve_depth() {
@@ -302,12 +361,31 @@ void test_locked_missing_and_forward_alias_targets_are_rejected() {
 
     error.clear();
     std::vector<EditorAiAuthoringAction> forward_alias;
-    queue(registry, forward_alias, "propose_set_transform", {
+    const EditorAiToolResult invalid_alias = registry.queue_action("propose_set_transform", {
         {"entity_alias", "later"}, {"position", {1.0, 2.0, 3.0}}
-    });
-    queue(registry, forward_alias, "propose_create_entity", {{"alias", "later"}, {"name", "Later"}});
-    assert(!registry.build_command_group(forward_alias, session.context(), error));
-    assert(error.find("before it is created") != std::string::npos);
+    }, forward_alias);
+    assert(!invalid_alias.success);
+    assert(invalid_alias.error.find("find_scene_entities") != std::string::npos);
+    assert(forward_alias.empty());
+}
+
+void test_existing_entity_delete_is_reversible() {
+    TestSession session;
+    const EntityID entity = create_basic_entity(session, "Delete Me");
+    EditorAiAuthoringRegistry registry;
+    std::vector<EditorAiAuthoringAction> actions;
+    queue(registry, actions, "propose_delete_entity", {{"entity_id", entity}});
+
+    std::string error;
+    auto group = registry.build_command_group(actions, session.context(), error);
+    assert(group && error.empty());
+    assert(session.history.execute_command(std::move(group)));
+    assert(!session.entities.is_alive(entity));
+    assert(session.history.get_undo_count() == 1);
+
+    session.history.undo();
+    assert(session.entities.is_alive(entity));
+    assert(session.entities.find_by_tag("Delete Me") == entity);
 }
 
 void test_proposal_rejects_a_stale_scene_revision() {
@@ -343,11 +421,13 @@ void test_proposal_rejects_a_stale_scene_revision() {
 int main() {
     test_tool_validation_and_limits();
     test_alias_session_executes_as_one_undoable_transaction();
+    test_component_data_can_be_configured_and_replayed();
     test_2d_positions_default_or_preserve_depth();
     test_ai_created_sprite_resolves_white_runtime_texture();
     test_created_alias_hierarchy_survives_undo_redo();
     test_failed_action_rolls_back_previous_actions();
     test_locked_missing_and_forward_alias_targets_are_rejected();
+    test_existing_entity_delete_is_reversible();
     test_proposal_rejects_a_stale_scene_revision();
     std::cout << "Editor AI authoring tests passed\n";
     return 0;

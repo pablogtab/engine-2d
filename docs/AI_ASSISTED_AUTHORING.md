@@ -21,7 +21,28 @@ read-only.
 The default mode is **Confirm before apply**. **Autonomous safe** skips the human
 confirmation click but uses exactly the same validation and command path.
 
-## Initial action set
+## Read API and entity identity
+
+- `get_scene_summary` returns bounded scene and selection counts.
+- `find_scene_entities` searches the frozen scene by case-insensitive name and/or
+  registered component key. Results contain the stable numeric `entity_id` needed
+  by authoring calls.
+- `get_entity_details` returns hierarchy, transform, component keys, and serialized
+  component data for one existing entity.
+- `get_selection_context` provides compact context for the editor selection.
+
+Existing scene entities must always be addressed by `entity_id`. New entities
+receive request-local aliases such as `@enemy`; later actions in that same proposal
+may use the alias only after its create action. Aliases never cross conversation
+turns and never become persisted asset or entity identity. On every new turn,
+Codex resolves targets again from the latest frozen scene state. This makes the
+workflow iterative without allowing stale aliases to point at the wrong entity.
+Persistent Codex threads record the editor tool-contract version. When that
+contract changes, the editor starts a compatible replacement thread and injects
+the bounded local conversation history because App Server only accepts dynamic
+tool declarations on `thread/start`, not `thread/resume`.
+
+## Authoring action set
 
 - `propose_create_entity`: creates the required Tag, Transform, and Hierarchy
   components plus allowlisted registered defaults.
@@ -29,18 +50,20 @@ confirmation click but uses exactly the same validation and command path.
 - `propose_rename_entity`: changes a Tag name.
 - `propose_add_component` and `propose_remove_component`: use the central component
   registry and its snapshot, finalization, validation, and removal hooks.
+- `propose_configure_component`: applies an RFC 7396-style JSON merge patch to the
+  current serialized component data. Codex inspects the component first, sends only
+  changed fields, and the central registry deserializes, finalizes, and validates
+  the result before it becomes an undoable command.
 - `propose_reparent_entity`: uses the normal hierarchy command and its cycle checks.
 - `propose_delete_entity`: uses the normal reversible subtree deletion command.
-
-New entities receive request-local aliases such as `@enemy`. Later actions may use
-an alias only after the corresponding create action. Aliases never become persisted
-asset or entity identity.
 
 ## Safety and rollback
 
 - A proposal is capped at 10 authoring actions.
 - Tool schemas reject unknown fields, unsupported components, invalid aliases,
-  non-finite values, zero scale, missing entities, and locked entities.
+  malformed or oversized component patches, non-finite values, zero scale,
+  missing entities, and locked entities. Forward or stale aliases fail during the
+  tool call so Codex can correct the request before the proposal is completed.
 - Required components and `PrefabLinkComponent` cannot be changed through generic
   component tools.
 - A failed child command rolls back all earlier child commands. Failed execution is

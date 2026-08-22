@@ -29,6 +29,7 @@ constexpr const char* SET_TRANSFORM_TOOL = "propose_set_transform";
 constexpr const char* RENAME_ENTITY_TOOL = "propose_rename_entity";
 constexpr const char* ADD_COMPONENT_TOOL = "propose_add_component";
 constexpr const char* REMOVE_COMPONENT_TOOL = "propose_remove_component";
+constexpr const char* CONFIGURE_COMPONENT_TOOL = "propose_configure_component";
 constexpr const char* REPARENT_ENTITY_TOOL = "propose_reparent_entity";
 constexpr const char* DELETE_ENTITY_TOOL = "propose_delete_entity";
 
@@ -423,6 +424,142 @@ private:
     std::unique_ptr<SetRegisteredComponentCommand> m_command;
 };
 
+class PatchAiComponentCommand final : public IEditorCommand {
+public:
+    PatchAiComponentCommand(
+        EntityManager* entities,
+        ComponentRegistry* registry,
+        std::shared_ptr<EditorEntityStateStore> state_store,
+        ComponentSerializationContext serialization,
+        std::shared_ptr<AliasState> aliases,
+        EntityTarget target,
+        std::string component_key,
+        Json patch
+    ) : m_entities(entities), m_registry(registry), m_state_store(std::move(state_store)),
+        m_serialization(serialization), m_aliases(std::move(aliases)), m_target(std::move(target)),
+        m_component_key(std::move(component_key)), m_patch(std::move(patch)) {}
+
+    bool execute() override {
+        if (m_command || !m_entities || !m_registry) return false;
+        const EntityID entity = resolve_target(m_target, m_aliases);
+        const auto fail = [&](const std::string& reason) {
+            ENGINE_LOG_WARN(
+                "[AI AUTHORING] Configure component rejected: entity={} component={} reason={}",
+                entity,
+                m_component_key,
+                reason
+            );
+            return false;
+        };
+        if (entity == 0 || !m_entities->is_alive(entity)) return fail("entity is unavailable");
+        if (m_state_store && m_state_store->is_locked(entity)) return fail("entity is locked");
+        const ComponentDescriptor* descriptor = m_registry->find_by_key(m_component_key);
+        if (!descriptor || !descriptor->has(*m_entities, entity) ||
+            !descriptor->serialize || !descriptor->deserialize) {
+            return fail("component is missing or not configurable");
+        }
+
+        ComponentSnapshotSet before;
+        descriptor->capture(*m_entities, entity, before);
+        const std::vector<std::string> present = present_component_keys(
+            *m_registry, *m_entities, entity
+        );
+        const std::vector<std::string> order = m_state_store
+            ? m_state_store->resolve_component_order(entity, present)
+            : present;
+
+        const auto restore_before = [&]() {
+            descriptor->restore(*m_entities, entity, before);
+            if (descriptor->finalize && descriptor->has(*m_entities, entity)) {
+                std::string ignored;
+                descriptor->finalize(
+                    *m_entities,
+                    entity,
+                    ComponentFinalizeContext{
+                        .serialization = m_serialization,
+                        .reason = ComponentFinalizeReason::SnapshotRestore
+                    },
+                    ignored
+                );
+                if (!ignored.empty()) {
+                    ENGINE_LOG_WARN(
+                        "[AI AUTHORING] Component rollback finalization reported: entity={} component={} reason={}",
+                        entity,
+                        m_component_key,
+                        ignored
+                    );
+                }
+            }
+        };
+
+        try {
+            Json data = descriptor->serialize(*m_entities, entity, m_serialization);
+            if (!data.is_object()) return fail("serialized component data is not an object");
+            data.merge_patch(m_patch);
+            std::string error;
+            if (!descriptor->deserialize(*m_entities, entity, data, m_serialization, error)) {
+                restore_before();
+                return fail(error.empty() ? "component deserializer rejected the patch" : error);
+            }
+            if (descriptor->finalize && !descriptor->finalize(
+                    *m_entities,
+                    entity,
+                    ComponentFinalizeContext{
+                        .serialization = m_serialization,
+                        .reason = ComponentFinalizeReason::EditorComponentChange
+                    },
+                    error
+                )) {
+                restore_before();
+                return fail(error.empty() ? "component finalizer rejected the patch" : error);
+            }
+            const std::vector<ComponentValidationIssue> issues =
+                m_registry->validate_entity(*m_entities, entity);
+            if (!issues.empty()) {
+                restore_before();
+                return fail(issues.front().component_key + ": " + issues.front().message);
+            }
+        } catch (const std::exception& exception) {
+            restore_before();
+            return fail(exception.what());
+        }
+
+        ComponentSnapshotSet after;
+        descriptor->capture(*m_entities, entity, after);
+        m_command = std::make_unique<SetRegisteredComponentCommand>(
+            m_registry,
+            m_entities,
+            entity,
+            m_component_key,
+            std::move(before),
+            std::move(after),
+            m_serialization,
+            "Configure " + descriptor->display_name,
+            m_state_store,
+            order,
+            order
+        );
+        return true;
+    }
+
+    bool undo() override { return m_command && m_command->undo(); }
+    bool redo() override { return m_command && m_command->redo(); }
+    [[nodiscard]] std::string get_description() const override {
+        return "Configure " + m_component_key;
+    }
+
+private:
+    EntityManager* m_entities{nullptr};
+    ComponentRegistry* m_registry{nullptr};
+    std::shared_ptr<EditorEntityStateStore> m_state_store;
+    ComponentSerializationContext m_serialization;
+    std::shared_ptr<AliasState> m_aliases;
+    EntityTarget m_target;
+    std::string m_component_key;
+    Json m_patch;
+    std::unique_ptr<SetRegisteredComponentCommand> m_command;
+};
+
 TransformComponent transform_from_create_arguments(const Json& arguments) {
     TransformComponent transform;
     if (arguments.contains("position")) {
@@ -488,14 +625,19 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
             descriptor.serialized_key == "prefab_link") continue;
         m_addable_component_keys.push_back(descriptor.serialized_key);
         if (descriptor.removable) m_removable_component_keys.push_back(descriptor.serialized_key);
+        if (descriptor.serialize && descriptor.deserialize) {
+            m_configurable_component_keys.push_back(descriptor.serialized_key);
+        }
     }
     std::sort(m_addable_component_keys.begin(), m_addable_component_keys.end());
     std::sort(m_removable_component_keys.begin(), m_removable_component_keys.end());
+    std::sort(m_configurable_component_keys.begin(), m_configurable_component_keys.end());
 
     const Json vector2_schema{{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 2}, {"maxItems", 2}};
     const Json position_schema{{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 2}, {"maxItems", 3}};
     const Json addable_schema{{"type", "string"}, {"enum", m_addable_component_keys}};
     const Json removable_schema{{"type", "string"}, {"enum", m_removable_component_keys}};
+    const Json configurable_schema{{"type", "string"}, {"enum", m_configurable_component_keys}};
 
     Json transform_properties = target_properties();
     transform_properties.update({
@@ -511,6 +653,9 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
     component_properties["component_key"] = addable_schema;
     Json removable_properties = target_properties();
     removable_properties["component_key"] = removable_schema;
+    Json configurable_properties = target_properties();
+    configurable_properties["component_key"] = configurable_schema;
+    configurable_properties["patch_json"] = {{"type", "string"}};
     Json reparent_properties = target_properties();
     reparent_properties.update({
         {"parent_entity_id", {{"type", Json::array({"integer", "null"})}, {"minimum", 0}}},
@@ -547,7 +692,7 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         },
         {
             {"type", "function"}, {"name", SET_TRANSFORM_TOOL},
-            {"description", "Queues a partial Transform edit for an existing entity or an alias created earlier in this proposal. Position accepts [x,y] or [x,y,z]; omitting z preserves the current depth."},
+            {"description", "Queues a partial Transform edit. Use entity_id from find_scene_entities for an existing entity, or entity_alias only for an entity created earlier in this proposal. Position accepts [x,y] or [x,y,z]; omitting z preserves the current depth."},
             {"parameters", {{"type", "object"}, {"properties", transform_properties},
                 {"required", Json::array({"entity_id", "entity_alias", "position", "scale", "pivot", "rotation", "visible"})},
                 {"additionalProperties", false}}},
@@ -555,28 +700,36 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         },
         {
             {"type", "function"}, {"name", RENAME_ENTITY_TOOL},
-            {"description", "Queues a game entity rename."},
+            {"description", "Queues a game entity rename. Use entity_id from find_scene_entities for an existing entity; entity_alias is only for an earlier create action."},
             {"parameters", {{"type", "object"}, {"properties", name_properties},
                 {"required", Json::array({"entity_id", "entity_alias", "name"})}, {"additionalProperties", false}}},
             {"strict", true}
         },
         {
             {"type", "function"}, {"name", ADD_COMPONENT_TOOL},
-            {"description", "Queues adding a registered component with validated engine defaults."},
+            {"description", "Queues adding a registered component with validated engine defaults. Existing scene entities require entity_id from find_scene_entities; entity_alias is only for an earlier create action."},
             {"parameters", {{"type", "object"}, {"properties", component_properties},
                 {"required", Json::array({"entity_id", "entity_alias", "component_key"})}, {"additionalProperties", false}}},
             {"strict", true}
         },
         {
             {"type", "function"}, {"name", REMOVE_COMPONENT_TOOL},
-            {"description", "Queues removal of a removable registered component."},
+            {"description", "Queues removal of a removable registered component. Existing scene entities require entity_id from find_scene_entities; entity_alias is only for an earlier create action."},
             {"parameters", {{"type", "object"}, {"properties", removable_properties},
                 {"required", Json::array({"entity_id", "entity_alias", "component_key"})}, {"additionalProperties", false}}},
             {"strict", true}
         },
         {
+            {"type", "function"}, {"name", CONFIGURE_COMPONENT_TOOL},
+            {"description", "Queues a validated merge patch for a registered component already present on the target. Call get_entity_details first, then pass patch_json as a JSON object string containing only fields to change. Existing scene entities require entity_id; entity_alias is only for an earlier create action."},
+            {"parameters", { {"type", "object"}, {"properties", configurable_properties},
+                {"required", Json::array({"entity_id", "entity_alias", "component_key", "patch_json"})},
+                {"additionalProperties", false}}},
+            {"strict", true}
+        },
+        {
             {"type", "function"}, {"name", REPARENT_ENTITY_TOOL},
-            {"description", "Queues reparenting while preserving world transform. Use null for both parent fields or parent_entity_id 0 to move to the scene root."},
+            {"description", "Queues reparenting while preserving world transform. Resolve existing child and parent IDs with find_scene_entities. Aliases only reference earlier create actions. Use null for both parent fields or parent_entity_id 0 to move to the scene root."},
             {"parameters", {{"type", "object"}, {"properties", reparent_properties},
                 {"required", Json::array({"entity_id", "entity_alias", "parent_entity_id", "parent_entity_alias"})},
                 {"additionalProperties", false}}},
@@ -584,7 +737,7 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         },
         {
             {"type", "function"}, {"name", DELETE_ENTITY_TOOL},
-            {"description", "Queues deletion of an entity subtree. The complete subtree is restored by Undo."},
+            {"description", "Queues deletion of an entity subtree. Use entity_id from find_scene_entities for an existing entity; never invent an alias for it. The complete subtree is restored by Undo."},
             {"parameters", {{"type", "object"}, {"properties", target_properties()},
                 {"required", Json::array({"entity_id", "entity_alias"})}, {"additionalProperties", false}}},
             {"strict", true}
@@ -595,14 +748,16 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
 bool EditorAiAuthoringRegistry::is_authoring_tool(const std::string& tool_name) const {
     return tool_name == CREATE_ENTITY_TOOL || tool_name == SET_TRANSFORM_TOOL ||
         tool_name == RENAME_ENTITY_TOOL || tool_name == ADD_COMPONENT_TOOL ||
-        tool_name == REMOVE_COMPONENT_TOOL || tool_name == REPARENT_ENTITY_TOOL ||
+        tool_name == REMOVE_COMPONENT_TOOL || tool_name == CONFIGURE_COMPONENT_TOOL ||
+        tool_name == REPARENT_ENTITY_TOOL ||
         tool_name == DELETE_ENTITY_TOOL;
 }
 
 EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
     const std::string& tool_name,
     const Json& arguments,
-    std::vector<EditorAiAuthoringAction>& actions
+    std::vector<EditorAiAuthoringAction>& actions,
+    const Json* frozen_context
 ) const {
     if (!is_authoring_tool(tool_name)) return {false, {}, "Unknown authoring tool: " + tool_name};
     if (actions.size() >= MAX_ACTIONS_PER_PROPOSAL) {
@@ -619,10 +774,39 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
             ++item;
         }
     }
-    if (removed_null) return queue_action(tool_name, compact_arguments, actions);
+    if (removed_null) return queue_action(tool_name, compact_arguments, actions, frozen_context);
 
     std::string error;
     std::string summary;
+    const auto alias_was_created = [&actions](const std::string& alias) {
+        return std::any_of(actions.begin(), actions.end(), [&alias](const auto& action) {
+            return action.tool_name == CREATE_ENTITY_TOOL &&
+                action.arguments.value("alias", "") == alias;
+        });
+    };
+    const auto require_declared_alias = [&alias_was_created](
+        const Json& value,
+        const char* field
+    ) -> std::optional<std::string> {
+        if (!value.contains(field)) return std::nullopt;
+        const std::string alias = value.at(field).get<std::string>();
+        if (alias_was_created(alias)) return std::nullopt;
+        return "Alias @" + alias +
+            " is unavailable. For an existing scene entity, call find_scene_entities and use entity_id; "
+            "entity_alias only references an entity created earlier in this proposal.";
+    };
+    const auto find_frozen_entity = [frozen_context](EntityID entity_id) -> const Json* {
+        if (!frozen_context || !frozen_context->contains("entity_index") ||
+            !frozen_context->at("entity_index").is_array()) return nullptr;
+        for (const Json& entity : frozen_context->at("entity_index")) {
+            if (entity.value("entity_id", EntityID{0}) == entity_id) return &entity;
+        }
+        return nullptr;
+    };
+    const auto frozen_index_available = [&]() {
+        return frozen_context && frozen_context->contains("entity_index") &&
+            frozen_context->at("entity_index").is_array();
+    };
     if (tool_name == CREATE_ENTITY_TOOL) {
         if (!only_keys(arguments, {"alias", "name", "position", "scale", "pivot", "rotation", "visible", "parent_entity_id", "parent_entity_alias", "components"}) ||
             !arguments.contains("alias") || !arguments.at("alias").is_string() ||
@@ -639,9 +823,18 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
              !valid_alias(arguments.at("parent_entity_alias").get<std::string>()))) {
             return {false, {}, "parent_entity_alias is invalid"};
         }
+        if (const auto alias_error = require_declared_alias(arguments, "parent_entity_alias")) {
+            return {false, {}, *alias_error};
+        }
         if (arguments.contains("parent_entity_id") &&
-            (!arguments.at("parent_entity_id").is_number_integer() || arguments.at("parent_entity_id").get<std::int64_t>() <= 0)) {
-            return {false, {}, "parent_entity_id must be positive"};
+            (!arguments.at("parent_entity_id").is_number_integer() ||
+             arguments.at("parent_entity_id").get<std::int64_t>() <= 0 ||
+             arguments.at("parent_entity_id").get<std::int64_t>() > std::numeric_limits<EntityID>::max())) {
+            return {false, {}, "parent_entity_id must be within the supported positive range"};
+        }
+        if (arguments.contains("parent_entity_id") && frozen_index_available() &&
+            !find_frozen_entity(static_cast<EntityID>(arguments.at("parent_entity_id").get<std::int64_t>()))) {
+            return {false, {}, "Existing parent entity_id was not found in the frozen scene; call find_scene_entities again"};
         }
         if ((arguments.contains("position") && !finite_vector_range(arguments.at("position"), 2, 3)) ||
             (arguments.contains("scale") && !finite_vector(arguments.at("scale"), 2, 10'000.0)) ||
@@ -679,6 +872,16 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
     } else {
         const auto target = read_target(arguments, error);
         if (!target) return {false, {}, error};
+        if (!target->alias.empty()) {
+            if (const auto alias_error = require_declared_alias(arguments, "entity_alias")) {
+                return {false, {}, *alias_error};
+            }
+        }
+        const Json* frozen_entity = target->entity_id != 0 ? find_frozen_entity(target->entity_id) : nullptr;
+        if (target->entity_id != 0 && frozen_index_available() && !frozen_entity) {
+            return {false, {}, "Existing entity_id #" + std::to_string(target->entity_id) +
+                " was not found in the frozen scene; call find_scene_entities again"};
+        }
         if (tool_name == SET_TRANSFORM_TOOL) {
             if (!only_keys(arguments, {"entity_id", "entity_alias", "position", "scale", "pivot", "rotation", "visible"})) {
                 return {false, {}, "Set transform contains unsupported fields"};
@@ -717,19 +920,62 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
                 return {false, {}, "Component is not allowed for this action: " + key};
             }
             summary = std::string(tool_name == ADD_COMPONENT_TOOL ? "Add " : "Remove ") + key + " on " + target_label(*target);
+        } else if (tool_name == CONFIGURE_COMPONENT_TOOL) {
+            if (!only_keys(arguments, {"entity_id", "entity_alias", "component_key", "patch_json"}) ||
+                !arguments.contains("component_key") || !arguments.at("component_key").is_string() ||
+                !arguments.contains("patch_json") || !arguments.at("patch_json").is_string()) {
+                return {false, {}, "Configure component requires component_key and patch_json"};
+            }
+            const std::string key = arguments.at("component_key").get<std::string>();
+            if (std::find(
+                    m_configurable_component_keys.begin(),
+                    m_configurable_component_keys.end(),
+                    key
+                ) == m_configurable_component_keys.end()) {
+                return {false, {}, "Component is not configurable through this action: " + key};
+            }
+            if (frozen_entity && frozen_entity->contains("components") &&
+                std::find(
+                    frozen_entity->at("components").begin(),
+                    frozen_entity->at("components").end(),
+                    key
+                ) == frozen_entity->at("components").end()) {
+                return {false, {}, "Entity #" + std::to_string(target->entity_id) +
+                    " does not contain component '" + key + "'; add it before configuring it"};
+            }
+            const std::string patch_text = arguments.at("patch_json").get<std::string>();
+            if (patch_text.empty() || patch_text.size() > 16 * 1024) {
+                return {false, {}, "patch_json must contain at most 16384 bytes"};
+            }
+            const Json patch = Json::parse(patch_text, nullptr, false);
+            if (patch.is_discarded() || !patch.is_object() || patch.empty()) {
+                return {false, {}, "patch_json must encode a non-empty JSON object"};
+            }
+            summary = "Configure " + key + " on " + target_label(*target);
         } else if (tool_name == REPARENT_ENTITY_TOOL) {
             if (!only_keys(arguments, {"entity_id", "entity_alias", "parent_entity_id", "parent_entity_alias"}) ||
                 (arguments.contains("parent_entity_id") && arguments.contains("parent_entity_alias"))) {
                 return {false, {}, "Reparent accepts at most one parent reference"};
             }
             if (arguments.contains("parent_entity_id") &&
-                (!arguments.at("parent_entity_id").is_number_integer() || arguments.at("parent_entity_id").get<std::int64_t>() < 0)) {
-                return {false, {}, "parent_entity_id must be zero or positive"};
+                (!arguments.at("parent_entity_id").is_number_integer() ||
+                 arguments.at("parent_entity_id").get<std::int64_t>() < 0 ||
+                 arguments.at("parent_entity_id").get<std::int64_t>() > std::numeric_limits<EntityID>::max())) {
+                return {false, {}, "parent_entity_id must be zero or within the supported positive range"};
+            }
+            if (arguments.contains("parent_entity_id") &&
+                arguments.at("parent_entity_id").get<std::int64_t>() > 0 &&
+                frozen_index_available() &&
+                !find_frozen_entity(static_cast<EntityID>(arguments.at("parent_entity_id").get<std::int64_t>()))) {
+                return {false, {}, "Existing parent entity_id was not found in the frozen scene; call find_scene_entities again"};
             }
             if (arguments.contains("parent_entity_alias") &&
                 (!arguments.at("parent_entity_alias").is_string() ||
                  !valid_alias(arguments.at("parent_entity_alias").get<std::string>()))) {
                 return {false, {}, "parent_entity_alias is invalid"};
+            }
+            if (const auto alias_error = require_declared_alias(arguments, "parent_entity_alias")) {
+                return {false, {}, *alias_error};
             }
             summary = "Reparent " + target_label(*target);
         } else if (tool_name == DELETE_ENTITY_TOOL) {
@@ -896,6 +1142,17 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
                 *target,
                 action.arguments.at("component_key").get<std::string>(),
                 action.tool_name == ADD_COMPONENT_TOOL
+            ));
+        } else if (action.tool_name == CONFIGURE_COMPONENT_TOOL) {
+            group->add_command(std::make_unique<PatchAiComponentCommand>(
+                context.entities,
+                registry,
+                context.entity_state_store,
+                context.serialization,
+                aliases,
+                *target,
+                action.arguments.at("component_key").get<std::string>(),
+                Json::parse(action.arguments.at("patch_json").get<std::string>())
             ));
         } else if (action.tool_name == REPARENT_ENTITY_TOOL) {
             const auto parent = read_parent(action.arguments);

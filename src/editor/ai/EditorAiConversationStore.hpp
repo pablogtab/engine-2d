@@ -14,6 +14,7 @@ struct EditorAiConversationRecord {
     std::string session_id;
     std::string title;
     std::string model;
+    std::uint32_t tool_contract_version{0};
     std::int64_t updated_at_unix_ms{0};
     std::vector<EditorAiChatMessage> messages;
 };

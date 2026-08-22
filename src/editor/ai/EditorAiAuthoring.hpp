@@ -42,7 +42,8 @@ public:
     [[nodiscard]] EditorAiToolResult queue_action(
         const std::string& tool_name,
         const nlohmann::json& arguments,
-        std::vector<EditorAiAuthoringAction>& actions
+        std::vector<EditorAiAuthoringAction>& actions,
+        const nlohmann::json* frozen_context = nullptr
     ) const;
     [[nodiscard]] std::unique_ptr<EditorCommandGroup> build_command_group(
         const std::vector<EditorAiAuthoringAction>& actions,
@@ -63,6 +64,7 @@ private:
     nlohmann::json m_tool_schemas{nlohmann::json::array()};
     std::vector<std::string> m_addable_component_keys;
     std::vector<std::string> m_removable_component_keys;
+    std::vector<std::string> m_configurable_component_keys;
 };
 
 } // namespace Engine

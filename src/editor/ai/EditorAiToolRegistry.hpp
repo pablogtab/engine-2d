@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../ecs/EcsTypes.hpp"
+#include "../../scene/ComponentRegistry.hpp"
 
 #include <functional>
 #include <nlohmann/json.hpp>
@@ -16,6 +17,11 @@ class Scene;
 struct EditorAiComponentProbe {
     std::string component_key;
     std::function<bool(const EntityManager&, EntityID)> has_component;
+    std::function<nlohmann::json(
+        const EntityManager&,
+        EntityID,
+        const ComponentSerializationContext&
+    )> inspect_component;
 };
 
 struct EditorAiToolResult {
@@ -40,7 +46,13 @@ public:
     ) const;
     [[nodiscard]] nlohmann::json build_context_snapshot(
         const Scene* active_scene,
-        const EditorSelection* selection
+        const EditorSelection* selection,
+        const ComponentSerializationContext& serialization = {}
+    ) const;
+    [[nodiscard]] EditorAiToolResult execute_snapshot(
+        const std::string& tool_name,
+        const nlohmann::json& arguments,
+        const nlohmann::json& snapshot
     ) const;
 
 private:
@@ -51,6 +63,19 @@ private:
     [[nodiscard]] EditorAiToolResult get_selection_context(
         const Scene* active_scene,
         const EditorSelection* selection
+    ) const;
+    [[nodiscard]] nlohmann::json build_entity_index(
+        const Scene* active_scene,
+        const EditorSelection* selection,
+        const ComponentSerializationContext& serialization = {}
+    ) const;
+    [[nodiscard]] EditorAiToolResult find_scene_entities(
+        const nlohmann::json& arguments,
+        const nlohmann::json& entity_index
+    ) const;
+    [[nodiscard]] EditorAiToolResult get_entity_details(
+        const nlohmann::json& arguments,
+        const nlohmann::json& entity_index
     ) const;
     [[nodiscard]] EditorAiToolResult list_engine_documents() const;
     [[nodiscard]] EditorAiToolResult read_engine_document(const nlohmann::json& arguments) const;

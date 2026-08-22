@@ -178,6 +178,8 @@ void test_persistent_thread_can_be_resumed_without_history_reinjection() {
     assert(resume_state->writes.at(2).at("method") == "thread/resume");
     assert(resume_state->writes.at(2).at("params").at("threadId") == "thread-existing");
     assert(!resume_state->writes.at(2).at("params").contains("ephemeral"));
+    assert(!resume_state->writes.at(2).at("params").contains("dynamicTools"));
+    assert(!resume_state->writes.at(2).at("params").contains("serviceName"));
     assert(resume_state->writes.at(3).at("method") == "turn/start");
 }
 

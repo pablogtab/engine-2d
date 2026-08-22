@@ -209,15 +209,15 @@ EditorAiProviderResult CodexAppServerProvider::run(
         {"runtimeWorkspaceRoots", nlohmann::json::array({root})},
         {"developerInstructions", instructions},
         {"approvalPolicy", "never"},
-        {"sandbox", "read-only"},
-        {"dynamicTools", dynamic_tools(request.tools)},
-        {"serviceName", "engine2d_editor"}
+        {"sandbox", "read-only"}
     };
     const bool resuming_thread = !request.provider_thread_id.empty();
     if (resuming_thread) {
         thread_params["threadId"] = request.provider_thread_id;
     } else {
         thread_params["ephemeral"] = !request.persist_thread;
+        thread_params["dynamicTools"] = dynamic_tools(request.tools);
+        thread_params["serviceName"] = "engine2d_editor";
     }
     if (!send({
         {"id", THREAD_OPEN_ID},

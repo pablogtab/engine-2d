@@ -28,6 +28,7 @@ Engine::EditorAiConversationRecord make_conversation(
         .session_id = "session-test",
         .title = {},
         .model = "gpt-5.6-sol",
+        .tool_contract_version = 2,
         .updated_at_unix_ms = updated_at,
         .messages = {
             {"user", std::move(prompt)},
@@ -56,6 +57,7 @@ void test_persists_active_conversation_and_messages() {
     assert(loaded.active_conversation());
     assert(loaded.active_conversation()->messages.size() == 2);
     assert(loaded.active_conversation()->title == "Explain the renderer");
+    assert(loaded.active_conversation()->tool_contract_version == 2);
 }
 
 void test_switches_and_clears_active_conversation_without_deleting_history() {
@@ -167,6 +169,28 @@ void test_renames_and_deletes_saved_conversations() {
     assert(store.conversations().empty());
 }
 
+void test_loads_legacy_conversations_as_contract_zero() {
+    const auto filepath = make_test_directory() / "legacy-contract.json";
+    {
+        std::ofstream file(filepath);
+        assert(file.is_open());
+        file << R"({
+  "version": 1,
+  "active_thread_id": "legacy",
+  "conversations": [{
+    "thread_id": "legacy",
+    "model": "gpt-5.6-sol",
+    "messages": [{"role": "user", "content": "Continue"}]
+  }]
+})";
+    }
+    Engine::EditorAiConversationStore store(filepath.string());
+    std::string error;
+    assert(store.load(error));
+    assert(store.active_conversation());
+    assert(store.active_conversation()->tool_contract_version == 0);
+}
+
 } // namespace
 
 int main() {
@@ -176,6 +200,7 @@ int main() {
     test_rejects_invalid_store_without_partial_state();
     test_ignores_malformed_conversation_entries();
     test_renames_and_deletes_saved_conversations();
+    test_loads_legacy_conversations_as_contract_zero();
     std::cout << "EditorAiConversationStoreTests passed\n";
     return 0;
 }

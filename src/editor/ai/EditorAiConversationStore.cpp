@@ -47,6 +47,7 @@ nlohmann::json serialize_conversation(const EditorAiConversationRecord& conversa
         {"session_id", conversation.session_id},
         {"title", conversation.title},
         {"model", conversation.model},
+        {"tool_contract_version", conversation.tool_contract_version},
         {"updated_at_unix_ms", conversation.updated_at_unix_ms},
         {"messages", std::move(messages)}
     };
@@ -107,6 +108,11 @@ bool EditorAiConversationStore::load(std::string& error) {
             .session_id = string_field(item, "session_id"),
             .title = string_field(item, "title"),
             .model = string_field(item, "model"),
+            .tool_contract_version = item.contains("tool_contract_version") &&
+                    item.at("tool_contract_version").is_number_integer() &&
+                    item.at("tool_contract_version").get<std::int64_t>() >= 0
+                ? item.at("tool_contract_version").get<std::uint32_t>()
+                : 0,
             .updated_at_unix_ms = item.contains("updated_at_unix_ms") &&
                     item.at("updated_at_unix_ms").is_number_integer()
                 ? item.at("updated_at_unix_ms").get<std::int64_t>()

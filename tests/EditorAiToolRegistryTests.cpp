@@ -21,12 +21,21 @@ EditorAiToolRegistry make_registry() {
             "tag",
             [](const EntityManager& entities, EntityID entity) {
                 return entities.has_component<TagComponent>(entity);
+            },
+            [](const EntityManager& entities, EntityID entity, const ComponentSerializationContext&) {
+                return nlohmann::json{{"name", entities.get_component<TagComponent>(entity).tag}};
             }
         },
         {
             "transform",
             [](const EntityManager& entities, EntityID entity) {
                 return entities.has_component<TransformComponent>(entity);
+            },
+            [](const EntityManager& entities, EntityID entity, const ComponentSerializationContext&) {
+                const TransformComponent& transform = entities.get_component<TransformComponent>(entity);
+                return nlohmann::json{
+                    {"position", {transform.position.x, transform.position.y, transform.position.z}}
+                };
             }
         }
     }, ENGINE_SOURCE_DIR);
@@ -37,13 +46,15 @@ void test_tool_schemas_are_read_only_and_strict() {
     const auto& schemas = registry.tool_schemas();
 
     assert(schemas.is_array());
-    assert(schemas.size() == 4);
+    assert(schemas.size() == 6);
     assert(schemas.at(0).at("name") == "get_scene_summary");
     assert(schemas.at(0).at("strict") == true);
     assert(schemas.at(0).at("parameters").at("additionalProperties") == false);
     assert(schemas.at(1).at("name") == "get_selection_context");
-    assert(schemas.at(2).at("name") == "list_engine_documents");
-    assert(schemas.at(3).at("name") == "read_engine_document");
+    assert(schemas.at(2).at("name") == "find_scene_entities");
+    assert(schemas.at(3).at("name") == "get_entity_details");
+    assert(schemas.at(4).at("name") == "list_engine_documents");
+    assert(schemas.at(5).at("name") == "read_engine_document");
 }
 
 void test_engine_documents_are_allowlisted() {
@@ -116,6 +127,49 @@ void test_selection_context_is_deterministic_and_component_aware() {
     assert(selected.at("components") == nlohmann::json::array({"tag", "transform"}));
 }
 
+void test_existing_entities_can_be_found_and_inspected_by_stable_id() {
+    TestScene scene;
+    EntityManager& entities = scene.get_entity_manager();
+    const EntityID enemy = entities.create_entity();
+    entities.add_component<TagComponent>(enemy, TagComponent{"Elite Enemy"});
+    TransformComponent transform;
+    transform.position = {12.0f, 34.0f, 5.0f};
+    entities.add_component<TransformComponent>(enemy, transform);
+    const EntityID platform = entities.create_entity();
+    entities.add_component<TagComponent>(platform, TagComponent{"Enemy Platform"});
+    entities.add_component<TransformComponent>(platform, TransformComponent{});
+
+    EditorSelection selection;
+    selection.select(enemy);
+    const EditorAiToolRegistry registry = make_registry();
+    const nlohmann::json snapshot = registry.build_context_snapshot(&scene, &selection);
+    const EditorAiToolResult found = registry.execute_snapshot(
+        "find_scene_entities",
+        {{"query", "elite"}, {"component_key", "transform"}, {"limit", 10}},
+        snapshot
+    );
+    assert(found.success);
+    assert(found.output.at("total_matches") == 1);
+    assert(found.output.at("exact_name_matches") == 0);
+    assert(found.output.at("unambiguous") == true);
+    assert(found.output.at("matches").at(0).at("entity_id") == enemy);
+    assert(found.output.at("matches").at(0).at("selected") == true);
+
+    const EditorAiToolResult details = registry.execute_snapshot(
+        "get_entity_details", {{"entity_id", enemy}}, snapshot
+    );
+    assert(details.success);
+    assert(details.output.at("name") == "Elite Enemy");
+    assert(details.output.at("transform").at("position") == nlohmann::json::array({12.0, 34.0, 5.0}));
+    assert(details.output.at("component_data").at("transform").at("position") ==
+        nlohmann::json::array({12.0, 34.0, 5.0}));
+
+    const EditorAiToolResult missing = registry.execute_snapshot(
+        "get_entity_details", {{"entity_id", 999999}}, snapshot
+    );
+    assert(!missing.success);
+}
+
 void test_invalid_calls_fail_without_touching_scene() {
     TestScene scene;
     const std::size_t before = scene.get_entity_manager().get_living_entity_count();
@@ -148,6 +202,7 @@ int main() {
     test_tool_schemas_are_read_only_and_strict();
     test_scene_summary_reports_active_selection();
     test_selection_context_is_deterministic_and_component_aware();
+    test_existing_entities_can_be_found_and_inspected_by_stable_id();
     test_invalid_calls_fail_without_touching_scene();
     test_context_snapshot_handles_missing_scene();
     test_engine_documents_are_allowlisted();
