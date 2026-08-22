@@ -10,6 +10,22 @@ type Fields = {
     speed: number,
 }
 
+type DisplayInfo = {
+    width: number,
+    height: number,
+    dpi_scale: number,
+    reference_width: number,
+    reference_height: number,
+    window_mode: string,
+    vsync: boolean,
+    safe_area: {
+        left: number,
+        top: number,
+        right: number,
+        bottom: number,
+    },
+}
+
 type ScriptContext = {
     entity: number,
     fields: Fields,
@@ -24,6 +40,23 @@ type ScriptContext = {
     is_grounded: () -> boolean,
     set_sprite_flip_x: (boolean) -> (),
     play_animation: (string) -> boolean,
+    play_sound: (string, number?, number?) -> (boolean, string?),
+    play_music: (string, number?, boolean?) -> (boolean, string?),
+    stop_music: () -> (),
+    pause_music: () -> (),
+    resume_music: () -> (),
+    set_volume: ("master" | "music" | "sfx", number) -> (),
+    get_volume: ("master" | "music" | "sfx") -> number,
+    find_asset: (string) -> string?,
+    asset_exists: (string) -> boolean,
+    asset_path: (string) -> string?,
+    asset_type: (string) -> string?,
+    get_display_info: () -> DisplayInfo,
+    set_window_mode: ("windowed" | "borderless_fullscreen" | "exclusive_fullscreen") -> (boolean, string?),
+    set_vsync: (boolean) -> (boolean, string?),
+    load_scene: (string) -> (boolean, string?),
+    get_scene_name: () -> string,
+    emit_event: (string, string?) -> (),
 }
 
 type FieldDefinition = {
@@ -37,6 +70,11 @@ type ScriptDefinition = {
     on_create: ((ScriptContext) -> ())?,
     on_update: ((ScriptContext, number) -> ())?,
     on_destroy: ((ScriptContext) -> ())?,
+    on_collision_enter: ((ScriptContext, number, number, number, boolean) -> ())?,
+    on_collision_exit: ((ScriptContext, number, boolean) -> ())?,
+    on_ui_button_clicked: ((ScriptContext, number) -> ())?,
+    on_ui_focus_changed: ((ScriptContext, number, number) -> ())?,
+    on_event: ((ScriptContext, string, string, number) -> ())?,
 }
 
 local script: ScriptDefinition = {

@@ -295,6 +295,11 @@ void ScriptInspectorDrawer::draw(
 
     draw_diagnostics(component.script_handle);
     if (context.script_runtime) {
+        if (const std::string* reload_error = context.script_runtime->reload_error(component.script_handle)) {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.25f, 1.0f), "Hot reload kept previous version");
+            ImGui::TextWrapped("%s", reload_error->c_str());
+        }
         if (const ScriptExecutionStatus* status = context.script_runtime->status(entity);
             status && status->state == ScriptExecutionState::Error) {
             ImGui::Separator();

@@ -369,6 +369,14 @@ target_compile_definitions(LuauRuntimeTests PRIVATE
 target_link_libraries(LuauRuntimeTests PRIVATE EngineRuntime Luau.Analysis)
 add_test(NAME LuauRuntimeTests COMMAND LuauRuntimeTests)
 
+add_executable(ScriptHotReloadTests tests/ScriptHotReloadTests.cpp)
+target_include_directories(ScriptHotReloadTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(ScriptHotReloadTests PRIVATE EngineRuntime)
+add_test(NAME ScriptHotReloadTests COMMAND ScriptHotReloadTests)
+
 add_executable(ScriptSerializationTests tests/ScriptSerializationTests.cpp)
 target_include_directories(ScriptSerializationTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

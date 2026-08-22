@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <optional>
 #include <SDL3/SDL.h>
 
 namespace Engine {
@@ -20,8 +21,31 @@ enum class ScenePlayState {
     Pause
 };
 
+struct PlayModePropertyChange {
+    std::size_t id{0};
+    EntityID entity{0};
+    std::string component;
+    std::string property;
+    std::string before_value;
+    std::string after_value;
+    bool selected{false};
+    std::string json_pointer;
+    bool existed_after{true};
+};
+
+struct PlayModeApplySnapshot {
+    std::string before_json;
+    std::string after_json;
+    std::size_t property_count{0};
+};
+
 class SceneManager {
 public:
+    using RuntimeSceneLoader = std::function<std::shared_ptr<Scene>(
+        const std::string& project_relative_path,
+        std::string& error
+    )>;
+
     SceneManager() = default;
 
     void add_scene(std::shared_ptr<Scene> scene);
@@ -50,9 +74,19 @@ public:
     [[nodiscard]] bool is_paused() const { return m_play_state == ScenePlayState::Pause; }
     [[nodiscard]] bool is_editing() const { return m_play_state == ScenePlayState::Edit; }
     [[nodiscard]] const ScriptRuntime& get_script_runtime() const { return m_script_runtime; }
+    [[nodiscard]] const std::vector<PlayModePropertyChange>& get_play_mode_changes() const {
+        return m_play_mode_changes;
+    }
+    [[nodiscard]] bool has_play_mode_changes() const { return !m_play_mode_changes.empty(); }
+    void select_play_mode_change(std::size_t id, bool selected);
+    void select_all_play_mode_changes(bool selected);
+    [[nodiscard]] std::optional<PlayModeApplySnapshot> build_play_mode_apply_snapshot();
+    void clear_play_mode_changes() { m_play_mode_changes.clear(); }
 
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
     void set_asset_database(const AssetDatabase* asset_database) { m_asset_database = asset_database; }
+    void set_script_runtime_services(ScriptRuntimeServices services) { m_script_services = std::move(services); }
+    void set_runtime_scene_loader(RuntimeSceneLoader loader) { m_runtime_scene_loader = std::move(loader); }
     void set_on_authoring_state_invalidated(std::function<void()> callback) { m_on_authoring_state_invalidated = std::move(callback); }
 
     void update(float delta_time);
@@ -74,10 +108,16 @@ public:
 private:
     void save_state();
     void apply_active_view();
+    void start_scripts(Scene& scene);
+    [[nodiscard]] bool request_runtime_scene_load(const std::string& path, std::string& error);
+    void activate_pending_runtime_scene();
+    void collect_play_mode_changes(const std::string& runtime_json);
 
     std::vector<std::shared_ptr<Scene>> m_scenes;
     int m_active_index{-1};
     std::shared_ptr<Scene> m_transient_scene{nullptr};
+    std::shared_ptr<Scene> m_runtime_scene{nullptr};
+    std::shared_ptr<Scene> m_pending_runtime_scene{nullptr};
     RenderViewConfiguration m_editor_view;
     RenderViewConfiguration m_game_view;
 
@@ -85,8 +125,11 @@ private:
     std::string m_snapshot_json;
     SDL_Renderer* m_renderer{nullptr};
     const AssetDatabase* m_asset_database{nullptr};
+    ScriptRuntimeServices m_script_services;
+    RuntimeSceneLoader m_runtime_scene_loader;
     std::function<void()> m_on_authoring_state_invalidated;
     ScriptRuntime m_script_runtime;
+    std::vector<PlayModePropertyChange> m_play_mode_changes;
 };
 
 } // namespace Engine

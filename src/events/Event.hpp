@@ -29,11 +29,11 @@ struct EntityDestroyedEvent : public IEvent {
 struct CollisionEvent : public IEvent {
     EntityID entity_a;
     EntityID entity_b;
-    glm::vec2 contact_point;
+    glm::vec2 contact_normal;
     bool is_trigger{false};
 
     CollisionEvent(EntityID a, EntityID b, const glm::vec2& contact = {0.0f, 0.0f}, bool trigger = false)
-        : entity_a(a), entity_b(b), contact_point(contact), is_trigger(trigger) {}
+        : entity_a(a), entity_b(b), contact_normal(contact), is_trigger(trigger) {}
 
     const char* get_name() const override { return "CollisionEvent"; }
     std::type_index get_type_index() const override { return std::type_index(typeid(CollisionEvent)); }

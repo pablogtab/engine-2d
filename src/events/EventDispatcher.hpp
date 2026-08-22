@@ -6,11 +6,15 @@
 #include <functional>
 #include <typeindex>
 #include <memory>
+#include <cstdint>
+#include <algorithm>
 
 namespace Engine {
 
 class EventDispatcher {
 public:
+    using SubscriptionId = std::uint64_t;
+
     template<typename T>
     using EventCallback = std::function<void(const T&)>;
 
@@ -19,11 +23,25 @@ public:
 
     // Subscribe to a specific Event type T
     template<typename T>
-    void subscribe(EventCallback<T> callback) {
+    SubscriptionId subscribe(EventCallback<T> callback) {
         std::type_index type_idx = std::type_index(typeid(T));
-        m_subscribers[type_idx].push_back([callback](const IEvent& event) {
+        const SubscriptionId id = m_next_subscription_id++;
+        m_subscribers[type_idx].push_back({id, [callback = std::move(callback)](const IEvent& event) {
             callback(static_cast<const T&>(event));
-        });
+        }});
+        return id;
+    }
+
+    bool unsubscribe(SubscriptionId id) {
+        for (auto& [type, subscribers] : m_subscribers) {
+            (void)type;
+            const auto previous_size = subscribers.size();
+            std::erase_if(subscribers, [id](const Subscriber& subscriber) {
+                return subscriber.id == id;
+            });
+            if (subscribers.size() != previous_size) return true;
+        }
+        return false;
     }
 
     // Publish an event immediately to all subscribers (synchronous, 0 heap allocations)
@@ -32,8 +50,8 @@ public:
         std::type_index type_idx = std::type_index(typeid(T));
         auto it = m_subscribers.find(type_idx);
         if (it != m_subscribers.end()) {
-            for (const auto& listener : it->second) {
-                listener(event);
+            for (const auto& subscriber : it->second) {
+                subscriber.callback(event);
             }
         }
     }
@@ -51,8 +69,8 @@ public:
                 std::type_index type_idx = event_ptr->get_type_index();
                 auto it = m_subscribers.find(type_idx);
                 if (it != m_subscribers.end()) {
-                    for (const auto& listener : it->second) {
-                        listener(*event_ptr);
+                    for (const auto& subscriber : it->second) {
+                        subscriber.callback(*event_ptr);
                     }
                 }
             }
@@ -68,8 +86,13 @@ public:
 
 private:
     using InternalCallback = std::function<void(const IEvent&)>;
-    std::unordered_map<std::type_index, std::vector<InternalCallback>> m_subscribers;
+    struct Subscriber {
+        SubscriptionId id{0};
+        InternalCallback callback;
+    };
+    std::unordered_map<std::type_index, std::vector<Subscriber>> m_subscribers;
     std::vector<std::unique_ptr<IEvent>> m_event_queue;
+    SubscriptionId m_next_subscription_id{1};
 };
 
 } // namespace Engine

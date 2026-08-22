@@ -11,18 +11,36 @@
 #include "../ecs/components/RenderingComponents.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
+#include "../events/Event.hpp"
+#include "../events/EventDispatcher.hpp"
 
 #include <Luau/Compiler.h>
 #include <lua.h>
 #include <lualib.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <exception>
+#include <filesystem>
 #include <optional>
 #include <string_view>
+#include <unordered_set>
 
 namespace Engine {
+
+struct ScriptBindingContext {
+    EntityManager* entity_manager{nullptr};
+    EntityID entity{0};
+    const AssetDatabase* asset_database{nullptr};
+    ScriptRuntimeServices* services{nullptr};
+    std::function<void(EntityID, std::string, std::string)> emit_event;
+};
+
+ScriptRuntime::Instance::~Instance() = default;
+ScriptRuntime::Instance::Instance(Instance&&) noexcept = default;
+ScriptRuntime::Instance& ScriptRuntime::Instance::operator=(Instance&&) noexcept = default;
+
 namespace {
 
 constexpr int k_invalid_reference = -1;
@@ -283,12 +301,18 @@ void push_field_value(lua_State* state, const ScriptPublicField& field) {
     }
 }
 
+ScriptBindingContext* bound_context(lua_State* state) {
+    return static_cast<ScriptBindingContext*>(lua_touserdata(state, lua_upvalueindex(1)));
+}
+
 EntityManager* bound_entity_manager(lua_State* state) {
-    return static_cast<EntityManager*>(lua_touserdata(state, lua_upvalueindex(1)));
+    const ScriptBindingContext* context = bound_context(state);
+    return context ? context->entity_manager : nullptr;
 }
 
 EntityID bound_entity(lua_State* state) {
-    return static_cast<EntityID>(lua_tointeger(state, lua_upvalueindex(2)));
+    const ScriptBindingContext* context = bound_context(state);
+    return context ? context->entity : 0;
 }
 
 int get_position(lua_State* state) {
@@ -414,16 +438,289 @@ int play_animation(lua_State* state) {
     return 1;
 }
 
+std::optional<AssetHandle> checked_asset_handle(lua_State* state, int index) {
+    if (!lua_isstring(state, index)) return std::nullopt;
+    return AssetHandle::from_string(lua_tostring(state, index));
+}
+
+const AssetRecord* ready_asset(lua_State* state, int index, AssetType expected) {
+    ScriptBindingContext* context = bound_context(state);
+    const auto handle = checked_asset_handle(state, index);
+    if (!context || !context->asset_database || !handle) return nullptr;
+    const AssetRecord* record = context->asset_database->find(*handle);
+    if (!record || record->status != AssetStatus::Ready) return nullptr;
+    if (expected != AssetType::Unknown && record->type != expected) return nullptr;
+    return record;
+}
+
+int push_service_result(lua_State* state, bool success, const std::string& error) {
+    lua_pushboolean(state, success);
+    if (!success) {
+        lua_pushstring(state, error.c_str());
+        return 2;
+    }
+    return 1;
+}
+
+int raise_script_error(lua_State* state, const char* message) {
+    luaL_error(state, "%s", message);
+    return 0;
+}
+
+bool valid_volume(float value) {
+    return std::isfinite(value) && value >= 0.0f && value <= 1.0f;
+}
+
+std::optional<std::uint64_t> source_signature(
+    const AssetDatabase& database,
+    AssetHandle handle
+) {
+    const AssetRecord* record = database.find(handle);
+    if (!record) return std::nullopt;
+    const std::filesystem::path path = database.project_root() / record->source_path;
+    std::error_code error;
+    const auto modified = std::filesystem::last_write_time(path, error);
+    if (error) return std::nullopt;
+    const std::uint64_t size = std::filesystem::file_size(path, error);
+    if (error) return std::nullopt;
+    const auto ticks = static_cast<std::uint64_t>(modified.time_since_epoch().count());
+    return ticks ^ (size + 0x9e3779b97f4a7c15ull + (ticks << 6u) + (ticks >> 2u));
+}
+
+std::uint64_t monotonic_milliseconds() {
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()
+    ).count());
+}
+
+int play_sound(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    const AssetRecord* record = ready_asset(state, 1, AssetType::Audio);
+    const float volume = static_cast<float>(luaL_optnumber(state, 2, 1.0));
+    const float pitch = static_cast<float>(luaL_optnumber(state, 3, 1.0));
+    if (!record) return push_service_result(state, false, "audio asset is missing or unavailable");
+    if (!valid_volume(volume) || !std::isfinite(pitch) || pitch <= 0.0f) {
+        return push_service_result(state, false, "volume must be within 0..1 and pitch must be positive");
+    }
+    if (!context->services || !context->services->play_sound) {
+        return push_service_result(state, false, "audio service is unavailable");
+    }
+    std::string error;
+    return push_service_result(state, context->services->play_sound(
+        context->asset_database->resolve(record->handle), volume, pitch, error
+    ), error);
+}
+
+int play_music(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    const AssetRecord* record = ready_asset(state, 1, AssetType::Audio);
+    const float volume = static_cast<float>(luaL_optnumber(state, 2, 0.5));
+    const bool loop = lua_gettop(state) < 3 || lua_toboolean(state, 3) != 0;
+    if (!record) return push_service_result(state, false, "audio asset is missing or unavailable");
+    if (!valid_volume(volume)) return push_service_result(state, false, "volume must be within 0..1");
+    if (!context->services || !context->services->play_music) {
+        return push_service_result(state, false, "audio service is unavailable");
+    }
+    std::string error;
+    return push_service_result(state, context->services->play_music(
+        context->asset_database->resolve(record->handle), volume, loop, error
+    ), error);
+}
+
+int stop_music(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    if (!context || !context->services || !context->services->stop_music) {
+        return raise_script_error(state, "audio service is unavailable");
+    }
+    context->services->stop_music();
+    return 0;
+}
+
+int pause_music(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    if (!context || !context->services || !context->services->pause_music) {
+        return raise_script_error(state, "audio service is unavailable");
+    }
+    context->services->pause_music();
+    return 0;
+}
+
+int resume_music(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    if (!context || !context->services || !context->services->resume_music) {
+        return raise_script_error(state, "audio service is unavailable");
+    }
+    context->services->resume_music();
+    return 0;
+}
+
+int set_volume(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    const std::string_view channel = luaL_checkstring(state, 1);
+    const float volume = static_cast<float>(luaL_checknumber(state, 2));
+    if (!valid_volume(volume)) return raise_script_error(state, "volume must be within 0..1");
+    if (!context || !context->services) return raise_script_error(state, "audio service is unavailable");
+    if (channel == "master") {
+        if (!context->services->set_master_volume) return raise_script_error(state, "audio service is unavailable");
+        context->services->set_master_volume(volume);
+    } else if (channel == "music") {
+        if (!context->services->set_music_volume) return raise_script_error(state, "audio service is unavailable");
+        context->services->set_music_volume(volume);
+    } else if (channel == "sfx") {
+        if (!context->services->set_sfx_volume) return raise_script_error(state, "audio service is unavailable");
+        context->services->set_sfx_volume(volume);
+    } else {
+        return raise_script_error(state, "audio channel must be 'master', 'music', or 'sfx'");
+    }
+    return 0;
+}
+
+int get_volume(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    const std::string_view channel = luaL_checkstring(state, 1);
+    if (!context || !context->services) return raise_script_error(state, "audio service is unavailable");
+    if (channel == "master") {
+        if (!context->services->get_master_volume) return raise_script_error(state, "audio service is unavailable");
+        lua_pushnumber(state, context->services->get_master_volume());
+    } else if (channel == "music") {
+        if (!context->services->get_music_volume) return raise_script_error(state, "audio service is unavailable");
+        lua_pushnumber(state, context->services->get_music_volume());
+    } else if (channel == "sfx") {
+        if (!context->services->get_sfx_volume) return raise_script_error(state, "audio service is unavailable");
+        lua_pushnumber(state, context->services->get_sfx_volume());
+    } else {
+        return raise_script_error(state, "audio channel must be 'master', 'music', or 'sfx'");
+    }
+    return 1;
+}
+
+int find_asset(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    const AssetRecord* record = context && context->asset_database
+        ? context->asset_database->find_by_path(luaL_checkstring(state, 1)) : nullptr;
+    if (!record || record->status != AssetStatus::Ready) lua_pushnil(state);
+    else lua_pushstring(state, record->handle.to_string().c_str());
+    return 1;
+}
+
+int asset_exists(lua_State* state) {
+    lua_pushboolean(state, ready_asset(state, 1, AssetType::Unknown) != nullptr);
+    return 1;
+}
+
+int asset_path(lua_State* state) {
+    const AssetRecord* record = ready_asset(state, 1, AssetType::Unknown);
+    if (record) lua_pushstring(state, record->source_path.c_str());
+    else lua_pushnil(state);
+    return 1;
+}
+
+int asset_type(lua_State* state) {
+    const AssetRecord* record = ready_asset(state, 1, AssetType::Unknown);
+    if (record) lua_pushstring(state, AssetDatabase::type_name(record->type));
+    else lua_pushnil(state);
+    return 1;
+}
+
+const char* window_mode_name(WindowMode mode) {
+    switch (mode) {
+        case WindowMode::Windowed: return "windowed";
+        case WindowMode::BorderlessFullscreen: return "borderless_fullscreen";
+        case WindowMode::ExclusiveFullscreen: return "exclusive_fullscreen";
+    }
+    return "windowed";
+}
+
+std::optional<WindowMode> window_mode_from_name(std::string_view name) {
+    if (name == "windowed") return WindowMode::Windowed;
+    if (name == "borderless_fullscreen") return WindowMode::BorderlessFullscreen;
+    if (name == "exclusive_fullscreen") return WindowMode::ExclusiveFullscreen;
+    return std::nullopt;
+}
+
+int get_display_info(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    if (!context || !context->services || !context->services->query_display) {
+        return raise_script_error(state, "display service is unavailable");
+    }
+    const ScriptDisplayInfo info = context->services->query_display();
+    lua_createtable(state, 0, 9);
+    lua_pushinteger(state, info.pixel_width); lua_setfield(state, -2, "width");
+    lua_pushinteger(state, info.pixel_height); lua_setfield(state, -2, "height");
+    lua_pushnumber(state, info.dpi_scale); lua_setfield(state, -2, "dpi_scale");
+    lua_pushinteger(state, info.reference_width); lua_setfield(state, -2, "reference_width");
+    lua_pushinteger(state, info.reference_height); lua_setfield(state, -2, "reference_height");
+    lua_pushstring(state, window_mode_name(info.window_mode)); lua_setfield(state, -2, "window_mode");
+    lua_pushboolean(state, info.vsync); lua_setfield(state, -2, "vsync");
+    lua_createtable(state, 0, 4);
+    lua_pushnumber(state, info.safe_area.left); lua_setfield(state, -2, "left");
+    lua_pushnumber(state, info.safe_area.top); lua_setfield(state, -2, "top");
+    lua_pushnumber(state, info.safe_area.right); lua_setfield(state, -2, "right");
+    lua_pushnumber(state, info.safe_area.bottom); lua_setfield(state, -2, "bottom");
+    lua_setfield(state, -2, "safe_area");
+    return 1;
+}
+
+int set_window_mode(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    const auto mode = window_mode_from_name(luaL_checkstring(state, 1));
+    if (!mode) return push_service_result(state, false, "invalid window mode");
+    if (!context || !context->services || !context->services->apply_display) {
+        return push_service_result(state, false, "display service is unavailable");
+    }
+    std::string error;
+    return push_service_result(state, context->services->apply_display({.window_mode = mode}, error), error);
+}
+
+int set_vsync(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    if (!context || !context->services || !context->services->apply_display) {
+        return push_service_result(state, false, "display service is unavailable");
+    }
+    std::string error;
+    return push_service_result(state, context->services->apply_display(
+        {.vsync = lua_toboolean(state, 1) != 0}, error
+    ), error);
+}
+
+int load_scene(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    const AssetRecord* record = ready_asset(state, 1, AssetType::Scene);
+    if (!record) return push_service_result(state, false, "scene asset is missing or unavailable");
+    if (!context->services || !context->services->request_scene_load) {
+        return push_service_result(state, false, "scene loading service is unavailable");
+    }
+    std::string error;
+    return push_service_result(state, context->services->request_scene_load(record->source_path, error), error);
+}
+
+int get_scene_name(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    if (!context || !context->services || !context->services->current_scene_name) {
+        return raise_script_error(state, "scene service is unavailable");
+    }
+    lua_pushstring(state, context->services->current_scene_name().c_str());
+    return 1;
+}
+
+int emit_event(lua_State* state) {
+    ScriptBindingContext* context = bound_context(state);
+    if (!context || !context->emit_event) return raise_script_error(state, "event service is unavailable");
+    const std::string name = luaL_checkstring(state, 1);
+    if (name.empty()) return raise_script_error(state, "event name cannot be empty");
+    const std::string payload = luaL_optstring(state, 2, "");
+    context->emit_event(context->entity, name, payload);
+    return 0;
+}
+
 void push_bound_function(
     lua_State* state,
-    EntityManager* entity_manager,
-    EntityID entity,
+    ScriptBindingContext* context,
     lua_CFunction function,
     const char* name
 ) {
-    lua_pushlightuserdata(state, entity_manager);
-    lua_pushinteger(state, entity);
-    lua_pushcclosure(state, function, name, 2);
+    lua_pushlightuserdata(state, context);
+    lua_pushcclosure(state, function, name, 1);
 }
 
 const ScriptPublicField* find_override(
@@ -446,26 +743,46 @@ ScriptRuntime::~ScriptRuntime() {
     shutdown();
 }
 
-ScriptRuntime::ScriptRuntime(ScriptRuntime&& other) noexcept
-    : m_state(other.m_state),
-      m_entity_manager(other.m_entity_manager),
-      m_instances(std::move(other.m_instances)),
-      m_statuses(std::move(other.m_statuses)) {
-    other.m_state = nullptr;
-    other.m_entity_manager = nullptr;
-    other.m_instances.clear();
+ScriptRuntime::ScriptRuntime(ScriptRuntime&& other) noexcept {
+    *this = std::move(other);
 }
 
 ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     if (this == &other) return *this;
     shutdown();
+
+    EventDispatcher* dispatcher = other.m_event_dispatcher;
+    other.unsubscribe_from_events();
     m_state = other.m_state;
     m_entity_manager = other.m_entity_manager;
+    m_asset_database = other.m_asset_database;
+    m_event_dispatcher = dispatcher;
+    m_services = std::move(other.m_services);
     m_instances = std::move(other.m_instances);
     m_statuses = std::move(other.m_statuses);
+    m_source_signatures = std::move(other.m_source_signatures);
+    m_reload_errors = std::move(other.m_reload_errors);
+    m_next_hot_reload_poll_ms = other.m_next_hot_reload_poll_ms;
+    m_pending_events = std::move(other.m_pending_events);
+
     other.m_state = nullptr;
     other.m_entity_manager = nullptr;
+    other.m_asset_database = nullptr;
+    other.m_services = {};
     other.m_instances.clear();
+    other.m_statuses.clear();
+    other.m_source_signatures.clear();
+    other.m_reload_errors.clear();
+    other.m_next_hot_reload_poll_ms = 0;
+    other.m_pending_events.clear();
+
+    for (Instance& instance : m_instances) {
+        instance.binding_context->services = &m_services;
+        instance.binding_context->emit_event = [this](EntityID source, std::string name, std::string payload) {
+            queue_custom_event(source, std::move(name), std::move(payload));
+        };
+    }
+    subscribe_to_events();
     return *this;
 }
 
@@ -479,18 +796,26 @@ ScriptInspectionResult ScriptRuntime::inspect_asset(
 
 ScriptRuntimeStartResult ScriptRuntime::start(
     EntityManager& entity_manager,
-    const AssetDatabase& asset_database
+    const AssetDatabase& asset_database,
+    EventDispatcher* event_dispatcher,
+    ScriptRuntimeServices services
 ) {
     shutdown();
     m_statuses.clear();
     m_entity_manager = &entity_manager;
+    m_asset_database = &asset_database;
+    m_event_dispatcher = event_dispatcher;
+    m_services = std::move(services);
     m_state = luaL_newstate();
     if (!m_state) {
         m_entity_manager = nullptr;
+        m_asset_database = nullptr;
+        m_event_dispatcher = nullptr;
         return {};
     }
     luaL_openlibs(m_state);
     luaL_sandbox(m_state);
+    subscribe_to_events();
 
     ScriptRuntimeStartResult result;
     std::unordered_map<AssetHandle, CompiledAsset> compiled_assets;
@@ -521,6 +846,14 @@ ScriptRuntimeStartResult ScriptRuntime::start(
             set_error(entity, std::move(error));
         }
     });
+    if (m_services.hot_reload_enabled) {
+        for (const Instance& instance : m_instances) {
+            m_source_signatures.insert_or_assign(
+                instance.script_handle,
+                source_signature(asset_database, instance.script_handle)
+            );
+        }
+    }
     return result;
 }
 
@@ -537,6 +870,14 @@ bool ScriptRuntime::create_instance(
     instance.script_handle = component.script_handle;
     instance.field_definitions = field_definitions;
     instance.authored_fields = component.public_fields;
+    instance.binding_context = std::make_unique<ScriptBindingContext>();
+    instance.binding_context->entity_manager = m_entity_manager;
+    instance.binding_context->entity = entity;
+    instance.binding_context->asset_database = m_asset_database;
+    instance.binding_context->services = &m_services;
+    instance.binding_context->emit_event = [this](EntityID source, std::string name, std::string payload) {
+        queue_custom_event(source, std::move(name), std::move(payload));
+    };
     instance.thread = lua_newthread(m_state);
     instance.thread_ref = lua_ref(m_state, -1);
     lua_pop(m_state, 1);
@@ -548,7 +889,7 @@ bool ScriptRuntime::create_instance(
     instance.module_ref = lua_ref(instance.thread, -1);
     lua_pop(instance.thread, 1);
 
-    lua_createtable(instance.thread, 0, 14);
+    lua_createtable(instance.thread, 0, 32);
     lua_pushinteger(instance.thread, entity);
     lua_setfield(instance.thread, -2, "entity");
 
@@ -560,32 +901,67 @@ bool ScriptRuntime::create_instance(
     }
     lua_setfield(instance.thread, -2, "fields");
 
-    push_bound_function(instance.thread, m_entity_manager, entity, get_position, "get_position");
+    ScriptBindingContext* binding = instance.binding_context.get();
+    push_bound_function(instance.thread, binding, get_position, "get_position");
     lua_setfield(instance.thread, -2, "get_position");
-    push_bound_function(instance.thread, m_entity_manager, entity, set_position, "set_position");
+    push_bound_function(instance.thread, binding, set_position, "set_position");
     lua_setfield(instance.thread, -2, "set_position");
-    push_bound_function(instance.thread, m_entity_manager, entity, get_axis, "get_axis");
+    push_bound_function(instance.thread, binding, get_axis, "get_axis");
     lua_setfield(instance.thread, -2, "get_axis");
-    push_bound_function(instance.thread, m_entity_manager, entity, is_action_pressed, "is_action_pressed");
+    push_bound_function(instance.thread, binding, is_action_pressed, "is_action_pressed");
     lua_setfield(instance.thread, -2, "is_action_pressed");
-    push_bound_function(instance.thread, m_entity_manager, entity, is_action_just_pressed, "is_action_just_pressed");
+    push_bound_function(instance.thread, binding, is_action_just_pressed, "is_action_just_pressed");
     lua_setfield(instance.thread, -2, "is_action_just_pressed");
-    push_bound_function(instance.thread, m_entity_manager, entity, is_action_just_released, "is_action_just_released");
+    push_bound_function(instance.thread, binding, is_action_just_released, "is_action_just_released");
     lua_setfield(instance.thread, -2, "is_action_just_released");
-    push_bound_function(instance.thread, m_entity_manager, entity, get_velocity, "get_velocity");
+    push_bound_function(instance.thread, binding, get_velocity, "get_velocity");
     lua_setfield(instance.thread, -2, "get_velocity");
-    push_bound_function(instance.thread, m_entity_manager, entity, set_velocity, "set_velocity");
+    push_bound_function(instance.thread, binding, set_velocity, "set_velocity");
     lua_setfield(instance.thread, -2, "set_velocity");
-    push_bound_function(instance.thread, m_entity_manager, entity, is_grounded, "is_grounded");
+    push_bound_function(instance.thread, binding, is_grounded, "is_grounded");
     lua_setfield(instance.thread, -2, "is_grounded");
-    push_bound_function(instance.thread, m_entity_manager, entity, set_sprite_flip_x, "set_sprite_flip_x");
+    push_bound_function(instance.thread, binding, set_sprite_flip_x, "set_sprite_flip_x");
     lua_setfield(instance.thread, -2, "set_sprite_flip_x");
-    push_bound_function(instance.thread, m_entity_manager, entity, play_animation, "play_animation");
+    push_bound_function(instance.thread, binding, play_animation, "play_animation");
     lua_setfield(instance.thread, -2, "play_animation");
+    push_bound_function(instance.thread, binding, play_sound, "play_sound");
+    lua_setfield(instance.thread, -2, "play_sound");
+    push_bound_function(instance.thread, binding, play_music, "play_music");
+    lua_setfield(instance.thread, -2, "play_music");
+    push_bound_function(instance.thread, binding, stop_music, "stop_music");
+    lua_setfield(instance.thread, -2, "stop_music");
+    push_bound_function(instance.thread, binding, pause_music, "pause_music");
+    lua_setfield(instance.thread, -2, "pause_music");
+    push_bound_function(instance.thread, binding, resume_music, "resume_music");
+    lua_setfield(instance.thread, -2, "resume_music");
+    push_bound_function(instance.thread, binding, set_volume, "set_volume");
+    lua_setfield(instance.thread, -2, "set_volume");
+    push_bound_function(instance.thread, binding, get_volume, "get_volume");
+    lua_setfield(instance.thread, -2, "get_volume");
+    push_bound_function(instance.thread, binding, find_asset, "find_asset");
+    lua_setfield(instance.thread, -2, "find_asset");
+    push_bound_function(instance.thread, binding, asset_exists, "asset_exists");
+    lua_setfield(instance.thread, -2, "asset_exists");
+    push_bound_function(instance.thread, binding, asset_path, "asset_path");
+    lua_setfield(instance.thread, -2, "asset_path");
+    push_bound_function(instance.thread, binding, asset_type, "asset_type");
+    lua_setfield(instance.thread, -2, "asset_type");
+    push_bound_function(instance.thread, binding, get_display_info, "get_display_info");
+    lua_setfield(instance.thread, -2, "get_display_info");
+    push_bound_function(instance.thread, binding, set_window_mode, "set_window_mode");
+    lua_setfield(instance.thread, -2, "set_window_mode");
+    push_bound_function(instance.thread, binding, set_vsync, "set_vsync");
+    lua_setfield(instance.thread, -2, "set_vsync");
+    push_bound_function(instance.thread, binding, load_scene, "load_scene");
+    lua_setfield(instance.thread, -2, "load_scene");
+    push_bound_function(instance.thread, binding, get_scene_name, "get_scene_name");
+    lua_setfield(instance.thread, -2, "get_scene_name");
+    push_bound_function(instance.thread, binding, emit_event, "emit_event");
+    lua_setfield(instance.thread, -2, "emit_event");
 
     instance.context_ref = lua_ref(instance.thread, -1);
     lua_pop(instance.thread, 1);
-    m_instances.push_back(instance);
+    m_instances.push_back(std::move(instance));
     Instance& stored = m_instances.back();
     if (!call(stored, "on_create", 0.0f, false)) {
         error = m_statuses[entity].message;
@@ -653,6 +1029,267 @@ bool ScriptRuntime::call(
     return true;
 }
 
+bool ScriptRuntime::call_event(Instance& instance, const PendingEvent& event) {
+    const char* callback = nullptr;
+    switch (event.type) {
+        case PendingEventType::CollisionEnter: callback = "on_collision_enter"; break;
+        case PendingEventType::CollisionExit: callback = "on_collision_exit"; break;
+        case PendingEventType::ButtonClicked: callback = "on_ui_button_clicked"; break;
+        case PendingEventType::FocusChanged: callback = "on_ui_focus_changed"; break;
+        case PendingEventType::Custom: callback = "on_event"; break;
+    }
+
+    lua_State* state = instance.thread;
+    lua_settop(state, 0);
+    lua_getref(state, instance.module_ref);
+    lua_getfield(state, -1, callback);
+    if (lua_isnil(state, -1)) {
+        lua_settop(state, 0);
+        return true;
+    }
+    if (!lua_isfunction(state, -1)) {
+        set_error(instance.entity, std::string(callback) + " must be a function");
+        lua_settop(state, 0);
+        return false;
+    }
+    lua_remove(state, -2);
+    lua_getref(state, instance.context_ref);
+    int argument_count = 1;
+    switch (event.type) {
+        case PendingEventType::CollisionEnter:
+            lua_pushinteger(state, event.entity_b);
+            lua_pushnumber(state, event.normal_x);
+            lua_pushnumber(state, event.normal_y);
+            lua_pushboolean(state, event.is_trigger);
+            argument_count += 4;
+            break;
+        case PendingEventType::CollisionExit:
+            lua_pushinteger(state, event.entity_b);
+            lua_pushboolean(state, event.is_trigger);
+            argument_count += 2;
+            break;
+        case PendingEventType::ButtonClicked:
+            lua_pushinteger(state, event.entity_a);
+            ++argument_count;
+            break;
+        case PendingEventType::FocusChanged:
+            lua_pushinteger(state, event.entity_a);
+            lua_pushinteger(state, event.entity_b);
+            argument_count += 2;
+            break;
+        case PendingEventType::Custom:
+            lua_pushstring(state, event.name.c_str());
+            lua_pushstring(state, event.payload.c_str());
+            lua_pushinteger(state, event.entity_a);
+            argument_count += 3;
+            break;
+    }
+    if (lua_pcall(state, argument_count, 0, 0) != LUA_OK) {
+        set_error(instance.entity, stack_error(state, std::string(callback) + " failed"));
+        lua_settop(state, 0);
+        return false;
+    }
+    lua_settop(state, 0);
+    return true;
+}
+
+void ScriptRuntime::subscribe_to_events() {
+    if (!m_event_dispatcher) return;
+    m_event_subscriptions.push_back(m_event_dispatcher->subscribe<CollisionEvent>(
+        [this](const CollisionEvent& event) {
+            m_pending_events.push_back({
+                .type = PendingEventType::CollisionEnter,
+                .entity_a = event.entity_a,
+                .entity_b = event.entity_b,
+                .normal_x = event.contact_normal.x,
+                .normal_y = event.contact_normal.y,
+                .is_trigger = event.is_trigger
+            });
+        }
+    ));
+    m_event_subscriptions.push_back(m_event_dispatcher->subscribe<CollisionEndEvent>(
+        [this](const CollisionEndEvent& event) {
+            m_pending_events.push_back({
+                .type = PendingEventType::CollisionExit,
+                .entity_a = event.entity_a,
+                .entity_b = event.entity_b,
+                .is_trigger = event.is_trigger
+            });
+        }
+    ));
+    m_event_subscriptions.push_back(m_event_dispatcher->subscribe<UIButtonClickedEvent>(
+        [this](const UIButtonClickedEvent& event) {
+            m_pending_events.push_back({
+                .type = PendingEventType::ButtonClicked,
+                .entity_a = event.entity
+            });
+        }
+    ));
+    m_event_subscriptions.push_back(m_event_dispatcher->subscribe<UIFocusChangedEvent>(
+        [this](const UIFocusChangedEvent& event) {
+            m_pending_events.push_back({
+                .type = PendingEventType::FocusChanged,
+                .entity_a = event.previous_entity,
+                .entity_b = event.focused_entity
+            });
+        }
+    ));
+}
+
+void ScriptRuntime::unsubscribe_from_events() {
+    if (m_event_dispatcher) {
+        for (const std::uint64_t subscription : m_event_subscriptions) {
+            static_cast<void>(m_event_dispatcher->unsubscribe(subscription));
+        }
+    }
+    m_event_subscriptions.clear();
+    m_event_dispatcher = nullptr;
+}
+
+void ScriptRuntime::queue_custom_event(EntityID source, std::string name, std::string payload) {
+    m_pending_events.push_back({
+        .type = PendingEventType::Custom,
+        .entity_a = source,
+        .name = std::move(name),
+        .payload = std::move(payload)
+    });
+}
+
+void ScriptRuntime::dispatch_events() {
+    if (!m_state || !m_entity_manager || m_pending_events.empty()) return;
+    std::vector<PendingEvent> events;
+    events.swap(m_pending_events);
+    for (const PendingEvent& event : events) {
+        for (Instance& instance : m_instances) {
+            const auto status_found = m_statuses.find(instance.entity);
+            if (status_found != m_statuses.end() &&
+                status_found->second.state == ScriptExecutionState::Error) continue;
+            if (!m_entity_manager->is_alive(instance.entity) ||
+                !m_entity_manager->has_component<ScriptComponent>(instance.entity) ||
+                !m_entity_manager->get_component<ScriptComponent>(instance.entity).enabled) continue;
+
+            PendingEvent delivered = event;
+            if (event.type == PendingEventType::CollisionEnter ||
+                event.type == PendingEventType::CollisionExit) {
+                if (instance.entity == event.entity_a) {
+                    delivered.entity_b = event.entity_b;
+                } else if (instance.entity == event.entity_b) {
+                    delivered.entity_b = event.entity_a;
+                    delivered.normal_x = -event.normal_x;
+                    delivered.normal_y = -event.normal_y;
+                } else {
+                    continue;
+                }
+            }
+            static_cast<void>(call_event(instance, delivered));
+        }
+    }
+}
+
+ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
+    ScriptHotReloadResult result;
+    if (!m_state || !m_entity_manager || !m_asset_database || !m_services.hot_reload_enabled) {
+        return result;
+    }
+
+    if (!force) {
+        const std::uint64_t now = monotonic_milliseconds();
+        if (now < m_next_hot_reload_poll_ms) return result;
+        m_next_hot_reload_poll_ms = now + 250;
+    }
+
+    std::vector<AssetHandle> handles;
+    handles.reserve(m_instances.size());
+    std::unordered_set<AssetHandle> seen_handles;
+    for (const Instance& instance : m_instances) {
+        if (seen_handles.insert(instance.script_handle).second) {
+            handles.push_back(instance.script_handle);
+        }
+    }
+
+    for (const AssetHandle handle : handles) {
+        const std::optional<std::uint64_t> signature = source_signature(*m_asset_database, handle);
+        const auto observed = m_source_signatures.find(handle);
+        if (!force && observed != m_source_signatures.end() && observed->second == signature) continue;
+        m_source_signatures.insert_or_assign(handle, signature);
+
+        std::vector<std::size_t> matching_instances;
+        for (std::size_t index = 0; index < m_instances.size(); ++index) {
+            if (m_instances[index].script_handle == handle) matching_instances.push_back(index);
+        }
+        if (matching_instances.empty()) continue;
+
+        const CompiledAsset compiled = compile_asset(handle, *m_asset_database);
+        if (!compiled.success) {
+            result.failed += matching_instances.size();
+            m_reload_errors.insert_or_assign(handle, compiled.error);
+            ENGINE_LOG_ERROR(
+                "[SCRIPT RELOAD] Kept previous instances for asset {}: {}",
+                handle.to_string(),
+                compiled.error
+            );
+            continue;
+        }
+
+        std::string reload_error_message;
+        for (const std::size_t index : matching_instances) {
+            if (index >= m_instances.size()) continue;
+            const EntityID entity = m_instances[index].entity;
+            if (!m_entity_manager->is_alive(entity) ||
+                !m_entity_manager->has_component<ScriptComponent>(entity)) continue;
+
+            const ScriptComponent& component =
+                m_entity_manager->get_component<ScriptComponent>(entity);
+            const auto previous_status = m_statuses.find(entity);
+            const std::optional<ScriptExecutionStatus> saved_status = previous_status == m_statuses.end()
+                ? std::nullopt : std::optional<ScriptExecutionStatus>{previous_status->second};
+            std::string instance_error;
+            if (!create_instance(
+                    entity,
+                    component,
+                    compiled.bytecode,
+                    compiled.chunk_name,
+                    compiled.fields,
+                    instance_error
+                )) {
+                if (saved_status) m_statuses.insert_or_assign(entity, *saved_status);
+                else m_statuses.erase(entity);
+                ++result.failed;
+                if (reload_error_message.empty()) {
+                    reload_error_message = "entity " + std::to_string(entity) + ": " + instance_error;
+                }
+                continue;
+            }
+
+            Instance replacement = std::move(m_instances.back());
+            m_instances.pop_back();
+            Instance previous = std::move(m_instances[index]);
+            m_instances[index] = std::move(replacement);
+            if (previous.created) static_cast<void>(call(previous, "on_destroy", 0.0f, false));
+            release_instance(previous);
+            m_statuses.insert_or_assign(entity, ScriptExecutionStatus{});
+            ++result.reloaded;
+        }
+
+        if (reload_error_message.empty()) {
+            m_reload_errors.erase(handle);
+            ENGINE_LOG_INFO(
+                "[SCRIPT RELOAD] Reloaded asset {} for {} instances",
+                handle.to_string(),
+                matching_instances.size()
+            );
+        } else {
+            m_reload_errors.insert_or_assign(handle, reload_error_message);
+            ENGINE_LOG_ERROR(
+                "[SCRIPT RELOAD] Some instances kept their previous version for asset {}: {}",
+                handle.to_string(),
+                reload_error_message
+            );
+        }
+    }
+    return result;
+}
+
 void ScriptRuntime::update(float delta_time) {
     if (!m_state || !m_entity_manager) return;
     for (auto& instance : m_instances) {
@@ -677,6 +1314,7 @@ void ScriptRuntime::release_instance(Instance& instance) {
 }
 
 void ScriptRuntime::shutdown() {
+    unsubscribe_from_events();
     if (m_state) {
         for (auto& instance : m_instances) {
             if (instance.created) static_cast<void>(call(instance, "on_destroy", 0.0f, false));
@@ -686,7 +1324,13 @@ void ScriptRuntime::shutdown() {
     }
     m_state = nullptr;
     m_entity_manager = nullptr;
+    m_asset_database = nullptr;
+    m_services = {};
     m_instances.clear();
+    m_source_signatures.clear();
+    m_reload_errors.clear();
+    m_next_hot_reload_poll_ms = 0;
+    m_pending_events.clear();
 }
 
 void ScriptRuntime::set_error(EntityID entity, std::string message) {
@@ -697,6 +1341,11 @@ void ScriptRuntime::set_error(EntityID entity, std::string message) {
 const ScriptExecutionStatus* ScriptRuntime::status(EntityID entity) const {
     const auto found = m_statuses.find(entity);
     return found == m_statuses.end() ? nullptr : &found->second;
+}
+
+const std::string* ScriptRuntime::reload_error(AssetHandle handle) const {
+    const auto found = m_reload_errors.find(handle);
+    return found == m_reload_errors.end() ? nullptr : &found->second;
 }
 
 } // namespace Engine

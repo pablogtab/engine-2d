@@ -29,6 +29,7 @@
 #include "../renderer/material/SDLGPUMaterialBackend.hpp"
 #include "../renderer/material/MaterialAsset.hpp"
 #include <algorithm>
+#include <filesystem>
 
 namespace Engine {
 
@@ -121,6 +122,58 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_display_manager->set_apply_enabled(!start_with_editor);
     m_scene_manager.set_renderer(m_window->get_sdl_renderer());
     m_scene_manager.set_asset_database(&AssetDatabase::get());
+    ScriptRuntimeServices script_services;
+    script_services.hot_reload_enabled = start_with_editor;
+    script_services.play_sound = [](const std::string& path, float volume, float pitch, std::string&) {
+        AudioEngine::play_sound(path, volume, pitch);
+        return true;
+    };
+    script_services.play_music = [](const std::string& path, float volume, bool loop, std::string&) {
+        AudioEngine::play_music(path, volume, loop);
+        return true;
+    };
+    script_services.stop_music = []() { AudioEngine::stop_music(); };
+    script_services.pause_music = []() { AudioEngine::pause_music(); };
+    script_services.resume_music = []() { AudioEngine::resume_music(); };
+    script_services.set_master_volume = [](float volume) { AudioEngine::set_master_volume(volume); };
+    script_services.set_music_volume = [](float volume) { AudioEngine::set_music_volume(volume); };
+    script_services.set_sfx_volume = [](float volume) { AudioEngine::set_sfx_volume(volume); };
+    script_services.get_master_volume = []() { return AudioEngine::get_master_volume(); };
+    script_services.get_music_volume = []() { return AudioEngine::get_music_volume(); };
+    script_services.get_sfx_volume = []() { return AudioEngine::get_sfx_volume(); };
+    script_services.query_display = [this]() {
+        const DisplayState& state = m_display_manager->current_state();
+        const ProjectDisplaySettings& project = m_project_settings.display();
+        return ScriptDisplayInfo{
+            .pixel_width = state.pixel_width,
+            .pixel_height = state.pixel_height,
+            .dpi_scale = state.dpi_scale,
+            .safe_area = state.safe_area,
+            .window_mode = state.settings.window_mode,
+            .vsync = state.settings.vsync,
+            .reference_width = project.reference_width,
+            .reference_height = project.reference_height
+        };
+    };
+    script_services.apply_display = [this](const ScriptDisplayRequest& request, std::string& error) {
+        DisplaySettings settings = m_display_manager->current_state().settings;
+        if (request.window_mode) settings.window_mode = *request.window_mode;
+        if (request.vsync) settings.vsync = *request.vsync;
+        const DisplayApplyResult result = m_display_manager->apply(settings);
+        error = result.message;
+        return result.success;
+    };
+    m_scene_manager.set_script_runtime_services(std::move(script_services));
+    m_scene_manager.set_runtime_scene_loader([this](const std::string& path, std::string& error) {
+        const std::filesystem::path absolute_path = m_project.resolve(path);
+        auto scene = std::make_shared<GenericScene>(absolute_path.stem().string());
+        SceneSerializer serializer(scene.get(), m_window->get_sdl_renderer());
+        if (!serializer.deserialize(absolute_path.string())) {
+            error = "Could not deserialize scene asset: " + path;
+            return std::shared_ptr<Scene>{};
+        }
+        return std::shared_ptr<Scene>{std::move(scene)};
+    });
     AssetDatabase::get().set_on_assets_changed([this]() {
         const auto refreshed = m_scene_manager.refresh_material_assets(AssetDatabase::get());
         if (m_renderer && m_renderer->get_material_backend()) m_renderer->get_material_backend()->discard_unused();

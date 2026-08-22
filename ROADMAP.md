@@ -361,15 +361,15 @@ This is intentionally independent from the material workflow above. Materials re
 **Goal:** Enable rapid gameplay iteration without recompiling C++ or compromising authoring state.
 
 - [x] Add embedded Luau runtime integration and a registered, serializable `ScriptComponent`.
-- [ ] Bind engine APIs.
+- [x] Bind engine APIs.
   - [x] Entity identity and local Transform position.
   - [x] Named Input actions/axes, RigidBody velocity/grounded state, Sprite facing, and Animation clip playback.
-  - [ ] Audio, collision/events, assets, display, and scene loading.
+  - [x] Audio, collision/events, assets, display, and scene loading.
 - [x] Add script creation, attachment, typed public-field inspection, editing, and strict error reporting.
-- [ ] Add hot reload with explicit lifecycle and failure behavior.
+- [x] Add hot reload with explicit lifecycle and failure behavior.
 - [x] Preserve the current safe default: Stop tears down scripts and restores the authoring snapshot.
 - [x] Synchronize Inspector public-field edits into running instances for live Play Mode tuning.
-- [ ] Add opt-in Play Mode apply-back for explicitly selected properties.
+- [x] Add opt-in Play Mode apply-back for explicitly selected properties.
 - [x] Keep runtime script state distinct from serialized public fields.
 
 **Completion criteria:** Gameplay behavior can be authored, inspected, debugged, and reloaded while Edit and Play state remain predictably isolated.
@@ -530,10 +530,10 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 7 — Luau Scripting and Play Mode Suites
 
-- [ ] `LuauRuntimeTests` — baseline VM lifecycle, Transform binding, strict errors, public fields, and deterministic teardown are covered; remaining engine bindings are pending.
-- [ ] `ScriptHotReloadTests` — successful reload, syntax/runtime failure, state policy, removed fields, and recovery without corrupting the scene.
+- [x] `LuauRuntimeTests` — VM lifecycle, strict errors, live public fields, gameplay bindings, asset validation, audio/display/scene services, deferred event delivery, and deterministic teardown.
+- [x] `ScriptHotReloadTests` — successful reload, syntax/runtime initialization failure, retained-state policy, removed fields, and recovery without corrupting the scene.
 - [ ] `ScriptSerializationTests` — public fields, defaults, type changes, missing scripts, asset/entity references, and schema evolution.
-- [ ] `PlayModeIsolationTests` — authoring snapshot restoration, runtime-only mutations, explicit apply-back, script state, physics state, and command-history isolation.
+- [ ] `PlayModeIsolationTests` — authoring snapshot restoration, selected-property apply-back, and isolated runtime scene switching are covered; broader physics-state and command-history isolation cases remain pending.
 
 ### Phases 8 and 9 — Performance and Export Suites
 
