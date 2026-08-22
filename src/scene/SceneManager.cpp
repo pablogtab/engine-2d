@@ -168,7 +168,15 @@ void SceneManager::start_play() {
 
     m_play_state = ScenePlayState::Play;
     Time::set_time_scale(1.0f);
-    ENGINE_LOG_INFO("[SCENE PLAY] Started Play simulation (Memory snapshot taken, switched to Gameplay Camera).");
+    const ScriptRuntimeStartResult scripts = m_script_runtime.start(
+        active_scene->get_entity_manager(),
+        m_asset_database ? *m_asset_database : AssetDatabase::get()
+    );
+    ENGINE_LOG_INFO(
+        "[SCENE PLAY] Started Play simulation: {} scripts running, {} failed",
+        scripts.started,
+        scripts.failed
+    );
 }
 
 void SceneManager::pause_play() {
@@ -190,6 +198,7 @@ void SceneManager::resume_play() {
 void SceneManager::stop_play() {
     if (m_play_state == ScenePlayState::Edit) return;
 
+    m_script_runtime.shutdown();
     Scene* active_scene = get_active_scene();
     if (active_scene) {
         active_scene->on_detach();
@@ -215,6 +224,7 @@ void SceneManager::stop_play() {
 void SceneManager::update(float delta_time) {
     Scene* active = get_active_scene();
     if (active) {
+        if (m_play_state == ScenePlayState::Play) m_script_runtime.update(delta_time);
         active->on_update(delta_time);
     }
 }

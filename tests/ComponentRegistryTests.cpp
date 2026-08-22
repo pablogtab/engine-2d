@@ -4,6 +4,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
+#include "ecs/components/ScriptingComponents.hpp"
 #include "ecs/components/UIComponents.hpp"
 #include "renderer/material/MaterialAsset.hpp"
 #include "renderer/material/ShaderAsset.hpp"
@@ -306,7 +307,7 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 18);
+    assert(registry.descriptors().size() == 19);
     assert(registry.find_by_type(typeid(TagComponent)));
     assert(registry.find_by_type(typeid(GroupComponent)));
     assert(registry.find_by_type(typeid(RenderEffectComponent)));
@@ -323,6 +324,7 @@ void test_default_registry_metadata_is_stable() {
     assert(registry.find_by_type(typeid(RigidBodyComponent)));
     assert(registry.find_by_type(typeid(ColliderComponent)));
     assert(registry.find_by_type(typeid(TilemapComponent)));
+    assert(registry.find_by_type(typeid(ScriptComponent)));
 }
 
 
@@ -521,12 +523,17 @@ void test_builtin_components_round_trip_through_registry() {
     tilemap.set_tile(-2, 5, 7);
     em.add_component<TilemapComponent>(source, tilemap);
 
+    ScriptComponent script;
+    script.script_handle = AssetHandle{0x9876};
+    script.public_fields = {{"speed", ScriptFieldType::Number, 8.0}};
+    em.add_component<ScriptComponent>(source, script);
+
     nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
     for (const char* key : {"tag", "group", "render_effect", "light_2d", "shadow_caster_2d",
                             "camera", "canvas", "ui_layout", "ui_text", "ui_image", "ui_button",
-                            "animation", "rigidbody", "collider", "tilemap"}) {
+                            "animation", "rigidbody", "collider", "tilemap", "script"}) {
         assert(value.contains(key));
     }
 
@@ -555,6 +562,7 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<RigidBodyComponent>(target).mass == 3.0f);
     assert(em.get_component<ColliderComponent>(target).shapes.front().radius == 14.0f);
     assert(em.get_component<TilemapComponent>(target).get_tile(-2, 5) == 7);
+    assert(em.get_component<ScriptComponent>(target) == script);
 
     ComponentSnapshotSet snapshot;
     default_component_registry().capture_entity(em, source, snapshot);
@@ -573,6 +581,7 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<Light2DComponent>(restored) == light);
     assert(em.get_component<ShadowCaster2DComponent>(restored) == caster);
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
+    assert(em.get_component<ScriptComponent>(restored) == script);
     assert(em.get_component<CameraComponent>(restored).clear_color.g == 34);
     assert(em.get_component<CanvasComponent>(restored) == canvas);
     assert(em.get_component<UILayoutComponent>(restored) == ui_layout);

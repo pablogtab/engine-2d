@@ -4,6 +4,7 @@
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/PhysicsComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
+#include "../ecs/components/ScriptingComponents.hpp"
 #include "../ecs/components/UIComponents.hpp"
 #include "../core/AssetDatabase.hpp"
 #include "../tilemap/Tilemap.hpp"
@@ -211,6 +212,23 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
                     0,
                     {},
                     effect.profile_handle
+                );
+            }
+        }
+
+        if (asset_database && entities.has_component<ScriptComponent>(entity)) {
+            const auto& script = entities.get_component<ScriptComponent>(entity);
+            if (!script.script_handle.is_valid() ||
+                !has_ready_asset(*asset_database, script.script_handle, AssetType::Script)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingScriptAsset,
+                    entity,
+                    "Script asset is missing or unavailable",
+                    0,
+                    {},
+                    script.script_handle
                 );
             }
         }

@@ -117,6 +117,7 @@ Application::Application(const std::string& name, int width, int height, bool st
 
     m_display_manager->set_apply_enabled(!start_with_editor);
     m_scene_manager.set_renderer(m_window->get_sdl_renderer());
+    m_scene_manager.set_asset_database(&AssetDatabase::get());
     AssetDatabase::get().set_on_assets_changed([this]() {
         const auto refreshed = m_scene_manager.refresh_material_assets(AssetDatabase::get());
         if (m_renderer && m_renderer->get_material_backend()) m_renderer->get_material_backend()->discard_unused();

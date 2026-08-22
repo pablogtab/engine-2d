@@ -44,7 +44,7 @@ void Input::init() {
 
     // Default Mappings
     map_action("Jump", ActionBinding{
-        { SDL_SCANCODE_SPACE, SDL_SCANCODE_W },
+        { SDL_SCANCODE_SPACE, SDL_SCANCODE_W, SDL_SCANCODE_UP },
         {},
         { GamepadButton::A }
     });
@@ -56,7 +56,12 @@ void Input::init() {
     });
 
     map_axis("Horizontal", AxisBinding{
-        SDL_SCANCODE_A, SDL_SCANCODE_D, GamepadAxis::LEFT_X, false
+        SDL_SCANCODE_A,
+        SDL_SCANCODE_D,
+        GamepadAxis::LEFT_X,
+        false,
+        {SDL_SCANCODE_LEFT},
+        {SDL_SCANCODE_RIGHT}
     });
 
     map_axis("Vertical", AxisBinding{
@@ -285,6 +290,12 @@ float Input::get_axis(const std::string& axis_name) {
 
     if (binding.pos_key != SDL_SCANCODE_UNKNOWN && is_key_pressed(binding.pos_key)) value += 1.0f;
     if (binding.neg_key != SDL_SCANCODE_UNKNOWN && is_key_pressed(binding.neg_key)) value -= 1.0f;
+    for (const KeyCode key : binding.additional_pos_keys) {
+        if (is_key_pressed(key)) value += 1.0f;
+    }
+    for (const KeyCode key : binding.additional_neg_keys) {
+        if (is_key_pressed(key)) value -= 1.0f;
+    }
 
     if (value == 0.0f && s_gamepad) {
         int16_t raw_axis = SDL_GetGamepadAxis(s_gamepad, static_cast<SDL_GamepadAxis>(binding.gamepad_axis));

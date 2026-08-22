@@ -475,6 +475,20 @@
       "path": "assets/textures/trampoline-surface-v2.png",
       "status": "ready",
       "type": "texture"
+    },
+    {
+      "handle": "8f5c06f05bd74531",
+      "import_settings": {
+        "compression": "default",
+        "filter": "linear",
+        "pivot_x": 0.5,
+        "pivot_y": 0.5,
+        "pixels_per_unit": 100.0,
+        "platform_overrides": {}
+      },
+      "path": "assets/scripts/PlatformerPlayer.luau",
+      "status": "ready",
+      "type": "script"
     }
   ],
   "version": 1

@@ -56,6 +56,8 @@ struct AxisBinding {
     KeyCode pos_key{SDL_SCANCODE_UNKNOWN};
     GamepadAxis gamepad_axis{GamepadAxis::LEFT_X};
     bool invert_gamepad{false};
+    std::vector<KeyCode> additional_neg_keys;
+    std::vector<KeyCode> additional_pos_keys;
 };
 
 class Input {

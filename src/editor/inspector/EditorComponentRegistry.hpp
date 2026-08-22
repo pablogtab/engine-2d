@@ -19,6 +19,7 @@ class AssetManager;
 class EditorCommandHistory;
 class EditorPropertyTransaction;
 class SpriteAnimationStudioPanel;
+class ScriptRuntime;
 struct AnimationPreviewState;
 
 enum class EditorComponentCategory {
@@ -27,6 +28,7 @@ enum class EditorComponentCategory {
     Physics,
     Animation,
     World,
+    Scripting,
     UI
 };
 
@@ -42,6 +44,7 @@ struct EditorInspectorContext {
     std::function<AssetHandle(AssetHandle)> duplicate_material;
     std::function<void(AssetHandle)> open_material;
     std::function<SDL_Texture*(AssetHandle)> preview_material;
+    const ScriptRuntime* script_runtime{nullptr};
 };
 
 struct EditorComponentDescriptor {

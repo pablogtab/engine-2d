@@ -11,6 +11,8 @@
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/PostProcessProfileCommands.hpp"
 #include "../inspector/MaterialInspectorWidget.hpp"
+#include "../scripting/ScriptTemplates.hpp"
+#include <SDL3/SDL.h>
 #include <imgui.h>
 #include <algorithm>
 #include <cctype>
@@ -24,6 +26,29 @@
 namespace Engine {
 
 namespace {
+
+std::string file_url(const std::filesystem::path& path) {
+    const std::string absolute = std::filesystem::absolute(path).generic_string();
+    std::ostringstream encoded;
+    encoded << "file://";
+    if (absolute.empty() || absolute.front() != '/') encoded << '/';
+    encoded << std::hex << std::uppercase;
+    for (const unsigned char byte : absolute) {
+        if (std::isalnum(byte) || byte == '-' || byte == '_' || byte == '.' ||
+            byte == '~' || byte == '/' || byte == ':') {
+            encoded << static_cast<char>(byte);
+        } else {
+            encoded << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
+        }
+    }
+    return encoded.str();
+}
+
+void open_script_externally(const std::filesystem::path& path) {
+    if (!SDL_OpenURL(file_url(path).c_str())) {
+        ENGINE_LOG_WARN("[ASSET BROWSER] Cannot open script '{}': {}", path.string(), SDL_GetError());
+    }
+}
 
 std::string format_bytes(const std::vector<std::byte>& bytes) {
     std::ostringstream stream;
@@ -409,6 +434,9 @@ void AssetBrowserPanel::on_gui() {
                     } else if (extension == ".material") {
                         tag = "[MATERIAL]";
                         tag_col = ImVec4(0.95f, 0.60f, 0.25f, 1.0f);
+                    } else if (extension == ".luau") {
+                        tag = "[SCRIPT]";
+                        tag_col = ImVec4(0.45f, 0.75f, 1.00f, 1.0f);
                     } else if (extension == ".postprocess") {
                         tag = "[POST FX]";
                         tag_col = ImVec4(0.35f, 0.85f, 0.85f, 1.0f);
@@ -472,6 +500,8 @@ void AssetBrowserPanel::on_gui() {
                             if (m_on_open_prefab) {
                                 m_on_open_prefab(path.string());
                             }
+                        } else if (extension == ".luau") {
+                            open_script_externally(path);
                         } else if (extension == ".material" && m_asset_database) {
                             const AssetRecord* material = m_asset_database->find_by_path(path);
                             if (material) open_material_asset(material->handle);
@@ -509,6 +539,9 @@ void AssetBrowserPanel::on_gui() {
                                 if (m_on_open_prefab) m_on_open_prefab(path.string());
                             }
                         }
+                        if (extension == ".luau" && ImGui::MenuItem("Open Script")) {
+                            open_script_externally(path);
+                        }
                         if (extension == ".material" && ImGui::MenuItem("Duplicate Material") &&
                             m_command_history && m_asset_database) {
                             const AssetRecord* material = m_asset_database->find_by_path(path);
@@ -538,6 +571,9 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::MenuItem("+ New Scene")) {
                 m_show_new_scene_popup = true;
             }
+            if (ImGui::MenuItem("+ New Script")) {
+                m_show_new_script_popup = true;
+            }
             if (ImGui::MenuItem("+ New Material")) {
                 m_show_new_material_popup = true;
             }
@@ -565,6 +601,10 @@ void AssetBrowserPanel::on_gui() {
         if (m_show_new_scene_popup) {
             ImGui::OpenPopup("Create New Scene");
             m_show_new_scene_popup = false;
+        }
+        if (m_show_new_script_popup) {
+            ImGui::OpenPopup("Create New Script");
+            m_show_new_script_popup = false;
         }
         if (m_show_new_material_popup) {
             ImGui::OpenPopup("Create New Material");
@@ -616,6 +656,28 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::Button("Cancel", ImVec2(120, 0))) {
                 ImGui::CloseCurrentPopup();
             }
+            ImGui::EndPopup();
+        }
+        if (ImGui::BeginPopupModal("Create New Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Enter Script Name:");
+            ImGui::InputText("##scriptname", m_new_script_name_buf, sizeof(m_new_script_name_buf));
+            ImGui::Spacing();
+            if (ImGui::Button("Create", ImVec2(120, 0))) {
+                std::string name = m_new_script_name_buf;
+                if (!name.empty() && m_command_history && m_asset_database) {
+                    if (!name.ends_with(".luau")) name += ".luau";
+                    const std::filesystem::path file = m_current_path / name;
+                    m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
+                        m_asset_database, file, std::string(DEFAULT_SCRIPT_TEMPLATE)
+                    ));
+                    if (const AssetRecord* created = m_asset_database->find_by_path(file)) {
+                        reveal_asset_path(created->source_path);
+                    }
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
         if (ImGui::BeginPopupModal("Create New Material", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {

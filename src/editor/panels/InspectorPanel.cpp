@@ -633,7 +633,8 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         m_create_material,
         m_duplicate_material,
         m_open_material,
-        m_preview_material
+        m_preview_material,
+        m_scene_manager ? &m_scene_manager->get_script_runtime() : nullptr
     };
     ComponentRegistry& runtime_registry = default_component_registry();
     EditorComponentRegistry& editor_registry = default_editor_component_registry();

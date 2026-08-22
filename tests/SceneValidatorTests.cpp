@@ -3,6 +3,7 @@
 #include "ecs/components/RenderingComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/UIComponents.hpp"
+#include "ecs/components/ScriptingComponents.hpp"
 #include "core/AssetDatabase.hpp"
 #include "scene/SceneValidator.hpp"
 #include "tilemap/Tilemap.hpp"
@@ -113,6 +114,9 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
     entities.add_component<RenderEffectComponent>(
         sprite_entity, RenderEffectComponent{AssetHandle{103}, true}
     );
+    ScriptComponent script;
+    script.script_handle = AssetHandle{108};
+    entities.add_component<ScriptComponent>(sprite_entity, script);
 
     const EntityID prefab_entity = entities.create_entity();
     entities.add_component<PrefabLinkComponent>(prefab_entity, PrefabLinkComponent{"assets/prefabs/missing.prefab"});
@@ -138,6 +142,7 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTextureAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingMaterialAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingRenderEffectAsset));
+    assert(contains_code(diagnostics, SceneDiagnosticCode::MissingScriptAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingPrefabAsset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingTilemapTileset));
     assert(contains_code(diagnostics, SceneDiagnosticCode::MissingUIImageTexture));

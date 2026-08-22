@@ -7,6 +7,7 @@
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/PhysicsComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
+#include "../ecs/components/ScriptingComponents.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
 #include "../tilemap/Tilemap.hpp"
@@ -127,6 +128,91 @@ bool collider_type_from_string(std::string_view value, ColliderShapeType& result
     else if (value == "Polygon") result = ColliderShapeType::Polygon;
     else return false;
     return true;
+}
+
+const char* script_field_type_to_string(ScriptFieldType type) {
+    switch (type) {
+        case ScriptFieldType::Boolean: return "boolean";
+        case ScriptFieldType::Number: return "number";
+        case ScriptFieldType::String: return "string";
+        case ScriptFieldType::Vector2: return "vector2";
+        case ScriptFieldType::Entity: return "entity";
+        case ScriptFieldType::Asset: return "asset";
+    }
+    return "number";
+}
+
+bool script_field_type_from_string(std::string_view value, ScriptFieldType& result) {
+    if (value == "boolean") result = ScriptFieldType::Boolean;
+    else if (value == "number") result = ScriptFieldType::Number;
+    else if (value == "string") result = ScriptFieldType::String;
+    else if (value == "vector2") result = ScriptFieldType::Vector2;
+    else if (value == "entity") result = ScriptFieldType::Entity;
+    else if (value == "asset") result = ScriptFieldType::Asset;
+    else return false;
+    return true;
+}
+
+Json serialize_script_field_value(const ScriptPublicField& field) {
+    switch (field.type) {
+        case ScriptFieldType::Boolean: return std::get<bool>(field.value);
+        case ScriptFieldType::Number: return std::get<double>(field.value);
+        case ScriptFieldType::String: return std::get<std::string>(field.value);
+        case ScriptFieldType::Vector2: {
+            const ScriptVector2 value = std::get<ScriptVector2>(field.value);
+            return Json::array({value.x, value.y});
+        }
+        case ScriptFieldType::Entity: return std::get<EntityID>(field.value);
+        case ScriptFieldType::Asset: {
+            const AssetHandle value = std::get<AssetHandle>(field.value);
+            return value.is_valid() ? Json(value.to_string()) : Json(nullptr);
+        }
+    }
+    return nullptr;
+}
+
+bool deserialize_script_field_value(
+    ScriptFieldType type,
+    const Json& value,
+    ScriptFieldValue& result,
+    std::string& error
+) {
+    switch (type) {
+        case ScriptFieldType::Boolean:
+            if (!value.is_boolean()) { error = "Script boolean field value is invalid"; return false; }
+            result = value.get<bool>();
+            return true;
+        case ScriptFieldType::Number:
+            if (!value.is_number()) { error = "Script number field value is invalid"; return false; }
+            result = value.get<double>();
+            return true;
+        case ScriptFieldType::String:
+            if (!value.is_string()) { error = "Script string field value is invalid"; return false; }
+            result = value.get<std::string>();
+            return true;
+        case ScriptFieldType::Vector2:
+            if (!value.is_array() || value.size() != 2 || !value[0].is_number() || !value[1].is_number()) {
+                error = "Script vector2 field value must contain two numbers";
+                return false;
+            }
+            result = ScriptVector2{value[0].get<float>(), value[1].get<float>()};
+            return true;
+        case ScriptFieldType::Entity:
+            if (!value.is_number_unsigned()) { error = "Script entity field value is invalid"; return false; }
+            result = value.get<EntityID>();
+            return true;
+        case ScriptFieldType::Asset:
+            if (value.is_null()) { result = AssetHandle{}; return true; }
+            if (!value.is_string()) { error = "Script asset field value is invalid"; return false; }
+            if (const auto handle = AssetHandle::from_string(value.get<std::string>()); handle) {
+                result = *handle;
+                return true;
+            }
+            error = "Script asset field handle is invalid";
+            return false;
+    }
+    error = "Script field type is invalid";
+    return false;
 }
 
 void register_tag(ComponentRegistry& registry) {
@@ -709,6 +795,89 @@ void register_tilemap(ComponentRegistry& registry) {
     });
 }
 
+void register_script(ComponentRegistry& registry) {
+    register_or_throw<ScriptComponent>(registry, {
+        .display_name = "Script",
+        .serialized_key = "script",
+        .serialize = [](const ScriptComponent& script, const ComponentSerializationContext&) {
+            Json fields = Json::array();
+            for (const ScriptPublicField& field : script.public_fields) {
+                if (!script_field_value_matches_type(field)) {
+                    throw std::runtime_error("Script field type does not match its stored value: " + field.name);
+                }
+                fields.push_back({
+                    {"name", field.name},
+                    {"type", script_field_type_to_string(field.type)},
+                    {"value", serialize_script_field_value(field)}
+                });
+            }
+            Json value{{"enabled", script.enabled}, {"public_fields", std::move(fields)}};
+            if (script.script_handle.is_valid()) value["script_handle"] = script.script_handle.to_string();
+            return value;
+        },
+        .deserialize = [](ScriptComponent& script, const Json& value, const ComponentSerializationContext&, std::string& error) {
+            if (!value.is_object() || !value.contains("public_fields") || !value["public_fields"].is_array()) {
+                error = "Script must contain a public_fields array";
+                return false;
+            }
+            script = {};
+            script.enabled = value.value("enabled", true);
+            if (value.contains("script_handle")) {
+                if (!value["script_handle"].is_string()) {
+                    error = "Script script_handle must be a string";
+                    return false;
+                }
+                const auto handle = AssetHandle::from_string(value["script_handle"].get<std::string>());
+                if (!handle) { error = "Script script_handle is invalid"; return false; }
+                script.script_handle = *handle;
+            }
+            for (const Json& field_value : value["public_fields"]) {
+                if (!field_value.is_object() || !field_value.contains("name") ||
+                    !field_value["name"].is_string() || !field_value.contains("type") ||
+                    !field_value["type"].is_string() || !field_value.contains("value")) {
+                    error = "Script public field is invalid";
+                    return false;
+                }
+                ScriptPublicField field;
+                field.name = field_value["name"].get<std::string>();
+                if (field.name.empty() || !script_field_type_from_string(
+                        field_value["type"].get<std::string>(), field.type
+                    ) || !deserialize_script_field_value(
+                        field.type, field_value["value"], field.value, error
+                    )) return false;
+                const bool duplicate = std::any_of(
+                    script.public_fields.begin(), script.public_fields.end(),
+                    [&field](const ScriptPublicField& existing) { return existing.name == field.name; }
+                );
+                if (duplicate) { error = "Script public field names must be unique"; return false; }
+                script.public_fields.push_back(std::move(field));
+            }
+            return true;
+        },
+        .remap_references = [](ScriptComponent& script, const std::unordered_map<EntityID, EntityID>& old_to_new) {
+            for (ScriptPublicField& field : script.public_fields) {
+                if (field.type != ScriptFieldType::Entity || !std::holds_alternative<EntityID>(field.value)) continue;
+                const EntityID old_id = std::get<EntityID>(field.value);
+                const auto replacement = old_to_new.find(old_id);
+                if (replacement != old_to_new.end()) field.value = replacement->second;
+            }
+        },
+        .validate = [](const ScriptComponent& script) -> std::optional<std::string> {
+            if (!script.script_handle.is_valid()) return "Script asset is not assigned";
+            std::vector<std::string> names;
+            for (const ScriptPublicField& field : script.public_fields) {
+                if (field.name.empty()) return "Script public field name cannot be empty";
+                if (!script_field_value_matches_type(field)) return "Script public field type does not match its value";
+                if (std::find(names.begin(), names.end(), field.name) != names.end()) {
+                    return "Script public field names must be unique";
+                }
+                names.push_back(field.name);
+            }
+            return std::nullopt;
+        }
+    });
+}
+
 } // namespace
 
 void register_additional_builtin_components(ComponentRegistry& registry) {
@@ -723,6 +892,7 @@ void register_additional_builtin_components(ComponentRegistry& registry) {
     register_rigidbody(registry);
     register_collider(registry);
     register_tilemap(registry);
+    register_script(registry);
     register_ui_components(registry);
 }
 

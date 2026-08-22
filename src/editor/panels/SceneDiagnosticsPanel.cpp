@@ -7,6 +7,7 @@
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
 #include "../../ecs/components/UIComponents.hpp"
+#include "../../ecs/components/ScriptingComponents.hpp"
 
 #include <imgui.h>
 
@@ -110,6 +111,7 @@ void SceneDiagnosticsPanel::on_gui() {
         const bool clearable_asset_handle = diagnostic.code == SceneDiagnosticCode::MissingTextureAsset ||
             diagnostic.code == SceneDiagnosticCode::MissingMaterialAsset ||
             diagnostic.code == SceneDiagnosticCode::MissingRenderEffectAsset ||
+            diagnostic.code == SceneDiagnosticCode::MissingScriptAsset ||
             diagnostic.code == SceneDiagnosticCode::MissingUIImageTexture ||
             diagnostic.code == SceneDiagnosticCode::MissingUIFont;
         if (clearable_asset_handle && diagnostic.asset_handle.is_valid() && m_command_history) {
@@ -130,7 +132,23 @@ void SceneDiagnosticsPanel::on_gui() {
             if (m_pending_clear && m_command_history &&
                 active_scene->get_entity_manager().is_alive(m_pending_clear->entity)) {
                 EntityManager& entities = active_scene->get_entity_manager();
-                if (m_pending_clear->code == SceneDiagnosticCode::MissingRenderEffectAsset &&
+                if (m_pending_clear->code == SceneDiagnosticCode::MissingScriptAsset &&
+                    entities.has_component<ScriptComponent>(m_pending_clear->entity)) {
+                    const ScriptComponent before =
+                        entities.get_component<ScriptComponent>(m_pending_clear->entity);
+                    if (before.script_handle == m_pending_clear->asset_handle) {
+                        auto after = before;
+                        after.script_handle = {};
+                        after.public_fields.clear();
+                        m_command_history->execute_command(std::make_unique<SetComponentCommand<ScriptComponent>>(
+                            &entities,
+                            m_pending_clear->entity,
+                            before,
+                            after,
+                            "Clear Missing Script Reference"
+                        ));
+                    }
+                } else if (m_pending_clear->code == SceneDiagnosticCode::MissingRenderEffectAsset &&
                     entities.has_component<RenderEffectComponent>(m_pending_clear->entity)) {
                     const RenderEffectComponent before =
                         entities.get_component<RenderEffectComponent>(m_pending_clear->entity);

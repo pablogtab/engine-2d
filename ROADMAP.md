@@ -347,17 +347,21 @@ This is intentionally independent from the material workflow above. Materials re
 
 ---
 
-## Phase 7 — Scripting and Play Mode
+## Phase 7 — Luau Scripting and Play Mode
 
 **Goal:** Enable rapid gameplay iteration without recompiling C++ or compromising authoring state.
 
-- [ ] Add Lua runtime integration and a registered `ScriptComponent`.
-- [ ] Bind entities, transforms, input, audio, physics, events, assets, display, and scene loading.
-- [ ] Add script creation, attachment, field inspection, editing, and error reporting.
+- [x] Add embedded Luau runtime integration and a registered, serializable `ScriptComponent`.
+- [ ] Bind engine APIs.
+  - [x] Entity identity and local Transform position.
+  - [x] Named Input actions/axes, RigidBody velocity/grounded state, Sprite facing, and Animation clip playback.
+  - [ ] Audio, collision/events, assets, display, and scene loading.
+- [x] Add script creation, attachment, typed public-field inspection, editing, and strict error reporting.
 - [ ] Add hot reload with explicit lifecycle and failure behavior.
-- [ ] Preserve the current safe default: Stop restores the authoring snapshot.
+- [x] Preserve the current safe default: Stop tears down scripts and restores the authoring snapshot.
+- [x] Synchronize Inspector public-field edits into running instances for live Play Mode tuning.
 - [ ] Add opt-in Play Mode apply-back for explicitly selected properties.
-- [ ] Keep runtime script state distinct from serialized public fields.
+- [x] Keep runtime script state distinct from serialized public fields.
 
 **Completion criteria:** Gameplay behavior can be authored, inspected, debugged, and reloaded while Edit and Play state remain predictably isolated.
 
@@ -368,7 +372,8 @@ This is intentionally independent from the material workflow above. Materials re
 **Goal:** Make correctness and performance problems visible before export.
 
 - [ ] Add physics overlays for colliders, contacts, velocities, centers of mass, and collision layers.
-- [ ] Add entity-scoped logs and script error locations.
+- [x] Prefix runtime script errors with their entity ID and expose them in the Script Inspector.
+- [ ] Add precise runtime script source locations and structured log filtering.
 - [ ] Add frame profiling for update, render, physics, editor UI, memory, draw calls, culling, and GPU passes.
 - [ ] Add pause, step frame, timescale, and runtime entity inspection.
 - [ ] Add stress scenes and budgets for entity count, sprites, physics bodies, particles, and render targets.
@@ -511,9 +516,9 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [x] `MobileSurfaceTests` — orientation, safe-area updates, surface recreation, suspend/resume, split-screen resize, and capability restrictions using a fake backend.
 - [ ] Real-device iOS and Android smoke tests before mobile support is declared complete.
 
-### Phase 7 — Scripting and Play Mode Suites
+### Phase 7 — Luau Scripting and Play Mode Suites
 
-- [ ] `LuaRuntimeTests` — VM lifecycle, component bindings, entity validity, errors, events, assets, display API, and deterministic teardown.
+- [ ] `LuauRuntimeTests` — baseline VM lifecycle, Transform binding, strict errors, public fields, and deterministic teardown are covered; remaining engine bindings are pending.
 - [ ] `ScriptHotReloadTests` — successful reload, syntax/runtime failure, state policy, removed fields, and recovery without corrupting the scene.
 - [ ] `ScriptSerializationTests` — public fields, defaults, type changes, missing scripts, asset/entity references, and schema evolution.
 - [ ] `PlayModeIsolationTests` — authoring snapshot restoration, runtime-only mutations, explicit apply-back, script state, physics state, and command-history isolation.

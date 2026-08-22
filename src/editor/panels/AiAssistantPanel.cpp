@@ -45,6 +45,7 @@ const char* diagnostic_code_name(SceneDiagnosticCode code) {
         case SceneDiagnosticCode::MissingTextureAsset: return "missing_texture_asset";
         case SceneDiagnosticCode::MissingMaterialAsset: return "missing_material_asset";
         case SceneDiagnosticCode::MissingRenderEffectAsset: return "missing_render_effect_asset";
+        case SceneDiagnosticCode::MissingScriptAsset: return "missing_script_asset";
         case SceneDiagnosticCode::MissingPrefabAsset: return "missing_prefab_asset";
         case SceneDiagnosticCode::MissingTilemapTileset: return "missing_tilemap_tileset";
         case SceneDiagnosticCode::InvalidColliderShape: return "invalid_collider_shape";

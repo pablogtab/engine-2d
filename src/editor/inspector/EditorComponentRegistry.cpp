@@ -164,6 +164,7 @@ const char* editor_component_category_label(EditorComponentCategory category) {
         case EditorComponentCategory::Physics: return "Physics";
         case EditorComponentCategory::Animation: return "Animation";
         case EditorComponentCategory::World: return "World";
+        case EditorComponentCategory::Scripting: return "Scripting";
         case EditorComponentCategory::UI: return "UI";
     }
     return "Other";

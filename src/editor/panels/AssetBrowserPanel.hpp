@@ -81,11 +81,13 @@ private:
     std::string m_selected_file{""};
     std::string m_revealed_reference{""};
     char m_new_scene_name_buf[128]{"NewScene"};
+    char m_new_script_name_buf[128]{"NewScript"};
     char m_new_material_name_buf[128]{"NewMaterial"};
     char m_new_post_process_name_buf[128]{"NewPostProcessProfile"};
     char m_new_layer_effect_name_buf[128]{"NewLayerEffectProfile"};
     AssetHandle m_new_layer_effect_material_handle{};
     bool m_show_new_scene_popup{false};
+    bool m_show_new_script_popup{false};
     bool m_show_new_material_popup{false};
     bool m_show_new_post_process_popup{false};
     bool m_show_new_layer_effect_popup{false};

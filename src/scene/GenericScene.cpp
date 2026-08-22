@@ -126,7 +126,7 @@ void GenericScene::on_update(float delta_time) {
         (Input::is_key_just_pressed(SDL_SCANCODE_RETURN) || Input::is_key_just_pressed(SDL_SCANCODE_SPACE));
     const bool activate_released = ui_had_focus &&
         (Input::is_key_just_released(SDL_SCANCODE_RETURN) || Input::is_key_just_released(SDL_SCANCODE_SPACE));
-    const UIInputResult ui_input = m_ui_input_system.update(
+    static_cast<void>(m_ui_input_system.update(
         m_entity_manager,
         m_ui_output_size,
         m_ui_safe_area,
@@ -143,11 +143,10 @@ void GenericScene::on_update(float delta_time) {
             .activate_released = activate_released
         },
         &m_event_dispatcher
-    );
-    const bool ui_keyboard_consumed = ui_input.focused != 0 &&
-        (navigate_previous || navigate_next || activate_pressed || activate_released);
-
-    // --- 1. Player Gameplay Movement Controller (Active during Play simulation) ---
+    ));
+    // The authored ScriptComponent owns player input, velocity and animation.
+    // GenericScene keeps only the temporary trampoline interaction until
+    // collision events are exposed to scripts.
     EntityID player_id = 0;
     m_entity_manager.for_each<TagComponent>([&](EntityID id, const TagComponent& tag) {
         if (tag.tag == "Player_Knight" || tag.tag == "Player") {
@@ -157,56 +156,11 @@ void GenericScene::on_update(float delta_time) {
 
     if (player_id != 0 && m_entity_manager.is_alive(player_id) && m_entity_manager.has_component<RigidBodyComponent>(player_id)) {
         auto& rb = m_entity_manager.get_component<RigidBodyComponent>(player_id);
-        auto& tx = m_entity_manager.get_component<TransformComponent>(player_id);
-        auto* sprite = m_entity_manager.has_component<SpriteComponent>(player_id) ? &m_entity_manager.get_component<SpriteComponent>(player_id) : nullptr;
-
-        float move_x = 0.0f;
-        if (!ui_keyboard_consumed &&
-            (Input::is_key_pressed(SDL_SCANCODE_A) || Input::is_key_pressed(SDL_SCANCODE_LEFT))) {
-            move_x -= 1.0f;
-            if (sprite) sprite->flip_x = true;
+        const auto& tx = m_entity_manager.get_component<TransformComponent>(player_id);
+        if (Input::is_action_just_pressed("Jump") &&
+            PhysicsSystem::is_grounded(m_entity_manager, player_id)) {
+            AudioPresets::play_jump(0.8f);
         }
-        if (!ui_keyboard_consumed &&
-            (Input::is_key_pressed(SDL_SCANCODE_D) || Input::is_key_pressed(SDL_SCANCODE_RIGHT))) {
-            move_x += 1.0f;
-            if (sprite) sprite->flip_x = false;
-        }
-
-        float walk_speed = 280.0f;
-        rb.velocity.x = move_x * walk_speed;
-        PhysicsSystem::set_velocity(m_entity_manager, player_id, rb.velocity);
-
-        // Jump
-        if (!ui_keyboard_consumed &&
-            (Input::is_key_just_pressed(SDL_SCANCODE_SPACE) ||
-             Input::is_key_just_pressed(SDL_SCANCODE_W) ||
-             Input::is_key_just_pressed(SDL_SCANCODE_UP))) {
-            if (std::abs(rb.velocity.y) < 15.0f) { // Grounded check
-                rb.velocity.y = 520.0f;
-                PhysicsSystem::set_velocity(m_entity_manager, player_id, rb.velocity);
-                AudioPresets::play_jump(0.8f);
-            }
-        }
-
-        // Player Animation State Machine (Idle, Run, Jump, Fall)
-        if (m_entity_manager.has_component<AnimationComponent>(player_id)) {
-            bool is_grounded = std::abs(rb.velocity.y) < 15.0f;
-            if (!is_grounded) {
-                if (rb.velocity.y > 20.0f) {
-                    SpriteAnimationSystem::play_clip(m_entity_manager, player_id, "Jump");
-                } else if (rb.velocity.y < -20.0f) {
-                    SpriteAnimationSystem::play_clip(m_entity_manager, player_id, "Fall");
-                }
-            } else {
-                if (std::abs(rb.velocity.x) > 10.0f) {
-                    SpriteAnimationSystem::play_clip(m_entity_manager, player_id, "Run");
-                } else {
-                    SpriteAnimationSystem::play_clip(m_entity_manager, player_id, "Idle");
-                }
-            }
-        }
-
-        // --- 2. Temporary trampoline helper ---
         glm::vec2 p_pos = glm::vec2(tx.world_position.x, tx.world_position.y);
 
         m_entity_manager.for_each<TagComponent, TransformComponent>([&](EntityID id, const TagComponent& tag, const TransformComponent& other_tx) {
@@ -222,10 +176,9 @@ void GenericScene::on_update(float delta_time) {
                 }
             }
         });
-
     }
 
-    // --- 3. Physics & Transform Updates ---
+    // --- Physics & Transform Updates ---
     if (m_physics_enabled) {
         Engine::PhysicsSystem::update(m_entity_manager, m_event_dispatcher, delta_time);
     }

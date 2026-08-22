@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Scene.hpp"
+#include "../scripting/ScriptRuntime.hpp"
 #include <vector>
 #include <memory>
 #include <string>
@@ -48,8 +49,10 @@ public:
     [[nodiscard]] bool is_playing() const { return m_play_state == ScenePlayState::Play; }
     [[nodiscard]] bool is_paused() const { return m_play_state == ScenePlayState::Pause; }
     [[nodiscard]] bool is_editing() const { return m_play_state == ScenePlayState::Edit; }
+    [[nodiscard]] const ScriptRuntime& get_script_runtime() const { return m_script_runtime; }
 
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
+    void set_asset_database(const AssetDatabase* asset_database) { m_asset_database = asset_database; }
     void set_on_authoring_state_invalidated(std::function<void()> callback) { m_on_authoring_state_invalidated = std::move(callback); }
 
     void update(float delta_time);
@@ -81,7 +84,9 @@ private:
     ScenePlayState m_play_state{ScenePlayState::Edit};
     std::string m_snapshot_json;
     SDL_Renderer* m_renderer{nullptr};
+    const AssetDatabase* m_asset_database{nullptr};
     std::function<void()> m_on_authoring_state_invalidated;
+    ScriptRuntime m_script_runtime;
 };
 
 } // namespace Engine

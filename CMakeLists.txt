@@ -66,6 +66,7 @@ set(SOURCES
     src/scene/SceneSchema.cpp
     src/scene/SceneSerializer.cpp
     src/scene/SceneValidator.cpp
+    src/scripting/ScriptRuntime.cpp
     src/scene/EntitySubtreeArchive.cpp
     src/scene/PrefabSerializer.cpp
     src/scene/PrefabPropagation.cpp
@@ -110,6 +111,7 @@ set(SOURCES
     src/editor/inspector/InspectorWidgets.cpp
     src/editor/inspector/SpriteInspectorDrawer.cpp
     src/editor/inspector/RenderEffectInspectorDrawer.cpp
+    src/editor/inspector/ScriptInspectorDrawer.cpp
     src/editor/inspector/RigidBodyInspectorDrawer.cpp
     src/editor/inspector/ColliderInspectorDrawer.cpp
     src/editor/inspector/LightingInspectorDrawer.cpp
@@ -144,6 +146,7 @@ set(SOURCES
     src/editor/commands/ProjectSettingsCommands.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
     src/editor/shortcuts/ShortcutManager.cpp
+    src/editor/scripting/ScriptAnalyzer.cpp
     src/editor/stage/PrefabStageController.cpp
     src/tilemap/Tilemap.cpp
     src/tilemap/TilemapColliderSystem.cpp
@@ -199,6 +202,7 @@ target_compile_definitions(Engine2D PRIVATE
     ENGINE_WITH_EDITOR=1
     ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
+target_link_libraries(Engine2D PRIVATE Luau.Analysis)
 
 add_executable(Engine2DStandalone src/runtime/StandaloneMain.cpp src/core/Application.cpp)
 target_compile_definitions(Engine2DStandalone PRIVATE ENGINE_WITH_EDITOR=0)
@@ -330,6 +334,39 @@ add_test(NAME RuntimeBoundaryTests
         "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"
         -P "${CMAKE_SOURCE_DIR}/cmake/VerifyRuntimeBoundary.cmake"
 )
+
+add_executable(LuauRuntimeTests
+    tests/LuauRuntimeTests.cpp
+    src/editor/scripting/ScriptAnalyzer.cpp
+)
+target_include_directories(LuauRuntimeTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_compile_definitions(LuauRuntimeTests PRIVATE
+    ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_link_libraries(LuauRuntimeTests PRIVATE EngineRuntime Luau.Analysis)
+add_test(NAME LuauRuntimeTests COMMAND LuauRuntimeTests)
+
+add_executable(ScriptSerializationTests tests/ScriptSerializationTests.cpp)
+target_include_directories(ScriptSerializationTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_compile_definitions(ScriptSerializationTests PRIVATE
+    ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_link_libraries(ScriptSerializationTests PRIVATE EngineRuntime)
+add_test(NAME ScriptSerializationTests COMMAND ScriptSerializationTests)
+
+add_executable(PlayModeIsolationTests tests/PlayModeIsolationTests.cpp)
+target_include_directories(PlayModeIsolationTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(PlayModeIsolationTests PRIVATE EngineRuntime)
+add_test(NAME PlayModeIsolationTests COMMAND PlayModeIsolationTests)
 
 add_executable(Camera2DTests
     tests/Camera2DTests.cpp

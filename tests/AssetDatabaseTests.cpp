@@ -24,6 +24,8 @@ void write_file(const std::filesystem::path& path, const std::string& text = "as
 
 int main() {
     namespace fs = std::filesystem;
+    require(Engine::AssetDatabase::type_for_path("PlayerController.luau") == Engine::AssetType::Script,
+        "Luau files are recognized as script assets");
     const fs::path root = fs::temp_directory_path() / "engine2d_asset_database_tests";
     std::error_code error;
     fs::remove_all(root, error);

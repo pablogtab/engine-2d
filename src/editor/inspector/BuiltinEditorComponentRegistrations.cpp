@@ -6,6 +6,7 @@
 #include "LightingInspectorDrawer.hpp"
 #include "RigidBodyInspectorDrawer.hpp"
 #include "RenderEffectInspectorDrawer.hpp"
+#include "ScriptInspectorDrawer.hpp"
 #include "SpriteInspectorDrawer.hpp"
 #include "TilemapInspectorDrawer.hpp"
 #include "TransformInspectorDrawer.hpp"
@@ -16,6 +17,7 @@
 #include "../../ecs/components/AnimationComponents.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
+#include "../../ecs/components/ScriptingComponents.hpp"
 #include "../../ecs/components/UIComponents.hpp"
 #include "../../renderer/SpriteAnimationSystem.hpp"
 #include "../../tilemap/Tilemap.hpp"
@@ -284,6 +286,23 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
             animation.add_clip("Fall", 20, 4, 8.0f, true);
             snapshot.set(std::move(animation));
         }
+    });
+    register_or_throw(registry, {
+        .component_key = "script",
+        .drawer_key = "ScriptHeader",
+        .display_name = "Script",
+        .category = EditorComponentCategory::Scripting,
+        .icon = EditorIcon::Edit,
+        .dependencies = {"transform"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            ScriptInspectorDrawer::draw(em, entity, context);
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(ScriptComponent{}); }
     });
     register_or_throw(registry, {
         .component_key = "canvas",

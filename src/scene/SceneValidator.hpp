@@ -25,6 +25,7 @@ enum class SceneDiagnosticCode {
     MissingTextureAsset,
     MissingMaterialAsset,
     MissingRenderEffectAsset,
+    MissingScriptAsset,
     MissingPrefabAsset,
     MissingTilemapTileset,
     InvalidColliderShape,

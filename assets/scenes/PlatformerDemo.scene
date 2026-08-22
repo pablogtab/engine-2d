@@ -9,6 +9,7 @@
         "prefab_link": 1,
         "render_effect": 1,
         "rigidbody": 1,
+        "script": 1,
         "shadow_caster_2d": 1,
         "sprite": 1,
         "tag": 1,
@@ -21,6 +22,19 @@
     },
     "editor_metadata": {
         "component_orders": [
+            {
+                "components": [
+                    "transform",
+                    "sprite",
+                    "script",
+                    "render_effect",
+                    "shadow_caster_2d",
+                    "rigidbody",
+                    "collider",
+                    "animation"
+                ],
+                "entity": 1
+            },
             {
                 "components": [
                     "ui_layout",
@@ -110,6 +124,32 @@
                 "mass": 1.0,
                 "restitution": 0.0,
                 "type": "Dynamic"
+            },
+            "script": {
+                "enabled": true,
+                "public_fields": [
+                    {
+                        "name": "movement_axis",
+                        "type": "string",
+                        "value": "Horizontal"
+                    },
+                    {
+                        "name": "jump_action",
+                        "type": "string",
+                        "value": "Jump"
+                    },
+                    {
+                        "name": "walk_speed",
+                        "type": "number",
+                        "value": 500.0
+                    },
+                    {
+                        "name": "jump_speed",
+                        "type": "number",
+                        "value": 520.0
+                    }
+                ],
+                "script_handle": "8f5c06f05bd74531"
             },
             "shadow_caster_2d": {
                 "affected_layers": 4294967295,
