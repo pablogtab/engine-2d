@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 
 #include <cstdlib>
+#include <chrono>
 #include <filesystem>
 #include <sstream>
 #include <vector>
@@ -63,12 +64,30 @@ public:
         }
         const std::string payload = line + "\n";
         std::size_t written = 0;
+        constexpr auto WRITE_TIMEOUT = std::chrono::seconds(8);
+        const auto deadline = std::chrono::steady_clock::now() + WRITE_TIMEOUT;
         while (written < payload.size()) {
             const std::size_t count = SDL_WriteIO(
                 m_input, payload.data() + written, payload.size() - written
             );
             if (count == 0) {
-                error = "Could not write to Codex App Server: " + std::string(SDL_GetError());
+                const SDL_IOStatus status = SDL_GetIOStatus(m_input);
+                if (status == SDL_IO_STATUS_NOT_READY || status == SDL_IO_STATUS_READY) {
+                    if (std::chrono::steady_clock::now() >= deadline) {
+                        error = "Timed out writing " + std::to_string(payload.size()) +
+                            " bytes to Codex App Server after " + std::to_string(written) +
+                            " bytes";
+                        return false;
+                    }
+                    SDL_Delay(2);
+                    continue;
+                }
+                const std::string detail = SDL_GetError();
+                error = "Could not write to Codex App Server (status " +
+                    std::to_string(static_cast<int>(status)) + ", " +
+                    std::to_string(written) + "/" + std::to_string(payload.size()) +
+                    " bytes)";
+                if (!detail.empty()) error += ": " + detail;
                 return false;
             }
             written += count;

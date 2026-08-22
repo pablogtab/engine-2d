@@ -90,6 +90,20 @@ void test_viewport_tool_schemas_and_validation() {
     assert(command.type == EditorAiViewportToolType::FocusEntities);
     assert(command.entity_ids == std::vector<EntityID>({3, 9}));
 
+    assert(tools.parse(
+        "focus_viewport_entities",
+        {{"entity_ids", nlohmann::json::array({3, 9})}},
+        command,
+        error
+    ));
+    assert(command.padding == 0.15f);
+    assert(tools.parse("frame_all_viewport", nlohmann::json::object(), command, error));
+    assert(command.type == EditorAiViewportToolType::FrameAll);
+    assert(command.padding == 0.15f);
+    assert(tools.parse("get_scene_diagnostics", nlohmann::json::object(), command, error));
+    assert(command.type == EditorAiViewportToolType::GetDiagnostics);
+    assert(command.limit == 50);
+
     assert(!tools.parse(
         "focus_viewport_entities",
         {{"entity_ids", nlohmann::json::array({3, 3})}, {"padding", 0.2}},

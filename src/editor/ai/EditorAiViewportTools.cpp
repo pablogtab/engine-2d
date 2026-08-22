@@ -198,12 +198,16 @@ bool EditorAiViewportTools::parse(
     }
 
     if (tool_name == "focus_viewport_entities") {
-        if (!only_keys(arguments, {"entity_ids", "padding"}) || arguments.size() != 2 ||
+        if (!only_keys(arguments, {"entity_ids", "padding"}) ||
             !arguments.contains("entity_ids") || !arguments.at("entity_ids").is_array() ||
-            arguments.at("entity_ids").empty() || arguments.at("entity_ids").size() > 20 ||
-            !finite_number(arguments, "padding", command.padding) ||
-            command.padding < 0.0f || command.padding > 1.0f) {
+            arguments.at("entity_ids").empty() || arguments.at("entity_ids").size() > 20) {
             error = "focus_viewport_entities requires 1-20 unique entity_ids and padding from 0 to 1";
+            return false;
+        }
+        if (arguments.contains("padding") && !arguments.at("padding").is_null() &&
+            (!finite_number(arguments, "padding", command.padding) ||
+             command.padding < 0.0f || command.padding > 1.0f)) {
+            error = "focus_viewport_entities requires padding from 0 to 1 when provided";
             return false;
         }
         std::unordered_set<EntityID> unique;
@@ -230,10 +234,11 @@ bool EditorAiViewportTools::parse(
     }
 
     if (tool_name == "frame_all_viewport") {
-        if (!only_keys(arguments, {"padding"}) || arguments.size() != 1 ||
-            !finite_number(arguments, "padding", command.padding) ||
-            command.padding < 0.0f || command.padding > 1.0f) {
-            error = "frame_all_viewport requires padding from 0 to 1";
+        if (!only_keys(arguments, {"padding"}) ||
+            (arguments.contains("padding") && !arguments.at("padding").is_null() &&
+             (!finite_number(arguments, "padding", command.padding) ||
+              command.padding < 0.0f || command.padding > 1.0f))) {
+            error = "frame_all_viewport requires padding from 0 to 1 when provided";
             return false;
         }
         command.type = EditorAiViewportToolType::FrameAll;
@@ -241,9 +246,16 @@ bool EditorAiViewportTools::parse(
     }
 
     if (tool_name == "get_scene_diagnostics") {
-        if (!only_keys(arguments, {"limit"}) || arguments.size() != 1 ||
-            !arguments.contains("limit") || !arguments.at("limit").is_number_integer()) {
-            error = "get_scene_diagnostics requires an integer limit";
+        if (!only_keys(arguments, {"limit"})) {
+            error = "get_scene_diagnostics accepts only an integer limit";
+            return false;
+        }
+        if (!arguments.contains("limit") || arguments.at("limit").is_null()) {
+            command.type = EditorAiViewportToolType::GetDiagnostics;
+            return true;
+        }
+        if (!arguments.at("limit").is_number_integer()) {
+            error = "get_scene_diagnostics requires an integer limit when provided";
             return false;
         }
         const std::int64_t limit = arguments.at("limit").get<std::int64_t>();
