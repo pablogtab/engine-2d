@@ -45,7 +45,12 @@ constexpr std::array<IconGlyph, static_cast<std::size_t>(EditorIcon::Count)> ICO
     {0xE0B9, "\xee\x82\xb9"}, // external-link
     {0xE1DD, "\xee\x87\x9d"}, // palette
     {0xE1B2, "\xee\x86\xb2"}, // x
-    {0xE09E, "\xee\x82\x9e"}  // copy
+    {0xE09E, "\xee\x82\x9e"}, // copy
+    {0xE04A, "\xee\x81\x8a"}, // arrow-up
+    {0xE1F5, "\xee\x87\xb5"}, // history
+    {0xE172, "\xee\x85\xb2"}, // square-pen
+    {0xE158, "\xee\x85\x98"}, // shield
+    {0xE1BB, "\xee\x86\xbb"}  // bot
 }};
 
 const IconGlyph& icon_glyph(EditorIcon icon) {
@@ -97,13 +102,14 @@ bool initialize_editor_icons() {
     // Rasterize only registered glyphs into ImGui's atlas. The vendored font
     // and codepoint catalog remain complete, so extending EditorIcon is cheap.
     static constexpr ImWchar icon_ranges[] = {
-        0xE061, 0xE061, 0xE064, 0xE064, 0xE09E, 0xE09E,
+        0xE04A, 0xE04A, 0xE061, 0xE061, 0xE064, 0xE064, 0xE09E, 0xE09E,
         0xE0B6, 0xE0BB, 0xE0D0, 0xE0D0, 0xE0E9, 0xE0E9,
         0xE0F6, 0xE0F6,
         0xE10B, 0xE10C, 0xE121, 0xE121, 0xE12E, 0xE12E,
-        0xE13C, 0xE13D, 0xE149, 0xE149, 0xE167, 0xE167,
-        0xE18E, 0xE18E, 0xE1B2, 0xE1B4, 0xE1DD, 0xE1DD,
-        0xE1F3, 0xE1F3,
+        0xE13C, 0xE13D, 0xE149, 0xE149, 0xE158, 0xE158,
+        0xE167, 0xE167, 0xE172, 0xE172,
+        0xE18E, 0xE18E, 0xE1B2, 0xE1B4, 0xE1BB, 0xE1BB, 0xE1DD, 0xE1DD,
+        0xE1F3, 0xE1F5,
         0xE245, 0xE245, 0xE2AD, 0xE2AD, 0xE2B5, 0xE2B5,
         0xE2D0, 0xE2D0, 0xE2EC, 0xE2EC, 0xE2FE, 0xE2FE,
         0
@@ -160,6 +166,10 @@ bool editor_icon_button(const char* id, EditorIcon icon, const char* tooltip, bo
     ImU32 icon_color = active
         ? IM_COL32(245, 175, 65, 255)
         : (hovered ? IM_COL32(235, 240, 255, 255) : IM_COL32(130, 138, 158, 160));
+
+    if (icon == EditorIcon::Assistant && active) {
+        icon_color = IM_COL32(145, 138, 250, 255);
+    }
 
     if (icon == EditorIcon::Hidden && active) {
         icon_color = IM_COL32(225, 130, 60, 240);

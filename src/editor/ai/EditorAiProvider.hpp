@@ -44,6 +44,8 @@ struct EditorAiProviderRequest {
     std::function<EditorAiToolResult(const std::string&, const nlohmann::json&)> execute_tool;
     std::string project_root{"."};
     std::string codex_executable;
+    std::string provider_thread_id;
+    bool persist_thread{false};
     std::size_t max_tool_rounds{8};
     std::size_t max_tool_failures{3};
 };
@@ -53,6 +55,8 @@ struct EditorAiProviderResult {
     std::string text;
     std::string error;
     std::string response_id;
+    std::string provider_thread_id;
+    std::string provider_session_id;
     long http_status{0};
     std::size_t tool_call_count{0};
     std::size_t input_tokens{0};

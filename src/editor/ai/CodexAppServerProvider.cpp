@@ -7,7 +7,7 @@ namespace Engine {
 namespace {
 
 constexpr int INITIALIZE_ID = 1;
-constexpr int THREAD_START_ID = 2;
+constexpr int THREAD_OPEN_ID = 2;
 constexpr int HISTORY_INJECT_ID = 3;
 constexpr int TURN_START_ID = 4;
 
@@ -203,33 +203,45 @@ EditorAiProviderResult CodexAppServerProvider::run(
         "insufficient. Scene changes may only use validated editor tools so undo/redo and serialization "
         "contracts remain intact.";
     if (!request.instructions.empty()) instructions += "\n\n" + request.instructions;
+    nlohmann::json thread_params{
+        {"model", request.model},
+        {"cwd", root},
+        {"runtimeWorkspaceRoots", nlohmann::json::array({root})},
+        {"developerInstructions", instructions},
+        {"approvalPolicy", "never"},
+        {"sandbox", "read-only"},
+        {"dynamicTools", dynamic_tools(request.tools)},
+        {"serviceName", "engine2d_editor"}
+    };
+    const bool resuming_thread = !request.provider_thread_id.empty();
+    if (resuming_thread) {
+        thread_params["threadId"] = request.provider_thread_id;
+    } else {
+        thread_params["ephemeral"] = !request.persist_thread;
+    }
     if (!send({
-        {"id", THREAD_START_ID},
-        {"method", "thread/start"},
-        {"params", {
-            {"model", request.model},
-            {"cwd", root},
-            {"runtimeWorkspaceRoots", nlohmann::json::array({root})},
-            {"developerInstructions", instructions},
-            {"approvalPolicy", "never"},
-            {"sandbox", "read-only"},
-            {"ephemeral", true},
-            {"dynamicTools", dynamic_tools(request.tools)}
-        }}
+        {"id", THREAD_OPEN_ID},
+        {"method", resuming_thread ? "thread/resume" : "thread/start"},
+        {"params", std::move(thread_params)}
     })) return result;
-    const auto thread_start = wait_for_response(THREAD_START_ID);
-    if (!thread_start) return result;
-    if (!thread_start->contains("thread") || !thread_start->at("thread").is_object()) {
+    const auto thread_open = wait_for_response(THREAD_OPEN_ID);
+    if (!thread_open) return result;
+    if (!thread_open->contains("thread") || !thread_open->at("thread").is_object()) {
         result.error = "Codex App Server did not return a thread";
         return result;
     }
-    const std::string thread_id = thread_start->at("thread").value("id", "");
+    const auto& thread = thread_open->at("thread");
+    const std::string thread_id = thread.value("id", "");
     if (thread_id.empty()) {
         result.error = "Codex App Server returned an invalid thread id";
         return result;
     }
+    result.provider_thread_id = thread_id;
+    result.provider_session_id = thread.value("sessionId", thread_id);
 
-    const nlohmann::json prior_items = history_items(request.history);
+    const nlohmann::json prior_items = resuming_thread
+        ? nlohmann::json::array()
+        : history_items(request.history);
     if (!prior_items.empty()) {
         if (!send({
             {"id", HISTORY_INJECT_ID},

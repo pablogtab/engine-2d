@@ -35,6 +35,11 @@ enum class EditorIcon {
     Material,
     Clear,
     Copy,
+    ArrowUp,
+    History,
+    Edit,
+    Shield,
+    Assistant,
     Count
 };
 

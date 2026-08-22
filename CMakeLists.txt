@@ -96,6 +96,7 @@ set(SOURCES
     src/editor/panels/TilemapPalettePanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/panels/AiAssistantPanel.cpp
+    src/editor/ai/EditorAiConversationStore.cpp
     src/editor/ai/EditorAiToolRegistry.cpp
     src/editor/ai/EditorAiAuthoring.cpp
     src/editor/ai/CodexAppServerProvider.cpp
@@ -625,6 +626,19 @@ target_include_directories(RecentSceneListTests PRIVATE
 target_link_libraries(RecentSceneListTests PRIVATE SDL3::SDL3)
 add_test(NAME RecentSceneListTests COMMAND RecentSceneListTests)
 
+add_executable(EditorAiConversationStoreTests
+    tests/EditorAiConversationStoreTests.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+    src/editor/ai/EditorAiConversationStore.cpp
+)
+target_include_directories(EditorAiConversationStoreTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(EditorAiConversationStoreTests PRIVATE SDL3::SDL3)
+add_test(NAME EditorAiConversationStoreTests COMMAND EditorAiConversationStoreTests)
+
 add_executable(HierarchyCommandTests
     tests/HierarchyCommandTests.cpp
     src/core/AssetDatabase.cpp
@@ -949,6 +963,7 @@ foreach(runtime_test
     SceneValidatorTests
     EditorEntityStateStoreTests
     RecentSceneListTests
+    EditorAiConversationStoreTests
     HierarchyCommandTests
     ViewportVisibilityTests
     SceneSerializerTests

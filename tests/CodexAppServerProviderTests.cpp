@@ -119,6 +119,8 @@ void test_subscription_protocol_streaming_and_read_only_sandbox() {
     assert(result.text == "Renderer ready.");
     assert(streamed == result.text);
     assert(result.response_id == "turn-test");
+    assert(result.provider_thread_id == "thread-test");
+    assert(result.provider_session_id == "thread-test");
     assert(result.input_tokens == 42);
     assert(result.output_tokens == 7);
     assert(result.total_tokens == 49);
@@ -132,9 +134,51 @@ void test_subscription_protocol_streaming_and_read_only_sandbox() {
     assert(thread.at("method") == "thread/start");
     assert(thread.at("params").at("sandbox") == "read-only");
     assert(thread.at("params").at("approvalPolicy") == "never");
+    assert(thread.at("params").at("ephemeral") == true);
+    assert(thread.at("params").at("serviceName") == "engine2d_editor");
     assert(thread.at("params").at("dynamicTools").at(0).at("inputSchema").at("type") == "object");
     assert(state->writes.at(3).at("method") == "turn/start");
     assert(state->writes.at(3).at("params").at("effort") == "low");
+}
+
+void test_persistent_thread_can_be_resumed_without_history_reinjection() {
+    auto start_state = standard_script();
+    CodexAppServerProvider start_provider(std::make_unique<FakeTransport>(start_state));
+    EditorAiProviderRequest start_request = basic_request();
+    start_request.persist_thread = true;
+    const EditorAiProviderResult started = start_provider.run(start_request, {});
+    assert(started.status == EditorAiProviderStatus::Completed);
+    assert(start_state->writes.at(2).at("method") == "thread/start");
+    assert(start_state->writes.at(2).at("params").at("ephemeral") == false);
+
+    auto resume_state = std::make_shared<FakeTransportState>();
+    resume_state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {
+            {"id", "thread-existing"},
+            {"sessionId", "session-existing"},
+            {"ephemeral", false}
+        }}}}}),
+        json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-resumed"}, {"status", "inProgress"}}}}}}),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-existing"},
+            {"turn", {{"id", "turn-resumed"}, {"status", "completed"}, {"items", nlohmann::json::array()}}}
+        }}})
+    };
+    CodexAppServerProvider resume_provider(std::make_unique<FakeTransport>(resume_state));
+    EditorAiProviderRequest resume_request = basic_request();
+    resume_request.provider_thread_id = "thread-existing";
+    resume_request.persist_thread = true;
+    resume_request.history = {{"user", "Already stored"}, {"assistant", "Do not inject"}};
+
+    const EditorAiProviderResult resumed = resume_provider.run(resume_request, {});
+    assert(resumed.status == EditorAiProviderStatus::Completed);
+    assert(resumed.provider_thread_id == "thread-existing");
+    assert(resumed.provider_session_id == "session-existing");
+    assert(resume_state->writes.at(2).at("method") == "thread/resume");
+    assert(resume_state->writes.at(2).at("params").at("threadId") == "thread-existing");
+    assert(!resume_state->writes.at(2).at("params").contains("ephemeral"));
+    assert(resume_state->writes.at(3).at("method") == "turn/start");
 }
 
 void test_read_only_history_and_dynamic_tool_bridge() {
@@ -267,6 +311,7 @@ void test_live_app_server_when_requested() {
 int main() {
     test_subscription_protocol_streaming_and_read_only_sandbox();
     test_read_only_history_and_dynamic_tool_bridge();
+    test_persistent_thread_can_be_resumed_without_history_reinjection();
     test_failure_and_early_cancellation();
     test_invalid_tool_call_budget_interrupts_turn();
     test_live_app_server_when_requested();

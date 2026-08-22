@@ -1304,10 +1304,28 @@ void EditorLayer::render_main_menu_bar() {
             ImGui::EndMenu();
         }
 
-        // Right-aligned status indicators
-        float right_pos = ImGui::GetWindowWidth() - 170.0f;
+        // Right-aligned global tools and status indicators.
+        const auto ai_assistant = std::dynamic_pointer_cast<AiAssistantPanel>(
+            get_panel("AI Assistant")
+        );
+        constexpr float AI_BUTTON_WIDTH = 24.0f;
+        constexpr float FPS_STATUS_WIDTH = 170.0f;
+        float right_pos = ImGui::GetWindowWidth() - FPS_STATUS_WIDTH - AI_BUTTON_WIDTH - 8.0f;
         if (right_pos > ImGui::GetCursorPosX()) {
             ImGui::SetCursorPosX(right_pos);
+            ImGui::BeginDisabled(!ai_assistant);
+            if (editor_icon_button(
+                "open_ai_assistant",
+                EditorIcon::Assistant,
+                ai_assistant && ai_assistant->is_open
+                    ? "Focus AI Assistant" : "Open AI Assistant",
+                ai_assistant && ai_assistant->is_open,
+                ImVec2(AI_BUTTON_WIDTH, 20.0f)
+            ) && ai_assistant) {
+                ai_assistant->request_focus();
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
             ImGui::TextDisabled("FPS: %.1f (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
         }
 

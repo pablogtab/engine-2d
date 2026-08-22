@@ -5,12 +5,14 @@
 #include "../../core/Log.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../state/EditorEntityStateStore.hpp"
+#include "../tools/EditorIcons.hpp"
 
 #include <imgui.h>
 
 #include <cstdlib>
 #include <cstdio>
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <numeric>
@@ -61,6 +63,155 @@ std::string project_root() {
 #endif
 }
 
+std::string abbreviated_id(const std::string& id) {
+    constexpr std::size_t VISIBLE_CHARACTERS = 8;
+    if (id.size() <= VISIBLE_CHARACTERS * 2 + 3) return id;
+    return id.substr(0, VISIBLE_CHARACTERS) + "..." +
+        id.substr(id.size() - VISIBLE_CHARACTERS);
+}
+
+std::string codex_resume_command(const std::string& thread_id) {
+    return "codex resume --include-non-interactive " + thread_id;
+}
+
+bool has_visible_text(const char* text) {
+    if (!text) return false;
+    for (const unsigned char character : std::string(text)) {
+        if (!std::isspace(character)) return true;
+    }
+    return false;
+}
+
+std::string conversation_transcript(const std::vector<EditorAiChatMessage>& messages) {
+    std::string transcript;
+    for (const EditorAiChatMessage& message : messages) {
+        if (!transcript.empty()) transcript += "\n\n";
+        transcript += message.role == "user" ? "You\n" : "Codex\n";
+        transcript += message.content;
+    }
+    return transcript;
+}
+
+void draw_codex_badge() {
+    constexpr ImVec2 PADDING(9.0f, 5.0f);
+    const ImVec2 text_size = ImGui::CalcTextSize("Codex");
+    const ImVec2 size(text_size.x + PADDING.x * 2.0f, text_size.y + PADDING.y * 2.0f);
+    const ImVec2 minimum = ImGui::GetCursorScreenPos();
+    const ImVec2 maximum(minimum.x + size.x, minimum.y + size.y);
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    draw_list->AddRectFilled(
+        minimum,
+        maximum,
+        ImGui::GetColorU32(ImGuiCol_FrameBgHovered),
+        7.0f
+    );
+    draw_list->AddText(
+        ImVec2(minimum.x + PADDING.x, minimum.y + PADDING.y),
+        IM_COL32(245, 245, 242, 255),
+        "Codex"
+    );
+    ImGui::Dummy(size);
+}
+
+bool round_icon_button(
+    const char* id,
+    EditorIcon icon,
+    const char* tooltip,
+    bool enabled,
+    bool emphasized
+) {
+    constexpr float DIAMETER = 32.0f;
+    ImGui::PushID(id);
+    ImGui::BeginDisabled(!enabled);
+    const bool pressed = ImGui::InvisibleButton("##button", ImVec2(DIAMETER, DIAMETER));
+    ImGui::EndDisabled();
+    const bool hovered = enabled && ImGui::IsItemHovered();
+    const ImVec2 minimum = ImGui::GetItemRectMin();
+    const ImVec2 maximum = ImGui::GetItemRectMax();
+    const ImVec2 center(
+        (minimum.x + maximum.x) * 0.5f,
+        (minimum.y + maximum.y) * 0.5f
+    );
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    const ImU32 background = !enabled
+        ? IM_COL32(57, 62, 80, 145)
+        : (emphasized
+            ? (hovered ? IM_COL32(245, 245, 242, 255) : IM_COL32(218, 218, 213, 255))
+            : (hovered ? IM_COL32(91, 82, 196, 170) : IM_COL32(72, 66, 145, 120)));
+    const ImU32 foreground = !enabled
+        ? IM_COL32(145, 145, 140, 150)
+        : (emphasized ? IM_COL32(48, 49, 47, 255) : IM_COL32(225, 226, 222, 255));
+    draw_list->AddCircleFilled(center, DIAMETER * 0.5f, background, 28);
+    draw_editor_icon(draw_list, icon, center, 14.0f, foreground);
+    if (hovered && tooltip) ImGui::SetTooltip("%s", tooltip);
+    ImGui::PopID();
+    return enabled && pressed;
+}
+
+std::string compact_model_name(const std::string& model) {
+    if (model == "gpt-5.6-sol") return "5.6 Sol";
+    if (model == "gpt-5.6-terra") return "5.6 Terra";
+    if (model == "gpt-5.6-luna") return "5.6 Luna";
+    return model;
+}
+
+bool draw_chat_message(
+    const EditorAiChatMessage& message,
+    int index,
+    float available_width
+) {
+    bool copy_requested = false;
+    const bool is_user = message.role == "user";
+    const float bubble_width = std::max(
+        140.0f,
+        available_width * (is_user ? 0.82f : 0.94f)
+    );
+    if (is_user) {
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + available_width - bubble_width);
+    }
+
+    const ImVec4 background = is_user
+        ? ImVec4(0.17f, 0.18f, 0.27f, 1.0f)
+        : ImVec4(0.12f, 0.13f, 0.17f, 1.0f);
+    const ImVec4 label_color = is_user
+        ? ImVec4(0.72f, 0.69f, 1.0f, 1.0f)
+        : ImVec4(0.40f, 0.82f, 0.62f, 1.0f);
+    const float text_width = std::max(1.0f, bubble_width - 20.0f);
+    const float text_height = ImGui::CalcTextSize(
+        message.content.c_str(),
+        nullptr,
+        false,
+        text_width
+    ).y;
+    const float bubble_height = ImGui::GetTextLineHeightWithSpacing() + text_height + 20.0f;
+
+    ImGui::PushID(index);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, background);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 7.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+    ImGui::BeginChild(
+        "Message",
+        ImVec2(bubble_width, bubble_height),
+        false,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+    );
+    ImGui::TextColored(label_color, "%s", is_user ? "You" : "Codex");
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + text_width);
+    ImGui::TextUnformatted(message.content.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    if (!is_user) {
+        if (editor_icon_button("copy", EditorIcon::Copy, "Copy response")) {
+            copy_requested = true;
+        }
+    }
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
+    ImGui::PopID();
+    ImGui::Spacing();
+    return copy_requested;
+}
+
 } // namespace
 
 AiAssistantPanel::AiAssistantPanel(
@@ -78,9 +229,29 @@ AiAssistantPanel::AiAssistantPanel(
     m_openai_provider(std::make_unique<OpenAiResponsesProvider>(
         create_default_editor_ai_http_transport()
     )),
+    m_conversation_store(std::make_unique<EditorAiConversationStore>(
+        (std::filesystem::path(project_root()) / "Library/EditorAi/conversations.json").string()
+    )),
     m_codex_executable(find_default_codex_executable()) {
     is_open = false;
     std::snprintf(m_model.data(), m_model.size(), "%s", "gpt-5.6-sol");
+    std::string load_error;
+    if (!m_conversation_store->load(load_error)) {
+        ENGINE_LOG_WARN("[AI AUDIT] conversation_store=load_failed error={}", load_error);
+    } else if (const auto* conversation = m_conversation_store->active_conversation()) {
+        m_codex_thread_id = conversation->thread_id;
+        m_codex_session_id = conversation->session_id;
+        m_messages = conversation->messages;
+        if (!conversation->model.empty()) {
+            std::snprintf(m_model.data(), m_model.size(), "%s", conversation->model.c_str());
+        }
+        m_scroll_chat_to_bottom = true;
+        ENGINE_LOG_INFO(
+            "[AI AUDIT] conversation_store=restored thread={} messages={}",
+            conversation->thread_id,
+            conversation->messages.size()
+        );
+    }
 }
 
 AiAssistantPanel::~AiAssistantPanel() {
@@ -103,6 +274,173 @@ std::string AiAssistantPanel::current_context_json() const {
 
 void AiAssistantPanel::cancel_request() {
     m_cancel_requested.store(true);
+    ENGINE_LOG_INFO("[AI AUDIT] ui_action=cancel_request");
+}
+
+void AiAssistantPanel::start_new_conversation() {
+    std::lock_guard lock(m_request_mutex);
+    if (m_request_running || m_pending_proposal) return;
+    m_messages.clear();
+    m_streamed_response.clear();
+    m_request_error.clear();
+    m_active_tool.clear();
+    m_authoring_feedback.clear();
+    m_ui_feedback = "New conversation ready.";
+    m_codex_thread_id.clear();
+    m_codex_session_id.clear();
+    m_last_input_tokens = 0;
+    m_last_output_tokens = 0;
+    m_last_total_tokens = 0;
+    m_last_tool_calls = 0;
+    m_last_request_duration_ms = 0;
+    m_scroll_chat_to_bottom = false;
+    m_focus_prompt_requested = true;
+    m_prompt.fill('\0');
+    if (m_conversation_store) {
+        static_cast<void>(m_conversation_store->set_active_thread(""));
+        std::string save_error;
+        if (!m_conversation_store->save(save_error)) {
+            m_request_error = save_error;
+        }
+    }
+    ENGINE_LOG_INFO("[AI AUDIT] ui_action=new_conversation");
+}
+
+void AiAssistantPanel::restore_conversation(const std::string& thread_id) {
+    std::lock_guard lock(m_request_mutex);
+    if (m_request_running || m_pending_proposal || !m_conversation_store) return;
+    const EditorAiConversationRecord* conversation = m_conversation_store->find(thread_id);
+    if (!conversation) {
+        m_request_error = "The selected conversation is no longer available.";
+        return;
+    }
+    m_codex_thread_id = conversation->thread_id;
+    m_codex_session_id = conversation->session_id;
+    m_messages = conversation->messages;
+    m_streamed_response.clear();
+    m_request_error.clear();
+    m_active_tool.clear();
+    m_authoring_feedback.clear();
+    m_ui_feedback = "Conversation restored.";
+    m_last_input_tokens = 0;
+    m_last_output_tokens = 0;
+    m_last_total_tokens = 0;
+    m_last_tool_calls = 0;
+    m_last_request_duration_ms = 0;
+    m_scroll_chat_to_bottom = true;
+    m_focus_prompt_requested = true;
+    m_prompt.fill('\0');
+    if (!conversation->model.empty()) {
+        std::snprintf(m_model.data(), m_model.size(), "%s", conversation->model.c_str());
+    }
+    static_cast<void>(m_conversation_store->set_active_thread(thread_id));
+    std::string save_error;
+    if (!m_conversation_store->save(save_error)) m_request_error = save_error;
+    ENGINE_LOG_INFO(
+        "[AI AUDIT] conversation_store=resumed thread={} messages={}",
+        conversation->thread_id,
+        conversation->messages.size()
+    );
+}
+
+void AiAssistantPanel::rename_conversation(
+    const std::string& thread_id,
+    const std::string& title
+) {
+    std::lock_guard lock(m_request_mutex);
+    if (!m_conversation_store || m_request_running || m_pending_proposal) return;
+    if (!m_conversation_store->rename(thread_id, title)) {
+        m_request_error = "Conversation could not be renamed. Enter a non-empty title.";
+        return;
+    }
+    std::string save_error;
+    if (!m_conversation_store->save(save_error)) {
+        m_request_error = save_error;
+        return;
+    }
+    m_request_error.clear();
+    m_ui_feedback = "Conversation renamed.";
+    ENGINE_LOG_INFO("[AI AUDIT] conversation_store=renamed thread={}", thread_id);
+}
+
+void AiAssistantPanel::delete_conversation(const std::string& thread_id) {
+    std::lock_guard lock(m_request_mutex);
+    if (!m_conversation_store || m_request_running || m_pending_proposal) return;
+    if (!m_conversation_store->erase(thread_id)) {
+        m_request_error = "The selected conversation is no longer available.";
+        return;
+    }
+    if (m_codex_thread_id == thread_id) {
+        m_messages.clear();
+        m_streamed_response.clear();
+        m_codex_thread_id.clear();
+        m_codex_session_id.clear();
+        m_last_input_tokens = 0;
+        m_last_output_tokens = 0;
+        m_last_total_tokens = 0;
+        m_last_tool_calls = 0;
+        m_last_request_duration_ms = 0;
+        m_prompt.fill('\0');
+        m_focus_prompt_requested = true;
+    }
+    std::string save_error;
+    if (!m_conversation_store->save(save_error)) {
+        m_request_error = save_error;
+        return;
+    }
+    m_request_error.clear();
+    m_ui_feedback = "Conversation deleted.";
+    ENGINE_LOG_INFO("[AI AUDIT] conversation_store=deleted thread={}", thread_id);
+}
+
+void AiAssistantPanel::copy_to_clipboard(
+    const std::string& contents,
+    const std::string& feedback
+) {
+    if (contents.empty()) return;
+    ImGui::SetClipboardText(contents.c_str());
+    std::lock_guard lock(m_request_mutex);
+    m_ui_feedback = feedback;
+    ENGINE_LOG_INFO("[AI AUDIT] ui_action=clipboard_copy result={}", feedback);
+}
+
+void AiAssistantPanel::toggle_authoring_mode() {
+    m_authoring_mode = m_authoring_mode == AuthoringMode::AutonomousSafe
+        ? AuthoringMode::ConfirmBeforeApply
+        : AuthoringMode::AutonomousSafe;
+    std::lock_guard lock(m_request_mutex);
+    m_ui_feedback = m_authoring_mode == AuthoringMode::AutonomousSafe
+        ? "Autonomous safe mode enabled. Validated proposals will apply automatically."
+        : "Confirmation enabled. Proposals will wait for your approval.";
+    ENGINE_LOG_INFO(
+        "[AI AUDIT] ui_action=authoring_mode mode={}",
+        m_authoring_mode == AuthoringMode::AutonomousSafe
+            ? "autonomous_safe" : "confirm_before_apply"
+    );
+}
+
+void AiAssistantPanel::persist_current_conversation_locked(const std::string& model) {
+    if (!m_conversation_store || m_codex_thread_id.empty()) return;
+    const auto updated_at = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+    m_conversation_store->record(EditorAiConversationRecord{
+        .thread_id = m_codex_thread_id,
+        .session_id = m_codex_session_id,
+        .title = make_editor_ai_conversation_title(m_messages),
+        .model = model,
+        .updated_at_unix_ms = updated_at,
+        .messages = m_messages
+    });
+    std::string save_error;
+    if (!m_conversation_store->save(save_error)) {
+        m_request_error = save_error;
+        ENGINE_LOG_WARN(
+            "[AI AUDIT] conversation_store=save_failed thread={} error={}",
+            m_codex_thread_id,
+            save_error
+        );
+    }
 }
 
 void AiAssistantPanel::dismiss_pending_proposal() {
@@ -225,7 +563,8 @@ void AiAssistantPanel::undo_last_ai_session() {
 }
 
 void AiAssistantPanel::start_request() {
-    IEditorAiProvider* provider = m_backend == ProviderBackend::CodexSubscription
+    const bool using_codex = m_backend == ProviderBackend::CodexSubscription;
+    IEditorAiProvider* provider = using_codex
         ? static_cast<IEditorAiProvider*>(m_codex_provider.get())
         : static_cast<IEditorAiProvider*>(m_openai_provider.get());
     if (!provider || !provider->is_available()) return;
@@ -243,7 +582,7 @@ void AiAssistantPanel::start_request() {
 
     const std::string prompt(m_prompt.data());
     const std::string model(m_model.data());
-    if (prompt.empty() || model.empty()) return;
+    if (!has_visible_text(prompt.c_str()) || !has_visible_text(model.c_str())) return;
     const std::uint64_t request_id = NEXT_AI_REQUEST_ID.fetch_add(1);
     const auto request_started = std::chrono::steady_clock::now();
     const std::string reasoning_effort = m_reasoning_effort == ReasoningEffort::High
@@ -303,22 +642,28 @@ void AiAssistantPanel::start_request() {
     }
     request.project_root = project_root();
     request.codex_executable = m_codex_executable;
+    request.persist_thread = using_codex;
     request.max_tool_rounds = 12;
     request.max_tool_failures = 3;
     {
         std::lock_guard lock(m_request_mutex);
-        request.history = recent_history(m_messages);
+        request.provider_thread_id = using_codex ? m_codex_thread_id : "";
+        request.history = request.provider_thread_id.empty()
+            ? recent_history(m_messages)
+            : std::vector<EditorAiChatMessage>{};
         m_messages.push_back({"user", prompt});
         m_streamed_response.clear();
         m_request_error.clear();
         m_active_tool.clear();
         m_authoring_feedback.clear();
+        m_ui_feedback.clear();
         m_last_input_tokens = 0;
         m_last_output_tokens = 0;
         m_last_total_tokens = 0;
         m_last_tool_calls = 0;
         m_last_request_duration_ms = 0;
         m_request_running = true;
+        m_scroll_chat_to_bottom = true;
     }
     const std::size_t history_characters = std::accumulate(
         request.history.begin(),
@@ -331,7 +676,7 @@ void AiAssistantPanel::start_request() {
     ENGINE_LOG_INFO(
         "[AI AUDIT] request={} phase=start backend={} model={} effort={} mode={} scene={} "
         "baseline_revision={} history_messages={} history_chars={} context_chars={} tools={} "
-        "tool_schema_chars={} instructions_chars={} prompt_chars={}",
+        "tool_schema_chars={} instructions_chars={} prompt_chars={} thread={} persistent={}",
         request_id,
         m_backend == ProviderBackend::CodexSubscription ? "codex_subscription" : "openai_api",
         model,
@@ -345,7 +690,9 @@ void AiAssistantPanel::start_request() {
         request.tools.size(),
         request.tools.dump().size(),
         request.instructions.size(),
-        prompt.size()
+        prompt.size(),
+        request.provider_thread_id.empty() ? "new" : request.provider_thread_id,
+        request.persist_thread
     );
     request.execute_tool = [
         this,
@@ -414,6 +761,8 @@ void AiAssistantPanel::start_request() {
         selection,
         baseline_revision,
         authoring_mode,
+        using_codex,
+        model,
         request_id,
         request_started
     ]() mutable {
@@ -448,6 +797,7 @@ void AiAssistantPanel::start_request() {
                 std::lock_guard lock(m_request_mutex);
                 if (event.type == EditorAiProviderEventType::TextDelta) {
                     m_streamed_response += event.text;
+                    m_scroll_chat_to_bottom = true;
                 } else if (event.type == EditorAiProviderEventType::ToolStarted) {
                     m_active_tool = event.tool_name;
                 } else if (event.type == EditorAiProviderEventType::ToolFinished) {
@@ -464,6 +814,13 @@ void AiAssistantPanel::start_request() {
         m_last_output_tokens = result.output_tokens;
         m_last_total_tokens = result.total_tokens;
         m_last_tool_calls = result.tool_call_count;
+        if (!result.provider_thread_id.empty()) {
+            m_codex_thread_id = result.provider_thread_id;
+        }
+        if (!result.provider_session_id.empty()) {
+            m_codex_session_id = result.provider_session_id;
+        }
+        m_scroll_chat_to_bottom = true;
         m_last_request_duration_ms = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - request_started
@@ -474,7 +831,8 @@ void AiAssistantPanel::start_request() {
             : (result.status == EditorAiProviderStatus::Cancelled ? "cancelled" : "failed");
         ENGINE_LOG_INFO(
             "[AI AUDIT] request={} phase=finish status={} duration_ms={} tool_calls={} "
-            "proposal_actions={} input_tokens={} output_tokens={} total_tokens={} error={}",
+            "proposal_actions={} input_tokens={} output_tokens={} total_tokens={} thread={} "
+            "session={} error={}",
             request_id,
             status,
             m_last_request_duration_ms,
@@ -483,6 +841,8 @@ void AiAssistantPanel::start_request() {
             result.input_tokens,
             result.output_tokens,
             result.total_tokens,
+            result.provider_thread_id.empty() ? "none" : result.provider_thread_id,
+            result.provider_session_id.empty() ? "none" : result.provider_session_id,
             result.error.empty() ? "none" : result.error
         );
         if (result.status == EditorAiProviderStatus::Completed) {
@@ -515,6 +875,9 @@ void AiAssistantPanel::start_request() {
                 m_authoring_feedback = "Failed proposal discarded without changing the scene.";
             }
         }
+        if (using_codex && !m_codex_thread_id.empty()) {
+            persist_current_conversation_locked(model);
+        }
     });
 }
 
@@ -522,6 +885,10 @@ void AiAssistantPanel::on_gui() {
     if (!is_open) return;
 
     ImGui::SetNextWindowSize(ImVec2(500.0f, 680.0f), ImGuiCond_FirstUseEver);
+    if (m_focus_requested) {
+        ImGui::SetNextWindowFocus();
+        m_focus_requested = false;
+    }
     if (!ImGui::Begin(m_name.c_str(), &is_open)) {
         ImGui::End();
         return;
@@ -543,26 +910,6 @@ void AiAssistantPanel::on_gui() {
     const bool using_codex = m_backend == ProviderBackend::CodexSubscription;
     const bool provider_available = using_codex ? codex_available : api_provider_available;
     const bool credentials_available = using_codex || api_key_available;
-    ImGui::TextColored(ImVec4(0.35f, 0.78f, 0.52f, 1.0f), "Local tools ready");
-    ImGui::SameLine();
-    if (using_codex && codex_available) {
-        ImGui::TextColored(ImVec4(0.35f, 0.78f, 0.52f, 1.0f), "Codex subscription ready");
-    } else if (!using_codex && provider_available && api_key_available) {
-        ImGui::TextColored(ImVec4(0.35f, 0.78f, 0.52f, 1.0f), "OpenAI API ready");
-    } else if (using_codex) {
-        ImGui::TextDisabled("Codex CLI not found");
-    } else if (!provider_available) {
-        ImGui::TextDisabled("HTTP transport unavailable in this build");
-    } else {
-        ImGui::TextDisabled("OPENAI_API_KEY not configured");
-    }
-    ImGui::TextWrapped(
-        "Codex receives the active scene, selection, component registry, and engine contracts through "
-        "typed editor tools. The engine workspace stays read-only. Scene changes are queued through "
-        "validated authoring tools and applied as one reversible editor transaction."
-    );
-
-    ImGui::Spacing();
     bool running = false;
     std::string streamed_response;
     std::string request_error;
@@ -576,6 +923,13 @@ void AiAssistantPanel::on_gui() {
     std::optional<PendingProposal> pending_proposal;
     std::optional<AppliedAiSession> last_applied_session;
     std::string authoring_feedback;
+    std::string ui_feedback;
+    std::string codex_thread_id;
+    std::string codex_session_id;
+    std::vector<EditorAiConversationRecord> conversations;
+    bool scroll_chat_to_bottom = false;
+    bool open_rename_conversation = false;
+    bool open_delete_conversation = false;
     {
         std::lock_guard lock(m_request_mutex);
         running = m_request_running;
@@ -591,133 +945,513 @@ void AiAssistantPanel::on_gui() {
         pending_proposal = m_pending_proposal;
         last_applied_session = m_last_applied_session;
         authoring_feedback = m_authoring_feedback;
+        ui_feedback = m_ui_feedback;
+        codex_thread_id = m_codex_thread_id;
+        codex_session_id = m_codex_session_id;
+        if (m_conversation_store) conversations = m_conversation_store->conversations();
+        scroll_chat_to_bottom = m_scroll_chat_to_bottom;
+        m_scroll_chat_to_bottom = false;
     }
 
+    std::string conversation_title = "New conversation";
+    const auto current_conversation = std::find_if(
+        conversations.begin(),
+        conversations.end(),
+        [&](const EditorAiConversationRecord& conversation) {
+            return conversation.thread_id == codex_thread_id;
+        }
+    );
+    if (current_conversation != conversations.end()) {
+        conversation_title = current_conversation->title;
+    }
+
+    draw_codex_badge();
+    if (m_open_session_settings_requested) {
+        ImGui::OpenPopup("AISessionSettings");
+        m_open_session_settings_requested = false;
+    }
+    ImGui::SameLine();
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5.0f, 4.0f));
+    constexpr float TOOLBAR_WIDTH = 28.0f * 4.0f + 5.0f * 3.0f;
+    const float toolbar_x = ImGui::GetCursorPosX() + std::max(
+        0.0f,
+        ImGui::GetContentRegionAvail().x - TOOLBAR_WIDTH
+    );
+    ImGui::SetCursorPosX(toolbar_x);
+    if (editor_icon_button(
+        "conversation_actions",
+        EditorIcon::Ellipsis,
+        "Conversation actions",
+        ImGui::IsPopupOpen("AIConversationActions"),
+        ImVec2(28.0f, 28.0f)
+    )) {
+        ImGui::OpenPopup("AIConversationActions");
+    }
+    ImGui::SameLine();
+    if (editor_icon_button(
+        "conversation_history",
+        EditorIcon::History,
+        "Conversation history",
+        ImGui::IsPopupOpen("AIConversationHistory"),
+        ImVec2(28.0f, 28.0f)
+    )) {
+        ImGui::OpenPopup("AIConversationHistory");
+    }
+    ImGui::SameLine();
+    if (editor_icon_button(
+        "session_settings",
+        EditorIcon::Settings,
+        "Session settings",
+        ImGui::IsPopupOpen("AISessionSettings"),
+        ImVec2(28.0f, 28.0f)
+    )) {
+        ImGui::OpenPopup("AISessionSettings");
+    }
+    ImGui::SameLine();
     ImGui::BeginDisabled(running || pending_proposal.has_value());
-    const char* backends[] = {"Codex subscription", "OpenAI API key"};
-    int backend_index = m_backend == ProviderBackend::CodexSubscription ? 0 : 1;
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::Combo("Backend", &backend_index, backends, 2)) {
-        m_backend = backend_index == 0
-            ? ProviderBackend::CodexSubscription
-            : ProviderBackend::OpenAiApi;
-    }
-    if (m_backend == ProviderBackend::CodexSubscription) {
-        ImGui::TextDisabled("Sandbox: engine read-only; game authoring requires validated editor tools");
-    }
-    const std::string current_model(m_model.data());
-    int model_preset = current_model == "gpt-5.6-luna" ? 0
-        : (current_model == "gpt-5.6-terra" ? 1
-        : (current_model == "gpt-5.6-sol" ? 2 : 3));
-    const char* model_presets[] = {
-        "Luna - fastest",
-        "Terra - balanced",
-        "Sol - highest capability",
-        "Custom"
-    };
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::Combo("Model preset", &model_preset, model_presets, 4) && model_preset < 3) {
-        const char* selected_model = model_preset == 0
-            ? "gpt-5.6-luna" : (model_preset == 1 ? "gpt-5.6-terra" : "gpt-5.6-sol");
-        std::snprintf(m_model.data(), m_model.size(), "%s", selected_model);
-    }
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::InputText("Model", m_model.data(), m_model.size());
-    const char* reasoning_efforts[] = {"Low - fast", "Medium", "High"};
-    int effort_index = m_reasoning_effort == ReasoningEffort::Low ? 0
-        : (m_reasoning_effort == ReasoningEffort::Medium ? 1 : 2);
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::Combo("Reasoning", &effort_index, reasoning_efforts, 3)) {
-        m_reasoning_effort = effort_index == 0
-            ? ReasoningEffort::Low
-            : (effort_index == 1 ? ReasoningEffort::Medium : ReasoningEffort::High);
-    }
-    const char* authoring_modes[] = {"Confirm before apply", "Autonomous safe"};
-    int authoring_mode_index = m_authoring_mode == AuthoringMode::ConfirmBeforeApply ? 0 : 1;
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::Combo("Authoring", &authoring_mode_index, authoring_modes, 2)) {
-        m_authoring_mode = authoring_mode_index == 0
-            ? AuthoringMode::ConfirmBeforeApply
-            : AuthoringMode::AutonomousSafe;
+    if (editor_icon_button(
+        "new_conversation",
+        EditorIcon::Edit,
+        "New conversation",
+        codex_thread_id.empty() && messages.empty(),
+        ImVec2(28.0f, 28.0f)
+    )) {
+        start_new_conversation();
     }
     ImGui::EndDisabled();
-    if (m_authoring_mode == AuthoringMode::ConfirmBeforeApply) {
-        ImGui::TextDisabled("Review every proposed action before the scene changes.");
-    } else {
-        ImGui::TextDisabled("Validated proposals apply automatically; one Undo reverts the whole session.");
+    ImGui::PopStyleVar();
+
+    ImGui::SetNextWindowSizeConstraints(ImVec2(280.0f, 0.0f), ImVec2(520.0f, 460.0f));
+    if (ImGui::BeginPopup("AIConversationHistory")) {
+        ImGui::TextUnformatted("Conversations");
+        ImGui::Separator();
+        ImGui::BeginDisabled(running || pending_proposal.has_value());
+        if (ImGui::Selectable("New conversation", codex_thread_id.empty())) {
+            start_new_conversation();
+        }
+        if (conversations.empty()) {
+            ImGui::TextDisabled("No saved conversations yet.");
+        }
+        for (const EditorAiConversationRecord& conversation : conversations) {
+            const std::string label = conversation.title + "##" + conversation.thread_id;
+            if (ImGui::Selectable(
+                label.c_str(),
+                conversation.thread_id == codex_thread_id
+            )) {
+                restore_conversation(conversation.thread_id);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "%s\n%s\n%zu messages",
+                    conversation.model.c_str(),
+                    conversation.thread_id.c_str(),
+                    conversation.messages.size()
+                );
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::EndPopup();
     }
 
-    ImGui::BeginChild("AIConversation", ImVec2(0.0f, 180.0f), true);
-    if (messages.empty() && streamed_response.empty()) {
-        ImGui::TextDisabled("Ask about the selected entity, renderer contracts, or engine architecture.");
+    ImGui::SetNextWindowSize(ImVec2(360.0f, 0.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopup("AISessionSettings")) {
+        ImGui::TextUnformatted("Session settings");
+        ImGui::Separator();
+        ImGui::BeginDisabled(running || pending_proposal.has_value());
+        const char* backends[] = {"Codex subscription", "OpenAI API key"};
+        int backend_index = m_backend == ProviderBackend::CodexSubscription ? 0 : 1;
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::Combo("Backend", &backend_index, backends, 2)) {
+            m_backend = backend_index == 0
+                ? ProviderBackend::CodexSubscription
+                : ProviderBackend::OpenAiApi;
+            start_new_conversation();
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = "Backend changed. A new conversation was started.";
+        }
+        if (m_backend == ProviderBackend::CodexSubscription) {
+            ImGui::TextDisabled(
+                "Sandbox: engine read-only; game authoring requires validated editor tools"
+            );
+        }
+        const std::string current_model(m_model.data());
+        int model_preset = current_model == "gpt-5.6-luna" ? 0
+            : (current_model == "gpt-5.6-terra" ? 1
+            : (current_model == "gpt-5.6-sol" ? 2 : 3));
+        const char* model_presets[] = {
+            "Luna - fastest",
+            "Terra - balanced",
+            "Sol - highest capability",
+            "Custom"
+        };
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::Combo("Model preset", &model_preset, model_presets, 4) && model_preset < 3) {
+            const char* selected_model = model_preset == 0
+                ? "gpt-5.6-luna" : (model_preset == 1 ? "gpt-5.6-terra" : "gpt-5.6-sol");
+            std::snprintf(m_model.data(), m_model.size(), "%s", selected_model);
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = "Model updated.";
+        }
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::InputText("Model", m_model.data(), m_model.size())) {
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = "Model updated.";
+        }
+        const char* reasoning_efforts[] = {"Low - fast", "Medium", "High"};
+        int effort_index = m_reasoning_effort == ReasoningEffort::Low ? 0
+            : (m_reasoning_effort == ReasoningEffort::Medium ? 1 : 2);
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::Combo("Reasoning", &effort_index, reasoning_efforts, 3)) {
+            m_reasoning_effort = effort_index == 0
+                ? ReasoningEffort::Low
+                : (effort_index == 1 ? ReasoningEffort::Medium : ReasoningEffort::High);
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = "Reasoning effort updated.";
+        }
+        const char* authoring_modes[] = {"Confirm before apply", "Autonomous safe"};
+        int authoring_mode_index = m_authoring_mode == AuthoringMode::ConfirmBeforeApply ? 0 : 1;
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::Combo("Authoring", &authoring_mode_index, authoring_modes, 2)) {
+            m_authoring_mode = authoring_mode_index == 0
+                ? AuthoringMode::ConfirmBeforeApply
+                : AuthoringMode::AutonomousSafe;
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = m_authoring_mode == AuthoringMode::AutonomousSafe
+                ? "Autonomous safe mode enabled."
+                : "Changes now require confirmation.";
+        }
+        ImGui::Separator();
+        if (ImGui::Button("Reset defaults")) {
+            m_backend = ProviderBackend::CodexSubscription;
+            m_reasoning_effort = ReasoningEffort::Low;
+            m_authoring_mode = AuthoringMode::ConfirmBeforeApply;
+            std::snprintf(m_model.data(), m_model.size(), "%s", "gpt-5.6-sol");
+            start_new_conversation();
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = "Session defaults restored.";
+            ENGINE_LOG_INFO("[AI AUDIT] ui_action=session_settings_reset");
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Done")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
-    for (const EditorAiChatMessage& message : messages) {
-        ImGui::PushStyleColor(
-            ImGuiCol_Text,
-            message.role == "user"
-                ? ImVec4(0.45f, 0.72f, 0.98f, 1.0f)
-                : ImVec4(0.78f, 0.82f, 0.88f, 1.0f)
+
+    if (ImGui::BeginPopup("AIConversationActions")) {
+        ImGui::BeginDisabled(messages.empty());
+        if (ImGui::MenuItem("Copy conversation")) {
+            copy_to_clipboard(conversation_transcript(messages), "Conversation copied.");
+        }
+        ImGui::EndDisabled();
+        ImGui::Separator();
+        ImGui::BeginDisabled(codex_thread_id.empty());
+        if (ImGui::MenuItem("Copy thread ID")) {
+            copy_to_clipboard(codex_thread_id, "Thread ID copied.");
+        }
+        if (ImGui::MenuItem("Copy resume command")) {
+            copy_to_clipboard(
+                codex_resume_command(codex_thread_id),
+                "Codex resume command copied."
+            );
+        }
+        ImGui::Separator();
+        ImGui::BeginDisabled(running || pending_proposal.has_value());
+        if (ImGui::MenuItem("Rename conversation...")) {
+            m_conversation_action_thread_id = codex_thread_id;
+            std::snprintf(
+                m_conversation_title.data(),
+                m_conversation_title.size(),
+                "%s",
+                conversation_title.c_str()
+            );
+            open_rename_conversation = true;
+        }
+        if (ImGui::MenuItem("Delete conversation...")) {
+            m_conversation_action_thread_id = codex_thread_id;
+            open_delete_conversation = true;
+        }
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        if (codex_thread_id.empty()) ImGui::TextDisabled("No saved conversation selected.");
+        ImGui::Separator();
+        ImGui::TextDisabled("History: Library/EditorAi");
+        ImGui::TextDisabled("Audit: engine.log");
+        ImGui::EndPopup();
+    }
+
+    if (open_rename_conversation) ImGui::OpenPopup("Rename AI conversation");
+    if (open_delete_conversation) ImGui::OpenPopup("Delete AI conversation");
+
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal(
+        "Rename AI conversation",
+        nullptr,
+        ImGuiWindowFlags_AlwaysAutoResize
+    )) {
+        ImGui::TextUnformatted("Conversation title");
+        ImGui::SetNextItemWidth(-1.0f);
+        const bool submit_rename = ImGui::InputText(
+            "##conversation_title",
+            m_conversation_title.data(),
+            m_conversation_title.size(),
+            ImGuiInputTextFlags_EnterReturnsTrue
         );
-        ImGui::TextUnformatted(message.role == "user" ? "You" : "Codex");
-        ImGui::PopStyleColor();
-        ImGui::TextWrapped("%s", message.content.c_str());
+        const bool valid_title = has_visible_text(m_conversation_title.data());
+        ImGui::BeginDisabled(!valid_title);
+        if (ImGui::Button("Rename") || (submit_rename && valid_title)) {
+            rename_conversation(m_conversation_action_thread_id, m_conversation_title.data());
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal(
+        "Delete AI conversation",
+        nullptr,
+        ImGuiWindowFlags_AlwaysAutoResize
+    )) {
+        ImGui::TextWrapped(
+            "Delete '%s' from local editor history? This does not delete the remote Codex thread.",
+            conversation_title.c_str()
+        );
+        if (ImGui::Button("Delete")) {
+            delete_conversation(m_conversation_action_thread_id);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    ImGui::Spacing();
+    ImGui::TextWrapped("%s", conversation_title.c_str());
+    if (provider_available && credentials_available) {
+        ImGui::TextColored(ImVec4(0.35f, 0.78f, 0.52f, 1.0f), "Connected");
+    } else if (using_codex) {
+        ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.32f, 1.0f), "Codex CLI not found");
+    } else if (!provider_available) {
+        ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.32f, 1.0f), "HTTP unavailable");
+    } else {
+        ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.32f, 1.0f), "API key missing");
+    }
+    if (!codex_session_id.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Session %s", abbreviated_id(codex_session_id).c_str());
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", codex_session_id.c_str());
+        }
+    }
+    ImGui::Separator();
+
+    const float conversation_height = std::clamp(
+        ImGui::GetContentRegionAvail().y - 270.0f,
+        220.0f,
+        760.0f
+    );
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
+    ImGui::BeginChild("AIConversation", ImVec2(0.0f, conversation_height), true);
+    if (messages.empty() && streamed_response.empty()) {
         ImGui::Spacing();
+        ImGui::TextDisabled("Start a conversation");
+        ImGui::TextWrapped(
+            "Ask about the active scene, the selected entity, renderer contracts, or request a "
+            "reversible scene change."
+        );
+    }
+    int message_index = 0;
+    for (const EditorAiChatMessage& message : messages) {
+        if (draw_chat_message(message, message_index++, ImGui::GetContentRegionAvail().x)) {
+            copy_to_clipboard(message.content, "Response copied.");
+        }
     }
     if (running && !streamed_response.empty()) {
-        ImGui::TextUnformatted("Codex");
-        ImGui::TextWrapped("%s", streamed_response.c_str());
+        if (draw_chat_message(
+            EditorAiChatMessage{"assistant", streamed_response},
+            message_index,
+            ImGui::GetContentRegionAvail().x
+        )) {
+            copy_to_clipboard(streamed_response, "Partial response copied.");
+        }
+    }
+    if (running && streamed_response.empty()) {
+        ImGui::TextColored(ImVec4(0.40f, 0.82f, 0.62f, 1.0f), "Codex is working...");
+    }
+    if (scroll_chat_to_bottom) {
+        ImGui::SetScrollHereY(1.0f);
     }
     ImGui::EndChild();
+    ImGui::PopStyleVar();
 
-    ImGui::InputTextMultiline(
+    constexpr float COMPOSER_HEIGHT = 126.0f;
+    ImGui::PushStyleColor(
+        ImGuiCol_ChildBg,
+        ImGui::GetStyleColorVec4(ImGuiCol_FrameBg)
+    );
+    ImGui::PushStyleColor(
+        ImGuiCol_Border,
+        ImGui::GetStyleColorVec4(ImGuiCol_Border)
+    );
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 16.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(13.0f, 11.0f));
+    ImGui::BeginChild("AIComposer", ImVec2(0.0f, COMPOSER_HEIGHT), true);
+
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+    ImGui::BeginDisabled(running || pending_proposal.has_value());
+    if (m_focus_prompt_requested) {
+        ImGui::SetKeyboardFocusHere();
+        m_focus_prompt_requested = false;
+    }
+    const bool submitted = ImGui::InputTextMultiline(
         "##ai_prompt",
         m_prompt.data(),
         m_prompt.size(),
-        ImVec2(-1.0f, 84.0f),
-        ImGuiInputTextFlags_None
+        ImVec2(-1.0f, 62.0f),
+        ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine
     );
+    ImGui::EndDisabled();
+    const ImVec2 prompt_min = ImGui::GetItemRectMin();
+    if (m_prompt[0] == '\0' && !ImGui::IsItemActive()) {
+        ImGui::GetWindowDrawList()->AddText(
+            ImVec2(prompt_min.x + 1.0f, prompt_min.y + 1.0f),
+            IM_COL32(185, 185, 180, 175),
+            "Ask Codex about the scene or engine..."
+        );
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
+
     const bool can_send = provider_available && credentials_available && !running &&
         !pending_proposal.has_value() &&
-        m_prompt[0] != '\0' && m_model[0] != '\0';
-    ImGui::BeginDisabled(!can_send);
-    if (ImGui::Button("Send to Codex")) start_request();
+        has_visible_text(m_prompt.data()) && has_visible_text(m_model.data());
+    if (submitted && can_send) start_request();
+
+    if (editor_icon_button(
+        "composer_actions",
+        EditorIcon::Plus,
+        "Add context or start a new conversation",
+        ImGui::IsPopupOpen("AIComposerActions"),
+        ImVec2(24.0f, 24.0f)
+    )) {
+        ImGui::OpenPopup("AIComposerActions");
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(running || pending_proposal.has_value());
+    if (editor_icon_button(
+        "authoring_security",
+        EditorIcon::Shield,
+        m_authoring_mode == AuthoringMode::AutonomousSafe
+            ? "Autonomous safe: validated changes apply automatically"
+            : "Confirm before apply: review every scene change",
+        m_authoring_mode == AuthoringMode::AutonomousSafe,
+        ImVec2(24.0f, 24.0f)
+    )) {
+        toggle_authoring_mode();
+    }
+    ImGui::EndDisabled();
+    if (ImGui::GetContentRegionAvail().x > 330.0f) {
+        ImGui::SameLine();
+        if (m_authoring_mode == AuthoringMode::AutonomousSafe) {
+            ImGui::TextColored(
+                ImGui::GetStyleColorVec4(ImGuiCol_TabSelectedOverline),
+                "Autonomous safe"
+            );
+        } else {
+            ImGui::TextDisabled("Confirm changes");
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change authoring approval mode");
+        if (ImGui::IsItemClicked() && !running && !pending_proposal.has_value()) {
+            toggle_authoring_mode();
+        }
+    }
+
+    const std::string effort_label = m_reasoning_effort == ReasoningEffort::Low
+        ? "Low" : (m_reasoning_effort == ReasoningEffort::Medium ? "Medium" : "High");
+    const std::string model_label = compact_model_name(m_model.data()) + "  " + effort_label;
+    const float right_controls_width = ImGui::CalcTextSize(model_label.c_str()).x + 44.0f;
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(std::max(
+        ImGui::GetCursorPosX(),
+        ImGui::GetWindowContentRegionMax().x - right_controls_width
+    ));
+    ImGui::BeginDisabled(running || pending_proposal.has_value());
+    ImGui::TextDisabled("%s", model_label.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open model and reasoning settings");
+    if (ImGui::IsItemClicked()) m_open_session_settings_requested = true;
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (running) {
-        if (ImGui::Button("Cancel")) cancel_request();
-    } else {
-        ImGui::BeginDisabled(messages.empty() || pending_proposal.has_value());
-        if (ImGui::Button("Clear")) {
+        if (round_icon_button("cancel", EditorIcon::Stop, "Cancel request", true, false)) {
+            cancel_request();
+        }
+    } else if (round_icon_button("send", EditorIcon::ArrowUp, "Send", can_send, true)) {
+        start_request();
+    }
+
+    if (ImGui::BeginPopup("AIComposerActions")) {
+        if (ImGui::MenuItem("Copy scene context")) {
+            copy_to_clipboard(current_context_json(), "Scene context copied.");
+        }
+        if (ImGui::MenuItem("Copy selection context")) {
+            const nlohmann::json context = nlohmann::json::parse(
+                current_context_json(), nullptr, false
+            );
+            const std::string selection_context = !context.is_discarded() &&
+                    context.contains("selection")
+                ? context.at("selection").dump(2)
+                : "{}";
+            copy_to_clipboard(selection_context, "Selection context copied.");
+        }
+        ImGui::BeginDisabled(running || pending_proposal.has_value());
+        ImGui::BeginDisabled(m_prompt[0] == '\0');
+        if (ImGui::MenuItem("Clear message")) {
+            m_prompt.fill('\0');
+            m_focus_prompt_requested = true;
             std::lock_guard lock(m_request_mutex);
-            m_messages.clear();
-            m_streamed_response.clear();
-            m_request_error.clear();
-            m_last_input_tokens = 0;
-            m_last_output_tokens = 0;
-            m_last_total_tokens = 0;
-            m_last_tool_calls = 0;
-            m_last_request_duration_ms = 0;
+            m_ui_feedback = "Message cleared.";
         }
         ImGui::EndDisabled();
+        if (ImGui::MenuItem("New conversation")) start_new_conversation();
+        ImGui::EndDisabled();
+        ImGui::EndPopup();
     }
+    ImGui::EndChild();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
+
     if (!active_tool.empty()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("Tool: %s", active_tool.c_str());
+        ImGui::TextDisabled("Working: %s", active_tool.c_str());
     }
     if (!request_error.empty()) {
         ImGui::TextColored(ImVec4(0.95f, 0.36f, 0.32f, 1.0f), "%s", request_error.c_str());
     }
     if (!running && total_tokens > 0) {
         ImGui::TextDisabled(
-            "Last request: %.2fs | %zu tools | %zu input | %zu output | %zu total tokens",
+            "Last request: %.2fs | %zu tools",
             static_cast<double>(request_duration_ms) / 1000.0,
-            tool_calls,
+            tool_calls
+        );
+        ImGui::TextDisabled(
+            "Usage: %zu input | %zu output | %zu total tokens",
             input_tokens,
             output_tokens,
             total_tokens
         );
     }
-    ImGui::TextDisabled("Audit: Console + engine.log (request IDs; no prompt or credentials)");
+    ImGui::TextDisabled("Audit logs: Console + engine.log");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Request IDs and session metadata only; no prompts or credentials");
+    }
+    if (!ui_feedback.empty()) {
+        ImGui::TextColored(ImVec4(0.48f, 0.66f, 0.95f, 1.0f), "%s", ui_feedback.c_str());
+    }
 
     if (pending_proposal) {
         ImGui::Spacing();
@@ -775,7 +1509,9 @@ void AiAssistantPanel::on_gui() {
 
     if (ImGui::CollapsingHeader("Context preview")) {
         const std::string context = current_context_json();
-        if (ImGui::Button("Copy JSON")) ImGui::SetClipboardText(context.c_str());
+        if (ImGui::Button("Copy JSON")) {
+            copy_to_clipboard(context, "Context JSON copied.");
+        }
         ImGui::SameLine();
         ImGui::TextDisabled("Live scene metadata; document contents are loaded only on request");
         ImGui::BeginChild("AIContextPreview", ImVec2(0.0f, 180.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
