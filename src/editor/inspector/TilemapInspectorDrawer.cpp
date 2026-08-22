@@ -1,4 +1,5 @@
 #include "TilemapInspectorDrawer.hpp"
+#include "AssetDropTarget.hpp"
 #include "InspectorWidgets.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/PrefabCommands.hpp"
@@ -7,6 +8,7 @@
 #include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
 
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -169,12 +171,20 @@ void TilemapInspectorDrawer::draw(EntityManager& em, EntityID entity, const Cont
     const TilemapComponent path_before = tilemap;
     begin_property_row("Tileset");
     begin_property_interaction("Tilemap.Tileset");
-    const bool path_submitted = ImGui::InputText(
+    bool path_submitted = ImGui::InputText(
         "##tileset",
         path_buffer,
         sizeof(path_buffer),
         ImGuiInputTextFlags_EnterReturnsTrue
     );
+    if (const auto dropped = accept_asset_drop_target(
+            AssetDatabase::get(), AssetType::Texture
+        )) {
+        if (const AssetRecord* record = AssetDatabase::get().find(*dropped)) {
+            std::snprintf(path_buffer, sizeof(path_buffer), "%s", record->source_path.c_str());
+            path_submitted = tilemap.tileset_path != path_buffer;
+        }
+    }
     capture_property_interaction();
     if (path_submitted) tilemap.tileset_path = path_buffer;
     track(

@@ -4,6 +4,7 @@
 #include "../../core/AssetHandle.hpp"
 #include "../../renderer/RenderLayerEffectProfile.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
+#include "../tools/AssetBrowserQuery.hpp"
 #include <array>
 #include <string>
 #include <filesystem>
@@ -15,6 +16,12 @@ struct SDL_Renderer;
 struct SDL_Texture;
 
 namespace Engine {
+
+enum class AssetBrowserViewMode {
+    Grid,
+    List,
+    Details
+};
 
 class AssetDatabase;
 class EditorCommandHistory;
@@ -58,6 +65,14 @@ public:
     }
 
 private:
+    void navigate_to(const std::filesystem::path& directory);
+    void activate_entry(const AssetBrowserEntry& entry);
+    void draw_entry(const AssetBrowserEntry& entry);
+    void draw_entry_interactions(const AssetBrowserEntry& entry);
+    void draw_list_entry(const AssetBrowserEntry& entry);
+    void draw_details_entries(const std::vector<AssetBrowserEntry>& entries);
+    void draw_selected_asset_details();
+    void request_rename(const AssetBrowserEntry& entry);
     [[nodiscard]] SDL_Texture* render_material_preview(
         AssetHandle handle,
         const std::shared_ptr<const Material>& material
@@ -80,6 +95,17 @@ private:
     std::function<void()> m_on_material_preview_reset;
     std::string m_selected_file{""};
     std::string m_revealed_reference{""};
+    std::array<char, 256> m_search_query{};
+    AssetBrowserScope m_search_scope{AssetBrowserScope::CurrentFolder};
+    AssetBrowserTypeFilter m_type_filter{AssetBrowserTypeFilter::All};
+    AssetBrowserStatusFilter m_status_filter{AssetBrowserStatusFilter::All};
+    AssetBrowserSort m_sort{AssetBrowserSort::Name};
+    bool m_sort_ascending{true};
+    AssetBrowserViewMode m_view_mode{AssetBrowserViewMode::Grid};
+    bool m_show_rename_popup{false};
+    std::filesystem::path m_rename_source;
+    std::array<char, 256> m_rename_buffer{};
+    std::string m_rename_error;
     char m_new_scene_name_buf[128]{"NewScene"};
     char m_new_script_name_buf[128]{"NewScript"};
     char m_new_material_name_buf[128]{"NewMaterial"};

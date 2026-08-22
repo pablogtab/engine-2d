@@ -1,5 +1,6 @@
 #include "UIInspectorDrawer.hpp"
 
+#include "AssetDropTarget.hpp"
 #include "InspectorPropertyPolicies.hpp"
 #include "InspectorWidgets.hpp"
 #include "UIAnchorPresets.hpp"
@@ -155,6 +156,12 @@ bool draw_asset_handle(AssetHandle& handle, AssetType type, const char* label, c
             if (is_selected) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
+    }
+    if (const auto dropped = accept_asset_drop_target(database, type)) {
+        if (*dropped != handle) {
+            handle = *dropped;
+            changed = true;
+        }
     }
     return changed;
 }

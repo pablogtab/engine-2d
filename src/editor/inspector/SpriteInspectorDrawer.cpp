@@ -1,4 +1,5 @@
 #include "SpriteInspectorDrawer.hpp"
+#include "AssetDropTarget.hpp"
 #include "InspectorWidgets.hpp"
 #include "InspectorPropertyPolicies.hpp"
 #include "MultiComponentInspectorTransaction.hpp"
@@ -121,6 +122,16 @@ bool draw_texture_value(SpriteComponent& sprite, const SpriteInspectorDrawer::Co
             if (is_selected) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
+    }
+    if (const auto dropped = accept_asset_drop_target(database, AssetType::Texture)) {
+        if (*dropped != sprite.texture_handle) {
+            sprite.texture_handle = *dropped;
+            sprite.texture = resolve_texture(*dropped, context);
+            if (!sprite.texture && context.renderer && context.asset_manager) {
+                sprite.texture = context.asset_manager->get_white_texture(context.renderer);
+            }
+            changed = true;
+        }
     }
     return changed;
 }
@@ -400,6 +411,19 @@ void SpriteInspectorDrawer::draw_multiple(
                 if (is_selected) ImGui::SetItemDefaultFocus();
             }
             ImGui::EndCombo();
+        }
+        if (const auto dropped = accept_asset_drop_target(
+                AssetDatabase::get(), AssetType::Texture
+            )) {
+            Texture* texture = resolve_texture(*dropped, context);
+            if (!texture && context.renderer && context.asset_manager) {
+                texture = context.asset_manager->get_white_texture(context.renderer);
+            }
+            apply_all([&](SpriteComponent& sprite) {
+                sprite.texture_handle = *dropped;
+                sprite.texture = texture;
+            });
+            changed = true;
         }
         capture_property_interaction();
         track(before, "Sprite.Texture", "Change Selected Sprite Textures", changed);

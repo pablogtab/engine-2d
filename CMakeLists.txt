@@ -120,6 +120,7 @@ set(SOURCES
     src/editor/gizmos/TransformGizmo2D.cpp
     src/editor/gizmos/UILayoutGizmo.cpp
     src/editor/inspector/InspectorWidgets.cpp
+    src/editor/inspector/AssetDropResolver.cpp
     src/editor/inspector/SpriteInspectorDrawer.cpp
     src/editor/inspector/RenderEffectInspectorDrawer.cpp
     src/editor/inspector/ScriptInspectorDrawer.cpp
@@ -136,6 +137,7 @@ set(SOURCES
     src/editor/tools/ViewportCameraController.cpp
     src/editor/tools/ViewportNavigation.cpp
     src/editor/tools/ViewportArrangementTool.cpp
+    src/editor/tools/AssetBrowserQuery.cpp
     src/editor/tools/EditorIcons.cpp
     src/editor/tools/EditorToolbox.cpp
     src/editor/tools/ViewportReferenceOverlay.cpp
@@ -451,6 +453,28 @@ target_include_directories(AssetDatabaseTests PRIVATE
 )
 target_link_libraries(AssetDatabaseTests PRIVATE SDL3::SDL3)
 add_test(NAME AssetDatabaseTests COMMAND AssetDatabaseTests)
+
+add_executable(AssetBrowserQueryTests
+    tests/AssetBrowserQueryTests.cpp
+    src/editor/tools/AssetBrowserQuery.cpp
+)
+target_include_directories(AssetBrowserQueryTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(AssetBrowserQueryTests PRIVATE EngineRuntime)
+add_test(NAME AssetBrowserQueryTests COMMAND AssetBrowserQueryTests)
+
+add_executable(AssetDropResolverTests
+    tests/AssetDropResolverTests.cpp
+    src/editor/inspector/AssetDropResolver.cpp
+)
+target_include_directories(AssetDropResolverTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(AssetDropResolverTests PRIVATE EngineRuntime)
+add_test(NAME AssetDropResolverTests COMMAND AssetDropResolverTests)
 
 add_executable(AutosaveRecoveryTests
     tests/AutosaveRecoveryTests.cpp

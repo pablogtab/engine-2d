@@ -1,5 +1,6 @@
 #include "ScriptInspectorDrawer.hpp"
 
+#include "AssetDropTarget.hpp"
 #include "ComponentInspectorTransaction.hpp"
 #include "InspectorPropertyPolicies.hpp"
 #include "InspectorWidgets.hpp"
@@ -109,6 +110,15 @@ bool draw_script_asset(ScriptComponent& component) {
         }
         ImGui::EndCombo();
     }
+    if (const auto dropped = accept_asset_drop_target(database, AssetType::Script)) {
+        if (*dropped != component.script_handle) {
+            component.script_handle = *dropped;
+            const ScriptInspectionResult& inspected = script_info(*dropped).inspection;
+            component.public_fields = inspected.success
+                ? inspected.public_fields : std::vector<ScriptPublicField>{};
+            changed = true;
+        }
+    }
     return changed;
 }
 
@@ -133,6 +143,12 @@ bool draw_asset_field(const char* label, AssetHandle& value) {
             if (is_selected) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
+    }
+    if (const auto dropped = accept_asset_drop_target(database)) {
+        if (*dropped != value) {
+            value = *dropped;
+            changed = true;
+        }
     }
     return changed;
 }

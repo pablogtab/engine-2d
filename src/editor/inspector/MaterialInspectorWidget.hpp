@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AssetDropTarget.hpp"
 #include "InspectorWidgets.hpp"
 #include "../tools/EditorIcons.hpp"
 #include "../../core/AssetDatabase.hpp"
@@ -165,15 +166,8 @@ inline bool draw_material_asset_field(
         if (selected) ImGui::SetTooltip("%s\nDouble-click to open", selected->source_path.c_str());
         else ImGui::SetTooltip("Select or drop a Material asset");
     }
-    if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET")) {
-            const char* path = static_cast<const char*>(payload->Data);
-            const AssetRecord* dropped = path ? database.find_by_path(path) : nullptr;
-            if (dropped && dropped->type == AssetType::Material && dropped->status == AssetStatus::Ready) {
-                assign(dropped->handle);
-            }
-        }
-        ImGui::EndDragDropTarget();
+    if (const auto dropped = accept_asset_drop_target(database, AssetType::Material)) {
+        assign(*dropped);
     }
 
     ImGui::SameLine();

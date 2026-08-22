@@ -1,4 +1,5 @@
 #include "RenderEffectInspectorDrawer.hpp"
+#include "AssetDropTarget.hpp"
 #include "InspectorWidgets.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/EntityCommands.hpp"
@@ -79,6 +80,16 @@ void RenderEffectInspectorDrawer::draw(
             if (is_selected) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
+    }
+    if (const auto dropped = accept_asset_drop_target(
+            database, AssetType::RenderLayerEffectProfile
+        ); dropped && *dropped != current.profile_handle && command_history &&
+        RenderLayerEffectProfile::load_asset(*dropped, database)) {
+        auto next = current;
+        next.profile_handle = *dropped;
+        command_history->execute_command(std::make_unique<SetComponentCommand<RenderEffectComponent>>(
+            &em, entity, current, next, "Assign Render Effect Profile"
+        ));
     }
 
     bool enabled = current.enabled;
