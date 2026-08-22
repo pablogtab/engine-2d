@@ -69,6 +69,9 @@ private:
         const EditorSelection* selection,
         const ComponentSerializationContext& serialization = {}
     ) const;
+    [[nodiscard]] nlohmann::json build_asset_index(
+        const ComponentSerializationContext& serialization
+    ) const;
     [[nodiscard]] EditorAiToolResult find_scene_entities(
         const nlohmann::json& arguments,
         const nlohmann::json& entity_index
@@ -76,6 +79,14 @@ private:
     [[nodiscard]] EditorAiToolResult get_entity_details(
         const nlohmann::json& arguments,
         const nlohmann::json& entity_index
+    ) const;
+    [[nodiscard]] EditorAiToolResult find_project_assets(
+        const nlohmann::json& arguments,
+        const nlohmann::json& asset_index
+    ) const;
+    [[nodiscard]] EditorAiToolResult get_asset_details(
+        const nlohmann::json& arguments,
+        const nlohmann::json& asset_index
     ) const;
     [[nodiscard]] EditorAiToolResult list_engine_documents() const;
     [[nodiscard]] EditorAiToolResult read_engine_document(const nlohmann::json& arguments) const;

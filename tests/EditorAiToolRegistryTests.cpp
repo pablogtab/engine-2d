@@ -1,9 +1,12 @@
 #include "editor/EditorSelection.hpp"
 #include "editor/ai/EditorAiToolRegistry.hpp"
+#include "core/AssetDatabase.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "scene/Scene.hpp"
 
 #include <cassert>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 
 namespace {
@@ -46,15 +49,59 @@ void test_tool_schemas_are_read_only_and_strict() {
     const auto& schemas = registry.tool_schemas();
 
     assert(schemas.is_array());
-    assert(schemas.size() == 6);
+    assert(schemas.size() == 8);
     assert(schemas.at(0).at("name") == "get_scene_summary");
     assert(schemas.at(0).at("strict") == true);
     assert(schemas.at(0).at("parameters").at("additionalProperties") == false);
     assert(schemas.at(1).at("name") == "get_selection_context");
     assert(schemas.at(2).at("name") == "find_scene_entities");
     assert(schemas.at(3).at("name") == "get_entity_details");
-    assert(schemas.at(4).at("name") == "list_engine_documents");
-    assert(schemas.at(5).at("name") == "read_engine_document");
+    assert(schemas.at(4).at("name") == "find_project_assets");
+    assert(schemas.at(5).at("name") == "get_asset_details");
+    assert(schemas.at(6).at("name") == "list_engine_documents");
+    assert(schemas.at(7).at("name") == "read_engine_document");
+}
+
+void test_project_assets_are_frozen_and_queried_by_handle() {
+    const std::filesystem::path root = std::filesystem::temp_directory_path() /
+        "engine2d_ai_asset_registry_test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / "assets" / "textures");
+    {
+        std::ofstream file(root / "assets" / "textures" / "hero.png", std::ios::binary);
+        file << "fake png";
+    }
+
+    AssetDatabase assets(root);
+    const auto handle = assets.import_asset("assets/textures/hero.png");
+    assert(handle.has_value());
+
+    TestScene scene;
+    ComponentSerializationContext serialization;
+    serialization.asset_database = &assets;
+    const EditorAiToolRegistry registry = make_registry();
+    const nlohmann::json snapshot = registry.build_context_snapshot(&scene, nullptr, serialization);
+    assert(snapshot.at("asset_index").size() == 1);
+
+    const EditorAiToolResult found = registry.execute_snapshot(
+        "find_project_assets",
+        {{"query", "hero"}, {"asset_type", "texture"}, {"ready_only", true}, {"limit", 10}},
+        snapshot
+    );
+    assert(found.success);
+    assert(found.output.at("total_matches") == 1);
+    assert(found.output.at("matches").at(0).at("asset_handle") == handle->to_string());
+    assert(!found.output.at("matches").at(0).contains("import_settings"));
+
+    const EditorAiToolResult details = registry.execute_snapshot(
+        "get_asset_details", {{"asset_handle", handle->to_string()}}, snapshot
+    );
+    assert(details.success);
+    assert(details.output.at("path") == "assets/textures/hero.png");
+    assert(details.output.at("type") == "texture");
+    assert(details.output.contains("import_settings"));
+
+    std::filesystem::remove_all(root);
 }
 
 void test_engine_documents_are_allowlisted() {
@@ -203,6 +250,7 @@ int main() {
     test_scene_summary_reports_active_selection();
     test_selection_context_is_deterministic_and_component_aware();
     test_existing_entities_can_be_found_and_inspected_by_stable_id();
+    test_project_assets_are_frozen_and_queried_by_handle();
     test_invalid_calls_fail_without_touching_scene();
     test_context_snapshot_handles_missing_scene();
     test_engine_documents_are_allowlisted();

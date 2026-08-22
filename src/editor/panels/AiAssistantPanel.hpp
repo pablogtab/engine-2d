@@ -74,6 +74,7 @@ private:
         std::shared_ptr<EditorSelection> selection;
         std::uint64_t baseline_revision{0};
         std::string scene_name;
+        nlohmann::json before_entity_index{nlohmann::json::array()};
         bool auto_apply{false};
     };
 
@@ -124,6 +125,8 @@ private:
     std::string m_request_error;
     std::string m_active_tool;
     std::string m_authoring_feedback;
+    std::string m_last_receipt_summary;
+    nlohmann::json m_last_application_receipt{nlohmann::json::object()};
     std::string m_ui_feedback;
     std::string m_codex_thread_id;
     std::string m_codex_session_id;

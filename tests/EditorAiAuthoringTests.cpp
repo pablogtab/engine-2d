@@ -388,6 +388,98 @@ void test_existing_entity_delete_is_reversible() {
     assert(session.entities.find_by_tag("Delete Me") == entity);
 }
 
+void test_bulk_duplicate_and_delete_are_single_reversible_actions() {
+    TestSession session;
+    const EntityID first = create_basic_entity(session, "First");
+    const EntityID second = create_basic_entity(session, "Second");
+    EditorAiAuthoringRegistry registry;
+
+    std::vector<EditorAiAuthoringAction> duplicate;
+    queue(registry, duplicate, "propose_duplicate_entities", {
+        {"entity_ids", {first, second}}
+    });
+    std::string error;
+    auto duplicate_group = registry.build_command_group(duplicate, session.context(), error);
+    assert(duplicate_group && error.empty());
+    assert(session.history.execute_command(std::move(duplicate_group)));
+    assert(session.entities.get_living_entity_count() == 4);
+    assert(session.history.get_undo_count() == 1);
+    session.history.undo();
+    assert(session.entities.get_living_entity_count() == 2);
+    session.history.redo();
+    assert(session.entities.get_living_entity_count() == 4);
+
+    std::vector<EditorAiAuthoringAction> remove;
+    queue(registry, remove, "propose_delete_entities", {
+        {"entity_ids", {first, second}}
+    });
+    auto delete_group = registry.build_command_group(remove, session.context(), error);
+    assert(delete_group && error.empty());
+    assert(session.history.execute_command(std::move(delete_group)));
+    assert(!session.entities.is_alive(first));
+    assert(!session.entities.is_alive(second));
+    session.history.undo();
+    assert(session.entities.is_alive(first));
+    assert(session.entities.is_alive(second));
+}
+
+void test_asset_handles_and_prefabs_are_validated_from_frozen_context() {
+    EditorAiAuthoringRegistry registry;
+    const nlohmann::json frozen_context{
+        {"entity_index", nlohmann::json::array({{
+            {"entity_id", 42},
+            {"components", nlohmann::json::array({"sprite"})}
+        }})},
+        {"asset_index", nlohmann::json::array({
+            {{"asset_handle", "0000000000000001"}, {"path", "assets/hero.png"},
+             {"type", "texture"}, {"status", "ready"}},
+            {{"asset_handle", "0000000000000002"}, {"path", "assets/enemy.prefab"},
+             {"type", "prefab"}, {"status", "ready"}},
+            {{"asset_handle", "0000000000000003"}, {"path", "assets/broken.png"},
+             {"type", "texture"}, {"status", "missing_source"}}
+        })}
+    };
+
+    std::vector<EditorAiAuthoringAction> actions;
+    assert(registry.queue_action(
+        "propose_configure_component",
+        {{"entity_id", 42}, {"component_key", "sprite"},
+         {"patch_json", R"({"texture_handle":"0000000000000001"})"}},
+        actions,
+        &frozen_context
+    ).success);
+    assert(!registry.queue_action(
+        "propose_configure_component",
+        {{"entity_id", 42}, {"component_key", "sprite"},
+         {"patch_json", R"({"texture_handle":"0000000000000002"})"}},
+        actions,
+        &frozen_context
+    ).success);
+    assert(!registry.queue_action(
+        "propose_configure_component",
+        {{"entity_id", 42}, {"component_key", "sprite"},
+         {"patch_json", R"({"texture_handle":"0000000000000003"})"}},
+        actions,
+        &frozen_context
+    ).success);
+
+    std::vector<EditorAiAuthoringAction> prefab_actions;
+    const EditorAiToolResult prefab = registry.queue_action(
+        "propose_instantiate_prefab",
+        {{"asset_handle", "0000000000000002"}, {"alias", "enemy_prefab"}},
+        prefab_actions,
+        &frozen_context
+    );
+    assert(prefab.success);
+    assert(prefab_actions.size() == 1);
+    assert(!registry.queue_action(
+        "propose_instantiate_prefab",
+        {{"asset_handle", "0000000000000001"}, {"alias", "not_a_prefab"}},
+        prefab_actions,
+        &frozen_context
+    ).success);
+}
+
 void test_proposal_rejects_a_stale_scene_revision() {
     TestSession session;
     const EntityID entity = create_basic_entity(session, "Original");
@@ -428,6 +520,8 @@ int main() {
     test_failed_action_rolls_back_previous_actions();
     test_locked_missing_and_forward_alias_targets_are_rejected();
     test_existing_entity_delete_is_reversible();
+    test_bulk_duplicate_and_delete_are_single_reversible_actions();
+    test_asset_handles_and_prefabs_are_validated_from_frozen_context();
     test_proposal_rejects_a_stale_scene_revision();
     std::cout << "Editor AI authoring tests passed\n";
     return 0;

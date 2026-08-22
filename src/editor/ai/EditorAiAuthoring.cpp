@@ -4,7 +4,9 @@
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
+#include "../commands/PrefabCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
+#include "../../core/AssetDatabase.hpp"
 #include "../../core/Log.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../tilemap/Tilemap.hpp"
@@ -32,6 +34,10 @@ constexpr const char* REMOVE_COMPONENT_TOOL = "propose_remove_component";
 constexpr const char* CONFIGURE_COMPONENT_TOOL = "propose_configure_component";
 constexpr const char* REPARENT_ENTITY_TOOL = "propose_reparent_entity";
 constexpr const char* DELETE_ENTITY_TOOL = "propose_delete_entity";
+constexpr const char* DUPLICATE_ENTITIES_TOOL = "propose_duplicate_entities";
+constexpr const char* DELETE_ENTITIES_TOOL = "propose_delete_entities";
+constexpr const char* INSTANTIATE_PREFAB_TOOL = "propose_instantiate_prefab";
+constexpr const char* UNPACK_PREFAB_TOOL = "propose_unpack_prefab";
 
 struct EntityTarget {
     EntityID entity_id{0};
@@ -184,6 +190,71 @@ private:
     Factory m_factory;
     std::unique_ptr<IEditorCommand> m_command;
     std::string m_description;
+};
+
+class InstantiateAiPrefabCommand final : public IEditorCommand {
+public:
+    InstantiateAiPrefabCommand(
+        EntityManager* entities,
+        std::shared_ptr<EditorSelection> selection,
+        const EditorEntityStateStore* state_store,
+        SDL_Renderer* renderer,
+        std::shared_ptr<AliasState> aliases,
+        std::string alias,
+        std::string prefab_path,
+        EntityTarget parent,
+        std::optional<TransformComponent> transform
+    ) : m_entities(entities), m_selection(std::move(selection)), m_state_store(state_store),
+        m_renderer(renderer), m_aliases(std::move(aliases)), m_alias(std::move(alias)),
+        m_prefab_path(std::move(prefab_path)), m_parent(std::move(parent)),
+        m_transform(std::move(transform)) {}
+
+    bool execute() override {
+        if (!m_entities || !m_aliases) return false;
+        if (m_command) return redo();
+        const EntityID parent = resolve_target(m_parent, m_aliases);
+        if ((m_parent.entity_id != 0 || !m_parent.alias.empty()) &&
+            (parent == 0 || !m_entities->is_alive(parent))) return false;
+        auto command = std::make_unique<InstantiatePrefabCommand>(
+            m_entities, m_selection, m_prefab_path, false, m_transform, parent,
+            m_renderer, m_state_store
+        );
+        if (!command->is_valid() || !command->execute() || command->get_root_entity() == 0) return false;
+        m_root = command->get_root_entity();
+        m_aliases->entities[m_alias] = m_root;
+        m_command = std::move(command);
+        return true;
+    }
+
+    bool undo() override {
+        if (!m_command || !m_command->undo()) return false;
+        m_aliases->entities.erase(m_alias);
+        return true;
+    }
+
+    bool redo() override {
+        if (!m_command || !m_command->redo()) return false;
+        m_root = m_command->get_root_entity();
+        m_aliases->entities[m_alias] = m_root;
+        return true;
+    }
+
+    [[nodiscard]] std::string get_description() const override {
+        return "Instantiate prefab as @" + m_alias;
+    }
+
+private:
+    EntityManager* m_entities{nullptr};
+    std::shared_ptr<EditorSelection> m_selection;
+    const EditorEntityStateStore* m_state_store{nullptr};
+    SDL_Renderer* m_renderer{nullptr};
+    std::shared_ptr<AliasState> m_aliases;
+    std::string m_alias;
+    std::string m_prefab_path;
+    EntityTarget m_parent;
+    std::optional<TransformComponent> m_transform;
+    std::unique_ptr<InstantiatePrefabCommand> m_command;
+    EntityID m_root{0};
 };
 
 class CreateAiEntityCommand final : public IEditorCommand {
@@ -616,6 +687,61 @@ std::vector<std::string> component_list(const Json& arguments) {
     return result;
 }
 
+std::optional<std::string> expected_asset_type(
+    const std::string& component_key,
+    const std::string& field
+) {
+    if (field == "texture_handle") return "texture";
+    if (field == "font_handle") return "font";
+    if (field == "material_handle") return "material";
+    if (field == "profile_handle" && component_key == "render_effect") {
+        return "render_layer_effect_profile";
+    }
+    return std::nullopt;
+}
+
+void collect_asset_handles(
+    const Json& value,
+    std::vector<std::pair<std::string, std::string>>& handles
+) {
+    if (value.is_object()) {
+        for (auto item = value.begin(); item != value.end(); ++item) {
+            if ((item.key().ends_with("_handle") || item.key() == "asset_handle") &&
+                item.value().is_string() && !item.value().get<std::string>().empty()) {
+                handles.emplace_back(item.key(), item.value().get<std::string>());
+            }
+            collect_asset_handles(item.value(), handles);
+        }
+    } else if (value.is_array()) {
+        for (const Json& item : value) collect_asset_handles(item, handles);
+    }
+}
+
+std::vector<EntityID> read_entity_id_list(const Json& arguments, std::string& error) {
+    if (!only_keys(arguments, {"entity_ids"}) || !arguments.contains("entity_ids") ||
+        !arguments.at("entity_ids").is_array() || arguments.at("entity_ids").empty() ||
+        arguments.at("entity_ids").size() > 20) {
+        error = "entity_ids must be an array containing 1 to 20 entity IDs";
+        return {};
+    }
+    std::vector<EntityID> result;
+    std::unordered_set<EntityID> unique;
+    for (const Json& item : arguments.at("entity_ids")) {
+        if (!item.is_number_integer()) {
+            error = "entity_ids must contain positive integers";
+            return {};
+        }
+        const std::int64_t value = item.get<std::int64_t>();
+        if (value <= 0 || value > std::numeric_limits<EntityID>::max() ||
+            !unique.insert(static_cast<EntityID>(value)).second) {
+            error = "entity_ids contains an invalid or duplicate entity ID";
+            return {};
+        }
+        result.push_back(static_cast<EntityID>(value));
+    }
+    return result;
+}
+
 } // namespace
 
 EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* component_registry)
@@ -638,6 +764,12 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
     const Json addable_schema{{"type", "string"}, {"enum", m_addable_component_keys}};
     const Json removable_schema{{"type", "string"}, {"enum", m_removable_component_keys}};
     const Json configurable_schema{{"type", "string"}, {"enum", m_configurable_component_keys}};
+    const Json entity_ids_schema{
+        {"type", "array"},
+        {"items", {{"type", "integer"}, {"minimum", 1}}},
+        {"minItems", 1},
+        {"maxItems", 20}
+    };
 
     Json transform_properties = target_properties();
     transform_properties.update({
@@ -674,6 +806,15 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         {"components", nullable_schema({
             {"type", "array"}, {"items", addable_schema}, {"maxItems", 12}
         })}
+    };
+    const Json instantiate_prefab_properties{
+        {"asset_handle", {{"type", "string"}}},
+        {"alias", {{"type", "string"}}},
+        {"position", nullable_schema(position_schema)},
+        {"scale", nullable_schema(vector2_schema)},
+        {"rotation", nullable_schema({{"type", "number"}})},
+        {"parent_entity_id", {{"type", Json::array({"integer", "null"})}, {"minimum", 1}}},
+        {"parent_entity_alias", {{"type", Json::array({"string", "null"})}}}
     };
 
     m_tool_schemas = Json::array({
@@ -741,6 +882,35 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
             {"parameters", {{"type", "object"}, {"properties", target_properties()},
                 {"required", Json::array({"entity_id", "entity_alias"})}, {"additionalProperties", false}}},
             {"strict", true}
+        },
+        {
+            {"type", "function"}, {"name", DUPLICATE_ENTITIES_TOOL},
+            {"description", "Queues duplication of up to 20 existing entity subtrees in one action. Resolve all IDs with find_scene_entities. Nested selections are normalized to roots and Undo removes every duplicate."},
+            {"parameters", {{"type", "object"}, {"properties", {{"entity_ids", entity_ids_schema}}},
+                {"required", Json::array({"entity_ids"})}, {"additionalProperties", false}}},
+            {"strict", true}
+        },
+        {
+            {"type", "function"}, {"name", DELETE_ENTITIES_TOOL},
+            {"description", "Queues deletion of up to 20 existing entity subtrees in one action. Resolve all IDs with find_scene_entities. Undo restores the complete set."},
+            {"parameters", {{"type", "object"}, {"properties", {{"entity_ids", entity_ids_schema}}},
+                {"required", Json::array({"entity_ids"})}, {"additionalProperties", false}}},
+            {"strict", true}
+        },
+        {
+            {"type", "function"}, {"name", INSTANTIATE_PREFAB_TOOL},
+            {"description", "Queues a prefab instance by stable asset_handle. Call find_project_assets with asset_type prefab first. The alias identifies the new root for later actions in this proposal. Undo removes the full instance."},
+            {"parameters", {{"type", "object"}, {"properties", instantiate_prefab_properties},
+                {"required", Json::array({"asset_handle", "alias", "position", "scale", "rotation", "parent_entity_id", "parent_entity_alias"})},
+                {"additionalProperties", false}}},
+            {"strict", true}
+        },
+        {
+            {"type", "function"}, {"name", UNPACK_PREFAB_TOOL},
+            {"description", "Queues reversible unpacking of an existing prefab instance root. Use its entity_id from find_scene_entities."},
+            {"parameters", {{"type", "object"}, {"properties", target_properties()},
+                {"required", Json::array({"entity_id", "entity_alias"})}, {"additionalProperties", false}}},
+            {"strict", true}
         }
     });
 }
@@ -750,7 +920,9 @@ bool EditorAiAuthoringRegistry::is_authoring_tool(const std::string& tool_name) 
         tool_name == RENAME_ENTITY_TOOL || tool_name == ADD_COMPONENT_TOOL ||
         tool_name == REMOVE_COMPONENT_TOOL || tool_name == CONFIGURE_COMPONENT_TOOL ||
         tool_name == REPARENT_ENTITY_TOOL ||
-        tool_name == DELETE_ENTITY_TOOL;
+        tool_name == DELETE_ENTITY_TOOL || tool_name == DUPLICATE_ENTITIES_TOOL ||
+        tool_name == DELETE_ENTITIES_TOOL || tool_name == INSTANTIATE_PREFAB_TOOL ||
+        tool_name == UNPACK_PREFAB_TOOL;
 }
 
 EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
@@ -780,7 +952,8 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
     std::string summary;
     const auto alias_was_created = [&actions](const std::string& alias) {
         return std::any_of(actions.begin(), actions.end(), [&alias](const auto& action) {
-            return action.tool_name == CREATE_ENTITY_TOOL &&
+            return (action.tool_name == CREATE_ENTITY_TOOL ||
+                    action.tool_name == INSTANTIATE_PREFAB_TOOL) &&
                 action.arguments.value("alias", "") == alias;
         });
     };
@@ -807,7 +980,73 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
         return frozen_context && frozen_context->contains("entity_index") &&
             frozen_context->at("entity_index").is_array();
     };
-    if (tool_name == CREATE_ENTITY_TOOL) {
+    if (tool_name == INSTANTIATE_PREFAB_TOOL) {
+        if (!only_keys(arguments, {"asset_handle", "alias", "position", "scale", "rotation", "parent_entity_id", "parent_entity_alias"}) ||
+            !arguments.contains("asset_handle") || !arguments.at("asset_handle").is_string() ||
+            !arguments.contains("alias") || !arguments.at("alias").is_string() ||
+            !valid_alias(arguments.at("alias").get<std::string>())) {
+            return {false, {}, "Prefab instantiation requires a valid asset_handle and alias"};
+        }
+        if (arguments.contains("parent_entity_id") && arguments.contains("parent_entity_alias")) {
+            return {false, {}, "Prefab instantiation accepts only one parent reference"};
+        }
+        if (arguments.contains("parent_entity_id") &&
+            (!arguments.at("parent_entity_id").is_number_integer() ||
+             arguments.at("parent_entity_id").get<std::int64_t>() <= 0 ||
+             arguments.at("parent_entity_id").get<std::int64_t>() > std::numeric_limits<EntityID>::max())) {
+            return {false, {}, "parent_entity_id must be within the supported positive range"};
+        }
+        if (arguments.contains("parent_entity_id") && frozen_index_available() &&
+            !find_frozen_entity(static_cast<EntityID>(arguments.at("parent_entity_id").get<std::int64_t>()))) {
+            return {false, {}, "Existing parent entity_id was not found in the frozen scene"};
+        }
+        if (arguments.contains("parent_entity_alias") &&
+            (!arguments.at("parent_entity_alias").is_string() ||
+             !valid_alias(arguments.at("parent_entity_alias").get<std::string>()))) {
+            return {false, {}, "parent_entity_alias is invalid"};
+        }
+        if (const auto alias_error = require_declared_alias(arguments, "parent_entity_alias")) {
+            return {false, {}, *alias_error};
+        }
+        if ((arguments.contains("position") && !finite_vector_range(arguments.at("position"), 2, 3)) ||
+            (arguments.contains("scale") && !finite_vector(arguments.at("scale"), 2, 10'000.0)) ||
+            (arguments.contains("rotation") && !finite_number(arguments.at("rotation")))) {
+            return {false, {}, "Prefab transform values are invalid"};
+        }
+        if (arguments.contains("scale") &&
+            (arguments.at("scale")[0].get<double>() == 0.0 || arguments.at("scale")[1].get<double>() == 0.0)) {
+            return {false, {}, "Scale cannot contain zero"};
+        }
+        const std::string alias = arguments.at("alias").get<std::string>();
+        if (alias_was_created(alias)) return {false, {}, "Entity alias is already used in this proposal: " + alias};
+        if (!frozen_context || !frozen_context->contains("asset_index") ||
+            !frozen_context->at("asset_index").is_array()) {
+            return {false, {}, "Prefab instantiation requires a frozen project asset index"};
+        }
+        const std::string handle = arguments.at("asset_handle").get<std::string>();
+        const Json* asset = nullptr;
+        for (const Json& candidate : frozen_context->at("asset_index")) {
+            if (candidate.value("asset_handle", "") == handle) { asset = &candidate; break; }
+        }
+        if (!asset) return {false, {}, "Unknown prefab asset handle; call find_project_assets"};
+        if (asset->value("type", "") != "prefab" || asset->value("status", "") != "ready") {
+            return {false, {}, "asset_handle must reference a ready prefab"};
+        }
+        summary = "Instantiate prefab '" + asset->value("path", handle) + "' as @" + alias;
+    } else if (tool_name == DUPLICATE_ENTITIES_TOOL || tool_name == DELETE_ENTITIES_TOOL) {
+        std::vector<EntityID> ids = read_entity_id_list(arguments, error);
+        if (!error.empty()) return {false, {}, error};
+        if (frozen_index_available()) {
+            for (const EntityID id : ids) {
+                if (!find_frozen_entity(id)) {
+                    return {false, {}, "Existing entity_id #" + std::to_string(id) +
+                        " was not found in the frozen scene; call find_scene_entities again"};
+                }
+            }
+        }
+        summary = std::string(tool_name == DUPLICATE_ENTITIES_TOOL ? "Duplicate " : "Delete ") +
+            std::to_string(ids.size()) + (ids.size() == 1 ? " entity subtree" : " entity subtrees");
+    } else if (tool_name == CREATE_ENTITY_TOOL) {
         if (!only_keys(arguments, {"alias", "name", "position", "scale", "pivot", "rotation", "visible", "parent_entity_id", "parent_entity_alias", "components"}) ||
             !arguments.contains("alias") || !arguments.at("alias").is_string() ||
             !valid_alias(arguments.at("alias").get<std::string>()) ||
@@ -951,6 +1190,32 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
             if (patch.is_discarded() || !patch.is_object() || patch.empty()) {
                 return {false, {}, "patch_json must encode a non-empty JSON object"};
             }
+            std::vector<std::pair<std::string, std::string>> handles;
+            collect_asset_handles(patch, handles);
+            if (!handles.empty() && (!frozen_context || !frozen_context->contains("asset_index") ||
+                !frozen_context->at("asset_index").is_array())) {
+                return {false, {}, "Asset assignment requires a frozen project asset index"};
+            }
+            for (const auto& [field, handle] : handles) {
+                const Json* asset = nullptr;
+                for (const Json& candidate : frozen_context->at("asset_index")) {
+                    if (candidate.value("asset_handle", "") == handle) {
+                        asset = &candidate;
+                        break;
+                    }
+                }
+                if (!asset) {
+                    return {false, {}, "Unknown asset handle '" + handle +
+                        "'; call find_project_assets and use its asset_handle"};
+                }
+                if (asset->value("status", "") != "ready") {
+                    return {false, {}, "Asset '" + handle + "' is not ready"};
+                }
+                if (const auto expected = expected_asset_type(key, field);
+                    expected && asset->value("type", "") != *expected) {
+                    return {false, {}, field + " requires asset type '" + *expected + "'"};
+                }
+            }
             summary = "Configure " + key + " on " + target_label(*target);
         } else if (tool_name == REPARENT_ENTITY_TOOL) {
             if (!only_keys(arguments, {"entity_id", "entity_alias", "parent_entity_id", "parent_entity_alias"}) ||
@@ -978,11 +1243,13 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
                 return {false, {}, *alias_error};
             }
             summary = "Reparent " + target_label(*target);
-        } else if (tool_name == DELETE_ENTITY_TOOL) {
+        } else if (tool_name == DELETE_ENTITY_TOOL || tool_name == UNPACK_PREFAB_TOOL) {
             if (!only_keys(arguments, {"entity_id", "entity_alias"})) {
-                return {false, {}, "Delete entity contains unsupported fields"};
+                return {false, {}, "Entity action contains unsupported fields"};
             }
-            summary = "Delete " + target_label(*target) + " and its subtree";
+            summary = tool_name == DELETE_ENTITY_TOOL
+                ? "Delete " + target_label(*target) + " and its subtree"
+                : "Unpack prefab instance " + target_label(*target);
         }
     }
 
@@ -1065,6 +1332,78 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
         if (!is_authoring_tool(action.tool_name)) {
             error = "Proposal contains an unknown action: " + action.tool_name;
             return nullptr;
+        }
+        if (action.tool_name == INSTANTIATE_PREFAB_TOOL) {
+            if (!context.serialization.asset_database) {
+                error = "The project asset database is unavailable";
+                return nullptr;
+            }
+            const auto handle = AssetHandle::from_string(action.arguments.at("asset_handle").get<std::string>());
+            const AssetRecord* asset = handle ? context.serialization.asset_database->find(*handle) : nullptr;
+            if (!asset || asset->type != AssetType::Prefab || asset->status != AssetStatus::Ready) {
+                error = "The prefab asset is no longer ready";
+                return nullptr;
+            }
+            const std::string path = context.serialization.asset_database->resolve(*handle);
+            if (path.empty()) {
+                error = "The prefab asset path could not be resolved";
+                return nullptr;
+            }
+            const std::string alias = action.arguments.at("alias").get<std::string>();
+            if (!declared_aliases.insert(alias).second) {
+                error = "Proposal declares duplicate alias @" + alias;
+                return nullptr;
+            }
+            const auto parent = read_parent(action.arguments);
+            if (!parent) return nullptr;
+            std::optional<TransformComponent> transform;
+            if (action.arguments.contains("position") || action.arguments.contains("scale") ||
+                action.arguments.contains("rotation")) {
+                transform = transform_from_create_arguments(action.arguments);
+            }
+            group->add_command(std::make_unique<InstantiateAiPrefabCommand>(
+                context.entities, context.selection, context.entity_state_store.get(),
+                context.serialization.renderer, aliases, alias, path, *parent, transform
+            ));
+            continue;
+        }
+        if (action.tool_name == DUPLICATE_ENTITIES_TOOL || action.tool_name == DELETE_ENTITIES_TOOL) {
+            std::string ids_error;
+            std::vector<EntityID> ids = read_entity_id_list(action.arguments, ids_error);
+            if (!ids_error.empty()) {
+                error = ids_error;
+                return nullptr;
+            }
+            for (const EntityID id : ids) {
+                if (!context.entities->is_alive(id)) {
+                    error = "Proposal references missing entity #" + std::to_string(id);
+                    return nullptr;
+                }
+                if (context.entity_state_store->is_locked(id)) {
+                    error = "Proposal cannot modify locked entity #" + std::to_string(id);
+                    return nullptr;
+                }
+            }
+            if (action.tool_name == DUPLICATE_ENTITIES_TOOL) {
+                auto command = std::make_unique<DuplicateEntitiesCommand>(
+                    context.entities, context.selection, ids, context.entity_state_store.get()
+                );
+                if (!command->is_valid()) {
+                    error = "The requested entity set cannot be duplicated";
+                    return nullptr;
+                }
+                group->add_command(std::move(command));
+            } else {
+                auto command = std::make_unique<DeleteEntitiesCommand>(
+                    context.entities, context.selection, ids, context.entity_state_store.get()
+                );
+                if (!command->is_valid()) {
+                    error = "The requested entity set cannot be deleted";
+                    return nullptr;
+                }
+                group->add_command(std::move(command));
+            }
+            continue;
         }
         if (action.tool_name == CREATE_ENTITY_TOOL) {
             const std::string alias = action.arguments.at("alias").get<std::string>();
@@ -1181,6 +1520,20 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
                     const EntityID entity = resolve_target(captured_target, aliases);
                     auto command = std::make_unique<DeleteEntitiesCommand>(
                         entities, selection, std::vector<EntityID>{entity}, state_store.get()
+                    );
+                    return command->is_valid() ? std::move(command) : nullptr;
+                },
+                action.summary
+            ));
+        } else if (action.tool_name == UNPACK_PREFAB_TOOL) {
+            const EntityTarget captured_target = *target;
+            group->add_command(std::make_unique<DeferredEditorCommand>(
+                [entities = context.entities, selection = context.selection,
+                 state_store = context.entity_state_store, aliases,
+                 captured_target]() -> std::unique_ptr<IEditorCommand> {
+                    const EntityID entity = resolve_target(captured_target, aliases);
+                    auto command = std::make_unique<UnpackPrefabCommand>(
+                        entities, selection, entity, state_store.get()
                     );
                     return command->is_valid() ? std::move(command) : nullptr;
                 },

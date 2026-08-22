@@ -16,6 +16,7 @@
 #include <chrono>
 #include <filesystem>
 #include <numeric>
+#include <unordered_map>
 
 namespace Engine {
 namespace {
@@ -23,7 +24,7 @@ namespace {
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
-constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 2;
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 3;
 
 std::vector<EditorAiChatMessage> recent_history(
     const std::vector<EditorAiChatMessage>& messages
@@ -93,6 +94,107 @@ std::string conversation_transcript(const std::vector<EditorAiChatMessage>& mess
         transcript += message.content;
     }
     return transcript;
+}
+
+std::unordered_map<EntityID, nlohmann::json> entity_map(const nlohmann::json& index) {
+    std::unordered_map<EntityID, nlohmann::json> result;
+    if (!index.is_array()) return result;
+    for (const nlohmann::json& entity : index) {
+        const EntityID id = entity.value("entity_id", EntityID{0});
+        if (id != 0) result.emplace(id, entity);
+    }
+    return result;
+}
+
+nlohmann::json receipt_entity(const nlohmann::json& entity) {
+    return {
+        {"entity_id", entity.value("entity_id", EntityID{0})},
+        {"name", entity.value("name", "")}
+    };
+}
+
+nlohmann::json build_application_receipt(
+    std::uint64_t request_id,
+    std::uint64_t revision_before,
+    std::uint64_t revision_after,
+    const std::vector<EditorAiAuthoringAction>& actions,
+    const nlohmann::json& before_index,
+    const nlohmann::json& after_index
+) {
+    const auto before = entity_map(before_index);
+    const auto after = entity_map(after_index);
+    nlohmann::json added = nlohmann::json::array();
+    nlohmann::json removed = nlohmann::json::array();
+    nlohmann::json updated = nlohmann::json::array();
+    constexpr std::size_t MAX_RECEIPT_ENTITIES = 100;
+    std::size_t added_count = 0;
+    std::size_t removed_count = 0;
+    std::size_t updated_count = 0;
+
+    for (const auto& [id, entity] : after) {
+        const auto previous = before.find(id);
+        if (previous == before.end()) {
+            ++added_count;
+            if (added.size() < MAX_RECEIPT_ENTITIES) added.push_back(receipt_entity(entity));
+            continue;
+        }
+        nlohmann::json fields = nlohmann::json::array();
+        for (const char* field : {"name", "parent_entity_id", "child_entity_ids", "transform", "components", "component_data"}) {
+            if (previous->second.value(field, nlohmann::json{}) != entity.value(field, nlohmann::json{})) {
+                fields.push_back(field);
+            }
+        }
+        if (!fields.empty() && updated.size() < MAX_RECEIPT_ENTITIES) {
+            ++updated_count;
+            nlohmann::json item = receipt_entity(entity);
+            item["fields"] = std::move(fields);
+            updated.push_back(std::move(item));
+        } else if (!fields.empty()) ++updated_count;
+    }
+    for (const auto& [id, entity] : before) {
+        if (!after.contains(id) && removed.size() < MAX_RECEIPT_ENTITIES) {
+            ++removed_count;
+            removed.push_back(receipt_entity(entity));
+        } else if (!after.contains(id)) ++removed_count;
+    }
+
+    nlohmann::json action_summaries = nlohmann::json::array();
+    for (const EditorAiAuthoringAction& action : actions) action_summaries.push_back(action.summary);
+    return {
+        {"schema_version", 1},
+        {"request_id", request_id},
+        {"status", "applied"},
+        {"verified", revision_after == revision_before + 1 &&
+            (added_count + removed_count + updated_count) > 0},
+        {"revision_before", revision_before},
+        {"revision_after", revision_after},
+        {"action_count", actions.size()},
+        {"actions", std::move(action_summaries)},
+        {"changes", {
+            {"added", std::move(added)},
+            {"removed", std::move(removed)},
+            {"updated", std::move(updated)},
+            {"added_count", added_count},
+            {"removed_count", removed_count},
+            {"updated_count", updated_count},
+            {"truncated", added_count > MAX_RECEIPT_ENTITIES ||
+                removed_count > MAX_RECEIPT_ENTITIES || updated_count > MAX_RECEIPT_ENTITIES},
+            {"before_entity_count", before.size()},
+            {"after_entity_count", after.size()}
+        }}
+    };
+}
+
+std::string receipt_summary(const nlohmann::json& receipt) {
+    const auto& changes = receipt.at("changes");
+    return std::string(receipt.value("verified", false)
+        ? "Verified editor receipt: "
+        : "Editor receipt (no serialized change observed): ") +
+        std::to_string(changes.value("added_count", 0U)) + " added, " +
+        std::to_string(changes.value("removed_count", 0U)) + " removed, " +
+        std::to_string(changes.value("updated_count", 0U)) + " updated; revision " +
+        std::to_string(receipt.value("revision_before", 0ULL)) + " -> " +
+        std::to_string(receipt.value("revision_after", 0ULL)) + ".";
 }
 
 void draw_codex_badge() {
@@ -546,9 +648,24 @@ void AiAssistantPanel::apply_pending_proposal() {
         return;
     }
 
+    const nlohmann::json after_snapshot = m_tool_registry.build_context_snapshot(
+        scene.get(), proposal.selection.get(), m_serialization_context
+    );
+    const nlohmann::json receipt = build_application_receipt(
+        proposal.request_id,
+        proposal.baseline_revision,
+        proposal.command_history->get_current_revision(),
+        proposal.actions,
+        proposal.before_entity_index,
+        after_snapshot.value("entity_index", nlohmann::json::array())
+    );
+    const std::string summary = receipt_summary(receipt);
+
     std::lock_guard lock(m_request_mutex);
     m_pending_proposal.reset();
-    m_authoring_feedback = description + " applied. One Undo restores the previous state.";
+    m_last_application_receipt = receipt;
+    m_last_receipt_summary = summary;
+    m_authoring_feedback = description + " applied. " + summary + " One Undo restores the previous state.";
     ENGINE_LOG_INFO(
         "[AI AUDIT] request={} proposal=applied actions={} revision={} description={}",
         proposal.request_id,
@@ -556,6 +673,7 @@ void AiAssistantPanel::apply_pending_proposal() {
         proposal.command_history->get_current_revision(),
         description
     );
+    ENGINE_LOG_INFO("[AI AUDIT] receipt={}", receipt.dump());
     m_last_applied_session = AppliedAiSession{
         .request_id = proposal.request_id,
         .target_scene = scene,
@@ -592,6 +710,11 @@ void AiAssistantPanel::undo_last_ai_session() {
             session.description
         );
         m_authoring_feedback = session.description + " undone.";
+        m_last_receipt_summary = "The previous AI editor session was undone; resolve the current scene again.";
+        if (!m_last_application_receipt.empty()) {
+            m_last_application_receipt["status"] = "undone";
+            m_last_application_receipt["undo_revision"] = history->get_current_revision();
+        }
         m_last_applied_session.reset();
     } else {
         m_authoring_feedback = "The AI session could not be undone; scene state was preserved.";
@@ -647,6 +770,14 @@ void AiAssistantPanel::start_request() {
     const nlohmann::json frozen_context = m_tool_registry.build_context_snapshot(
         active_scene.get(), selection.get(), m_serialization_context
     );
+    const nlohmann::json before_entity_index = frozen_context.value(
+        "entity_index", nlohmann::json::array()
+    );
+    std::string previous_receipt;
+    {
+        std::lock_guard lock(m_request_mutex);
+        previous_receipt = m_last_receipt_summary;
+    }
 
     EditorAiProviderRequest request;
     request.api_key = api_key_value ? api_key_value : "";
@@ -669,8 +800,9 @@ void AiAssistantPanel::start_request() {
           "do not persist. Creating a root entity does not require inspection. Fold the final name, transform, and components of a new entity "
           "into one propose_create_entity call instead of queuing redundant follow-up actions. A successful "
           "queued result is final: do not wait for another editor response and do not retry it. If a call "
-          "is invalid, correct it once from the returned error without reading files. Queue at most 10 "
-          "focused actions. New entities can be referenced by @alias. Reply with one concise sentence. "
+          "is invalid, correct it once from the returned error without reading files. Use find_project_assets "
+          "for stable handles and prefer bulk duplicate/delete tools for sets. Queue at most 25 focused actions. "
+          "New entities and prefab roots can be referenced by @alias. Reply with one concise sentence. "
           "The editor applies the proposal atomically through Undo history."
         : "Live authoring tools are unavailable for this request. Stay read-only and explain that the "
           "editor must be in Edit mode with an active scene before changes can be proposed.";
@@ -678,6 +810,9 @@ void AiAssistantPanel::start_request() {
         request.instructions += " The user must confirm the proposal in the editor before it is applied.";
     } else if (authoring_available) {
         request.instructions += " Autonomous safe mode is enabled, so the editor will apply the proposal automatically if every validation gate passes.";
+    }
+    if (!previous_receipt.empty()) {
+        request.instructions += " Previous editor result: " + previous_receipt;
     }
     request.project_root = project_root();
     request.codex_executable = m_codex_executable;
@@ -788,6 +923,7 @@ void AiAssistantPanel::start_request() {
         entity_state_store,
         selection,
         baseline_revision,
+        before_entity_index,
         authoring_mode,
         using_codex,
         model,
@@ -886,6 +1022,7 @@ void AiAssistantPanel::start_request() {
                     .selection = selection,
                     .baseline_revision = baseline_revision,
                     .scene_name = active_scene ? active_scene->get_name() : "",
+                    .before_entity_index = before_entity_index,
                     .auto_apply = authoring_mode == AuthoringMode::AutonomousSafe
                 };
                 m_authoring_feedback = m_pending_proposal->auto_apply
@@ -953,6 +1090,7 @@ void AiAssistantPanel::on_gui() {
     std::optional<AppliedAiSession> last_applied_session;
     std::string authoring_feedback;
     std::string ui_feedback;
+    nlohmann::json application_receipt;
     std::string codex_thread_id;
     std::string codex_session_id;
     std::vector<EditorAiConversationRecord> conversations;
@@ -975,6 +1113,7 @@ void AiAssistantPanel::on_gui() {
         last_applied_session = m_last_applied_session;
         authoring_feedback = m_authoring_feedback;
         ui_feedback = m_ui_feedback;
+        application_receipt = m_last_application_receipt;
         codex_thread_id = m_codex_thread_id;
         codex_session_id = m_codex_session_id;
         if (m_conversation_store) conversations = m_conversation_store->conversations();
@@ -1513,6 +1652,15 @@ void AiAssistantPanel::on_gui() {
             "%s",
             authoring_feedback.c_str()
         );
+    }
+    if (!application_receipt.empty() && ImGui::CollapsingHeader("Last application receipt")) {
+        const std::string receipt_text = application_receipt.dump(2);
+        if (ImGui::Button("Copy receipt JSON")) {
+            copy_to_clipboard(receipt_text, "Application receipt copied.");
+        }
+        ImGui::BeginChild("AIApplicationReceipt", ImVec2(0.0f, 150.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::TextUnformatted(receipt_text.c_str());
+        ImGui::EndChild();
     }
 
     bool can_undo_ai_session = false;

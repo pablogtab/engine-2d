@@ -752,6 +752,9 @@ add_test(NAME ComponentRegistryTests COMMAND ComponentRegistryTests)
 
 add_executable(EditorAiToolRegistryTests
     tests/EditorAiToolRegistryTests.cpp
+    src/core/AssetDatabase.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/editor/ai/EditorAiToolRegistry.cpp
 )
@@ -789,12 +792,12 @@ add_test(NAME CodexAppServerProviderTests COMMAND CodexAppServerProviderTests)
 
 add_executable(EditorAiAuthoringTests
     tests/EditorAiAuthoringTests.cpp
-    src/core/Log.cpp
     src/editor/ai/EditorAiAuthoring.cpp
     src/editor/commands/EditorCommandGroup.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp
+    src/editor/commands/PrefabCommands.cpp
     src/editor/state/EditorEntityStateStore.cpp
 )
 target_include_directories(EditorAiAuthoringTests PRIVATE
@@ -802,7 +805,7 @@ target_include_directories(EditorAiAuthoringTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
-target_link_libraries(EditorAiAuthoringTests PRIVATE SDL3::SDL3 glm::glm box2d)
+target_link_libraries(EditorAiAuthoringTests PRIVATE EngineRuntime)
 add_test(NAME EditorAiAuthoringTests COMMAND EditorAiAuthoringTests)
 
 add_executable(SceneMigrationTests

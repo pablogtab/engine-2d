@@ -33,7 +33,7 @@ struct EditorAiAuthoringContext {
 
 class EditorAiAuthoringRegistry {
 public:
-    static constexpr std::size_t MAX_ACTIONS_PER_PROPOSAL = 10;
+    static constexpr std::size_t MAX_ACTIONS_PER_PROPOSAL = 25;
 
     explicit EditorAiAuthoringRegistry(ComponentRegistry* component_registry = nullptr);
 
