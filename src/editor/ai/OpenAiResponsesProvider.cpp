@@ -304,10 +304,21 @@ OpenAiResponsesResult OpenAiResponsesProvider::run(
             } else {
                 tool_output["error"] = tool_result.error;
             }
+            nlohmann::json output_content = tool_output.dump();
+            if (tool_result.success && !tool_result.image_url.empty()) {
+                output_content = nlohmann::json::array({
+                    {{"type", "input_text"}, {"text", tool_output.dump()}},
+                    {
+                        {"type", "input_image"},
+                        {"image_url", tool_result.image_url},
+                        {"detail", "high"}
+                    }
+                });
+            }
             input.push_back({
                 {"type", "function_call_output"},
                 {"call_id", call_id},
-                {"output", tool_output.dump()}
+                {"output", std::move(output_content)}
             });
             ++result.tool_call_count;
             emit_event(on_event, {

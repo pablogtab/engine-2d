@@ -285,7 +285,12 @@ void test_read_only_history_and_dynamic_tool_bridge() {
         ++calls;
         assert(name == "get_scene_summary");
         assert(arguments == nlohmann::json::object());
-        return EditorAiToolResult{true, {{"entity_count", 1}}, {}};
+        return EditorAiToolResult{
+            true,
+            {{"entity_count", 1}},
+            {},
+            "data:image/png;base64,dmlld3BvcnQ="
+        };
     };
 
     const EditorAiProviderResult result = provider.run(request, {});
@@ -303,6 +308,10 @@ void test_read_only_history_and_dynamic_tool_bridge() {
         tool_result.at("contentItems").at(0).at("text").get<std::string>()
     );
     assert(output.at("result").at("entity_count") == 1);
+    assert(tool_result.at("contentItems").size() == 2);
+    assert(tool_result.at("contentItems").at(1).at("type") == "inputImage");
+    assert(tool_result.at("contentItems").at(1).at("imageUrl") ==
+        "data:image/png;base64,dmlld3BvcnQ=");
 }
 
 void test_skill_input_and_generated_image_event() {

@@ -1,9 +1,10 @@
 #pragma once
 
 #include "../EditorSelection.hpp"
-#include "../../scene/GenericScene.hpp"
+#include "../../scene/Scene.hpp"
 #include <glm/glm.hpp>
 #include <imgui.h>
+#include <vector>
 
 namespace Engine {
 
@@ -13,13 +14,14 @@ public:
 
     // Handles viewport navigation and its focus-scoped framing shortcuts.
     void handle_input(
-        GenericScene* scene,
+        Scene* scene,
         const EditorSelection& selection,
         bool is_viewport_hovered,
         bool is_viewport_focused,
         const glm::vec2& viewport_mouse_position,
         const glm::vec2& viewport_mouse_delta
     );
+
 };
 
 } // namespace Engine

@@ -28,6 +28,7 @@ struct EditorAiToolResult {
     bool success{false};
     nlohmann::json output;
     std::string error;
+    std::string image_url;
 };
 
 class EditorAiToolRegistry {

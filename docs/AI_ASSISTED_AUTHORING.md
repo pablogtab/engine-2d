@@ -95,6 +95,34 @@ rejection, or dismissal so its visible history reflects the real transaction
 result. A failed grouped import removes both its temporary file and any new
 unreferenced MissingSource identity once the failed command is abandoned.
 
+## Live viewport inspection
+
+Codex can inspect and navigate the live Scene Viewport through a separate,
+read-only observation boundary:
+
+- `get_viewport_state` reports the editor camera center, zoom, visible world
+  bounds, render size, and render generation.
+- `pan_viewport`, `zoom_viewport`, `focus_viewport_entities`,
+  `frame_all_viewport`, and `reset_viewport` change only ephemeral editor view
+  state. They never dirty the scene or enter Undo/Redo history.
+- `capture_viewport` reads the actual SDL render target on the editor thread and
+  returns a bounded PNG as visual tool output. Captures are limited to four per
+  request, 2048 pixels per dimension, and 12 MiB; temporary capture files are
+  removed immediately after validation and encoding.
+- `get_scene_diagnostics` runs the normal `SceneValidator` and returns bounded,
+  stable diagnostic codes plus related entity and asset identities.
+
+The editor dispatches live tools on its main thread because camera state and SDL
+render targets are not worker-thread APIs. Each request is pinned to the active
+scene and authoring revision captured at turn start; a scene switch or concurrent
+authored edit rejects later live calls instead of inspecting a mixed state.
+
+Viewport navigation depends on `Scene::get_render_camera(RenderViewKind)`, not on
+`GenericScene`. The reusable `ViewportNavigation` helper is shared by human input and
+AI tools, and is covered with a minimal independent `Scene` implementation.
+Authoring actions remain queued until the turn completes, so a viewport capture
+observes the currently applied scene, never an uncommitted proposal.
+
 ## Safety and rollback
 
 - A proposal is capped at 25 authoring actions; bulk entity calls are capped at 20
@@ -127,7 +155,8 @@ application or rejection, and optional AI-session undo. Records include backend,
 model, reasoning effort, editor mode, scene revision, bounded-context sizes,
 provider startup, App Server item lifecycle, time to first reasoning summary,
 text or tool, gaps between provider events, per-item and per-tool duration,
-queued action count, request duration, and token usage. Prompt/message content,
+live-tool main-thread queue wait, capture size and render generation, queued action
+count, request duration, and token usage. Prompt/message content,
 reasoning-summary text, API keys, and credentials are never logged.
 
 Codex turns request the App Server's public `auto` reasoning summary. The panel

@@ -231,6 +231,7 @@ Application::Application(const std::string& name, int width, int height, bool st
             .asset_database = &get_asset_database()
         }
     );
+    ai_assistant_panel->set_viewport_panel(viewport_panel);
 
     asset_browser->set_on_load_scene_callback([this](const std::string& scene_path) {
         if (m_editor_layer) {

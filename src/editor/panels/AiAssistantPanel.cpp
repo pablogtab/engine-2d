@@ -2,10 +2,13 @@
 
 #include "../../scene/ComponentRegistry.hpp"
 #include "../../scene/SceneManager.hpp"
+#include "../../scene/SceneValidator.hpp"
+#include "../../core/BinarySerializer.hpp"
 #include "../../core/FileSystem.hpp"
 #include "../../core/Log.hpp"
 #include "../../renderer/Texture.hpp"
 #include "../commands/EditorCommandHistory.hpp"
+#include "ViewportPanel.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../tools/EditorIcons.hpp"
 
@@ -27,8 +30,50 @@ namespace {
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
-constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 5;
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 6;
 std::string project_root();
+
+const char* diagnostic_code_name(SceneDiagnosticCode code) {
+    switch (code) {
+        case SceneDiagnosticCode::MissingPrimaryCamera: return "missing_primary_camera";
+        case SceneDiagnosticCode::DuplicatePrimaryCamera: return "duplicate_primary_camera";
+        case SceneDiagnosticCode::MissingHierarchyParent: return "missing_hierarchy_parent";
+        case SceneDiagnosticCode::MissingHierarchyChild: return "missing_hierarchy_child";
+        case SceneDiagnosticCode::HierarchyLinkMismatch: return "hierarchy_link_mismatch";
+        case SceneDiagnosticCode::HierarchyCycle: return "hierarchy_cycle";
+        case SceneDiagnosticCode::MissingTextureAsset: return "missing_texture_asset";
+        case SceneDiagnosticCode::MissingMaterialAsset: return "missing_material_asset";
+        case SceneDiagnosticCode::MissingRenderEffectAsset: return "missing_render_effect_asset";
+        case SceneDiagnosticCode::MissingPrefabAsset: return "missing_prefab_asset";
+        case SceneDiagnosticCode::MissingTilemapTileset: return "missing_tilemap_tileset";
+        case SceneDiagnosticCode::InvalidColliderShape: return "invalid_collider_shape";
+        case SceneDiagnosticCode::InvalidTilemapDimensions: return "invalid_tilemap_dimensions";
+        case SceneDiagnosticCode::InvalidLight2D: return "invalid_light_2d";
+        case SceneDiagnosticCode::InvalidShadowCaster2D: return "invalid_shadow_caster_2d";
+        case SceneDiagnosticCode::MissingShadowCasterCollider: return "missing_shadow_caster_collider";
+        case SceneDiagnosticCode::MissingUIImageTexture: return "missing_ui_image_texture";
+        case SceneDiagnosticCode::MissingUIFont: return "missing_ui_font";
+        case SceneDiagnosticCode::InvalidCanvas: return "invalid_canvas";
+        case SceneDiagnosticCode::InvalidUILayout: return "invalid_ui_layout";
+        case SceneDiagnosticCode::InvalidUIText: return "invalid_ui_text";
+        case SceneDiagnosticCode::MissingUILayout: return "missing_ui_layout";
+        case SceneDiagnosticCode::MissingCanvasAncestor: return "missing_canvas_ancestor";
+    }
+    return "unknown";
+}
+
+nlohmann::json viewport_state_output(const ViewportAiState& state) {
+    return {
+        {"center", {state.center.x, state.center.y}},
+        {"zoom", state.zoom},
+        {"visible_world", {
+            {"min", {state.world_min.x, state.world_min.y}},
+            {"max", {state.world_max.x, state.world_max.y}}
+        }},
+        {"render_size", {state.render_width, state.render_height}},
+        {"render_generation", state.render_generation}
+    };
+}
 
 bool prompt_requests_generated_image(const std::string& prompt) {
     std::string lower;
@@ -552,7 +597,251 @@ AiAssistantPanel::AiAssistantPanel(
 
 AiAssistantPanel::~AiAssistantPanel() {
     cancel_request();
+    cancel_live_editor_tools("The editor is shutting down");
     if (m_request_thread.joinable()) m_request_thread.join();
+}
+
+nlohmann::json AiAssistantPanel::viewport_state_json() const {
+    const std::shared_ptr<ViewportPanel> viewport_panel = m_viewport_panel.lock();
+    if (!viewport_panel) {
+        return {{"available", false}, {"error", "The Scene Viewport panel is unavailable"}};
+    }
+    ViewportAiState state;
+    std::string error;
+    if (!viewport_panel->get_ai_view_state(state, error)) {
+        return {{"available", false}, {"error", std::move(error)}};
+    }
+    nlohmann::json output = viewport_state_output(state);
+    output["available"] = true;
+    output["navigation"] = "ephemeral";
+    return output;
+}
+
+EditorAiToolResult AiAssistantPanel::execute_live_editor_tool(
+    const std::string& name,
+    const nlohmann::json& arguments,
+    const std::shared_ptr<Scene>& expected_scene,
+    std::uint64_t expected_revision
+) {
+    EditorAiViewportToolCommand command;
+    std::string error;
+    if (!m_viewport_tools.parse(name, arguments, command, error)) {
+        return {false, {}, std::move(error)};
+    }
+    auto request = std::make_shared<LiveEditorToolRequest>();
+    request->name = name;
+    request->arguments = arguments;
+    request->command = std::move(command);
+    request->expected_scene = expected_scene;
+    request->expected_revision = expected_revision;
+    request->queued_at = std::chrono::steady_clock::now();
+    std::future<EditorAiToolResult> completion = request->completion.get_future();
+    {
+        std::lock_guard lock(m_live_tool_mutex);
+        m_live_tool_requests.push_back(request);
+    }
+
+    constexpr auto TOOL_TIMEOUT = std::chrono::seconds(8);
+    if (completion.wait_for(TOOL_TIMEOUT) != std::future_status::ready) {
+        LiveEditorToolState expected = LiveEditorToolState::Queued;
+        if (request->state.compare_exchange_strong(expected, LiveEditorToolState::Abandoned)) {
+            return {false, {}, "The editor viewport did not respond within 8 seconds"};
+        }
+        if (expected == LiveEditorToolState::Executing) {
+            completion.wait();
+            return completion.get();
+        }
+        return {false, {}, "The editor viewport request was abandoned"};
+    }
+    return completion.get();
+}
+
+EditorAiToolResult AiAssistantPanel::execute_live_editor_tool_on_main_thread(
+    const LiveEditorToolRequest& request
+) {
+    const std::shared_ptr<Scene> expected_scene = request.expected_scene.lock();
+    const std::shared_ptr<Scene> active_scene = m_scene_manager
+        ? m_scene_manager->get_active_scene_shared_ptr() : nullptr;
+    if (!expected_scene || expected_scene != active_scene) {
+        return {false, {}, "The active scene changed while Codex was inspecting the viewport"};
+    }
+    if (m_command_history && m_command_history->get_current_revision() != request.expected_revision) {
+        return {false, {}, "The scene revision changed while Codex was inspecting the viewport"};
+    }
+
+    const EditorAiViewportToolCommand& command = request.command;
+    if (command.type == EditorAiViewportToolType::GetDiagnostics) {
+        const std::vector<SceneDiagnostic> diagnostics = SceneValidator::validate(
+            active_scene->get_entity_manager(), m_serialization_context.asset_database
+        );
+        std::size_t errors = 0;
+        std::size_t warnings = 0;
+        nlohmann::json items = nlohmann::json::array();
+        for (const SceneDiagnostic& diagnostic : diagnostics) {
+            diagnostic.severity == SceneDiagnosticSeverity::Error ? ++errors : ++warnings;
+            if (items.size() >= command.limit) continue;
+            nlohmann::json item{
+                {"severity", diagnostic.severity == SceneDiagnosticSeverity::Error
+                    ? "error" : "warning"},
+                {"code", diagnostic_code_name(diagnostic.code)},
+                {"message", diagnostic.message}
+            };
+            if (diagnostic.entity != 0) item["entity_id"] = diagnostic.entity;
+            if (diagnostic.related_entity != 0) {
+                item["related_entity_id"] = diagnostic.related_entity;
+            }
+            if (diagnostic.asset_handle.is_valid()) {
+                item["asset_handle"] = diagnostic.asset_handle.to_string();
+            }
+            if (!diagnostic.asset_path.empty()) item["asset_path"] = diagnostic.asset_path;
+            items.push_back(std::move(item));
+        }
+        return {
+            true,
+            {
+                {"scene", active_scene->get_name()},
+                {"passed", errors == 0},
+                {"error_count", errors},
+                {"warning_count", warnings},
+                {"total_count", diagnostics.size()},
+                {"returned_count", items.size()},
+                {"truncated", items.size() < diagnostics.size()},
+                {"diagnostics", std::move(items)}
+            },
+            {}
+        };
+    }
+
+    const std::shared_ptr<ViewportPanel> viewport_panel = m_viewport_panel.lock();
+    if (!viewport_panel) {
+        return {false, {}, "The Scene Viewport panel is unavailable"};
+    }
+
+    std::string error;
+    bool changed = false;
+    switch (command.type) {
+        case EditorAiViewportToolType::GetState:
+        case EditorAiViewportToolType::Capture:
+        case EditorAiViewportToolType::GetDiagnostics:
+            break;
+        case EditorAiViewportToolType::Pan:
+            changed = viewport_panel->ai_pan({command.x, command.y}, error);
+            break;
+        case EditorAiViewportToolType::Zoom:
+            changed = viewport_panel->ai_zoom(command.factor, error);
+            break;
+        case EditorAiViewportToolType::FocusEntities:
+            changed = viewport_panel->ai_focus_entities(
+                command.entity_ids, command.padding, error
+            );
+            break;
+        case EditorAiViewportToolType::FrameAll:
+            changed = viewport_panel->ai_frame_all(command.padding, error);
+            break;
+        case EditorAiViewportToolType::Reset:
+            changed = viewport_panel->ai_reset(error);
+            break;
+    }
+    if (!error.empty()) return {false, {}, std::move(error)};
+
+    ViewportAiState state;
+    if (!viewport_panel->get_ai_view_state(state, error)) {
+        return {false, {}, std::move(error)};
+    }
+
+    if (command.type != EditorAiViewportToolType::Capture) {
+        nlohmann::json output = viewport_state_output(state);
+        output["navigation_changed"] = changed;
+        output["scene_changed"] = false;
+        return {true, std::move(output), {}};
+    }
+
+    const std::filesystem::path capture_path = std::filesystem::path(project_root()) /
+        "Library" / "EditorAi" / "ViewportCaptures" /
+        ("capture_" + std::to_string(++m_viewport_capture_sequence) + ".png");
+    std::size_t byte_count = 0;
+    if (!viewport_panel->capture_viewport_png(capture_path.string(), byte_count, error)) {
+        return {false, {}, std::move(error)};
+    }
+    constexpr std::size_t MAX_CAPTURE_BYTES = 12 * 1024 * 1024;
+    const std::vector<std::uint8_t> bytes = FileSystem::read_bytes(capture_path.string());
+    static_cast<void>(FileSystem::remove(capture_path.string()));
+    constexpr std::uint8_t PNG_SIGNATURE[] = {137, 80, 78, 71, 13, 10, 26, 10};
+    if (bytes.size() < std::size(PNG_SIGNATURE) || bytes.size() > MAX_CAPTURE_BYTES ||
+        !std::equal(std::begin(PNG_SIGNATURE), std::end(PNG_SIGNATURE), bytes.begin())) {
+        return {false, {}, "The viewport capture was not a valid bounded PNG"};
+    }
+
+    nlohmann::json output = viewport_state_output(state);
+    output["scene"] = active_scene->get_name();
+    output["format"] = "png";
+    output["byte_count"] = byte_count;
+    output["visual_content_attached"] = true;
+    return {
+        true,
+        std::move(output),
+        {},
+        "data:image/png;base64," + Base64::encode(bytes)
+    };
+}
+
+void AiAssistantPanel::process_live_editor_tools() {
+    std::deque<std::shared_ptr<LiveEditorToolRequest>> requests;
+    {
+        std::lock_guard lock(m_live_tool_mutex);
+        requests.swap(m_live_tool_requests);
+    }
+    for (const auto& request : requests) {
+        if (!request) continue;
+        LiveEditorToolState expected = LiveEditorToolState::Queued;
+        if (!request->state.compare_exchange_strong(expected, LiveEditorToolState::Executing)) {
+            continue;
+        }
+        const auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - request->queued_at
+        ).count();
+        ENGINE_LOG_INFO(
+            "[AI AUDIT] phase=live_tool_dispatch name={} queue_wait_ms={}",
+            request->name,
+            wait_ms
+        );
+        const auto execute_started = std::chrono::steady_clock::now();
+        EditorAiToolResult result = execute_live_editor_tool_on_main_thread(*request);
+        const std::uint64_t render_generation = result.output.is_object()
+            ? result.output.value("render_generation", std::uint64_t{0}) : 0;
+        const std::size_t capture_bytes = result.output.is_object()
+            ? result.output.value("byte_count", std::size_t{0}) : 0;
+        ENGINE_LOG_INFO(
+            "[AI AUDIT] phase=live_tool_complete name={} success={} execute_ms={} "
+            "render_generation={} capture_bytes={} visual_attached={} error={}",
+            request->name,
+            result.success,
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - execute_started
+            ).count(),
+            render_generation,
+            capture_bytes,
+            !result.image_url.empty(),
+            result.success ? "none" : result.error
+        );
+        request->state.store(LiveEditorToolState::Completed);
+        request->completion.set_value(std::move(result));
+    }
+}
+
+void AiAssistantPanel::cancel_live_editor_tools(const std::string& reason) {
+    std::deque<std::shared_ptr<LiveEditorToolRequest>> requests;
+    {
+        std::lock_guard lock(m_live_tool_mutex);
+        requests.swap(m_live_tool_requests);
+    }
+    for (const auto& request : requests) {
+        if (!request) continue;
+        LiveEditorToolState expected = LiveEditorToolState::Queued;
+        if (request->state.compare_exchange_strong(expected, LiveEditorToolState::Abandoned)) {
+            request->completion.set_value({false, {}, reason});
+        }
+    }
 }
 
 std::string AiAssistantPanel::current_context_json() const {
@@ -567,11 +856,14 @@ std::string AiAssistantPanel::current_context_json() const {
         {"max_actions_per_proposal", EditorAiAuthoringRegistry::MAX_ACTIONS_PER_PROPOSAL},
         {"tools", m_authoring_registry.tool_schemas()}
     };
+    context["viewport"] = viewport_state_json();
+    context["viewport"]["tools"] = m_viewport_tools.tool_schemas();
     return context.dump(2);
 }
 
 void AiAssistantPanel::cancel_request() {
     m_cancel_requested.store(true);
+    cancel_live_editor_tools("The viewport request was cancelled");
     ENGINE_LOG_INFO("[AI AUDIT] ui_action=cancel_request");
 }
 
@@ -992,6 +1284,8 @@ void AiAssistantPanel::start_request() {
     const std::shared_ptr<EditorSelection> selection = m_selection;
     const bool authoring_available = active_scene && command_history && entity_state_store && selection &&
         m_scene_manager && m_scene_manager->is_editing();
+    const bool viewport_available = active_scene && !m_viewport_panel.expired() && m_scene_manager &&
+        m_scene_manager->is_editing();
     const std::uint64_t baseline_revision = command_history
         ? command_history->get_current_revision() : 0;
     const AuthoringMode authoring_mode = m_authoring_mode;
@@ -1000,6 +1294,7 @@ void AiAssistantPanel::start_request() {
         m_tool_registry.build_context_snapshot(active_scene.get(), selection.get(), m_serialization_context)
     );
     (*request_context)["generated_texture_previews"] = nlohmann::json::object();
+    (*request_context)["viewport"] = viewport_state_json();
     const nlohmann::json before_entity_index = request_context->value(
         "entity_index", nlohmann::json::array()
     );
@@ -1021,6 +1316,11 @@ void AiAssistantPanel::start_request() {
         request.skills.push_back({"imagegen", m_imagegen_skill_path});
     }
     request.tools = m_tool_registry.tool_schemas();
+    if (viewport_available) {
+        for (const auto& schema : m_viewport_tools.tool_schemas()) {
+            request.tools.push_back(schema);
+        }
+    }
     if (authoring_available) {
         for (const auto& schema : m_authoring_registry.tool_schemas()) {
             request.tools.push_back(schema);
@@ -1051,6 +1351,15 @@ void AiAssistantPanel::start_request() {
     }
     if (!previous_receipt.empty()) {
         request.instructions += " Previous editor result: " + previous_receipt;
+    }
+    if (viewport_available) {
+        request.instructions +=
+            " You can inspect the live Scene Viewport without changing authored content. Use "
+            "find_scene_entities before focus_viewport_entities. Navigate with pan, zoom, focus, "
+            "frame-all, or reset, then call capture_viewport to receive the actual rendered PNG as "
+            "visual tool output. Use get_scene_diagnostics for validator errors and warnings. Capture "
+            "only when visual evidence materially helps and at most four times per request. Viewport "
+            "navigation is ephemeral and never part of scene Undo history.";
     }
     if (image_generation_requested) {
         request.instructions +=
@@ -1127,6 +1436,10 @@ void AiAssistantPanel::start_request() {
         request_context,
         proposal_actions,
         authoring_available,
+        viewport_available,
+        active_scene,
+        baseline_revision,
+        viewport_capture_count = std::make_shared<std::size_t>(0),
         request_id,
         request_started
     ](
@@ -1159,6 +1472,17 @@ void AiAssistantPanel::start_request() {
             }
             return audited(m_authoring_registry.queue_action(
                 name, arguments, *proposal_actions, request_context.get()
+            ));
+        }
+        if (m_viewport_tools.is_tool(name)) {
+            if (!viewport_available) {
+                return audited({false, {}, "Viewport inspection is unavailable for this request"});
+            }
+            if (name == "capture_viewport" && ++*viewport_capture_count > 4) {
+                return audited({false, {}, "Codex exceeded the four-capture viewport limit"});
+            }
+            return audited(execute_live_editor_tool(
+                name, arguments, active_scene, baseline_revision
             ));
         }
         return audited(m_tool_registry.execute_snapshot(name, arguments, *request_context));
@@ -1465,14 +1789,22 @@ void AiAssistantPanel::start_request() {
 }
 
 void AiAssistantPanel::on_gui() {
+    process_live_editor_tools();
     if (!is_open) return;
 
+    bool window_request_running = false;
+    {
+        std::lock_guard lock(m_request_mutex);
+        window_request_running = m_request_running;
+    }
     ImGui::SetNextWindowSize(ImVec2(500.0f, 680.0f), ImGuiCond_FirstUseEver);
     if (m_focus_requested) {
         ImGui::SetNextWindowFocus();
         m_focus_requested = false;
     }
-    if (!ImGui::Begin(m_name.c_str(), &is_open)) {
+    // A live tool waits for this panel to dispatch it on the editor thread.
+    // Keep the panel alive until the request completes or is cancelled.
+    if (!ImGui::Begin(m_name.c_str(), window_request_running ? nullptr : &is_open)) {
         ImGui::End();
         return;
     }

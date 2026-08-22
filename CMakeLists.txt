@@ -98,6 +98,7 @@ set(SOURCES
     src/editor/panels/AiAssistantPanel.cpp
     src/editor/ai/EditorAiConversationStore.cpp
     src/editor/ai/EditorAiToolRegistry.cpp
+    src/editor/ai/EditorAiViewportTools.cpp
     src/editor/ai/EditorAiAuthoring.cpp
     src/editor/ai/CodexAppServerProvider.cpp
     src/editor/ai/SdlCodexAppServerTransport.cpp
@@ -119,6 +120,7 @@ set(SOURCES
     src/editor/inspector/TransformInspectorDrawer.cpp
     src/editor/inspector/CameraInspectorDrawer.cpp
     src/editor/tools/ViewportCameraController.cpp
+    src/editor/tools/ViewportNavigation.cpp
     src/editor/tools/ViewportArrangementTool.cpp
     src/editor/tools/EditorIcons.cpp
     src/editor/tools/EditorToolbox.cpp
@@ -676,6 +678,7 @@ add_executable(ViewportVisibilityTests
     src/ecs/EntityManager.cpp
     src/editor/state/EditorEntityStateStore.cpp
     src/editor/tools/ViewportSelectionTool.cpp
+    src/editor/tools/ViewportNavigation.cpp
     src/scene/Camera2D.cpp
     src/ui/CanvasLayout.cpp
     src/renderer/Texture.cpp
@@ -757,6 +760,7 @@ add_executable(EditorAiToolRegistryTests
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/editor/ai/EditorAiToolRegistry.cpp
+    src/editor/ai/EditorAiViewportTools.cpp
 )
 target_include_directories(EditorAiToolRegistryTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

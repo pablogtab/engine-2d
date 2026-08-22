@@ -25,6 +25,8 @@
 #include <string>
 #include <memory>
 #include <array>
+#include <cstdint>
+#include <vector>
 
 namespace Engine {
 
@@ -38,6 +40,16 @@ struct ViewportGridSettings {
     float minor_opacity{0.10f};
     float major_opacity{0.23f};
     bool show_axes{true};
+};
+
+struct ViewportAiState {
+    glm::vec2 center{0.0f, 0.0f};
+    glm::vec2 world_min{0.0f, 0.0f};
+    glm::vec2 world_max{0.0f, 0.0f};
+    float zoom{1.0f};
+    int render_width{0};
+    int render_height{0};
+    std::uint64_t render_generation{0};
 };
 
 
@@ -86,6 +98,22 @@ public:
     int get_render_height() const { return m_render_height; }
     void set_safe_area_preview(const SafeAreaInsets& insets) { m_safe_area_preview = insets; }
     [[nodiscard]] bool show_safe_area_overlay() const { return m_show_safe_area_overlay; }
+
+    [[nodiscard]] bool get_ai_view_state(ViewportAiState& state, std::string& error) const;
+    [[nodiscard]] bool ai_pan(const glm::vec2& world_delta, std::string& error);
+    [[nodiscard]] bool ai_zoom(float factor, std::string& error);
+    [[nodiscard]] bool ai_focus_entities(
+        const std::vector<EntityID>& entities,
+        float padding,
+        std::string& error
+    );
+    [[nodiscard]] bool ai_frame_all(float padding, std::string& error);
+    [[nodiscard]] bool ai_reset(std::string& error);
+    [[nodiscard]] bool capture_viewport_png(
+        const std::string& path,
+        std::size_t& byte_count,
+        std::string& error
+    );
 
     // View menu entry point. Grid preferences are view-only session state.
     void render_grid_settings_menu();
@@ -139,6 +167,7 @@ private:
     int m_editor_view_height{720};
     int m_game_preview_width{960};
     int m_game_preview_height{540};
+    std::uint64_t m_render_generation{0};
 
     bool m_is_hovered{false};
     bool m_is_focused{false};

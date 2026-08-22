@@ -171,7 +171,12 @@ void test_function_call_output_loop() {
         ++executions;
         assert(name == "get_scene_summary");
         assert(arguments == nlohmann::json::object());
-        return EditorAiToolResult{true, {{"entity_count", 2}}, {}};
+        return EditorAiToolResult{
+            true,
+            {{"entity_count", 2}},
+            {},
+            "data:image/png;base64,dmlld3BvcnQ="
+        };
     };
 
     const OpenAiResponsesResult result = provider.run(request, {});
@@ -186,8 +191,15 @@ void test_function_call_output_loop() {
     assert(input.size() == 3);
     assert(input.at(1).at("type") == "function_call");
     assert(input.at(2).at("type") == "function_call_output");
+    assert(input.at(2).at("output").is_array());
+    assert(input.at(2).at("output").at(0).at("type") == "input_text");
+    assert(input.at(2).at("output").at(1).at("type") == "input_image");
+    assert(input.at(2).at("output").at(1).at("image_url") ==
+        "data:image/png;base64,dmlld3BvcnQ=");
     assert(input.at(2).at("call_id") == "call_scene");
-    const nlohmann::json output = nlohmann::json::parse(input.at(2).at("output").get<std::string>());
+    const nlohmann::json output = nlohmann::json::parse(
+        input.at(2).at("output").at(0).at("text").get<std::string>()
+    );
     assert(output.at("success") == true);
     assert(output.at("result").at("entity_count") == 2);
 }

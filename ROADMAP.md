@@ -422,6 +422,8 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Stream Codex reasoning summaries into an Activity timeline and audit App Server item durations/event gaps without persisting private reasoning or conversation content.
 - [x] Generate PNG textures through the Codex subscription ImageGen skill, preview them, and import/assign them through the same atomic Undo/Redo transaction with stable asset receipts.
 - [x] Import each generated texture once with bulk component assignments, reject duplicate queued imports, and record the editor's real apply/reject result in conversation history.
+- [x] Let Codex navigate, frame, validate, and capture the live Scene Viewport through bounded main-thread tools and multimodal tool output without dirtying authored content.
+- [x] Expose editor/game cameras through the generic Scene render-view contract and test viewport navigation without depending on the temporary `GenericScene` helper.
 - [ ] Add an optional MCP adapter over the same tool registry for external Codex clients; do not create a second mutation path.
 
 **Completion criteria:** The assistant can inspect only intentionally exposed context, cannot bypass editor validation or command history, and every approved authoring request is previewable, atomic, reversible, and covered by deterministic tests.
@@ -602,5 +604,6 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Connect the OpenAI Responses API through `OPENAI_API_KEY`, with streaming, cancellation, tool loops, errors, and visible usage state.
    - [x] Connect Codex App Server through the local ChatGPT login with an enforced read-only engine workspace; game authoring remains behind validated editor tools.
    - [x] Add allowlisted on-demand context for engine-wide and renderer-specific contracts.
+   - [x] Add bounded live viewport navigation, rendered PNG observation, and scene diagnostics through the same provider tool boundary.
    - [x] Add confirmed and opt-in autonomous authoring proposals through one atomic reversible command group.
    - [x] Cover reasoning configuration, invalid-tool retry limits, 2D/3D Transform positions, and real Codex App Server transport with deterministic tests plus an opt-in live smoke.

@@ -64,6 +64,13 @@ pixel insets before storing `DisplayState`. Fixed-resolution views map those ins
 into their reference target; responsive views keep physical output coordinates.
 Safe-area data is runtime state and is never serialized into a scene or prefab.
 
+Scenes expose the camera associated with an editor or game view through
+`Scene::get_render_camera(RenderViewKind)`. Viewport selection, grids, human
+navigation, and AI observation consume this contract and must not cast to a
+concrete scene implementation. `ViewportNavigation` owns the shared, testable
+camera movement and entity-framing math; changing editor pan or zoom remains
+ephemeral view state.
+
 Game View Device Preview replaces the view's output dimensions and safe-area insets
 with an editor-only profile. The scene still receives them through the same
 `RenderViewConfiguration` contract as a real display change. Preview selection,
@@ -145,3 +152,5 @@ Changes to this area should update the smallest relevant focused suite:
   target lifetime, and backend integration.
 - `RenderResolutionTests`: fixed/dynamic policy normalization, bounds, timing
   response, hysteresis, and hitch rejection.
+- `ViewportVisibilityTests`: render-camera contract, navigation, entity framing,
+  selection, and editor visibility filtering without a `GenericScene` dependency.

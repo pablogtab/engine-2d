@@ -1,5 +1,6 @@
 #include "editor/EditorSelection.hpp"
 #include "editor/ai/EditorAiToolRegistry.hpp"
+#include "editor/ai/EditorAiViewportTools.hpp"
 #include "core/AssetDatabase.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "scene/Scene.hpp"
@@ -60,6 +61,44 @@ void test_tool_schemas_are_read_only_and_strict() {
     assert(schemas.at(5).at("name") == "get_asset_details");
     assert(schemas.at(6).at("name") == "list_engine_documents");
     assert(schemas.at(7).at("name") == "read_engine_document");
+}
+
+void test_viewport_tool_schemas_and_validation() {
+    const EditorAiViewportTools tools;
+    const auto& schemas = tools.tool_schemas();
+    assert(schemas.size() == 8);
+    assert(schemas.at(0).at("name") == "get_viewport_state");
+    assert(schemas.at(6).at("name") == "capture_viewport");
+    assert(schemas.at(7).at("name") == "get_scene_diagnostics");
+    for (const auto& schema : schemas) {
+        assert(schema.at("strict") == true);
+        assert(schema.at("parameters").at("additionalProperties") == false);
+    }
+
+    EditorAiViewportToolCommand command;
+    std::string error;
+    assert(tools.parse("pan_viewport", {{"delta_x", 24.0}, {"delta_y", -12.0}}, command, error));
+    assert(command.type == EditorAiViewportToolType::Pan);
+    assert(command.x == 24.0f && command.y == -12.0f);
+
+    assert(tools.parse(
+        "focus_viewport_entities",
+        {{"entity_ids", nlohmann::json::array({3, 9})}, {"padding", 0.2}},
+        command,
+        error
+    ));
+    assert(command.type == EditorAiViewportToolType::FocusEntities);
+    assert(command.entity_ids == std::vector<EntityID>({3, 9}));
+
+    assert(!tools.parse(
+        "focus_viewport_entities",
+        {{"entity_ids", nlohmann::json::array({3, 3})}, {"padding", 0.2}},
+        command,
+        error
+    ));
+    assert(error == "Viewport entity IDs must be unique");
+    assert(!tools.parse("zoom_viewport", {{"factor", 8.0}}, command, error));
+    assert(!tools.parse("capture_viewport", {{"unexpected", true}}, command, error));
 }
 
 void test_project_assets_are_frozen_and_queried_by_handle() {
@@ -247,6 +286,7 @@ void test_context_snapshot_handles_missing_scene() {
 
 int main() {
     test_tool_schemas_are_read_only_and_strict();
+    test_viewport_tool_schemas_and_validation();
     test_scene_summary_reports_active_selection();
     test_selection_context_is_deterministic_and_component_aware();
     test_existing_entities_can_be_found_and_inspected_by_stable_id();

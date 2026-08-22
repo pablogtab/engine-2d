@@ -6,12 +6,15 @@
 #include "../ai/EditorAiConversationStore.hpp"
 #include "../ai/EditorAiAuthoring.hpp"
 #include "../ai/EditorAiToolRegistry.hpp"
+#include "../ai/EditorAiViewportTools.hpp"
 #include "../ai/OpenAiResponsesProvider.hpp"
 
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <deque>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -26,6 +29,7 @@ class Scene;
 class EditorCommandHistory;
 class EditorEntityStateStore;
 class Texture;
+class ViewportPanel;
 
 class AiAssistantPanel final : public EditorPanel {
 public:
@@ -49,8 +53,18 @@ public:
     void set_entity_state_store(std::shared_ptr<EditorEntityStateStore> state_store) {
         m_entity_state_store = std::move(state_store);
     }
+    void set_viewport_panel(const std::shared_ptr<ViewportPanel>& viewport_panel) {
+        m_viewport_panel = viewport_panel;
+    }
 
 private:
+    enum class LiveEditorToolState : std::uint8_t {
+        Queued,
+        Executing,
+        Abandoned,
+        Completed
+    };
+
     enum class ProviderBackend {
         CodexSubscription,
         OpenAiApi
@@ -96,6 +110,17 @@ private:
         std::uint64_t elapsed_ms{0};
     };
 
+    struct LiveEditorToolRequest {
+        std::string name;
+        nlohmann::json arguments;
+        EditorAiViewportToolCommand command;
+        std::weak_ptr<Scene> expected_scene;
+        std::uint64_t expected_revision{0};
+        std::chrono::steady_clock::time_point queued_at;
+        std::atomic<LiveEditorToolState> state{LiveEditorToolState::Queued};
+        std::promise<EditorAiToolResult> completion;
+    };
+
     [[nodiscard]] std::string current_context_json() const;
     void start_request();
     void cancel_request();
@@ -109,6 +134,18 @@ private:
     void apply_pending_proposal();
     void dismiss_pending_proposal();
     void undo_last_ai_session();
+    [[nodiscard]] nlohmann::json viewport_state_json() const;
+    [[nodiscard]] EditorAiToolResult execute_live_editor_tool(
+        const std::string& name,
+        const nlohmann::json& arguments,
+        const std::shared_ptr<Scene>& expected_scene,
+        std::uint64_t expected_revision
+    );
+    [[nodiscard]] EditorAiToolResult execute_live_editor_tool_on_main_thread(
+        const LiveEditorToolRequest& request
+    );
+    void process_live_editor_tools();
+    void cancel_live_editor_tools(const std::string& reason);
 
     std::string m_name{"AI Assistant"};
     SceneManager* m_scene_manager{nullptr};
@@ -117,7 +154,9 @@ private:
     std::shared_ptr<EditorEntityStateStore> m_entity_state_store;
     ComponentSerializationContext m_serialization_context;
     EditorAiToolRegistry m_tool_registry;
+    EditorAiViewportTools m_viewport_tools;
     EditorAiAuthoringRegistry m_authoring_registry;
+    std::weak_ptr<ViewportPanel> m_viewport_panel;
     std::unique_ptr<CodexAppServerProvider> m_codex_provider;
     std::unique_ptr<OpenAiResponsesProvider> m_openai_provider;
     std::unique_ptr<EditorAiConversationStore> m_conversation_store;
@@ -131,6 +170,8 @@ private:
     ReasoningEffort m_reasoning_effort{ReasoningEffort::Low};
 
     mutable std::mutex m_request_mutex;
+    std::mutex m_live_tool_mutex;
+    std::deque<std::shared_ptr<LiveEditorToolRequest>> m_live_tool_requests;
     std::vector<EditorAiChatMessage> m_messages;
     std::string m_streamed_response;
     std::string m_reasoning_summary;
@@ -165,6 +206,7 @@ private:
     bool m_conversation_has_generated_image{false};
     std::atomic_bool m_cancel_requested{false};
     std::thread m_request_thread;
+    std::uint64_t m_viewport_capture_sequence{0};
 };
 
 } // namespace Engine

@@ -388,10 +388,19 @@ EditorAiProviderResult CodexAppServerProvider::run(
             nlohmann::json output{{"success", tool_result.success}};
             if (tool_result.success) output["result"] = tool_result.output;
             else output["error"] = tool_result.error;
+            nlohmann::json content_items = nlohmann::json::array({
+                {{"type", "inputText"}, {"text", output.dump()}}
+            });
+            if (tool_result.success && !tool_result.image_url.empty()) {
+                content_items.push_back({
+                    {"type", "inputImage"},
+                    {"imageUrl", tool_result.image_url}
+                });
+            }
             if (!send({
                 {"id", message->at("id")},
                 {"result", {
-                    {"contentItems", nlohmann::json::array({{{"type", "inputText"}, {"text", output.dump()}}})},
+                    {"contentItems", std::move(content_items)},
                     {"success", tool_result.success}
                 }}
             })) return result;

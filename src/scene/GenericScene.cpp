@@ -113,46 +113,6 @@ void GenericScene::initialize_post_process(Renderer2D& renderer) {
     m_post_process_initialized = true;
 }
 
-void GenericScene::pan_editor_camera(const glm::vec2& delta_pixels) {
-    float zoom = m_editor_camera.get_zoom();
-    if (zoom <= 0.001f) zoom = 1.0f;
-    glm::vec2 current_pos = m_editor_camera.get_position();
-    m_editor_camera.set_position(current_pos + glm::vec2(-delta_pixels.x, delta_pixels.y) / zoom);
-}
-
-void GenericScene::zoom_editor_camera(float zoom_factor) {
-    const float new_zoom = std::clamp(m_editor_camera.get_zoom() * zoom_factor, EDITOR_MIN_ZOOM, EDITOR_MAX_ZOOM);
-    m_editor_camera.set_zoom(new_zoom);
-}
-
-void GenericScene::zoom_editor_camera_at(const glm::vec2& viewport_position, float zoom_factor) {
-    const glm::vec2 world_before = m_editor_camera.screen_to_world(viewport_position);
-    zoom_editor_camera(zoom_factor);
-    const glm::vec2 world_after = m_editor_camera.screen_to_world(viewport_position);
-    m_editor_camera.set_position(m_editor_camera.get_position() + world_before - world_after);
-}
-
-void GenericScene::focus_editor_camera(const glm::vec2& target_pos) {
-    m_editor_camera.set_position(target_pos);
-}
-
-void GenericScene::frame_editor_camera(const glm::vec2& bounds_min, const glm::vec2& bounds_max, float padding) {
-    const glm::vec2 center = (bounds_min + bounds_max) * 0.5f;
-    glm::vec2 extent = glm::max(bounds_max - bounds_min, glm::vec2(1.0f));
-    extent *= 1.0f + std::max(0.0f, padding) * 2.0f;
-
-    const glm::vec2 viewport = m_editor_camera.get_viewport_size();
-    const float zoom_x = viewport.x / extent.x;
-    const float zoom_y = viewport.y / extent.y;
-    m_editor_camera.set_position(center);
-    m_editor_camera.set_zoom(std::clamp(std::min(zoom_x, zoom_y), EDITOR_MIN_ZOOM, EDITOR_MAX_ZOOM));
-}
-
-void GenericScene::reset_editor_camera() {
-    m_editor_camera.set_position(glm::vec2(0.0f));
-    m_editor_camera.set_zoom(1.0f);
-}
-
 void GenericScene::on_update(float delta_time) {
     const bool ui_had_focus = m_ui_input_system.focused_entity() != 0;
     const bool navigate_previous = Input::is_key_just_pressed(SDL_SCANCODE_UP);
