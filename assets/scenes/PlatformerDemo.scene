@@ -27,6 +27,12 @@
                     "ui_text"
                 ],
                 "entity": 18
+            },
+            {
+                "components": [
+                    "sprite"
+                ],
+                "entity": 19
             }
         ]
     },
@@ -170,8 +176,8 @@
                     0.5
                 ],
                 "position": [
-                    -73.42630004882813,
-                    -25.311294555664063,
+                    393.6086730957031,
+                    -18.558975219726563,
                     0.0
                 ],
                 "rotation": 0.0,
@@ -1347,6 +1353,59 @@
                 "text": "Text",
                 "vertical_alignment": "center",
                 "wrap": false
+            }
+        },
+        {
+            "hierarchy": {
+                "parent": 0
+            },
+            "id": 19,
+            "sprite": {
+                "color": [
+                    255,
+                    255,
+                    255,
+                    255
+                ],
+                "flip_x": false,
+                "flip_y": false,
+                "has_outline": false,
+                "order_in_layer": 0,
+                "outline_color": [
+                    255,
+                    215,
+                    0,
+                    255
+                ],
+                "outline_pulse": false,
+                "outline_thickness": 2.0,
+                "render_layer": 0,
+                "size": [
+                    64.0,
+                    64.0
+                ],
+                "sorting_layer": 0,
+                "texture_handle": "5341db4de02fa258",
+                "use_src_rect": false,
+                "visible": true
+            },
+            "tag": "Volcanic_Rock",
+            "transform": {
+                "pivot": [
+                    0.5,
+                    0.5
+                ],
+                "position": [
+                    320.0,
+                    -230.0,
+                    0.0
+                ],
+                "rotation": 0.0,
+                "scale": [
+                    1.4083881378173828,
+                    1.4083881378173828
+                ],
+                "visible": true
             }
         }
     ],
