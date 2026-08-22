@@ -164,6 +164,13 @@ set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/box2d)
 
+# Luau is embedded as source so runtime builds never depend on a system install
+# or a network fetch. CLI tools and upstream tests are not part of Engine2D.
+set(LUAU_BUILD_CLI OFF CACHE BOOL "" FORCE)
+set(LUAU_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LUAU_BUILD_WEB OFF CACHE BOOL "" FORCE)
+add_subdirectory(vendor/luau EXCLUDE_FROM_ALL)
+
 set(ENGINE_RUNTIME_SOURCES ${SOURCES})
 list(REMOVE_ITEM ENGINE_RUNTIME_SOURCES src/core/Application.cpp src/main.cpp)
 list(FILTER ENGINE_RUNTIME_SOURCES EXCLUDE REGEX "^src/editor/")
@@ -179,7 +186,13 @@ target_include_directories(EngineRuntime PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
-target_link_libraries(EngineRuntime PUBLIC SDL3::SDL3 glm::glm box2d)
+target_link_libraries(EngineRuntime PUBLIC
+    SDL3::SDL3
+    glm::glm
+    box2d
+    Luau.Compiler
+    Luau.VM
+)
 
 add_executable(Engine2D src/main.cpp src/core/Application.cpp ${ENGINE_EDITOR_SOURCES})
 target_compile_definitions(Engine2D PRIVATE
