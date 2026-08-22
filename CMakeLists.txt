@@ -153,6 +153,7 @@ set(SOURCES
     src/editor/commands/AssetFileCommands.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp
+    src/editor/commands/PlayModeCommands.cpp
     src/editor/commands/PrefabCommands.cpp
     src/editor/commands/ProjectSettingsCommands.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
@@ -388,7 +389,11 @@ target_compile_definitions(ScriptSerializationTests PRIVATE
 target_link_libraries(ScriptSerializationTests PRIVATE EngineRuntime)
 add_test(NAME ScriptSerializationTests COMMAND ScriptSerializationTests)
 
-add_executable(PlayModeIsolationTests tests/PlayModeIsolationTests.cpp)
+add_executable(PlayModeIsolationTests
+    tests/PlayModeIsolationTests.cpp
+    src/editor/commands/EditorCommandHistory.cpp
+    src/editor/commands/PlayModeCommands.cpp
+)
 target_include_directories(PlayModeIsolationTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor

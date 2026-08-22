@@ -394,7 +394,6 @@ void SceneManager::stop_play() {
         if (!m_snapshot_json.empty()) {
             SceneSerializer serializer(active_scene, m_renderer);
             serializer.deserialize_from_string(m_snapshot_json);
-            if (m_on_authoring_state_invalidated) m_on_authoring_state_invalidated();
         }
 
         TransformSystem::update(active_scene->get_entity_manager());

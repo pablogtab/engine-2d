@@ -380,6 +380,8 @@ This is intentionally independent from the material workflow above. Materials re
 
 **Goal:** Make correctness and performance problems visible before export.
 
+**Implementation plan:** [`docs/DEBUGGING_PERFORMANCE_PLAN.md`](docs/DEBUGGING_PERFORMANCE_PLAN.md).
+
 - [ ] Add physics overlays for colliders, contacts, velocities, centers of mass, and collision layers.
 - [x] Prefix runtime script errors with their entity ID and expose them in the Script Inspector.
 - [ ] Add precise runtime script source locations and structured log filtering.
@@ -532,8 +534,8 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 - [x] `LuauRuntimeTests` — VM lifecycle, strict errors, live public fields, gameplay bindings, asset validation, audio/display/scene services, deferred event delivery, and deterministic teardown.
 - [x] `ScriptHotReloadTests` — successful reload, syntax/runtime initialization failure, retained-state policy, removed fields, and recovery without corrupting the scene.
-- [ ] `ScriptSerializationTests` — public fields, defaults, type changes, missing scripts, asset/entity references, and schema evolution.
-- [ ] `PlayModeIsolationTests` — authoring snapshot restoration, selected-property apply-back, and isolated runtime scene switching are covered; broader physics-state and command-history isolation cases remain pending.
+- [x] `ScriptSerializationTests` — public fields, defaults, type changes, missing scripts, asset/entity references, schema evolution, and transactional rejection.
+- [x] `PlayModeIsolationTests` — authoring and physics-state restoration, command-history preservation, atomic selected-property apply-back, and isolated runtime scene switching.
 
 ### Phases 8 and 9 — Performance and Export Suites
 

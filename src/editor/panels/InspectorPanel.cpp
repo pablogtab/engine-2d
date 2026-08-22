@@ -3,6 +3,7 @@
 #include "SpriteAnimationStudioPanel.hpp"
 #include "../stage/PrefabStageController.hpp"
 #include "../commands/EntityCommands.hpp"
+#include "../commands/PlayModeCommands.hpp"
 #include "../commands/PrefabCommands.hpp"
 #include "../commands/EditorEntityStateCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
@@ -18,7 +19,6 @@
 #include "../inspector/EditorComponentRegistry.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
-#include "../../scene/SceneSerializer.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
@@ -39,43 +39,6 @@
 namespace Engine {
 
 using namespace InspectorWidgets;
-
-namespace {
-
-class ApplyPlayModeChangesCommand final : public IEditorCommand {
-public:
-    ApplyPlayModeChangesCommand(
-        Scene* scene,
-        SDL_Renderer* renderer,
-        PlayModeApplySnapshot snapshot
-    ) : m_scene(scene),
-        m_renderer(renderer),
-        m_before_json(std::move(snapshot.before_json)),
-        m_after_json(std::move(snapshot.after_json)),
-        m_description(
-            "Apply " + std::to_string(snapshot.property_count) + " Play Mode " +
-            (snapshot.property_count == 1 ? "Change" : "Changes")
-        ) {}
-
-    bool execute() override { return apply(m_after_json); }
-    bool undo() override { return apply(m_before_json); }
-    [[nodiscard]] std::string get_description() const override { return m_description; }
-
-private:
-    bool apply(const std::string& json) {
-        if (!m_scene) return false;
-        SceneSerializer serializer(m_scene, m_renderer);
-        return serializer.deserialize_from_string(json);
-    }
-
-    Scene* m_scene{nullptr};
-    SDL_Renderer* m_renderer{nullptr};
-    std::string m_before_json;
-    std::string m_after_json;
-    std::string m_description;
-};
-
-} // namespace
 
 InspectorPanel::InspectorPanel(
     SceneManager* scene_manager,
