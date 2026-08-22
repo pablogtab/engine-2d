@@ -41,6 +41,7 @@ set(SOURCES
     src/core/Log.cpp
     src/core/PlayerPrefs.cpp
     src/core/ProjectContext.cpp
+    src/core/ProjectWorkspace.cpp
     src/core/ProjectSettings.cpp
     src/core/SDLDisplayBackend.cpp
     src/core/SaveSystem.cpp
@@ -93,6 +94,7 @@ set(SOURCES
     src/sandbox/PostProcessValidationScene.cpp
     src/sandbox/StressTestScene.cpp
     src/editor/EditorTheme.cpp
+    src/editor/ProjectHub.cpp
     src/editor/EditorLayer.cpp
     src/editor/panels/ViewportPanel.cpp
     src/editor/panels/SceneHierarchyPanel.cpp
@@ -230,13 +232,19 @@ else()
     set(ENGINE_RUNTIME_SHADER_ENTRY_POINT "main")
 endif()
 
+set(ENGINE_RUNTIME_SHADER_VARIANT "")
+if(ENGINE_HAS_RUNTIME_SHADER)
+    set(ENGINE_RUNTIME_SHADER_VARIANT
+        "${ENGINE_SHADER_OUTPUT_DIR}/${ENGINE_SHADER_OUTPUT_BASENAME}.${ENGINE_RUNTIME_SHADER_EXTENSION}")
+endif()
+
 add_custom_target(stage_runtime_assets
     COMMAND "${CMAKE_COMMAND}"
         "-DENGINE_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
         "-DENGINE_PROJECT_DIR=${ENGINE_PROJECT_DIR}"
         "-DENGINE_STAGE_DIR=${CMAKE_BINARY_DIR}/runtime"
         "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"
-        "-DENGINE_SHADER_VARIANT=${ENGINE_SHADER_OUTPUT_DIR}/night_vision.frag.${ENGINE_RUNTIME_SHADER_EXTENSION}"
+        "-DENGINE_SHADER_VARIANT=${ENGINE_RUNTIME_SHADER_VARIANT}"
         "-DENGINE_SHADER_FORMAT=${ENGINE_RUNTIME_SHADER_FORMAT}"
         "-DENGINE_SHADER_ENTRY_POINT=${ENGINE_RUNTIME_SHADER_ENTRY_POINT}"
         "-DENGINE_SHADER_DESCRIPTOR=${ENGINE_RUNTIME_SHADER_DESCRIPTOR}"
@@ -580,6 +588,10 @@ add_test(
 add_executable(ProjectContextTests tests/ProjectContextTests.cpp)
 target_link_libraries(ProjectContextTests PRIVATE EngineRuntime)
 add_test(NAME ProjectContextTests COMMAND ProjectContextTests)
+
+add_executable(ProjectWorkspaceTests tests/ProjectWorkspaceTests.cpp)
+target_link_libraries(ProjectWorkspaceTests PRIVATE EngineRuntime)
+add_test(NAME ProjectWorkspaceTests COMMAND ProjectWorkspaceTests)
 
 add_executable(EditorPropertyTransactionTests
     tests/EditorPropertyTransactionTests.cpp

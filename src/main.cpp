@@ -1,6 +1,7 @@
 #include "core/Application.hpp"
 #include "core/ProjectContext.hpp"
 #include "editor/EditorLayer.hpp"
+#include "editor/ProjectHub.hpp"
 #include "editor/state/EditorEntityStateStore.hpp"
 #include "scene/GenericScene.hpp"
 #include "scene/SceneSerializer.hpp"
@@ -18,6 +19,7 @@ struct LaunchOptions {
     std::filesystem::path project_path;
     bool editor{true};
     bool show_help{false};
+    bool project_hub_smoke_test{false};
 };
 
 std::optional<LaunchOptions> parse_options(int argc, char* argv[], std::string& error) {
@@ -38,6 +40,8 @@ std::optional<LaunchOptions> parse_options(int argc, char* argv[], std::string& 
             options.editor = true;
         } else if (argument == "--help" || argument == "-h") {
             options.show_help = true;
+        } else if (argument == "--project-hub-smoke-test") {
+            options.project_hub_smoke_test = true;
         } else {
             error = "Unknown argument: " + argument;
             return std::nullopt;
@@ -54,6 +58,7 @@ std::optional<LaunchOptions> parse_options(int argc, char* argv[], std::string& 
 void print_usage() {
     std::cout
         << "Usage: Engine2D --project <project-directory> [--editor|--standalone]\n"
+        << "       Engine2D [--project-hub-smoke-test]\n"
         << "\n"
         << "A project directory must contain project.engine2d, Assets/, and ProjectSettings/.\n";
 }
@@ -113,20 +118,48 @@ int main(int argc, char* argv[]) {
         print_usage();
         return 0;
     }
-    if (options->project_path.empty()) {
-        std::cerr << "No project selected. Pass --project <project-directory>.\n\n";
+    if (!options->editor && options->project_path.empty()) {
+        std::cerr << "Standalone mode requires --project <project-directory>.\n\n";
         print_usage();
         return 2;
     }
 
-    std::string project_error;
-    auto project = Engine::ProjectContext::open(options->project_path, &project_error);
-    if (!project) {
-        std::cerr << project_error << '\n';
-        return 2;
+    if (options->project_hub_smoke_test) {
+        Engine::ProjectHub hub;
+        static_cast<void>(hub.run(3));
+        return 0;
     }
 
-    EditorApplication application(std::move(*project), options->editor);
-    application.run();
+    std::optional<std::filesystem::path> selected_project;
+    if (!options->project_path.empty()) selected_project = options->project_path;
+    bool open_project_hub = !selected_project.has_value();
+    do {
+        if (open_project_hub) {
+            Engine::ProjectHub hub;
+            selected_project = hub.run();
+            if (!selected_project) return 0;
+        }
+
+        std::string project_error;
+        auto project = Engine::ProjectContext::open(*selected_project, &project_error);
+        if (!project) {
+            if (!options->editor) {
+                std::cerr << project_error << '\n';
+                return 2;
+            }
+            std::cerr << project_error << '\n';
+            selected_project.reset();
+            open_project_hub = true;
+            continue;
+        }
+
+        EditorApplication application(std::move(*project), options->editor);
+        Engine::ProjectHub::record_recent_project(
+            application.get_project().root(), application.get_project().descriptor().name
+        );
+        application.run();
+        open_project_hub = options->editor && application.should_open_project_hub_after_exit();
+        if (open_project_hub) selected_project.reset();
+    } while (open_project_hub);
     return 0;
 }

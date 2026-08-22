@@ -104,6 +104,10 @@ public:
     void update_window_title();
     bool request_destructive_action(PendingDestructiveAction action);
     bool request_exit();
+    bool request_project_hub();
+    void set_project_hub_request_callback(std::function<void()> callback) {
+        m_project_hub_request_callback = std::move(callback);
+    }
     bool save_active_scene(const std::string& custom_path = "");
     bool save_all_scenes();
     bool discard_active_scene_changes();
@@ -163,6 +167,7 @@ private:
     int m_autosave_interval_seconds{60};
     char m_autosave_directory[1024]{"Library/Autosaves"};
     PendingDestructiveAction m_pending_action;
+    std::function<void()> m_project_hub_request_callback;
     char m_save_as_buf[128]{"NewLevel.scene"};
 
     std::unique_ptr<class PrefabStageController> m_prefab_stage;

@@ -145,6 +145,10 @@ Application::Application(ProjectContext project, const std::string& name, int wi
         m_editor_layer->set_window_wrapper(m_window.get());
         m_editor_layer->set_visible(true);
         m_editor_layer->set_scene_manager(&m_scene_manager);
+        m_editor_layer->set_project_hub_request_callback([this]() {
+            m_open_project_hub_after_exit = true;
+            m_running = false;
+        });
 
         auto selection = std::make_shared<EditorSelection>();
         auto command_history = std::make_shared<EditorCommandHistory>();
@@ -691,6 +695,7 @@ void Application::run() {
     AudioEngine::shutdown();
     Input::shutdown();
     ENGINE_LOG_INFO("Engine Application shutting down.");
+    Log::set_callback(nullptr);
     Log::shutdown();
 }
 

@@ -592,6 +592,16 @@ bool EditorLayer::request_exit() {
     });
 }
 
+bool EditorLayer::request_project_hub() {
+    return request_destructive_action({
+        .type = PendingActionType::ExitApp,
+        .target = "Project Hub",
+        .action = [this]() {
+            if (m_project_hub_request_callback) m_project_hub_request_callback();
+        }
+    });
+}
+
 void EditorLayer::begin_frame() {
     if (!m_initialized || !m_visible) return;
 
@@ -1016,6 +1026,10 @@ void EditorLayer::render_dockspace() {
 void EditorLayer::render_main_menu_bar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("Open Project...")) {
+                request_project_hub();
+            }
+            ImGui::Separator();
             std::string new_lbl = ShortcutManager::get().get_label("editor.new_scene");
             if (ImGui::MenuItem("New Scene", new_lbl.empty() ? nullptr : new_lbl.c_str())) {
                 request_destructive_action({

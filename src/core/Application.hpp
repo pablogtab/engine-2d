@@ -32,6 +32,9 @@ public:
     virtual ~Application();
 
     void run();
+    [[nodiscard]] bool should_open_project_hub_after_exit() const {
+        return m_open_project_hub_after_exit;
+    }
 
     SceneManager& get_scene_manager() { return m_scene_manager; }
     AssetDatabase& get_asset_database() { return AssetDatabase::get(); }
@@ -86,6 +89,7 @@ private:
     ApplicationLifecycle m_lifecycle;
     bool m_reset_frame_clock_requested{false};
     bool m_running{true};
+    bool m_open_project_hub_after_exit{false};
 };
 
 } // namespace Engine

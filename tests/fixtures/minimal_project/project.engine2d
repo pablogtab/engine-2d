@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "name": "Minimal Project",
+  "startup_scene": "Assets/Scenes/Main.scene"
+}

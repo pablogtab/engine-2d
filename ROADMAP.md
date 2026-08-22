@@ -400,6 +400,9 @@ This is intentionally independent from the material workflow above. Materials re
 **Goal:** Produce self-contained desktop games without linking or initializing editor-only systems.
 
 - [x] Split CMake targets into runtime library, editor application, sandbox/demos, tests, and standalone game.
+- [x] Separate engine source from game assets through a strict `project.engine2d` root contract.
+- [x] Add a graphical Project Hub with atomic creation, browse, recent projects, validation, removal, and safe project switching.
+- [x] Create valid empty projects without gameplay content and allow runtime configuration and staging before a shader is declared.
 - [x] Move editor panel construction out of the runtime `Application` path.
 - [x] Ensure standalone startup never initializes ImGui, editor panels, or editor history.
 - [x] Replace runtime source duplication in test targets with the reusable `EngineRuntime` library.
