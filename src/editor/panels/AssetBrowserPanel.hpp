@@ -5,11 +5,13 @@
 #include "../../renderer/RenderLayerEffectProfile.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
 #include "../tools/AssetBrowserQuery.hpp"
+#include "../tools/AssetBrowserState.hpp"
 #include <array>
 #include <string>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <unordered_set>
 #include <unordered_map>
 
 struct SDL_Renderer;
@@ -17,16 +19,11 @@ struct SDL_Texture;
 
 namespace Engine {
 
-enum class AssetBrowserViewMode {
-    Grid,
-    List,
-    Details
-};
-
 class AssetDatabase;
 class EditorCommandHistory;
 class Material;
 class IMaterialBackend;
+class Texture;
 
 class AssetBrowserPanel : public EditorPanel {
 public:
@@ -34,7 +31,7 @@ public:
     ~AssetBrowserPanel() override;
 
     void on_gui() override;
-    void on_render_resources_invalidated() override { destroy_material_previews(); }
+    void on_render_resources_invalidated() override;
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
     void set_on_load_scene_callback(std::function<void(const std::string&)> cb) {
@@ -71,7 +68,27 @@ private:
     void draw_entry_interactions(const AssetBrowserEntry& entry);
     void draw_list_entry(const AssetBrowserEntry& entry);
     void draw_details_entries(const std::vector<AssetBrowserEntry>& entries);
+    void draw_folder_tree();
+    void draw_folder_tree_node(const std::filesystem::path& directory);
+    void draw_folder_drop_target(const std::filesystem::path& directory);
     void draw_selected_asset_details();
+    void select_entry(const AssetBrowserEntry& entry);
+    void select_only(const AssetBrowserEntry& entry);
+    void clear_selection();
+    [[nodiscard]] bool is_selected(const AssetBrowserEntry& entry) const;
+    [[nodiscard]] std::vector<std::filesystem::path> selected_asset_paths() const;
+    void move_asset_paths(
+        const std::vector<std::filesystem::path>& paths,
+        const std::filesystem::path& directory
+    );
+    void delete_selected_assets();
+    void toggle_selected_favorites();
+    void record_recent(AssetHandle handle);
+    void load_preferences();
+    void save_preferences() const;
+    [[nodiscard]] SDL_Texture* preview_asset(const AssetBrowserEntry& entry);
+    [[nodiscard]] SDL_Texture* render_scene_preview(const AssetBrowserEntry& entry);
+    void destroy_asset_previews();
     void request_rename(const AssetBrowserEntry& entry);
     [[nodiscard]] SDL_Texture* render_material_preview(
         AssetHandle handle,
@@ -83,17 +100,23 @@ private:
     std::string m_name{"Asset Browser"};
     std::filesystem::path m_root_path;
     std::filesystem::path m_current_path;
+    std::filesystem::path m_preferences_path;
     AssetDatabase* m_asset_database{nullptr};
     SDL_Renderer* m_renderer{nullptr};
     std::shared_ptr<IMaterialBackend> m_material_backend;
     SDL_Texture* m_material_preview_source{nullptr};
     std::unordered_map<AssetHandle, SDL_Texture*> m_material_preview_outputs;
+    std::unordered_map<AssetHandle, SDL_Texture*> m_scene_preview_outputs;
+    std::unordered_map<AssetHandle, std::shared_ptr<Texture>> m_texture_previews;
     std::shared_ptr<EditorCommandHistory> m_command_history;
     std::function<void(const std::string&)> m_on_load_scene;
     std::function<void(const std::string&)> m_on_open_prefab;
     std::function<void(AssetHandle, std::shared_ptr<const Material>)> m_on_material_preview;
     std::function<void()> m_on_material_preview_reset;
     std::string m_selected_file{""};
+    std::unordered_set<std::string> m_selected_files;
+    std::string m_selection_anchor;
+    std::vector<std::string> m_visible_entry_paths;
     std::string m_revealed_reference{""};
     std::array<char, 256> m_search_query{};
     AssetBrowserScope m_search_scope{AssetBrowserScope::CurrentFolder};
@@ -102,6 +125,11 @@ private:
     AssetBrowserSort m_sort{AssetBrowserSort::Name};
     bool m_sort_ascending{true};
     AssetBrowserViewMode m_view_mode{AssetBrowserViewMode::Grid};
+    AssetBrowserCollection m_collection{AssetBrowserCollection::All};
+    std::vector<AssetHandle> m_favorites;
+    std::vector<AssetHandle> m_recent;
+    bool m_show_delete_confirmation{false};
+    std::string m_bulk_action_error;
     bool m_show_rename_popup{false};
     std::filesystem::path m_rename_source;
     std::array<char, 256> m_rename_buffer{};

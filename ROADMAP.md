@@ -226,6 +226,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Add drag-and-drop from Asset Browser to Viewport and Hierarchy.
 - [x] Add typed drag-and-drop from Asset Browser into compatible Entity Inspector fields (Sprite/UI textures, fonts, materials, scripts, Luau asset fields, render-effect profiles, and Tilemap tilesets) with ready-state validation and Undo/Redo through existing component commands.
 - [x] Add project-wide Asset Browser search with query tokens, type/status filters, sorting, switchable Grid/List/Details views, clickable breadcrumbs, issue visibility, dependency details, reveal/copy actions, and reversible rename.
+- [x] Complete the Asset Browser workspace with real texture/material/scene previews, a navigable folder tree, Favorites and Recent collections, persistent view/filter/sort settings, multi-selection, bulk favorite/copy/delete actions, and atomic drag-to-folder moves with Undo/Redo.
 
 ### Materials and Shaders as Assets
 
@@ -510,6 +511,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 - [x] `AssetDatabaseTests` — stable handles, project-relative resolution, duplicate metadata rejection, deterministic discovery, and atomic metadata generation.
 - [x] `AssetBrowserQueryTests` — current-folder/project scope, quoted terms, type/path/extension/status/handle tokens, issue filtering, folder discovery, and deterministic sorting.
+- [x] `AssetBrowserStateTests` — persistent view/filter/sort preferences, Favorites toggling, bounded Recent ordering, malformed-state fallback, and value sanitization.
 - [x] `AssetDropResolverTests` — absolute/project-relative payload resolution plus type, status, unknown-asset, and outside-project rejection for Inspector drop targets.
 - [x] Extend `AssetDatabaseTests` — path moves, missing assets, dependency graphs, reload, and failure recovery.
 - [x] `AssetImportTests` — central import settings, platform overrides, metadata persistence, path moves, reload, and missing-source recovery are covered by `AssetDatabaseTests`.

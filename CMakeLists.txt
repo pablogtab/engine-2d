@@ -138,6 +138,7 @@ set(SOURCES
     src/editor/tools/ViewportNavigation.cpp
     src/editor/tools/ViewportArrangementTool.cpp
     src/editor/tools/AssetBrowserQuery.cpp
+    src/editor/tools/AssetBrowserState.cpp
     src/editor/tools/EditorIcons.cpp
     src/editor/tools/EditorToolbox.cpp
     src/editor/tools/ViewportReferenceOverlay.cpp
@@ -465,6 +466,17 @@ target_include_directories(AssetBrowserQueryTests PRIVATE
 target_link_libraries(AssetBrowserQueryTests PRIVATE EngineRuntime)
 add_test(NAME AssetBrowserQueryTests COMMAND AssetBrowserQueryTests)
 
+add_executable(AssetBrowserStateTests
+    tests/AssetBrowserStateTests.cpp
+    src/editor/tools/AssetBrowserState.cpp
+)
+target_include_directories(AssetBrowserStateTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(AssetBrowserStateTests PRIVATE EngineRuntime)
+add_test(NAME AssetBrowserStateTests COMMAND AssetBrowserStateTests)
+
 add_executable(AssetDropResolverTests
     tests/AssetDropResolverTests.cpp
     src/editor/inspector/AssetDropResolver.cpp
@@ -658,6 +670,7 @@ add_executable(AssetFileCommandTests
     src/core/FileSystem.cpp
     src/core/Log.cpp
     src/editor/commands/AssetFileCommands.cpp
+    src/editor/commands/EditorCommandGroup.cpp
     src/editor/commands/EditorCommandHistory.cpp
 )
 target_include_directories(AssetFileCommandTests PRIVATE

@@ -1,5 +1,6 @@
 #include "AssetBrowserPanel.hpp"
 #include "../../core/AssetDatabase.hpp"
+#include "../../core/AssetManager.hpp"
 #include "../../core/Log.hpp"
 #include "../../core/FileSystem.hpp"
 #include "../../renderer/postprocess/PostProcessProfile.hpp"
@@ -9,6 +10,7 @@
 #include "../../renderer/material/ShaderAsset.hpp"
 #include "../commands/AssetFileCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
+#include "../commands/EditorCommandGroup.hpp"
 #include "../commands/PostProcessProfileCommands.hpp"
 #include "../inspector/AssetDropResolver.hpp"
 #include "../inspector/MaterialInspectorWidget.hpp"
@@ -29,6 +31,32 @@
 namespace Engine {
 
 namespace {
+
+constexpr const char* kAssetBrowserMultiPayload = "ASSET_BROWSER_MULTI";
+
+std::string encode_paths(const std::vector<std::filesystem::path>& paths) {
+    std::string payload;
+    for (const auto& path : paths) {
+        const std::string value = path.string();
+        payload.append(value);
+        payload.push_back('\0');
+    }
+    return payload;
+}
+
+std::vector<std::filesystem::path> decode_paths(const ImGuiPayload& payload) {
+    std::vector<std::filesystem::path> paths;
+    if (!payload.Data || payload.DataSize <= 0) return paths;
+    const char* begin = static_cast<const char*>(payload.Data);
+    const char* end = begin + payload.DataSize;
+    while (begin < end) {
+        const char* terminator = std::find(begin, end, '\0');
+        if (terminator != begin) paths.emplace_back(std::string(begin, terminator));
+        if (terminator == end) break;
+        begin = terminator + 1;
+    }
+    return paths;
+}
 
 std::string file_url(const std::filesystem::path& path) {
     const std::string absolute = std::filesystem::absolute(path).generic_string();
@@ -216,10 +244,216 @@ AssetBrowserPanel::AssetBrowserPanel(AssetDatabase* asset_database, std::string 
     if (!std::filesystem::exists(m_root_path)) {
         std::filesystem::create_directories(m_root_path);
     }
+    m_preferences_path = (m_asset_database ? m_asset_database->project_root() : m_root_path.parent_path()) /
+        "ProjectSettings/AssetBrowser.json";
+    load_preferences();
 }
 
 AssetBrowserPanel::~AssetBrowserPanel() {
-    destroy_material_previews();
+    save_preferences();
+    destroy_asset_previews();
+}
+
+void AssetBrowserPanel::on_render_resources_invalidated() {
+    destroy_asset_previews();
+}
+
+void AssetBrowserPanel::load_preferences() {
+    const AssetBrowserPersistentState state = AssetBrowserState::load(m_preferences_path);
+    m_view_mode = state.view_mode;
+    m_collection = state.collection;
+    m_search_scope = state.scope;
+    m_type_filter = state.type_filter;
+    m_status_filter = state.status_filter;
+    m_sort = state.sort;
+    m_sort_ascending = state.sort_ascending;
+    m_thumbnail_size = state.thumbnail_size;
+    m_favorites = state.favorites;
+    m_recent = state.recent;
+    if (m_collection != AssetBrowserCollection::All) {
+        m_search_scope = AssetBrowserScope::Project;
+    }
+    if (m_asset_database) {
+        AssetBrowserState::prune_missing(m_favorites, *m_asset_database);
+        AssetBrowserState::prune_missing(m_recent, *m_asset_database);
+    }
+}
+
+void AssetBrowserPanel::save_preferences() const {
+    AssetBrowserPersistentState state;
+    state.view_mode = m_view_mode;
+    state.collection = m_collection;
+    state.scope = m_search_scope;
+    state.type_filter = m_type_filter;
+    state.status_filter = m_status_filter;
+    state.sort = m_sort;
+    state.sort_ascending = m_sort_ascending;
+    state.thumbnail_size = m_thumbnail_size;
+    state.favorites = m_favorites;
+    state.recent = m_recent;
+    static_cast<void>(AssetBrowserState::save(m_preferences_path, state));
+}
+
+bool AssetBrowserPanel::is_selected(const AssetBrowserEntry& entry) const {
+    return m_selected_files.contains(entry.absolute_path.string());
+}
+
+void AssetBrowserPanel::clear_selection() {
+    m_selected_file.clear();
+    m_selected_files.clear();
+    m_selection_anchor.clear();
+}
+
+void AssetBrowserPanel::select_only(const AssetBrowserEntry& entry) {
+    m_selected_files.clear();
+    m_selected_file = entry.absolute_path.string();
+    m_selected_files.insert(m_selected_file);
+    m_selection_anchor = m_selected_file;
+    m_revealed_reference.clear();
+}
+
+void AssetBrowserPanel::select_entry(const AssetBrowserEntry& entry) {
+    const std::string path = entry.absolute_path.string();
+    const ImGuiIO& io = ImGui::GetIO();
+    const bool toggle = io.KeySuper || io.KeyCtrl;
+    if (io.KeyShift && !m_selection_anchor.empty()) {
+        const auto anchor = std::find(
+            m_visible_entry_paths.begin(), m_visible_entry_paths.end(), m_selection_anchor
+        );
+        const auto target = std::find(m_visible_entry_paths.begin(), m_visible_entry_paths.end(), path);
+        if (anchor != m_visible_entry_paths.end() && target != m_visible_entry_paths.end()) {
+            if (!toggle) m_selected_files.clear();
+            auto first = anchor < target ? anchor : target;
+            auto last = anchor < target ? target : anchor;
+            for (; first <= last; ++first) m_selected_files.insert(*first);
+            m_selected_file = path;
+            m_revealed_reference.clear();
+            return;
+        }
+    }
+    if (toggle) {
+        if (m_selected_files.contains(path)) {
+            m_selected_files.erase(path);
+            if (m_selected_file == path) {
+                m_selected_file = m_selected_files.empty() ? "" : *m_selected_files.begin();
+            }
+        } else {
+            m_selected_files.insert(path);
+            m_selected_file = path;
+        }
+        m_selection_anchor = path;
+        m_revealed_reference.clear();
+        return;
+    }
+    select_only(entry);
+}
+
+std::vector<std::filesystem::path> AssetBrowserPanel::selected_asset_paths() const {
+    std::vector<std::filesystem::path> paths;
+    for (const std::string& value : m_selected_files) {
+        const std::filesystem::path path(value);
+        std::error_code error;
+        if (std::filesystem::is_regular_file(path, error)) paths.push_back(path);
+    }
+    std::sort(paths.begin(), paths.end());
+    return paths;
+}
+
+void AssetBrowserPanel::move_asset_paths(
+    const std::vector<std::filesystem::path>& paths,
+    const std::filesystem::path& directory
+) {
+    m_bulk_action_error.clear();
+    if (!m_asset_database || !m_command_history || paths.empty()) return;
+    std::error_code directory_error;
+    if (!path_is_within(directory, m_root_path) ||
+        !std::filesystem::is_directory(directory, directory_error)) {
+        m_bulk_action_error = "Move cancelled: the destination is not an Assets folder.";
+        return;
+    }
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> moves;
+    std::unordered_set<std::string> destinations;
+    for (const auto& source : paths) {
+        const std::filesystem::path destination = directory / source.filename();
+        if (source.parent_path() == directory) continue;
+        std::error_code error;
+        if (!path_is_within(source, m_root_path) || !path_is_within(destination, m_root_path) ||
+            std::filesystem::exists(destination, error) ||
+            !destinations.insert(destination.string()).second) {
+            m_bulk_action_error = "Move cancelled: a destination already exists or is outside Assets.";
+            return;
+        }
+        moves.emplace_back(source, destination);
+    }
+    if (moves.empty()) return;
+    auto group = std::make_unique<EditorCommandGroup>(
+        moves.size() == 1 ? "Move Asset" : "Move Selected Assets"
+    );
+    for (const auto& [source, destination] : moves) {
+        group->add_command(std::make_unique<MoveAssetCommand>(
+            m_asset_database, source, destination
+        ));
+    }
+    if (!m_command_history->execute_command(std::move(group))) {
+        m_bulk_action_error = "Move failed; no assets were changed.";
+        return;
+    }
+    clear_selection();
+    for (const auto& [source, destination] : moves) {
+        (void)source;
+        m_selected_files.insert(destination.string());
+        m_selected_file = destination.string();
+    }
+    m_selection_anchor = m_selected_file;
+    destroy_asset_previews();
+}
+
+void AssetBrowserPanel::delete_selected_assets() {
+    m_bulk_action_error.clear();
+    const auto paths = selected_asset_paths();
+    if (!m_asset_database || !m_command_history || paths.empty()) return;
+    auto group = std::make_unique<EditorCommandGroup>(
+        paths.size() == 1 ? "Delete Asset" : "Delete Selected Assets"
+    );
+    for (const auto& path : paths) {
+        group->add_command(std::make_unique<DeleteAssetCommand>(m_asset_database, path));
+    }
+    if (m_command_history->execute_command(std::move(group))) {
+        clear_selection();
+        AssetBrowserState::prune_missing(m_favorites, *m_asset_database);
+        AssetBrowserState::prune_missing(m_recent, *m_asset_database);
+        save_preferences();
+        destroy_asset_previews();
+    } else {
+        m_bulk_action_error = "Delete failed; no assets were changed.";
+    }
+}
+
+void AssetBrowserPanel::toggle_selected_favorites() {
+    if (!m_asset_database) return;
+    std::vector<AssetHandle> handles;
+    for (const auto& path : selected_asset_paths()) {
+        if (const AssetRecord* record = m_asset_database->find_by_path(path)) {
+            handles.push_back(record->handle);
+        }
+    }
+    const bool all_favorites = !handles.empty() && std::all_of(
+        handles.begin(), handles.end(), [this](AssetHandle handle) {
+            return AssetBrowserState::contains(m_favorites, handle);
+        }
+    );
+    for (const AssetHandle handle : handles) {
+        const bool favorite = AssetBrowserState::contains(m_favorites, handle);
+        if (all_favorites == favorite) {
+            static_cast<void>(AssetBrowserState::toggle_favorite(m_favorites, handle));
+        }
+    }
+    save_preferences();
+}
+
+void AssetBrowserPanel::record_recent(AssetHandle handle) {
+    AssetBrowserState::record_recent(m_recent, handle);
+    save_preferences();
 }
 
 bool AssetBrowserPanel::ensure_material_preview_source() {
@@ -321,6 +555,185 @@ SDL_Texture* AssetBrowserPanel::preview_material_asset(AssetHandle handle) {
     return render_material_preview(handle, MaterialAsset::load(handle, *m_asset_database));
 }
 
+SDL_Texture* AssetBrowserPanel::preview_asset(const AssetBrowserEntry& entry) {
+    if (!m_renderer || entry.is_directory || entry.status != AssetStatus::Ready) return nullptr;
+    if (entry.type == AssetType::Texture) {
+        auto& preview = m_texture_previews[entry.handle];
+        if (!preview) {
+            preview = AssetManager::get().load_texture(m_renderer, entry.absolute_path.string());
+        }
+        return preview ? preview->get_sdl_texture() : nullptr;
+    }
+    if (entry.type == AssetType::Material) return preview_material_asset(entry.handle);
+    if (entry.type == AssetType::Scene) return render_scene_preview(entry);
+    return nullptr;
+}
+
+SDL_Texture* AssetBrowserPanel::render_scene_preview(const AssetBrowserEntry& entry) {
+    if (const auto cached = m_scene_preview_outputs.find(entry.handle);
+        cached != m_scene_preview_outputs.end()) return cached->second;
+    if (!m_renderer || !m_asset_database) return nullptr;
+
+    struct PreviewSprite {
+        float x{0.0f};
+        float y{0.0f};
+        float width{16.0f};
+        float height{16.0f};
+        SDL_Color color{125, 175, 235, 255};
+        AssetHandle texture_handle{};
+        SDL_FRect source{};
+        bool use_source{false};
+    };
+    std::vector<PreviewSprite> sprites;
+    const nlohmann::json root = nlohmann::json::parse(
+        FileSystem::read_text(entry.absolute_path.string()), nullptr, false
+    );
+    if (root.is_discarded() || !root.contains("entities") || !root["entities"].is_array()) {
+        m_scene_preview_outputs[entry.handle] = nullptr;
+        return nullptr;
+    }
+    try {
+    for (const auto& entity : root["entities"]) {
+        if (!entity.is_object() || !entity.contains("transform")) continue;
+        const auto& transform = entity["transform"];
+        const auto position = transform.value("position", nlohmann::json::array());
+        if (!position.is_array() || position.size() < 2 ||
+            !position[0].is_number() || !position[1].is_number()) continue;
+        PreviewSprite item;
+        item.x = position[0].get<float>();
+        item.y = position[1].get<float>();
+        if (entity.contains("sprite") && entity["sprite"].is_object()) {
+            const auto& sprite = entity["sprite"];
+            if (!sprite.value("visible", true)) continue;
+            const auto size = sprite.value("size", nlohmann::json::array());
+            if (size.is_array() && size.size() >= 2 && size[0].is_number() && size[1].is_number()) {
+                item.width = std::max(2.0f, std::abs(size[0].get<float>()));
+                item.height = std::max(2.0f, std::abs(size[1].get<float>()));
+            }
+            const auto color = sprite.value("color", nlohmann::json::array());
+            if (color.is_array() && color.size() >= 4) {
+                item.color = {
+                    color[0].get<std::uint8_t>(), color[1].get<std::uint8_t>(),
+                    color[2].get<std::uint8_t>(), color[3].get<std::uint8_t>()
+                };
+            }
+            if (const auto handle = AssetHandle::from_string(
+                    sprite.value("texture_handle", std::string{})
+                )) item.texture_handle = *handle;
+            const auto source = sprite.value("src_rect", nlohmann::json::array());
+            if (sprite.value("use_src_rect", false) && source.is_array() && source.size() >= 4) {
+                item.source = {
+                    source[0].get<float>(), source[1].get<float>(),
+                    source[2].get<float>(), source[3].get<float>()
+                };
+                item.use_source = item.source.w > 0.0f && item.source.h > 0.0f;
+            }
+        }
+        sprites.push_back(item);
+    }
+    } catch (const nlohmann::json::exception&) {
+        m_scene_preview_outputs[entry.handle] = nullptr;
+        return nullptr;
+    }
+
+    constexpr int preview_width = 160;
+    constexpr int preview_height = 96;
+    SDL_Texture* output = SDL_CreateTexture(
+        m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
+        preview_width, preview_height
+    );
+    if (!output) return nullptr;
+    SDL_SetTextureBlendMode(output, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(output, SDL_SCALEMODE_LINEAR);
+
+    SDL_Texture* previous_target = SDL_GetRenderTarget(m_renderer);
+    SDL_Rect previous_viewport{};
+    const bool had_viewport = SDL_GetRenderViewport(m_renderer, &previous_viewport);
+    float previous_scale_x = 1.0f;
+    float previous_scale_y = 1.0f;
+    static_cast<void>(SDL_GetRenderScale(m_renderer, &previous_scale_x, &previous_scale_y));
+    Uint8 previous_r = 0, previous_g = 0, previous_b = 0, previous_a = 0;
+    static_cast<void>(SDL_GetRenderDrawColor(
+        m_renderer, &previous_r, &previous_g, &previous_b, &previous_a
+    ));
+    if (!SDL_SetRenderTarget(m_renderer, output)) {
+        SDL_DestroyTexture(output);
+        return nullptr;
+    }
+    static_cast<void>(SDL_SetRenderScale(m_renderer, 1.0f, 1.0f));
+    static_cast<void>(SDL_SetRenderViewport(m_renderer, nullptr));
+    static_cast<void>(SDL_SetRenderDrawColor(m_renderer, 18, 21, 28, 255));
+    static_cast<void>(SDL_RenderClear(m_renderer));
+
+    float minimum_x = 0.0f, maximum_x = 1.0f, minimum_y = 0.0f, maximum_y = 1.0f;
+    if (!sprites.empty()) {
+        minimum_x = maximum_x = sprites.front().x;
+        minimum_y = maximum_y = sprites.front().y;
+        for (const auto& sprite : sprites) {
+            minimum_x = std::min(minimum_x, sprite.x - sprite.width * 0.5f);
+            maximum_x = std::max(maximum_x, sprite.x + sprite.width * 0.5f);
+            minimum_y = std::min(minimum_y, sprite.y - sprite.height * 0.5f);
+            maximum_y = std::max(maximum_y, sprite.y + sprite.height * 0.5f);
+        }
+    }
+    const float world_width = std::max(1.0f, maximum_x - minimum_x);
+    const float world_height = std::max(1.0f, maximum_y - minimum_y);
+    const float scale = std::min(
+        (preview_width - 12.0f) / world_width,
+        (preview_height - 12.0f) / world_height
+    );
+    const float offset_x = (preview_width - world_width * scale) * 0.5f;
+    const float offset_y = (preview_height - world_height * scale) * 0.5f;
+    for (const auto& sprite : sprites) {
+        SDL_FRect destination{
+            offset_x + (sprite.x - sprite.width * 0.5f - minimum_x) * scale,
+            offset_y + (sprite.y - sprite.height * 0.5f - minimum_y) * scale,
+            std::max(2.0f, sprite.width * scale),
+            std::max(2.0f, sprite.height * scale)
+        };
+        SDL_Texture* texture = nullptr;
+        if (sprite.texture_handle.is_valid()) {
+            if (const AssetRecord* texture_record = m_asset_database->find(sprite.texture_handle);
+                texture_record && texture_record->status == AssetStatus::Ready &&
+                texture_record->type == AssetType::Texture) {
+                auto& cached_texture = m_texture_previews[sprite.texture_handle];
+                if (!cached_texture) cached_texture = AssetManager::get().load_texture(
+                    m_renderer, m_asset_database->resolve(sprite.texture_handle)
+                );
+                if (cached_texture) texture = cached_texture->get_sdl_texture();
+            }
+        }
+        if (texture) {
+            Uint8 old_r = 255, old_g = 255, old_b = 255, old_a = 255;
+            static_cast<void>(SDL_GetTextureColorMod(texture, &old_r, &old_g, &old_b));
+            static_cast<void>(SDL_GetTextureAlphaMod(texture, &old_a));
+            static_cast<void>(SDL_SetTextureColorMod(
+                texture, sprite.color.r, sprite.color.g, sprite.color.b
+            ));
+            static_cast<void>(SDL_SetTextureAlphaMod(texture, sprite.color.a));
+            static_cast<void>(SDL_RenderTexture(
+                m_renderer, texture, sprite.use_source ? &sprite.source : nullptr, &destination
+            ));
+            static_cast<void>(SDL_SetTextureColorMod(texture, old_r, old_g, old_b));
+            static_cast<void>(SDL_SetTextureAlphaMod(texture, old_a));
+        } else {
+            static_cast<void>(SDL_SetRenderDrawColor(
+                m_renderer, sprite.color.r, sprite.color.g, sprite.color.b, sprite.color.a
+            ));
+            static_cast<void>(SDL_RenderFillRect(m_renderer, &destination));
+        }
+    }
+
+    static_cast<void>(SDL_SetRenderTarget(m_renderer, previous_target));
+    static_cast<void>(SDL_SetRenderScale(m_renderer, previous_scale_x, previous_scale_y));
+    if (had_viewport) static_cast<void>(SDL_SetRenderViewport(m_renderer, &previous_viewport));
+    static_cast<void>(SDL_SetRenderDrawColor(
+        m_renderer, previous_r, previous_g, previous_b, previous_a
+    ));
+    m_scene_preview_outputs[entry.handle] = output;
+    return output;
+}
+
 void AssetBrowserPanel::destroy_material_previews() {
     for (auto& [handle, texture] : m_material_preview_outputs) {
         (void)handle;
@@ -331,10 +744,24 @@ void AssetBrowserPanel::destroy_material_previews() {
     m_material_preview_source = nullptr;
 }
 
+void AssetBrowserPanel::destroy_asset_previews() {
+    destroy_material_previews();
+    for (auto& [handle, texture] : m_scene_preview_outputs) {
+        (void)handle;
+        if (texture) SDL_DestroyTexture(texture);
+    }
+    m_scene_preview_outputs.clear();
+    m_texture_previews.clear();
+}
+
 void AssetBrowserPanel::refresh() {
     if (m_asset_database) {
         [[maybe_unused]] const AssetScanResult scan_result = m_asset_database->scan(m_root_path);
+        AssetBrowserState::prune_missing(m_favorites, *m_asset_database);
+        AssetBrowserState::prune_missing(m_recent, *m_asset_database);
+        save_preferences();
     }
+    destroy_asset_previews();
 }
 
 void AssetBrowserPanel::reveal_asset_path(const std::string& path) {
@@ -350,7 +777,10 @@ void AssetBrowserPanel::reveal_asset_path(const std::string& path) {
         directory = directory.parent_path();
     }
     navigate_to(directory.empty() ? m_root_path : directory);
+    clear_selection();
     m_selected_file = target.string();
+    m_selected_files.insert(m_selected_file);
+    m_selection_anchor = m_selected_file;
     m_revealed_reference = target.string();
     m_search_query.fill('\0');
     m_search_scope = AssetBrowserScope::CurrentFolder;
@@ -455,7 +885,11 @@ void AssetBrowserPanel::navigate_to(const std::filesystem::path& directory) {
     std::error_code error;
     if (!std::filesystem::is_directory(normalized, error)) return;
     m_current_path = normalized;
+    m_collection = AssetBrowserCollection::All;
     m_search_scope = AssetBrowserScope::CurrentFolder;
+    clear_selection();
+    m_bulk_action_error.clear();
+    save_preferences();
 }
 
 void AssetBrowserPanel::activate_entry(const AssetBrowserEntry& entry) {
@@ -464,6 +898,7 @@ void AssetBrowserPanel::activate_entry(const AssetBrowserEntry& entry) {
         return;
     }
     if (entry.status != AssetStatus::Ready) return;
+    record_recent(entry.handle);
     const std::string& extension = entry.extension;
     if (extension == ".scene") {
         if (m_on_load_scene) m_on_load_scene(entry.absolute_path.string());
@@ -515,66 +950,120 @@ void AssetBrowserPanel::request_rename(const AssetBrowserEntry& entry) {
 }
 
 void AssetBrowserPanel::draw_entry(const AssetBrowserEntry& entry) {
-    const std::filesystem::path& path = entry.absolute_path;
     ImGui::PushID(entry.project_path.c_str());
-
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.13f, 0.15f, 0.20f, 0.85f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.25f, 0.35f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.18f, 0.35f, 0.60f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_Text, asset_tag_color(entry));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
-
-    const bool selected = path.string() == m_selected_file;
-    if (selected) {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.42f, 0.72f, 1.0f));
+    const ImVec2 card_size{m_thumbnail_size + 14.0f, m_thumbnail_size + 38.0f};
+    const ImVec2 minimum = ImGui::GetCursorScreenPos();
+    if (ImGui::InvisibleButton("##asset_card", card_size)) select_entry(entry);
+    const ImVec2 maximum{minimum.x + card_size.x, minimum.y + card_size.y};
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    const bool selected = is_selected(entry);
+    const bool hovered = ImGui::IsItemHovered();
+    draw_list->AddRectFilled(
+        minimum, maximum,
+        selected ? IM_COL32(45, 78, 125, 255) :
+            (hovered ? IM_COL32(40, 47, 62, 255) : IM_COL32(31, 35, 46, 235)),
+        6.0f
+    );
+    const ImVec2 preview_min{minimum.x + 7.0f, minimum.y + 7.0f};
+    const ImVec2 preview_max{
+        preview_min.x + m_thumbnail_size,
+        preview_min.y + m_thumbnail_size
+    };
+    draw_list->AddRectFilled(preview_min, preview_max, IM_COL32(18, 21, 28, 255), 4.0f);
+    SDL_Texture* preview = ImGui::IsItemVisible() ? preview_asset(entry) : nullptr;
+    if (preview) {
+        float width = 1.0f;
+        float height = 1.0f;
+        static_cast<void>(SDL_GetTextureSize(preview, &width, &height));
+        const float scale = std::min(
+            m_thumbnail_size / std::max(1.0f, width),
+            m_thumbnail_size / std::max(1.0f, height)
+        );
+        const ImVec2 size{width * scale, height * scale};
+        const ImVec2 image_min{
+            preview_min.x + (m_thumbnail_size - size.x) * 0.5f,
+            preview_min.y + (m_thumbnail_size - size.y) * 0.5f
+        };
+        draw_list->AddImage(
+            preview,
+            image_min,
+            {image_min.x + size.x, image_min.y + size.y}
+        );
+    } else {
+        const char* tag = asset_tag(entry);
+        const ImVec2 tag_size = ImGui::CalcTextSize(tag);
+        draw_list->AddText(
+            {preview_min.x + (m_thumbnail_size - tag_size.x) * 0.5f,
+             preview_min.y + (m_thumbnail_size - tag_size.y) * 0.5f},
+            ImGui::ColorConvertFloat4ToU32(asset_tag_color(entry)),
+            tag
+        );
     }
-    std::string button_label = std::string(asset_tag(entry)) + "\n\n" + entry.name;
-    if (!entry.is_directory && entry.status != AssetStatus::Ready) button_label += "\n!";
-    if (ImGui::Button(
-            button_label.c_str(),
-            ImVec2(m_thumbnail_size + 14.0f, m_thumbnail_size + 18.0f)
-        )) {
-        m_selected_file = path.string();
-        m_revealed_reference.clear();
+    if (!entry.is_directory && entry.status != AssetStatus::Ready) {
+        draw_list->AddText(
+            {preview_max.x - 12.0f, preview_min.y + 2.0f},
+            IM_COL32(245, 95, 70, 255), "!"
+        );
     }
-    if (selected) ImGui::PopStyleColor();
-
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(4);
+    if (AssetBrowserState::contains(m_favorites, entry.handle)) {
+        draw_list->AddText(
+            {preview_min.x + 3.0f, preview_min.y + 1.0f},
+            IM_COL32(250, 195, 65, 255), "*"
+        );
+    }
+    draw_list->PushClipRect(
+        {minimum.x + 5.0f, preview_max.y + 3.0f},
+        {maximum.x - 5.0f, maximum.y - 3.0f},
+        true
+    );
+    const ImVec2 name_size = ImGui::CalcTextSize(entry.name.c_str());
+    draw_list->AddText(
+        {minimum.x + std::max(6.0f, (card_size.x - name_size.x) * 0.5f), preview_max.y + 7.0f},
+        ImGui::GetColorU32(ImGuiCol_Text), entry.name.c_str()
+    );
+    draw_list->PopClipRect();
+    draw_list->AddRect(
+        minimum, maximum,
+        selected ? IM_COL32(80, 185, 240, 255) : IM_COL32(75, 82, 100, 150),
+        6.0f, 0, selected ? 2.0f : 1.0f
+    );
     draw_entry_interactions(entry);
     ImGui::PopID();
 }
 
 void AssetBrowserPanel::draw_entry_interactions(const AssetBrowserEntry& entry) {
     const std::filesystem::path& path = entry.absolute_path;
-
-    if (ImGui::IsItemHovered()) {
-        ImGui::BeginTooltip();
-        ImGui::TextUnformatted(entry.project_path.c_str());
-        if (!entry.is_directory) {
-            ImGui::Text("Type: %s", AssetDatabase::type_name(entry.type));
-            ImGui::Text("Status: %s", AssetBrowserQuery::status_name(entry.status));
-            ImGui::Text("Size: %s", human_file_size(entry.size).c_str());
-            ImGui::Text("Handle: %s", entry.handle.to_string().c_str());
-            if (entry.status == AssetStatus::Ready) ImGui::TextDisabled("Double-click to open");
-        } else {
-            ImGui::TextDisabled("Double-click to browse");
-        }
-        ImGui::EndTooltip();
-    }
+    const bool hovered = ImGui::IsItemHovered();
+    const bool double_clicked = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+    const bool right_clicked = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
 
     if (!entry.is_directory && entry.status == AssetStatus::Ready &&
         ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-        const std::string path_string = path.string();
-        ImGui::SetDragDropPayload(
-            kContentBrowserAssetPayload, path_string.c_str(), path_string.length() + 1
-        );
-        ImGui::Text("Asset: %s", entry.name.c_str());
+        std::vector<std::filesystem::path> paths = is_selected(entry)
+            ? selected_asset_paths()
+            : std::vector<std::filesystem::path>{path};
+        if (paths.size() > 1) {
+            const std::string payload = encode_paths(paths);
+            ImGui::SetDragDropPayload(
+                kAssetBrowserMultiPayload, payload.data(), payload.size()
+            );
+            ImGui::Text("%zu assets", paths.size());
+        } else {
+            const std::string path_string = path.string();
+            ImGui::SetDragDropPayload(
+                kContentBrowserAssetPayload, path_string.c_str(), path_string.length() + 1
+            );
+            ImGui::Text("Asset: %s", entry.name.c_str());
+        }
         ImGui::EndDragDropSource();
     }
 
-    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        activate_entry(entry);
+    if (double_clicked) activate_entry(entry);
+
+    if (entry.is_directory) draw_folder_drop_target(path);
+
+    if (right_clicked && !is_selected(entry)) {
+        select_only(entry);
     }
 
     if (ImGui::BeginPopupContextItem()) {
@@ -588,15 +1077,28 @@ void AssetBrowserPanel::draw_entry_interactions(const AssetBrowserEntry& entry) 
                 m_command_history && m_asset_database) {
                 static_cast<void>(duplicate_material_asset(entry.handle));
             }
+            ImGui::BeginDisabled(m_selected_files.size() != 1);
             if (ImGui::MenuItem("Rename...")) request_rename(entry);
             ImGui::EndDisabled();
+            ImGui::EndDisabled();
+
+            const bool favorite = AssetBrowserState::contains(m_favorites, entry.handle);
+            if (ImGui::MenuItem(favorite ? "Remove from Favorites" : "Add to Favorites")) {
+                if (m_selected_files.size() > 1) toggle_selected_favorites();
+                else {
+                    static_cast<void>(AssetBrowserState::toggle_favorite(
+                        m_favorites, entry.handle
+                    ));
+                    save_preferences();
+                }
+            }
 
             if (ImGui::MenuItem("Reveal in Folder")) {
                 navigate_to(path.parent_path());
                 m_search_query.fill('\0');
                 m_type_filter = AssetBrowserTypeFilter::All;
                 m_status_filter = AssetBrowserStatusFilter::All;
-                m_selected_file = path.string();
+                select_only(entry);
             }
             if (ImGui::MenuItem("Copy Project Path")) {
                 ImGui::SetClipboardText(entry.project_path.c_str());
@@ -605,29 +1107,40 @@ void AssetBrowserPanel::draw_entry_interactions(const AssetBrowserEntry& entry) 
                 ImGui::SetClipboardText(entry.handle.to_string().c_str());
             }
             ImGui::BeginDisabled(!ready || !m_command_history || !m_asset_database);
-            if (ImGui::MenuItem("Delete")) {
-                m_command_history->execute_command(
-                    std::make_unique<DeleteAssetCommand>(m_asset_database, path)
-                );
-                if (m_selected_file == path.string()) m_selected_file.clear();
+            if (ImGui::MenuItem(m_selected_files.size() > 1 ? "Delete Selected..." : "Delete...")) {
+                m_show_delete_confirmation = true;
             }
             ImGui::EndDisabled();
         }
         ImGui::EndPopup();
     }
+
+    if (hovered && ImGui::GetDragDropPayload() == nullptr) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(entry.project_path.c_str());
+        if (!entry.is_directory) {
+            ImGui::Text("Type: %s", AssetDatabase::type_name(entry.type));
+            ImGui::Text("Status: %s", AssetBrowserQuery::status_name(entry.status));
+            ImGui::Text("Size: %s", human_file_size(entry.size).c_str());
+            ImGui::Text("Handle: %s", entry.handle.to_string().c_str());
+            if (entry.status == AssetStatus::Ready) ImGui::TextDisabled("Double-click to open");
+        } else {
+            ImGui::TextDisabled("Double-click to browse");
+        }
+        ImGui::EndTooltip();
+    }
 }
 
 void AssetBrowserPanel::draw_list_entry(const AssetBrowserEntry& entry) {
     ImGui::PushID(entry.project_path.c_str());
-    const bool selected = entry.absolute_path.string() == m_selected_file;
+    const bool selected = is_selected(entry);
     std::string label = std::string(asset_tag(entry)) + "  " + entry.name;
     if (!entry.is_directory && entry.status != AssetStatus::Ready) label += "  !";
     ImGui::PushStyleColor(ImGuiCol_Text, asset_tag_color(entry));
     if (ImGui::Selectable(
             label.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns, ImVec2(0.0f, 24.0f)
         )) {
-        m_selected_file = entry.absolute_path.string();
-        m_revealed_reference.clear();
+        select_entry(entry);
     }
     ImGui::PopStyleColor();
     draw_entry_interactions(entry);
@@ -689,6 +1202,7 @@ void AssetBrowserPanel::draw_details_entries(const std::vector<AssetBrowserEntry
         if (primary.ColumnUserID > 0) {
             m_sort = static_cast<AssetBrowserSort>(primary.ColumnUserID - 1);
             m_sort_ascending = primary.SortDirection != ImGuiSortDirection_Descending;
+            save_preferences();
         }
         specs->SpecsDirty = false;
     }
@@ -697,7 +1211,7 @@ void AssetBrowserPanel::draw_details_entries(const std::vector<AssetBrowserEntry
         ImGui::TableNextRow(ImGuiTableRowFlags_None, 24.0f);
         ImGui::TableSetColumnIndex(0);
         ImGui::PushID(entry.project_path.c_str());
-        const bool selected = entry.absolute_path.string() == m_selected_file;
+        const bool selected = is_selected(entry);
         std::string label = std::string(asset_tag(entry)) + "  " + entry.name;
         if (!entry.is_directory && entry.status != AssetStatus::Ready) label += "  !";
         ImGui::PushStyleColor(ImGuiCol_Text, asset_tag_color(entry));
@@ -706,8 +1220,7 @@ void AssetBrowserPanel::draw_details_entries(const std::vector<AssetBrowserEntry
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
                 ImVec2(0.0f, 22.0f)
             )) {
-            m_selected_file = entry.absolute_path.string();
-            m_revealed_reference.clear();
+            select_entry(entry);
         }
         ImGui::PopStyleColor();
         draw_entry_interactions(entry);
@@ -728,7 +1241,142 @@ void AssetBrowserPanel::draw_details_entries(const std::vector<AssetBrowserEntry
     ImGui::PopID();
 }
 
+void AssetBrowserPanel::draw_folder_drop_target(const std::filesystem::path& directory) {
+    if (!ImGui::BeginDragDropTarget()) return;
+    const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(
+        kAssetBrowserMultiPayload, ImGuiDragDropFlags_AcceptBeforeDelivery
+    );
+    std::vector<std::filesystem::path> paths;
+    if (payload) {
+        paths = decode_paths(*payload);
+    } else if (const ImGuiPayload* single = ImGui::AcceptDragDropPayload(
+            kContentBrowserAssetPayload, ImGuiDragDropFlags_AcceptBeforeDelivery
+        )) {
+        paths = decode_paths(*single);
+        payload = single;
+    }
+    if (payload) {
+        bool valid = !paths.empty();
+        for (const auto& source : paths) {
+            const std::filesystem::path destination = directory / source.filename();
+            std::error_code error;
+            if (!path_is_within(source, m_root_path) || source.parent_path() == directory ||
+                std::filesystem::exists(destination, error)) {
+                valid = false;
+                break;
+            }
+        }
+        ImGui::BeginTooltip();
+        if (valid) {
+            ImGui::TextColored(
+                ImVec4(0.35f, 0.85f, 0.50f, 1.0f),
+                "Move %zu asset%s to %s",
+                paths.size(), paths.size() == 1 ? "" : "s",
+                directory.filename().string().c_str()
+            );
+            if (payload->IsDelivery()) move_asset_paths(paths, directory);
+        } else {
+            ImGui::TextColored(
+                ImVec4(0.95f, 0.45f, 0.35f, 1.0f),
+                "Assets cannot be moved to this folder"
+            );
+        }
+        ImGui::EndTooltip();
+    }
+    ImGui::EndDragDropTarget();
+}
+
+void AssetBrowserPanel::draw_folder_tree_node(const std::filesystem::path& directory) {
+    std::vector<std::filesystem::path> children;
+    std::error_code error;
+    for (std::filesystem::directory_iterator iterator(directory, error), end;
+         iterator != end && !error; iterator.increment(error)) {
+        if (!iterator->is_symlink(error) && iterator->is_directory(error)) {
+            children.push_back(iterator->path());
+        }
+    }
+    std::sort(children.begin(), children.end(), [](const auto& left, const auto& right) {
+        return left.filename().string() < right.filename().string();
+    });
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
+        ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
+    if (m_collection == AssetBrowserCollection::All &&
+        m_search_scope == AssetBrowserScope::CurrentFolder && directory == m_current_path) {
+        flags |= ImGuiTreeNodeFlags_Selected;
+    }
+    if (directory == m_root_path) flags |= ImGuiTreeNodeFlags_DefaultOpen;
+    ImGui::PushID(directory.string().c_str());
+    const bool open = ImGui::TreeNodeEx(directory.filename().string().c_str(), flags);
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+        m_collection = AssetBrowserCollection::All;
+        navigate_to(directory);
+        save_preferences();
+    }
+    draw_folder_drop_target(directory);
+    if (open) {
+        for (const auto& child : children) draw_folder_tree_node(child);
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
+}
+
+void AssetBrowserPanel::draw_folder_tree() {
+    if (ImGui::Selectable(
+            "All Assets",
+            m_collection == AssetBrowserCollection::All &&
+                m_search_scope == AssetBrowserScope::Project,
+            ImGuiSelectableFlags_None, ImVec2(0.0f, 22.0f)
+        )) {
+        clear_selection();
+        m_collection = AssetBrowserCollection::All;
+        m_search_scope = AssetBrowserScope::Project;
+        save_preferences();
+    }
+    if (ImGui::Selectable(
+            "Favorites", m_collection == AssetBrowserCollection::Favorites,
+            ImGuiSelectableFlags_None, ImVec2(0.0f, 22.0f)
+        )) {
+        clear_selection();
+        m_collection = AssetBrowserCollection::Favorites;
+        m_search_scope = AssetBrowserScope::Project;
+        save_preferences();
+    }
+    if (ImGui::Selectable(
+            "Recent", m_collection == AssetBrowserCollection::Recent,
+            ImGuiSelectableFlags_None, ImVec2(0.0f, 22.0f)
+        )) {
+        clear_selection();
+        m_collection = AssetBrowserCollection::Recent;
+        m_search_scope = AssetBrowserScope::Project;
+        save_preferences();
+    }
+    ImGui::SeparatorText("Folders");
+    draw_folder_tree_node(m_root_path);
+}
+
 void AssetBrowserPanel::draw_selected_asset_details() {
+    if (m_selected_files.size() > 1) {
+        ImGui::Separator();
+        ImGui::Text("%zu assets selected", m_selected_files.size());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Toggle Favorites")) toggle_selected_favorites();
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Copy Paths")) {
+            std::string paths;
+            for (const auto& path : selected_asset_paths()) {
+                if (!paths.empty()) paths += '\n';
+                paths += path.lexically_relative(
+                    m_asset_database ? m_asset_database->project_root() : m_root_path.parent_path()
+                ).generic_string();
+            }
+            ImGui::SetClipboardText(paths.c_str());
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Delete...")) m_show_delete_confirmation = true;
+        return;
+    }
     if (m_selected_file.empty() || !m_asset_database) return;
     const AssetRecord* record = m_asset_database->find_by_path(m_selected_file);
     if (!record) return;
@@ -840,18 +1488,27 @@ void AssetBrowserPanel::on_gui() {
         ImGui::EndDisabled();
         ImGui::SameLine();
 
-        const char* scope_label = m_search_scope == AssetBrowserScope::CurrentFolder
+        const char* scope_label = m_collection == AssetBrowserCollection::All &&
+                m_search_scope == AssetBrowserScope::CurrentFolder
             ? "Current folder" : "Entire project";
         ImGui::SetNextItemWidth(130.0f);
+        ImGui::BeginDisabled(m_collection != AssetBrowserCollection::All);
         if (ImGui::BeginCombo("##asset_scope", scope_label)) {
             if (ImGui::Selectable(
                     "Current folder", m_search_scope == AssetBrowserScope::CurrentFolder
-                )) m_search_scope = AssetBrowserScope::CurrentFolder;
+                )) {
+                m_search_scope = AssetBrowserScope::CurrentFolder;
+                save_preferences();
+            }
             if (ImGui::Selectable(
                     "Entire project", m_search_scope == AssetBrowserScope::Project
-                )) m_search_scope = AssetBrowserScope::Project;
+                )) {
+                m_search_scope = AssetBrowserScope::Project;
+                save_preferences();
+            }
             ImGui::EndCombo();
         }
+        ImGui::EndDisabled();
 
         ImGui::SetNextItemWidth(125.0f);
         if (ImGui::BeginCombo("##asset_type", AssetBrowserQuery::type_filter_name(m_type_filter))) {
@@ -860,7 +1517,10 @@ void AssetBrowserPanel::on_gui() {
                 const auto filter = static_cast<AssetBrowserTypeFilter>(value);
                 if (ImGui::Selectable(
                         AssetBrowserQuery::type_filter_name(filter), filter == m_type_filter
-                    )) m_type_filter = filter;
+                    )) {
+                    m_type_filter = filter;
+                    save_preferences();
+                }
             }
             ImGui::EndCombo();
         }
@@ -874,7 +1534,10 @@ void AssetBrowserPanel::on_gui() {
                 const auto filter = static_cast<AssetBrowserStatusFilter>(value);
                 if (ImGui::Selectable(
                         AssetBrowserQuery::status_filter_name(filter), filter == m_status_filter
-                    )) m_status_filter = filter;
+                    )) {
+                    m_status_filter = filter;
+                    save_preferences();
+                }
             }
             ImGui::EndCombo();
         }
@@ -886,6 +1549,7 @@ void AssetBrowserPanel::on_gui() {
                 const auto sort = static_cast<AssetBrowserSort>(value);
                 if (ImGui::Selectable(AssetBrowserQuery::sort_name(sort), sort == m_sort)) {
                     m_sort = sort;
+                    save_preferences();
                 }
             }
             ImGui::EndCombo();
@@ -893,6 +1557,7 @@ void AssetBrowserPanel::on_gui() {
         ImGui::SameLine();
         if (ImGui::Button(m_sort_ascending ? "Ascending" : "Descending")) {
             m_sort_ascending = !m_sort_ascending;
+            save_preferences();
         }
 
         ImGui::TextDisabled("View");
@@ -905,7 +1570,10 @@ void AssetBrowserPanel::on_gui() {
                     ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive)
                 );
             }
-            if (ImGui::Button(label)) m_view_mode = mode;
+            if (ImGui::Button(label)) {
+                m_view_mode = mode;
+                save_preferences();
+            }
             if (active) ImGui::PopStyleColor();
         };
         view_button("Grid", AssetBrowserViewMode::Grid);
@@ -919,30 +1587,82 @@ void AssetBrowserPanel::on_gui() {
             ImGui::SliderFloat(
                 "##asset_size", &m_thumbnail_size, 48.0f, 112.0f, "Tiles %.0f"
             );
+            if (ImGui::IsItemDeactivatedAfterEdit()) save_preferences();
         }
 
         AssetBrowserQueryOptions query_options;
         query_options.text = m_search_query.data();
-        query_options.scope = m_search_scope;
+        query_options.scope = m_collection == AssetBrowserCollection::All
+            ? m_search_scope : AssetBrowserScope::Project;
         query_options.type = m_type_filter;
         query_options.status = m_status_filter;
         query_options.sort = m_sort;
         query_options.ascending = m_sort_ascending;
-        const std::vector<AssetBrowserEntry> entries = m_asset_database
+        std::vector<AssetBrowserEntry> entries = m_asset_database
             ? AssetBrowserQuery::collect(
                 *m_asset_database, m_root_path, m_current_path, query_options
             )
             : std::vector<AssetBrowserEntry>{};
 
+        if (m_collection == AssetBrowserCollection::Favorites) {
+            std::erase_if(entries, [this](const AssetBrowserEntry& entry) {
+                return entry.is_directory ||
+                    !AssetBrowserState::contains(m_favorites, entry.handle);
+            });
+        } else if (m_collection == AssetBrowserCollection::Recent) {
+            std::erase_if(entries, [this](const AssetBrowserEntry& entry) {
+                return entry.is_directory || !AssetBrowserState::contains(m_recent, entry.handle);
+            });
+            std::stable_sort(entries.begin(), entries.end(), [this](const auto& left, const auto& right) {
+                const auto left_index = std::find(m_recent.begin(), m_recent.end(), left.handle);
+                const auto right_index = std::find(m_recent.begin(), m_recent.end(), right.handle);
+                return left_index < right_index;
+            });
+        }
+        m_visible_entry_paths.clear();
+        for (const auto& entry : entries) {
+            m_visible_entry_paths.push_back(entry.absolute_path.string());
+        }
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::GetIO().WantTextInput && (io.KeySuper || io.KeyCtrl) &&
+            ImGui::IsKeyPressed(ImGuiKey_A)) {
+            m_selected_files.clear();
+            for (const auto& entry : entries) {
+                m_selected_files.insert(entry.absolute_path.string());
+            }
+            if (!entries.empty()) {
+                m_selected_file = entries.back().absolute_path.string();
+                m_selection_anchor = entries.front().absolute_path.string();
+            }
+        }
+
+        if (ImGui::BeginTable(
+                "AssetBrowserLayout", 2,
+                ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV
+            )) {
+            ImGui::TableSetupColumn("Folders", ImGuiTableColumnFlags_WidthFixed, 180.0f);
+            ImGui::TableSetupColumn("Content", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            draw_folder_tree();
+            ImGui::TableSetColumnIndex(1);
+
         ImGui::TextDisabled(
             "%zu result%s%s",
             entries.size(),
             entries.size() == 1 ? "" : "s",
-            m_search_scope == AssetBrowserScope::Project ? " across project" : ""
+            query_options.scope == AssetBrowserScope::Project ? " across project" : ""
         );
         if (!m_revealed_reference.empty()) {
             ImGui::SameLine();
             ImGui::TextDisabled("| Referenced: %s", m_revealed_reference.c_str());
+        }
+        if (!m_bulk_action_error.empty()) {
+            ImGui::TextColored(
+                ImVec4(0.95f, 0.42f, 0.32f, 1.0f),
+                "%s",
+                m_bulk_action_error.c_str()
+            );
         }
 
         if (entries.empty()) {
@@ -1010,6 +1730,8 @@ void AssetBrowserPanel::on_gui() {
             }
             ImGui::EndPopup();
         }
+        ImGui::EndTable();
+        }
 
         // --- 4. Modal Popup: New Scene Dialog ---
         if (m_show_new_scene_popup) {
@@ -1043,6 +1765,25 @@ void AssetBrowserPanel::on_gui() {
         if (m_show_rename_popup) {
             ImGui::OpenPopup("Rename Asset");
             m_show_rename_popup = false;
+        }
+        if (m_show_delete_confirmation) {
+            ImGui::OpenPopup("Delete Assets");
+            m_show_delete_confirmation = false;
+        }
+
+        if (ImGui::BeginPopupModal("Delete Assets", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            const auto paths = selected_asset_paths();
+            ImGui::Text("Delete %zu asset%s?", paths.size(), paths.size() == 1 ? "" : "s");
+            ImGui::TextDisabled("This operation can be undone from the editor history.");
+            if (ImGui::Button("Delete", ImVec2(120.0f, 0.0f))) {
+                delete_selected_assets();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
 
         if (ImGui::BeginPopupModal("Rename Asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1080,7 +1821,11 @@ void AssetBrowserPanel::on_gui() {
                 } else if (m_command_history->execute_command(std::make_unique<MoveAssetCommand>(
                         m_asset_database, m_rename_source, destination
                     ))) {
+                    clear_selection();
                     m_selected_file = destination.string();
+                    m_selected_files.insert(m_selected_file);
+                    m_selection_anchor = m_selected_file;
+                    destroy_asset_previews();
                     m_rename_error.clear();
                     ImGui::CloseCurrentPopup();
                 } else {

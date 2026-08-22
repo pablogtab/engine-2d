@@ -1,6 +1,7 @@
 #include "core/AssetDatabase.hpp"
 #include "core/FileSystem.hpp"
 #include "editor/commands/AssetFileCommands.hpp"
+#include "editor/commands/EditorCommandGroup.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 
 #include <cstdlib>
@@ -107,6 +108,64 @@ int main() {
     require(fs::exists(renamed), "undo delete restores source asset");
     require(fs::exists(root / "ProjectSettings/AssetDatabase.json"), "undo delete preserves central database");
     require(database.resolve(handle) == renamed.string(), "undo delete restores handle resolution");
+
+    const fs::path bulk_source = root / "Assets/bulk_source";
+    const fs::path bulk_destination = root / "Assets/bulk_destination";
+    fs::create_directories(bulk_source, error);
+    fs::create_directories(bulk_destination, error);
+    const fs::path first = bulk_source / "First.scene";
+    const fs::path second = bulk_source / "Second.scene";
+    history.execute_command(std::make_unique<Engine::CreateAssetCommand>(
+        &database, first, "{\"scene_name\":\"First\"}\n"
+    ));
+    history.execute_command(std::make_unique<Engine::CreateAssetCommand>(
+        &database, second, "{\"scene_name\":\"Second\"}\n"
+    ));
+    const Engine::AssetHandle first_handle = database.find_by_path(first)->handle;
+    const Engine::AssetHandle second_handle = database.find_by_path(second)->handle;
+
+    auto bulk_move = std::make_unique<Engine::EditorCommandGroup>("Move Selected Assets");
+    bulk_move->add_command(std::make_unique<Engine::MoveAssetCommand>(
+        &database, first, bulk_destination / first.filename()
+    ));
+    bulk_move->add_command(std::make_unique<Engine::MoveAssetCommand>(
+        &database, second, bulk_destination / second.filename()
+    ));
+    require(history.execute_command(std::move(bulk_move)), "bulk move executes atomically");
+    require(!fs::exists(first) && !fs::exists(second), "bulk move removes both sources");
+    require(
+        database.resolve(first_handle) == (bulk_destination / first.filename()).string() &&
+        database.resolve(second_handle) == (bulk_destination / second.filename()).string(),
+        "bulk move preserves both handles"
+    );
+    history.undo();
+    require(fs::exists(first) && fs::exists(second), "undo bulk move restores both assets");
+    history.redo();
+    require(
+        fs::exists(bulk_destination / first.filename()) &&
+        fs::exists(bulk_destination / second.filename()),
+        "redo bulk move relocates both assets"
+    );
+
+    auto bulk_delete = std::make_unique<Engine::EditorCommandGroup>("Delete Selected Assets");
+    bulk_delete->add_command(std::make_unique<Engine::DeleteAssetCommand>(
+        &database, bulk_destination / first.filename()
+    ));
+    bulk_delete->add_command(std::make_unique<Engine::DeleteAssetCommand>(
+        &database, bulk_destination / second.filename()
+    ));
+    require(history.execute_command(std::move(bulk_delete)), "bulk delete executes atomically");
+    require(
+        !fs::exists(bulk_destination / first.filename()) &&
+        !fs::exists(bulk_destination / second.filename()),
+        "bulk delete removes both assets"
+    );
+    history.undo();
+    require(
+        fs::exists(bulk_destination / first.filename()) &&
+        fs::exists(bulk_destination / second.filename()),
+        "undo bulk delete restores both assets"
+    );
 
     fs::remove_all(root, error);
     return EXIT_SUCCESS;
