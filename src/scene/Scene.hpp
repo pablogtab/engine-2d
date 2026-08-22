@@ -26,6 +26,7 @@ public:
     virtual void on_update(float delta_time) {}
     virtual void on_render(Renderer2D& renderer) {}
     virtual void on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) {}
+    virtual void on_render_resources_invalidated() {}
 
     // Returns the camera used to render a specific view. Scenes that support
     // editor or game viewport interaction expose those cameras through this

@@ -523,6 +523,13 @@ bool ViewportPanel::capture_viewport_png(
     return true;
 }
 
+void ViewportPanel::on_render_resources_invalidated() {
+    if (m_viewport_texture) SDL_DestroyTexture(m_viewport_texture);
+    m_viewport_texture = nullptr;
+    m_render_width = 0;
+    m_render_height = 0;
+}
+
 void ViewportPanel::render_grid_settings_menu() {
     ImGui::Checkbox("Show grid (G)", &m_grid_settings.visible);
     ImGui::Checkbox("Show UI safe area", &m_show_safe_area_overlay);

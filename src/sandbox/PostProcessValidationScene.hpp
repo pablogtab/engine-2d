@@ -29,6 +29,10 @@ public:
         Engine::RenderViewKind view,
         const Engine::RenderViewConfiguration& configuration
     ) override;
+    void on_render_resources_invalidated() override {
+        m_pipeline.destroy_targets();
+        m_material_pipeline.destroy_targets();
+    }
 
     [[nodiscard]] Engine::PostProcessPipeline* get_post_process_pipeline() override {
         return &m_pipeline;

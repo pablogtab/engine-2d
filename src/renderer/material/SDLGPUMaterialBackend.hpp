@@ -31,6 +31,8 @@ public:
         const MaterialRenderContext& context
     ) override;
     void discard_unused() override;
+    void invalidate_device_resources() override;
+    void restore_device_resources() override;
 
 private:
     struct CachedState {

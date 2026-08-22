@@ -15,6 +15,7 @@ public:
 
     virtual void on_gui() = 0;
     virtual void on_update(float /*delta_time*/) {}
+    virtual void on_render_resources_invalidated() {}
     [[nodiscard]] virtual const std::string& get_name() const = 0;
 
     bool is_open{true};

@@ -29,6 +29,11 @@ public:
 
     // Internal update called by Engine::Application at the start of each frame loop.
     static void update(float raw_delta_time);
+    static void suspend();
+    static void resume();
+    static void reset_frame_delta();
+    static void reset();
+    [[nodiscard]] static bool is_suspended() { return s_suspended; }
 
 private:
     inline static float s_delta_time{0.016f};
@@ -37,6 +42,7 @@ private:
     inline static float s_real_time{0.0f};
     inline static float s_time_scale{1.0f};
     inline static uint64_t s_frame_count{0};
+    inline static bool s_suspended{false};
 };
 
 } // namespace Engine

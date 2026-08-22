@@ -169,6 +169,18 @@ void SDLGPUMaterialBackend::discard_unused() {
     }
 }
 
+void SDLGPUMaterialBackend::invalidate_device_resources() {
+    destroy_states();
+    m_device = nullptr;
+}
+
+void SDLGPUMaterialBackend::restore_device_resources() {
+    m_device = m_renderer ? SDL_GetGPURendererDevice(m_renderer) : nullptr;
+    if (!m_device) {
+        ENGINE_LOG_WARN("[MATERIAL] GPU shader backend unavailable after surface restore: {}", SDL_GetError());
+    }
+}
+
 bool SDLGPUMaterialBackend::draw_fullscreen(
     const Material& material,
     SDL_Texture* source,

@@ -336,7 +336,11 @@ This is intentionally independent from the material workflow above. Materials re
   - [x] Expose project defaults and live Game View metrics without changing camera composition, Canvas coordinates, safe areas, or device-preview dimensions.
 - [x] Add configurable orientation policies.
 - [x] Add editor-only Game View device profiles with custom resolution, safe-area simulation, and immediate portrait/landscape rotation.
-- [ ] Handle mobile lifecycle, suspend/resume, surface recreation, rotation, and split-screen changes.
+- [x] Handle mobile lifecycle, suspend/resume, surface recreation, rotation, and split-screen changes.
+  - [x] Observe SDL lifecycle notifications through a thread-safe event watch and process all runtime mutations on the main thread.
+  - [x] Pause simulation time, input, and audio without accumulating a resume-frame delta spike.
+  - [x] Invalidate and restore pooled targets, lighting/post-process intermediates, material backend state, editor targets, and previews while preserving authored assets.
+  - [x] Refresh pixel size, DPI, orientation, safe area, and responsive/split-screen view configuration before resumed rendering.
 - [ ] Add real iOS and Android targets before claiming mobile support.
 
 **Completion criteria:** Lighting and responsive UI can be authored visually, survive display changes, and serialize without platform-specific game code.
@@ -504,7 +508,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [x] `CanvasLayoutTests` — anchors, pivots, nested layout, reference scaling, Fit/Fill/Stretch/Responsive behavior, safe areas, editor preview placement, and drag conversion.
 - [x] `UIInputTests` — hit testing, focus, navigation, pointer capture, viewport conversion, and overlap ordering.
 - [x] `CanvasUIRenderTests` — Canvas sorting, runtime button state tinting, font resolution, and final screen-space pixels.
-- [ ] `MobileSurfaceTests` — orientation, safe-area updates, surface recreation, suspend/resume, split-screen resize, and capability restrictions using a fake backend.
+- [x] `MobileSurfaceTests` — orientation, safe-area updates, surface recreation, suspend/resume, split-screen resize, and capability restrictions using a fake backend.
 - [ ] Real-device iOS and Android smoke tests before mobile support is declared complete.
 
 ### Phase 7 — Scripting and Play Mode Suites

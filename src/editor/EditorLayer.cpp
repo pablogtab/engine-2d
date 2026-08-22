@@ -1442,6 +1442,26 @@ void EditorLayer::end_frame(SDL_Renderer* renderer) {
     ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
 }
 
+void EditorLayer::invalidate_render_resources() {
+    if (!m_initialized) return;
+    for (const auto& panel : m_panels) {
+        if (panel) panel->on_render_resources_invalidated();
+    }
+    ImGui_ImplSDLRenderer3_DestroyDeviceObjects();
+}
+
+void EditorLayer::trim_render_resources() {
+    if (!m_initialized) return;
+    for (const auto& panel : m_panels) {
+        if (panel) panel->on_render_resources_invalidated();
+    }
+}
+
+void EditorLayer::restore_render_resources() {
+    if (!m_initialized) return;
+    ImGui_ImplSDLRenderer3_CreateDeviceObjects();
+}
+
 void EditorLayer::register_panel(std::shared_ptr<EditorPanel> panel) {
     if (!panel) return;
     m_panels.push_back(panel);

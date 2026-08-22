@@ -80,6 +80,7 @@ Application::Application(const std::string& name, int width, int height, bool st
     [[maybe_unused]] const AssetScanResult asset_scan = AssetDatabase::get().scan("assets");
 
     Input::init();
+    Time::reset();
     AudioEngine::init();
 
     // 1. Create Window & SDL Renderer
@@ -337,6 +338,9 @@ Application::Application(const std::string& name, int width, int height, bool st
 #endif
         Input::process_event(event);
     });
+    m_window->set_lifecycle_callback([this](ApplicationLifecycleEvent event) {
+        this->handle_lifecycle_event(event);
+    });
 
     m_display_manager->set_change_callback([this](const DisplayState& state) {
         this->on_resize(state.pixel_width, state.pixel_height);
@@ -350,7 +354,7 @@ Application::Application(const std::string& name, int width, int height, bool st
         this->on_display_changed(state);
     });
     m_window->set_display_change_callback([this]() {
-        if (this->m_display_manager) this->m_display_manager->refresh_from_system();
+        this->handle_render_surface_changed();
     });
 }
 
@@ -402,6 +406,85 @@ void Application::apply_display_mode(bool editor_visible) {
     }
 }
 
+bool Application::editor_visible() const {
+#if ENGINE_WITH_EDITOR
+    return m_editor_layer && m_editor_layer->is_visible();
+#else
+    return false;
+#endif
+}
+
+void Application::trim_render_resources() {
+    if (m_renderer) m_renderer->trim_transient_resources();
+    m_scene_manager.invalidate_render_resources();
+#if ENGINE_WITH_EDITOR
+    if (m_editor_layer) m_editor_layer->trim_render_resources();
+#endif
+}
+
+void Application::invalidate_render_surface() {
+    if (m_renderer) m_renderer->invalidate_render_surface();
+    m_scene_manager.invalidate_render_resources();
+#if ENGINE_WITH_EDITOR
+    if (m_editor_layer) m_editor_layer->invalidate_render_resources();
+#endif
+}
+
+void Application::restore_render_surface() {
+    if (m_renderer) m_renderer->restore_render_surface();
+#if ENGINE_WITH_EDITOR
+    if (m_editor_layer) m_editor_layer->restore_render_resources();
+#endif
+}
+
+void Application::handle_render_surface_changed() {
+    if (m_renderer && m_renderer->is_render_surface_available()) {
+        m_renderer->trim_transient_resources();
+        m_scene_manager.invalidate_render_resources();
+    }
+    if (m_display_manager) m_display_manager->refresh_from_system();
+}
+
+void Application::handle_lifecycle_event(ApplicationLifecycleEvent event) {
+    const ApplicationLifecycleActions actions = m_lifecycle.handle(event);
+    if (actions.trim_memory) {
+        ENGINE_LOG_INFO("[LIFECYCLE] Low-memory notification: releasing transient render resources");
+        trim_render_resources();
+        on_low_memory();
+    }
+    if (actions.suspend_runtime) {
+        ENGINE_LOG_INFO("[LIFECYCLE] Suspending runtime");
+        Input::set_game_input_enabled(false);
+        Input::reset_states();
+        Time::suspend();
+        AudioEngine::suspend();
+        on_application_suspended();
+    }
+    if (actions.invalidate_render_surface) invalidate_render_surface();
+    if (actions.restore_render_surface) restore_render_surface();
+    if (actions.refresh_display && m_display_manager) {
+        const DisplayState previous = m_display_manager->current_state();
+        m_display_manager->refresh_from_system();
+        if (m_display_manager->current_state() == previous) {
+            on_resize(previous.pixel_width, previous.pixel_height);
+            apply_display_mode(editor_visible());
+        }
+    }
+    if (actions.resume_runtime) {
+        Input::reset_states();
+        AudioEngine::resume();
+        Time::resume();
+        ENGINE_LOG_INFO("[LIFECYCLE] Runtime resumed");
+        on_application_resumed();
+    }
+    if (actions.reset_frame_clock) m_reset_frame_clock_requested = true;
+    if (actions.request_termination) {
+        ENGINE_LOG_INFO("[LIFECYCLE] Termination requested by the operating system");
+        on_terminating();
+        m_running = false;
+    }
+}
+
 void Application::run() {
     on_init();
 
@@ -437,6 +520,18 @@ void Application::run() {
         // 1. Reset frame input delta states, then process window & input events
         Input::update();
         m_window->poll_events();
+        if (m_reset_frame_clock_requested) {
+            last_counter = SDL_GetPerformanceCounter();
+            Time::reset_frame_delta();
+            raw_delta_time = 0.0f;
+            dt = 0.0f;
+            m_reset_frame_clock_requested = false;
+        }
+        if (!m_lifecycle.should_run_frames() ||
+            !m_renderer || !m_renderer->is_render_surface_available()) {
+            SDL_Delay(16);
+            continue;
+        }
 
         // Handle Editor visibility change (F1 key toggle)
 #if ENGINE_WITH_EDITOR

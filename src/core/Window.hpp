@@ -1,7 +1,9 @@
 #pragma once
 
+#include "ApplicationLifecycle.hpp"
 #include "../renderer/RenderView.hpp"
 #include <SDL3/SDL.h>
+#include <atomic>
 #include <string>
 #include <functional>
 
@@ -45,12 +47,18 @@ public:
         m_display_change_callback = std::move(callback);
     }
 
+    void set_lifecycle_callback(std::function<void(ApplicationLifecycleEvent)> callback) {
+        m_lifecycle_callback = std::move(callback);
+    }
+
     void set_event_callback(std::function<void(const SDL_Event&)> callback) {
         m_event_callback = callback;
     }
 
 private:
     void update_sizes();
+    void drain_lifecycle_events();
+    static bool SDLCALL lifecycle_event_watch(void* userdata, SDL_Event* event);
     void save_state();
     bool load_state(int& x, int& y, int& w, int& h);
 
@@ -64,8 +72,11 @@ private:
     bool m_should_close{false};
     bool m_uses_logical_presentation{false};
     bool m_persist_editor_state{true};
+    bool m_lifecycle_watch_registered{false};
+    std::atomic<std::uint32_t> m_pending_lifecycle_events{0};
     std::function<bool()> m_close_request_callback;
     std::function<void()> m_display_change_callback;
+    std::function<void(ApplicationLifecycleEvent)> m_lifecycle_callback;
     std::function<void(const SDL_Event&)> m_event_callback;
 };
 

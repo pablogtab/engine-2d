@@ -51,6 +51,7 @@ public:
     [[nodiscard]] bool is_enabled() const override { return !m_lights.empty(); }
     [[nodiscard]] RenderLayerMask affected_layers() const override { return m_affected_layers; }
     bool apply(const LightingContext& context) override;
+    void invalidate_resources() override { release_resources(); }
 
     void update(std::vector<Light2DInstance> lights, std::vector<ShadowPolygon2D> casters);
     [[nodiscard]] const std::vector<Light2DInstance>& lights() const { return m_lights; }
