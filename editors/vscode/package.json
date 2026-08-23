@@ -1,0 +1,50 @@
+{
+  "name": "enginescript-vscode",
+  "displayName": "EngineScript Language Support",
+  "description": "Language support, syntax highlighting, and LSP tooling for EngineScript (.e2s)",
+  "version": "1.0.0",
+  "publisher": "Engine2D",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "enginescript",
+        "aliases": [
+          "EngineScript",
+          "enginescript",
+          "e2s"
+        ],
+        "extensions": [
+          ".e2s"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "enginescript",
+        "scopeName": "source.enginescript",
+        "path": "./syntaxes/enginescript.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "enginescript.restartServer",
+        "title": "EngineScript: Restart Language Server"
+      },
+      {
+        "command": "enginescript.compileProject",
+        "title": "EngineScript: Compile Project"
+      }
+    ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.1.0"
+  }
+}

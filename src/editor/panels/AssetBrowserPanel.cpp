@@ -1932,10 +1932,11 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::Button("Create", ImVec2(120, 0))) {
                 std::string name = m_new_script_name_buf;
                 if (!name.empty() && m_command_history && m_asset_database) {
-                    if (!name.ends_with(".luau")) name += ".luau";
+                    if (!name.ends_with(".e2s") && !name.ends_with(".luau")) name += ".e2s";
                     const std::filesystem::path file = m_current_path / name;
+                    const auto template_str = name.ends_with(".e2s") ? DEFAULT_ENGINESCRIPT_TEMPLATE : DEFAULT_SCRIPT_TEMPLATE;
                     m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
-                        m_asset_database, file, std::string(DEFAULT_SCRIPT_TEMPLATE)
+                        m_asset_database, file, std::string(template_str)
                     ));
                     if (const AssetRecord* created = m_asset_database->find_by_path(file)) {
                         reveal_asset_path(created->source_path);

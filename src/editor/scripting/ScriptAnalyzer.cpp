@@ -2,6 +2,7 @@
 
 #include "../../core/AssetDatabase.hpp"
 #include "../../core/FileSystem.hpp"
+#include "enginescript/EngineScript.hpp"
 
 #include <Luau/BuiltinDefinitions.h>
 #include <Luau/ConfigResolver.h>
@@ -68,6 +69,32 @@ ScriptAnalysisResult ScriptAnalyzer::analyze_source(
     std::string module_name
 ) {
     ScriptAnalysisResult result;
+
+    if (module_name.ends_with(".e2s") || source.find("@behaviour") != std::string::npos || source.find("class ") != std::string::npos) {
+        EngineScript::DiagnosticEngine diags;
+        EngineScript::SourceManager sm(".");
+        EngineScript::FileId fid = sm.register_source(module_name, source);
+        EngineScript::Lexer lexer(fid, source, diags);
+        auto tokens = lexer.tokenize_all();
+        EngineScript::Parser parser(fid, module_name, std::move(tokens), diags);
+        auto module = parser.parse_module();
+        if (module) {
+            EngineScript::SymbolResolver resolver(sm, diags);
+            resolver.resolve_module(module);
+            EngineScript::TypeChecker checker(resolver, diags);
+            checker.check_module(module);
+        }
+        for (const auto& diag : diags.get_diagnostics()) {
+            result.diagnostics.push_back({
+                static_cast<int>(diag.span.start_line),
+                static_cast<int>(diag.span.start_column),
+                diag.message
+            });
+        }
+        result.success = !diags.has_errors();
+        return result;
+    }
+
     if (!has_strict_directive(source)) {
         result.diagnostics.push_back({1, 1, "Script must start with --!strict"});
         return result;

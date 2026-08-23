@@ -170,7 +170,7 @@ AssetType AssetDatabase::type_for_path(const fs::path& path) {
     if (ext == ".material") return AssetType::Material;
     if (ext == ".postprocess") return AssetType::PostProcessProfile;
     if (ext == ".layereffect") return AssetType::RenderLayerEffectProfile;
-    if (ext == ".luau") return AssetType::Script;
+    if (ext == ".luau" || ext == ".e2s") return AssetType::Script;
     return ext == ".json" ? AssetType::Data : AssetType::Unknown;
 }
 const char* AssetDatabase::type_name(AssetType type) { switch (type) { case AssetType::Scene:return "scene"; case AssetType::Prefab:return "prefab"; case AssetType::Texture:return "texture"; case AssetType::Font:return "font"; case AssetType::Audio:return "audio"; case AssetType::Shader:return "shader"; case AssetType::Material:return "material"; case AssetType::PostProcessProfile:return "post_process_profile"; case AssetType::RenderLayerEffectProfile:return "render_layer_effect_profile"; case AssetType::Script:return "script"; case AssetType::Data:return "data"; default:return "unknown"; } }

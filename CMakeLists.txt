@@ -189,6 +189,54 @@ set(LUAU_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LUAU_BUILD_WEB OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/luau EXCLUDE_FROM_ALL)
 
+# -----------------------------------------------------------------------------
+# EngineScript Research & Compiler Library Targets (Phase 11)
+# -----------------------------------------------------------------------------
+set(ENGINESCRIPT_SOURCES
+    src/enginescript/core/SourceManager.cpp
+    src/enginescript/core/DiagnosticEngine.cpp
+    src/enginescript/lexer/Lexer.cpp
+    src/enginescript/ast/ASTPrinter.cpp
+    src/enginescript/parser/Parser.cpp
+    src/enginescript/symbols/SymbolResolver.cpp
+    src/enginescript/depgraph/DependencyGraph.cpp
+    src/enginescript/types/TypeChecker.cpp
+    src/enginescript/ir/IRLowering.cpp
+    src/enginescript/ir/IRVerifier.cpp
+    src/enginescript/codegen/CppEmitter.cpp
+    src/enginescript/codegen/MetadataEmitter.cpp
+    src/enginescript/di/DependencyInjection.cpp
+    src/enginescript/generics/Generics.cpp
+    src/enginescript/cache/CompilerCache.cpp
+    src/enginescript/async/AsyncScheduler.cpp
+    src/enginescript/module/GameModule.cpp
+    src/enginescript/module/HotReloadManager.cpp
+    src/enginescript/editor/EngineScriptWorkspace.cpp
+    src/enginescript/lsp/LanguageServer.cpp
+)
+
+add_library(EngineScriptLib STATIC ${ENGINESCRIPT_SOURCES})
+target_include_directories(EngineScriptLib PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(EngineScriptLib PUBLIC glm::glm)
+
+# Compiler CLI and Standalone Language Server Executables
+add_executable(e2sc src/enginescript/cli/Main.cpp)
+target_include_directories(e2sc PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(e2sc PRIVATE EngineScriptLib glm::glm)
+
+add_executable(e2s-lsp src/enginescript/lsp/Main.cpp)
+target_include_directories(e2s-lsp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(e2s-lsp PRIVATE EngineScriptLib glm::glm)
+
 set(ENGINE_RUNTIME_SOURCES ${SOURCES})
 list(REMOVE_ITEM ENGINE_RUNTIME_SOURCES src/core/Application.cpp src/main.cpp)
 list(FILTER ENGINE_RUNTIME_SOURCES EXCLUDE REGEX "^src/editor/")
@@ -208,6 +256,7 @@ target_link_libraries(EngineRuntime PUBLIC
     SDL3::SDL3
     glm::glm
     box2d
+    EngineScriptLib
     Luau.Compiler
     Luau.VM
 )
@@ -1069,39 +1118,6 @@ target_include_directories(PrefabStageControllerTests PRIVATE
 )
 target_link_libraries(PrefabStageControllerTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME PrefabStageControllerTests COMMAND PrefabStageControllerTests)
-
-# -----------------------------------------------------------------------------
-# EngineScript Research & Compiler Library Targets (Phase 11)
-# -----------------------------------------------------------------------------
-set(ENGINESCRIPT_SOURCES
-    src/enginescript/core/SourceManager.cpp
-    src/enginescript/core/DiagnosticEngine.cpp
-    src/enginescript/lexer/Lexer.cpp
-    src/enginescript/ast/ASTPrinter.cpp
-    src/enginescript/parser/Parser.cpp
-    src/enginescript/symbols/SymbolResolver.cpp
-    src/enginescript/depgraph/DependencyGraph.cpp
-    src/enginescript/types/TypeChecker.cpp
-    src/enginescript/ir/IRLowering.cpp
-    src/enginescript/ir/IRVerifier.cpp
-    src/enginescript/codegen/CppEmitter.cpp
-    src/enginescript/codegen/MetadataEmitter.cpp
-    src/enginescript/di/DependencyInjection.cpp
-    src/enginescript/generics/Generics.cpp
-    src/enginescript/cache/CompilerCache.cpp
-    src/enginescript/async/AsyncScheduler.cpp
-    src/enginescript/module/GameModule.cpp
-    src/enginescript/module/HotReloadManager.cpp
-    src/enginescript/editor/EngineScriptWorkspace.cpp
-    src/enginescript/lsp/LanguageServer.cpp
-)
-
-add_library(EngineScriptLib STATIC ${ENGINESCRIPT_SOURCES})
-target_include_directories(EngineScriptLib PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
-)
-target_link_libraries(EngineScriptLib PUBLIC glm::glm)
 
 macro(add_enginescript_test test_name test_source)
     add_executable(${test_name} ${test_source})
