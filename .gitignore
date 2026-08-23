@@ -8,6 +8,7 @@ dist/
 compile_commands.json
 saves/
 Library/
+node_modules/
 /vscode*/
 
 # Logs & runtime locks
