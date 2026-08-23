@@ -904,7 +904,7 @@ void AssetBrowserPanel::activate_entry(const AssetBrowserEntry& entry) {
         if (m_on_load_scene) m_on_load_scene(entry.absolute_path.string());
     } else if (extension == ".prefab") {
         if (m_on_open_prefab) m_on_open_prefab(entry.absolute_path.string());
-    } else if (extension == ".luau") {
+    } else if (extension == ".e2s") {
         open_script_externally(entry.absolute_path);
     } else if (extension == ".material") {
         open_material_asset(entry.handle);
@@ -1932,9 +1932,9 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::Button("Create", ImVec2(120, 0))) {
                 std::string name = m_new_script_name_buf;
                 if (!name.empty() && m_command_history && m_asset_database) {
-                    if (!name.ends_with(".e2s") && !name.ends_with(".luau")) name += ".e2s";
+                    if (!name.ends_with(".e2s")) name += ".e2s";
                     const std::filesystem::path file = m_current_path / name;
-                    const auto template_str = name.ends_with(".e2s") ? DEFAULT_ENGINESCRIPT_TEMPLATE : DEFAULT_SCRIPT_TEMPLATE;
+                    const auto template_str = DEFAULT_ENGINESCRIPT_TEMPLATE;
                     m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
                         m_asset_database, file, std::string(template_str)
                     ));

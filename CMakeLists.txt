@@ -182,13 +182,6 @@ set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/box2d)
 
-# Luau is embedded as source so runtime builds never depend on a system install
-# or a network fetch. CLI tools and upstream tests are not part of Engine2D.
-set(LUAU_BUILD_CLI OFF CACHE BOOL "" FORCE)
-set(LUAU_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(LUAU_BUILD_WEB OFF CACHE BOOL "" FORCE)
-add_subdirectory(vendor/luau EXCLUDE_FROM_ALL)
-
 # -----------------------------------------------------------------------------
 # EngineScript Research & Compiler Library Targets (Phase 11)
 # -----------------------------------------------------------------------------
@@ -222,7 +215,6 @@ target_include_directories(EngineScriptLib PUBLIC
 )
 target_link_libraries(EngineScriptLib PUBLIC glm::glm)
 
-# Compiler CLI and Standalone Language Server Executables
 add_executable(e2sc src/enginescript/cli/Main.cpp)
 target_include_directories(e2sc PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -268,8 +260,6 @@ target_link_libraries(EngineRuntime PUBLIC
     glm::glm
     box2d
     EngineScriptLib
-    Luau.Compiler
-    Luau.VM
 )
 
 add_executable(Engine2D src/main.cpp src/core/Application.cpp ${ENGINE_EDITOR_SOURCES})
@@ -277,7 +267,6 @@ target_compile_definitions(Engine2D PRIVATE
     ENGINE_WITH_EDITOR=1
     ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
-target_link_libraries(Engine2D PRIVATE Luau.Analysis)
 
 add_executable(Engine2DStandalone src/runtime/StandaloneMain.cpp src/core/Application.cpp)
 target_compile_definitions(Engine2DStandalone PRIVATE ENGINE_WITH_EDITOR=0)
@@ -419,19 +408,7 @@ add_test(NAME RuntimeBoundaryTests
         -P "${CMAKE_SOURCE_DIR}/cmake/VerifyRuntimeBoundary.cmake"
 )
 
-add_executable(LuauRuntimeTests
-    tests/LuauRuntimeTests.cpp
-    src/editor/scripting/ScriptAnalyzer.cpp
-)
-target_include_directories(LuauRuntimeTests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
-)
-target_compile_definitions(LuauRuntimeTests PRIVATE
-    ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-)
-target_link_libraries(LuauRuntimeTests PRIVATE EngineRuntime Luau.Analysis)
-add_test(NAME LuauRuntimeTests COMMAND LuauRuntimeTests)
+
 
 add_executable(ScriptHotReloadTests tests/ScriptHotReloadTests.cpp)
 target_include_directories(ScriptHotReloadTests PRIVATE

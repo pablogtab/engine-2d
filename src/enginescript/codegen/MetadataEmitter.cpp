@@ -66,6 +66,18 @@ std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
                     if (max_it != prop.numeric_attributes.end()) {
                         p_obj["maxValue"] = max_it->second;
                     }
+                    if (prop.initializer && prop.initializer->kind == IROpKind::Constant) {
+                        auto const_op = std::static_pointer_cast<IRConstant>(prop.initializer);
+                        if (const_op->result_type && const_op->result_type->is_string()) {
+                            p_obj["defaultValue"] = const_op->string_val;
+                        } else if (const_op->result_type && const_op->result_type->is_bool()) {
+                            p_obj["defaultValue"] = const_op->bool_val ? "true" : "false";
+                        } else if (const_op->result_type && const_op->result_type->is_integer()) {
+                            p_obj["defaultValue"] = std::to_string(const_op->int_val);
+                        } else {
+                            p_obj["defaultValue"] = std::to_string(const_op->float_val);
+                        }
+                    }
 
                     props_arr.push_back(p_obj);
                 }
@@ -89,7 +101,6 @@ std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
     root["behaviours"] = behaviours_arr;
     root["structs"] = structs_arr;
     root["enums"] = enums_arr;
-
     return root.dump(2);
 }
 
@@ -123,6 +134,7 @@ ProjectMetadataManifest MetadataEmitter::parse_json(const std::string& json_str)
                         ExposedPropertyDesc epd;
                         if (prop.contains("name")) epd.name = prop["name"].get<std::string>();
                         if (prop.contains("type")) epd.type = prop["type"].get<std::string>();
+                        if (prop.contains("defaultValue")) epd.default_value_str = prop["defaultValue"].get<std::string>();
                         if (prop.contains("isExposed")) epd.is_exposed = prop["isExposed"].get<bool>();
                         if (prop.contains("isSerializable")) epd.is_serializable = prop["isSerializable"].get<bool>();
                         if (prop.contains("minValue")) epd.min_value = prop["minValue"].get<double>();

@@ -34,7 +34,7 @@ int main() {
     std::error_code error;
     fs::remove_all(root, error);
     write_file(root / "Assets/Characters/Hero.png", "large texture payload");
-    write_file(root / "Assets/Characters/HeroController.luau", "--!strict\nreturn {}\n");
+    write_file(root / "Assets/Characters/HeroController.e2s", "@behaviour\nexport class HeroController extends Behaviour {}\n");
     write_file(root / "Assets/Materials/Hero.material", "{}\n");
     write_file(root / "Assets/Scenes/Main.scene", "{}\n");
     write_file(root / "Assets/Readme.txt", "text\n");
@@ -56,9 +56,9 @@ int main() {
     entries = AssetBrowserQuery::collect(database, root / "Assets", root / "Assets", options);
     assert(entries.size() == 3);
 
-    options.text = "t:script ext:luau path:characters";
+    options.text = "t:script ext:e2s path:characters";
     entries = AssetBrowserQuery::collect(database, root / "Assets", root / "Assets", options);
-    assert(entries.size() == 1 && entries.front().name == "HeroController.luau");
+    assert(entries.size() == 1 && entries.front().name == "HeroController.e2s");
 
     options.text = "t:folder characters";
     entries = AssetBrowserQuery::collect(database, root / "Assets", root / "Assets", options);

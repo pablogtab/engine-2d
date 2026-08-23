@@ -53,7 +53,7 @@ bool type_matches_alias(const AssetBrowserEntry& entry, const std::string& alias
     if (alias == "audio" || alias == "sound") return entry.type == AssetType::Audio;
     if (alias == "shader") return entry.type == AssetType::Shader;
     if (alias == "material" || alias == "mat") return entry.type == AssetType::Material;
-    if (alias == "script" || alias == "luau") return entry.type == AssetType::Script;
+    if (alias == "script" || alias == "e2s") return entry.type == AssetType::Script;
     if (alias == "profile" || alias == "fx") {
         return entry.type == AssetType::PostProcessProfile ||
             entry.type == AssetType::RenderLayerEffectProfile;

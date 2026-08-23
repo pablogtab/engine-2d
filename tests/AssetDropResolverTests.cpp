@@ -31,7 +31,7 @@ int main() {
     fs::remove_all(root, error);
     write_file(root / "assets/textures/Hero.png");
     write_file(root / "assets/fonts/Interface.ttf");
-    write_file(root / "assets/scripts/Player.luau", "--!strict\n");
+    write_file(root / "assets/scripts/Player.e2s", "@behaviour\nexport class Player extends Behaviour {}\n");
     write_file(root / "assets/data/Raw.blob");
 
     AssetDatabase database(root);
@@ -63,7 +63,7 @@ int main() {
 
     const auto generic_script = resolve_asset_drop(
         database,
-        root / "assets/scripts/Player.luau"
+        root / "assets/scripts/Player.e2s"
     );
     require(generic_script.accepted(), "generic asset field accepts a ready known type");
 

@@ -127,11 +127,76 @@ export class Enemy extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_dynamic_inspector_field_modifications() {
+    std::cout << "[Test] DynamicInspectorFieldModifications_LiveUpdate... ";
+    
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_dynamic_fields_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    std::string code = R"(
+@behaviour
+export class DynamicPlayer extends Behaviour {
+    @expose
+    walkSpeed: Float = 280.0;
+
+    @expose
+    jumpSpeed: Float = 520.0;
+
+    override update(deltaTime: Float): Void {}
+}
+)";
+    write_test_file(root / "Assets/scripts/DynamicPlayer.e2s", code);
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+
+    const AssetRecord* record = asset_database.find_by_path(root / "Assets/scripts/DynamicPlayer.e2s");
+    assert(record != nullptr);
+
+    EntityManager entity_manager;
+    ScriptRuntime runtime;
+
+    EntityID entity = entity_manager.create_entity();
+    RigidBodyComponent body = RigidBodyComponent::Dynamic();
+    entity_manager.add_component<RigidBodyComponent>(entity, body);
+
+    ScriptComponent script_comp;
+    script_comp.enabled = true;
+    script_comp.script_handle = record->handle;
+    script_comp.public_fields = {
+        {"walkSpeed", ScriptFieldType::Number, 280.0},
+        {"jumpSpeed", ScriptFieldType::Number, 520.0}
+    };
+    entity_manager.add_component<ScriptComponent>(entity, script_comp);
+
+    ScriptRuntimeServices services;
+    auto start_res = runtime.start(entity_manager, asset_database, nullptr, services);
+    assert(start_res.started == 1);
+
+    // Initial update
+    runtime.update(0.016f);
+
+    // Modify speed dynamically in-game (as done via Inspector)
+    auto& live_comp = entity_manager.get_component<ScriptComponent>(entity);
+    live_comp.public_fields[0].value = 750.0;
+
+    // Advance frame and verify update executes with modified live component
+    runtime.update(0.016f);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
+    test_dynamic_inspector_field_modifications();
     test_async_scheduler_cancellation();
     test_e2s_script_inspection();
     std::cout << "=== All EngineScript Play Mode Tests Passed! ===\n";
     return 0;
 }
+

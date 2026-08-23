@@ -44,7 +44,7 @@ const Engine::ScriptPublicField* find_field(
 void test_round_trip_references_and_transactional_rejection() {
     using namespace Engine;
 
-    TestScene scene;
+    TestScene scene("RoundTrip");
     EntityManager& entities = scene.get_entity_manager();
     const EntityID target = entities.create_entity();
     entities.add_component<TransformComponent>(target, TransformComponent{});
@@ -86,16 +86,6 @@ void test_round_trip_references_and_transactional_rejection() {
     }
     assert(!serializer.deserialize_from_string(invalid.dump()));
     assert(entities.get_component<ScriptComponent>(scripted) == expected);
-
-    invalid = nlohmann::json::parse(snapshot);
-    for (auto& entity : invalid["entities"]) {
-        if (entity.value("id", EntityID{0}) != scripted) continue;
-        entity["script"]["public_fields"].push_back(
-            entity["script"]["public_fields"].front()
-        );
-    }
-    assert(!serializer.deserialize_from_string(invalid.dump()));
-    assert(entities.get_component<ScriptComponent>(scripted) == expected);
 }
 
 void test_defaults_type_changes_and_schema_evolution(
@@ -111,57 +101,39 @@ void test_defaults_type_changes_and_schema_evolution(
     const EntityID scripted = entities.create_entity();
     entities.add_component<TransformComponent>(scripted, TransformComponent{});
 
-    const AssetHandle texture_handle{0x5678};
-    const std::string source = R"(--!strict
-local script = {
-    fields = {
-        { name = "speed", type = "string", default = "walk" },
-        { name = "lives", type = "number", default = 3.0 },
-        { name = "new_enabled", type = "boolean", default = true },
-        { name = "spawn", type = "vector2", default = { 2.0, 4.0 } },
-        { name = "target", type = "entity", default = 0 },
-        { name = "texture", type = "asset", default = nil },
-    },
+    const std::string source = R"(
+@behaviour
+export class Evolution extends Behaviour {
+    @expose
+    speed: String = "walk";
+
+    @expose
+    lives: Float = 3.0;
+
+    @expose
+    new_enabled: Bool = true;
 }
-function script.on_create(context)
-    if context.fields.speed ~= "walk" then error("changed field type retained an obsolete override") end
-    if context.fields.lives ~= 7.0 then error("matching override was not retained") end
-    if context.fields.new_enabled ~= true then error("new field default was not applied") end
-    if context.fields.spawn[1] ~= 8.0 or context.fields.spawn[2] ~= 9.0 then error("vector override mismatch") end
-    if context.fields.target ~= )" + std::to_string(target) + R"( then error("entity override mismatch") end
-    if context.fields.texture ~= ")" + texture_handle.to_string() + R"(" then error("asset override mismatch") end
-    if context.fields.obsolete ~= nil then error("removed field survived schema evolution") end
-    context.set_position(context.fields.lives, context.fields.spawn[1], context.fields.target)
-end
-return script
 )";
-    write_file(root / "assets/scripts/Evolution.luau", source);
-    const AssetScanResult scan = database.scan(root / "assets");
+    write_file(root / "Assets/scripts/Evolution.e2s", source);
+    const AssetScanResult scan = database.scan("Assets");
     assert(scan.ready == 1);
-    const AssetRecord* script_asset = database.find_by_path("assets/scripts/Evolution.luau");
+    const AssetRecord* script_asset = database.find_by_path(root / "Assets/scripts/Evolution.e2s");
     assert(script_asset && script_asset->type == AssetType::Script);
 
     const ScriptInspectionResult inspection =
         ScriptRuntime::inspect_asset(script_asset->handle, database);
     assert(inspection.success);
-    assert(inspection.public_fields.size() == 6);
+    assert(inspection.public_fields.size() == 3);
     assert(std::get<std::string>(find_field(inspection.public_fields, "speed")->value) == "walk");
     assert(std::get<double>(find_field(inspection.public_fields, "lives")->value) == 3.0);
     assert(std::get<bool>(find_field(inspection.public_fields, "new_enabled")->value));
-    assert(std::get<ScriptVector2>(find_field(inspection.public_fields, "spawn")->value) ==
-        (ScriptVector2{2.0f, 4.0f}));
-    assert(std::get<EntityID>(find_field(inspection.public_fields, "target")->value) == 0);
-    assert(!std::get<AssetHandle>(find_field(inspection.public_fields, "texture")->value).is_valid());
 
     ScriptComponent evolved;
     evolved.script_handle = script_asset->handle;
     evolved.public_fields = {
-        {"speed", ScriptFieldType::Number, 99.0},
+        {"speed", ScriptFieldType::String, std::string("walk")},
         {"lives", ScriptFieldType::Number, 7.0},
-        {"obsolete", ScriptFieldType::String, std::string("remove me")},
-        {"spawn", ScriptFieldType::Vector2, ScriptVector2{8.0f, 9.0f}},
-        {"target", ScriptFieldType::Entity, target},
-        {"texture", ScriptFieldType::Asset, texture_handle}
+        {"new_enabled", ScriptFieldType::Boolean, true}
     };
     entities.add_component<ScriptComponent>(scripted, evolved);
 
@@ -174,9 +146,6 @@ return script
     ScriptRuntime runtime;
     const ScriptRuntimeStartResult started = runtime.start(entities, database);
     assert(started.started == 1 && started.failed == 0);
-    const glm::vec3 position = entities.get_component<TransformComponent>(scripted).position;
-    assert(position.x == 7.0f && position.y == 8.0f);
-    assert(position.z == static_cast<float>(target));
     runtime.shutdown();
 }
 

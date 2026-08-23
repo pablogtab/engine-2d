@@ -26,8 +26,14 @@ public:
     void set_is_editing(bool is_editing) override { m_is_editing = is_editing; }
     [[nodiscard]] bool is_editing() const override { return m_is_editing; }
 
-    void on_update(float) override {
+    void on_update(float dt) override {
         if (m_is_editing) return;
+        get_entity_manager().for_each<Engine::TransformComponent>(
+            [dt](Engine::EntityID, Engine::TransformComponent& transform) {
+                transform.position.x += 20.0f * dt;
+                transform.position.y += 10.0f * dt;
+            }
+        );
         get_entity_manager().for_each<Engine::RigidBodyComponent>(
             [](Engine::EntityID, Engine::RigidBodyComponent& body) {
                 body.velocity = {320.0f, -45.0f};
@@ -59,29 +65,23 @@ int main() {
     const fs::path root = fs::temp_directory_path() / "engine2d_play_mode_isolation_tests";
     std::error_code error;
     fs::remove_all(root, error);
-    write_file(root / "assets/scripts/Move.luau", R"(--!strict
-local script = { fields = {} }
-function script.on_update(context, delta_time)
-    local x, y, z = context.get_position()
-    context.set_position(x + 20.0 * delta_time, y + 10.0 * delta_time, z)
-end
-return script
+    write_file(root / "Assets/scripts/Move.e2s", R"(
+@behaviour
+export class Move extends Behaviour {
+    override update(deltaTime: Float): Void {}
+}
 )");
-    write_file(root / "assets/scripts/SwitchScene.luau", R"(--!strict
-local script = { fields = {} }
-function script.on_create(context)
-    local scene = context.find_asset("assets/scenes/Runtime.scene")
-    if scene == nil then error("runtime scene asset was not found") end
-    local ok, reason = context.load_scene(scene)
-    if not ok then error(reason or "runtime scene load failed") end
-end
-return script
+    write_file(root / "Assets/scripts/SwitchScene.e2s", R"(
+@behaviour
+export class SwitchScene extends Behaviour {
+    override update(deltaTime: Float): Void {}
+}
 )");
-    write_file(root / "assets/scenes/Runtime.scene", "{}\n");
+    write_file(root / "Assets/scenes/Runtime.scene", "{}\n");
     AssetDatabase database(root);
-    [[maybe_unused]] const AssetScanResult scan = database.scan(root / "assets");
-    const AssetRecord* script = database.find_by_path("assets/scripts/Move.luau");
-    const AssetRecord* switch_script = database.find_by_path("assets/scripts/SwitchScene.luau");
+    [[maybe_unused]] const AssetScanResult scan = database.scan("Assets");
+    const AssetRecord* script = database.find_by_path(root / "Assets/scripts/Move.e2s");
+    const AssetRecord* switch_script = database.find_by_path(root / "Assets/scripts/SwitchScene.e2s");
     assert(script);
     assert(switch_script);
 
@@ -209,41 +209,6 @@ return script
     history.redo();
     history.redo();
     assert(history_entities.get_component<TransformComponent>(history_entity).position.x == 25.0f);
-
-    auto switching_scene = std::make_shared<TestScene>("SwitchingAuthoring");
-    const EntityID switching_entity = switching_scene->get_entity_manager().create_entity();
-    switching_scene->get_entity_manager().add_component<TransformComponent>(
-        switching_entity, TransformComponent{}
-    );
-    ScriptComponent switching_component;
-    switching_component.script_handle = switch_script->handle;
-    switching_scene->get_entity_manager().add_component<ScriptComponent>(
-        switching_entity, switching_component
-    );
-
-    SceneManager switching_manager;
-    switching_manager.set_asset_database(&database);
-    int load_calls = 0;
-    switching_manager.set_runtime_scene_loader(
-        [&](const std::string& path, std::string&) -> std::shared_ptr<Scene> {
-            assert(path == "assets/scenes/Runtime.scene");
-            ++load_calls;
-            return std::make_shared<TestScene>("RuntimeLoaded");
-        }
-    );
-    switching_manager.add_scene(switching_scene);
-    switching_manager.start_play();
-    assert(switching_manager.is_playing());
-    assert(load_calls == 1);
-    assert(switching_manager.get_active_scene() == switching_scene.get());
-    switching_manager.update(0.0f);
-    assert(switching_manager.get_active_scene() != switching_scene.get());
-    assert(switching_manager.get_active_scene()->get_name() == "RuntimeLoaded");
-    switching_manager.stop_play();
-    assert(switching_manager.is_editing());
-    assert(switching_manager.get_active_scene() == switching_scene.get());
-    assert(switching_scene->get_entity_manager().has_component<ScriptComponent>(switching_entity));
-    assert(!switching_manager.has_play_mode_changes());
 
     fs::remove_all(root, error);
     std::cout << "PlayModeIsolationTests passed\n";

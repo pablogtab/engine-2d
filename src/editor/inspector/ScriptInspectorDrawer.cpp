@@ -155,7 +155,7 @@ bool draw_asset_field(const char* label, AssetHandle& value) {
 
 void draw_diagnostics(AssetHandle handle) {
     if (!handle.is_valid()) {
-        ImGui::TextDisabled("Assign a .luau asset to inspect its public fields.");
+        ImGui::TextDisabled("Assign a .e2s asset to inspect its public fields.");
         return;
     }
     const CachedScriptInfo& info = script_info(handle);
@@ -166,7 +166,7 @@ void draw_diagnostics(AssetHandle handle) {
     }
     const ScriptAnalysisResult& analyzed = info.analysis;
     if (analyzed.success) {
-        ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.50f, 1.0f), "Strict analysis passed");
+        ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.50f, 1.0f), "EngineScript analysis passed");
         return;
     }
     for (const ScriptDiagnostic& diagnostic : analyzed.diagnostics) {

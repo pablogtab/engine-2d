@@ -14,8 +14,6 @@
 #include <memory>
 #include <cstdint>
 
-struct lua_State;
-
 namespace EngineScript {
 class EngineScriptWorkspace;
 class AsyncScheduler;
@@ -26,7 +24,6 @@ namespace Engine {
 class AssetDatabase;
 class EntityManager;
 class EventDispatcher;
-struct ScriptBindingContext;
 
 struct ScriptDisplayInfo {
     int pixel_width{0};
@@ -110,8 +107,8 @@ public:
     [[nodiscard]] ScriptHotReloadResult reload_changed_scripts(bool force = false);
     void shutdown();
 
-    [[nodiscard]] bool is_running() const { return m_state != nullptr || !m_native_instances.empty() || m_native_workspace != nullptr; }
-    [[nodiscard]] std::size_t instance_count() const { return m_instances.size() + m_native_instances.size(); }
+    [[nodiscard]] bool is_running() const { return m_native_workspace != nullptr || !m_instances.empty(); }
+    [[nodiscard]] std::size_t instance_count() const { return m_instances.size(); }
     [[nodiscard]] const ScriptExecutionStatus* status(EntityID entity) const;
     [[nodiscard]] const std::string* reload_error(AssetHandle handle) const;
 
@@ -122,23 +119,14 @@ public:
 
 private:
     struct Instance {
-        Instance() = default;
-        ~Instance();
-        Instance(Instance&&) noexcept;
-        Instance& operator=(Instance&&) noexcept;
-        Instance(const Instance&) = delete;
-        Instance& operator=(const Instance&) = delete;
-
         EntityID entity{0};
         AssetHandle script_handle{};
-        int thread_ref{-1};
-        int module_ref{-1};
-        int context_ref{-1};
-        lua_State* thread{nullptr};
-        bool created{false};
+        std::string script_path;
+        std::string class_name;
+        std::function<void(float)> update_fn;
+        std::function<void()> on_start_fn;
+        std::function<void()> on_destroy_fn;
         std::vector<ScriptPublicField> field_definitions;
-        std::vector<ScriptPublicField> authored_fields;
-        std::unique_ptr<ScriptBindingContext> binding_context;
     };
 
     enum class PendingEventType {
@@ -160,41 +148,16 @@ private:
         std::string payload;
     };
 
-    [[nodiscard]] bool create_instance(
-        EntityID entity,
-        const ScriptComponent& component,
-        const std::string& bytecode,
-        const std::string& chunk_name,
-        const std::vector<ScriptPublicField>& field_definitions,
-        std::string& error
-    );
-    [[nodiscard]] bool call(Instance& instance, const char* callback, float delta_time, bool pass_delta);
-    [[nodiscard]] bool call_event(Instance& instance, const PendingEvent& event);
     void queue_custom_event(EntityID source, std::string name, std::string payload);
     void subscribe_to_events();
     void unsubscribe_from_events();
-    void synchronize_public_fields(Instance& instance, const ScriptComponent& component);
-    void release_instance(Instance& instance);
     void set_error(EntityID entity, std::string message);
 
-    struct NativeInstance {
-        EntityID entity{0};
-        AssetHandle script_handle{};
-        std::string script_path;
-        std::string class_name;
-        std::function<void(float)> update_fn;
-        std::function<void()> on_start_fn;
-        std::function<void()> on_destroy_fn;
-        std::vector<ScriptPublicField> field_definitions;
-    };
-
-    lua_State* m_state{nullptr};
     EntityManager* m_entity_manager{nullptr};
     const AssetDatabase* m_asset_database{nullptr};
     EventDispatcher* m_event_dispatcher{nullptr};
     ScriptRuntimeServices m_services;
     std::vector<Instance> m_instances;
-    std::vector<NativeInstance> m_native_instances;
     std::unique_ptr<EngineScript::EngineScriptWorkspace> m_native_workspace;
     std::unique_ptr<EngineScript::AsyncScheduler> m_native_async_scheduler;
     std::unordered_map<EntityID, ScriptExecutionStatus> m_statuses;

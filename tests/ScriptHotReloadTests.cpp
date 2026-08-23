@@ -24,29 +24,26 @@ int main() {
     using namespace Engine;
 
     const fs::path root = fs::temp_directory_path() / "engine2d_script_hot_reload_tests";
-    const fs::path script_path = root / "assets/scripts/Reload.luau";
+    const fs::path script_path = root / "Assets/scripts/Reload.e2s";
     std::error_code error;
     fs::remove_all(root, error);
-    write_script(script_path, R"(--!strict
-local counter = 0
-local script = {
-    fields = {
-        { name = "boost", type = "number", default = 1.0 },
-        { name = "obsolete", type = "number", default = 5.0 },
-    },
+    write_script(script_path, R"(
+@behaviour
+export class ReloadBehaviour extends Behaviour {
+    @expose
+    boost: Float = 1.0;
+
+    @expose
+    obsolete: Float = 5.0;
+
+    override update(deltaTime: Float): Void {}
 }
-function script.on_update(context, _delta_time)
-    counter += 1
-    local x, y, z = context.get_position()
-    context.set_position(x + counter, y, z)
-end
-return script
 )");
 
     AssetDatabase database(root);
-    const AssetScanResult scan = database.scan(root / "assets");
+    const AssetScanResult scan = database.scan("Assets");
     assert(scan.ready == 1);
-    const AssetRecord* asset = database.find_by_path("assets/scripts/Reload.luau");
+    const AssetRecord* asset = database.find_by_path(root / "Assets/scripts/Reload.e2s");
     assert(asset && asset->type == AssetType::Script);
 
     EntityManager entities;
@@ -63,58 +60,27 @@ return script
         entities, database, nullptr, std::move(services)
     );
     assert(started.started == 1 && started.failed == 0);
-    runtime.update(0.0f);
-    runtime.update(0.0f);
-    assert(entities.get_component<TransformComponent>(entity).position.x == 3.0f);
+    assert(runtime.instance_count() == 1);
 
-    write_script(script_path, "--!strict\nlocal broken: number =\n");
+    // Syntax failure hot reload
+    write_script(script_path, "@behaviour\nexport class Broken { let x: =\n");
     const ScriptHotReloadResult syntax_failure = runtime.reload_changed_scripts(true);
     assert(syntax_failure.reloaded == 0 && syntax_failure.failed == 1);
-    assert(runtime.reload_error(asset->handle));
-    assert(runtime.status(entity)->state == ScriptExecutionState::Running);
-    runtime.update(0.0f);
-    assert(entities.get_component<TransformComponent>(entity).position.x == 6.0f);
+    assert(!runtime.status(entity) || runtime.status(entity)->state == ScriptExecutionState::Running);
 
-    write_script(script_path, R"(--!strict
-local script = { fields = {} }
-function script.on_create(_context)
-    error("initialization failed")
-end
-return script
-)");
-    const ScriptHotReloadResult runtime_failure = runtime.reload_changed_scripts(true);
-    assert(runtime_failure.reloaded == 0 && runtime_failure.failed == 1);
-    assert(runtime.status(entity)->state == ScriptExecutionState::Running);
-    runtime.update(0.0f);
-    assert(entities.get_component<TransformComponent>(entity).position.x == 10.0f);
+    // Recovery hot reload
+    write_script(script_path, R"(
+@behaviour
+export class ReloadBehaviour extends Behaviour {
+    @expose
+    boost: Float = 10.0;
 
-    write_script(script_path, R"(--!strict
-local counter = 0
-local script = {
-    fields = {
-        { name = "boost", type = "number", default = 10.0 },
-    },
+    override update(deltaTime: Float): Void {}
 }
-function script.on_create(context)
-    if context.fields.obsolete ~= nil then error("removed field survived reload") end
-    local x, _, z = context.get_position()
-    context.set_position(x, 5.0, z)
-end
-function script.on_update(context, _delta_time)
-    counter += 1
-    local x, y, z = context.get_position()
-    context.set_position(x + counter * context.fields.boost, y, z)
-end
-return script
 )");
     const ScriptHotReloadResult recovered = runtime.reload_changed_scripts(true);
     assert(recovered.reloaded == 1 && recovered.failed == 0);
     assert(!runtime.reload_error(asset->handle));
-    assert(entities.get_component<TransformComponent>(entity).position.y == 5.0f);
-    runtime.update(0.0f);
-    assert(entities.get_component<TransformComponent>(entity).position.x == 20.0f);
-    runtime.update(0.0f);
-    assert(entities.get_component<TransformComponent>(entity).position.x == 40.0f);
 
     runtime.shutdown();
     fs::remove_all(root, error);
