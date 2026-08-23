@@ -2,11 +2,31 @@ const path = require('path');
 const vscode = require('vscode');
 const { LanguageClient, TransportKind } = require('vscode-languageclient/node');
 
+const fs = require('fs');
+
 let client;
 
-function activate(context) {
+function findServerBinary() {
     const config = vscode.workspace.getConfiguration('enginescript');
-    const serverPath = config.get('serverPath') || 'e2s-lsp';
+    const customPath = config.get('serverPath');
+    if (customPath && fs.existsSync(customPath)) {
+        return customPath;
+    }
+
+    // Check workspace build directory
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        const candidateBuild = path.join(root, 'build', 'e2s-lsp');
+        if (fs.existsSync(candidateBuild)) {
+            return candidateBuild;
+        }
+    }
+
+    return 'e2s-lsp';
+}
+
+function activate(context) {
+    const serverPath = findServerBinary();
 
     const serverOptions = {
         run: { command: serverPath, transport: TransportKind.stdio },
