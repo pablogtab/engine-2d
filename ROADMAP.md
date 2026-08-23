@@ -113,6 +113,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Split the monolithic Inspector into component drawers with a shared compact property layout.
 - [x] Keep component UI extensions separate from runtime component definitions.
 - [x] Vendor an editor-only Lucide icon catalog and centralize DPI-independent icon rendering through ImGui's font atlas.
+- [x] Keep Sprite Animator compact in the Inspector and centralize its full grid, playback, clip, preview, slicer, and timeline authoring workflow in Animation Studio.
 - [ ] Migrate remaining editor emojis and ad-hoc symbols to the shared Lucide registry.
 - [ ] Add component search, favorites, and concise contextual documentation.
 - [ ] Preserve the existing compact Photoshop/Unity-like value scrubbing behavior.

@@ -421,9 +421,21 @@ void test_animation_authored_edits_round_trip_without_runtime_state() {
 
     auto& animation = em.get_component<AnimationComponent>(entity);
     animation.columns = 8;
+    animation.rows = 3;
+    animation.frame_width = 48.0f;
+    animation.frame_height = 64.0f;
     animation.spacing_x = 2.0f;
+    animation.spacing_y = 3.0f;
+    animation.margin_x = 4.0f;
+    animation.margin_y = 5.0f;
+    animation.play_on_start = false;
     animation.add_clip("Run", 2, 4, 12.0f, true);
+    animation.clips.front().start_frame = 1;
+    animation.clips.front().frame_count = 6;
+    animation.clips.front().fps = 9.0f;
+    animation.clips.front().loop = false;
     animation.default_clip_index = 1;
+    const AnimationComponent expected = animation;
     assert(em.has_component<AnimationPlaybackStateComponent>(entity));
 
     assert(transactions.commit(key, history));
@@ -436,6 +448,7 @@ void test_animation_authored_edits_round_trip_without_runtime_state() {
 
     history.redo();
     const auto& redone = em.get_component<AnimationComponent>(entity);
+    assert(redone == expected);
     assert(redone.columns == 8);
     assert(redone.clips.size() == 2);
     assert(redone.clips[1].name == "Run");

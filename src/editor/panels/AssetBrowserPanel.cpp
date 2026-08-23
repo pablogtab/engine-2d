@@ -1323,11 +1323,13 @@ void AssetBrowserPanel::draw_folder_tree_node(const std::filesystem::path& direc
 }
 
 void AssetBrowserPanel::draw_folder_tree() {
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5.0f, 3.0f));
+    ImGui::SeparatorText("Collections");
     if (ImGui::Selectable(
             "All Assets",
             m_collection == AssetBrowserCollection::All &&
                 m_search_scope == AssetBrowserScope::Project,
-            ImGuiSelectableFlags_None, ImVec2(0.0f, 22.0f)
+            ImGuiSelectableFlags_None, ImVec2(0.0f, 20.0f)
         )) {
         clear_selection();
         m_collection = AssetBrowserCollection::All;
@@ -1336,7 +1338,7 @@ void AssetBrowserPanel::draw_folder_tree() {
     }
     if (ImGui::Selectable(
             "Favorites", m_collection == AssetBrowserCollection::Favorites,
-            ImGuiSelectableFlags_None, ImVec2(0.0f, 22.0f)
+            ImGuiSelectableFlags_None, ImVec2(0.0f, 20.0f)
         )) {
         clear_selection();
         m_collection = AssetBrowserCollection::Favorites;
@@ -1345,7 +1347,7 @@ void AssetBrowserPanel::draw_folder_tree() {
     }
     if (ImGui::Selectable(
             "Recent", m_collection == AssetBrowserCollection::Recent,
-            ImGuiSelectableFlags_None, ImVec2(0.0f, 22.0f)
+            ImGuiSelectableFlags_None, ImVec2(0.0f, 20.0f)
         )) {
         clear_selection();
         m_collection = AssetBrowserCollection::Recent;
@@ -1354,6 +1356,7 @@ void AssetBrowserPanel::draw_folder_tree() {
     }
     ImGui::SeparatorText("Folders");
     draw_folder_tree_node(m_root_path);
+    ImGui::PopStyleVar();
 }
 
 void AssetBrowserPanel::draw_selected_asset_details() {
@@ -1426,36 +1429,8 @@ void AssetBrowserPanel::draw_selected_asset_details() {
     }
 }
 
-void AssetBrowserPanel::on_gui() {
-    if (!is_open) return;
-
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
-    if (ImGui::Begin("Asset Browser", &is_open)) {
-        const bool at_root = m_current_path == m_root_path;
-        ImGui::BeginDisabled(at_root);
-        if (ImGui::Button("< Up")) navigate_to(m_current_path.parent_path());
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-
-        std::filesystem::path breadcrumb = m_root_path;
-        ImGui::PushID("asset_breadcrumb_root");
-        if (ImGui::SmallButton(m_root_path.filename().string().c_str())) navigate_to(m_root_path);
-        ImGui::PopID();
-        const std::filesystem::path relative = m_current_path.lexically_relative(m_root_path);
-        int breadcrumb_index = 0;
-        for (const auto& part : relative) {
-            if (part == ".") continue;
-            breadcrumb /= part;
-            ImGui::SameLine();
-            ImGui::TextDisabled("/");
-            ImGui::SameLine();
-            ImGui::PushID(breadcrumb_index++);
-            if (ImGui::SmallButton(part.string().c_str())) navigate_to(breadcrumb);
-            ImGui::PopID();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Refresh")) refresh();
-
+void AssetBrowserPanel::draw_toolbar() {
+    const auto draw_search = [this]() {
         const ImGuiIO& io = ImGui::GetIO();
         const bool focus_search = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
             (io.KeySuper || io.KeyCtrl) && ImGui::IsKeyPressed(ImGuiKey_F);
@@ -1463,10 +1438,15 @@ void AssetBrowserPanel::on_gui() {
             m_search_scope = AssetBrowserScope::Project;
             ImGui::SetKeyboardFocusHere();
         }
-        ImGui::SetNextItemWidth(std::max(180.0f, ImGui::GetContentRegionAvail().x * 0.34f));
+        const float clear_width = ImGui::CalcTextSize("Clear").x +
+            ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SetNextItemWidth(std::max(
+            140.0f,
+            ImGui::GetContentRegionAvail().x - clear_width - ImGui::GetStyle().ItemSpacing.x
+        ));
         ImGui::InputTextWithHint(
             "##asset_search",
-            "Search name/path; t:, ext:, status:, id:...",
+            "Search assets; t:, path:, ext:, status:, id:...",
             m_search_query.data(),
             m_search_query.size()
         );
@@ -1486,12 +1466,15 @@ void AssetBrowserPanel::on_gui() {
         ImGui::BeginDisabled(m_search_query.front() == '\0');
         if (ImGui::Button("Clear")) m_search_query.fill('\0');
         ImGui::EndDisabled();
-        ImGui::SameLine();
+    };
 
+    const auto draw_scope = [this]() {
+        ImGui::TextDisabled("Scope");
+        ImGui::SameLine();
         const char* scope_label = m_collection == AssetBrowserCollection::All &&
                 m_search_scope == AssetBrowserScope::CurrentFolder
             ? "Current folder" : "Entire project";
-        ImGui::SetNextItemWidth(130.0f);
+        ImGui::SetNextItemWidth(std::max(130.0f, ImGui::GetContentRegionAvail().x));
         ImGui::BeginDisabled(m_collection != AssetBrowserCollection::All);
         if (ImGui::BeginCombo("##asset_scope", scope_label)) {
             if (ImGui::Selectable(
@@ -1509,7 +1492,9 @@ void AssetBrowserPanel::on_gui() {
             ImGui::EndCombo();
         }
         ImGui::EndDisabled();
+    };
 
+    const auto draw_filters = [this](bool split_sort) {
         ImGui::SetNextItemWidth(125.0f);
         if (ImGui::BeginCombo("##asset_type", AssetBrowserQuery::type_filter_name(m_type_filter))) {
             for (int value = static_cast<int>(AssetBrowserTypeFilter::All);
@@ -1541,7 +1526,7 @@ void AssetBrowserPanel::on_gui() {
             }
             ImGui::EndCombo();
         }
-        ImGui::SameLine();
+        if (!split_sort) ImGui::SameLine();
         ImGui::SetNextItemWidth(105.0f);
         if (ImGui::BeginCombo("##asset_sort", AssetBrowserQuery::sort_name(m_sort))) {
             for (int value = static_cast<int>(AssetBrowserSort::Name);
@@ -1559,22 +1544,30 @@ void AssetBrowserPanel::on_gui() {
             m_sort_ascending = !m_sort_ascending;
             save_preferences();
         }
+    };
 
+    const auto draw_view = [this]() {
         ImGui::TextDisabled("View");
         ImGui::SameLine();
         const auto view_button = [this](const char* label, AssetBrowserViewMode mode) {
             const bool active = m_view_mode == mode;
-            if (active) {
-                ImGui::PushStyleColor(
-                    ImGuiCol_Button,
-                    ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive)
-                );
-            }
+            ImGui::PushStyleColor(
+                ImGuiCol_Button,
+                active
+                    ? ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive)
+                    : ImGui::GetStyleColorVec4(ImGuiCol_FrameBg)
+            );
+            ImGui::PushStyleColor(
+                ImGuiCol_ButtonHovered,
+                active
+                    ? ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered)
+                    : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered)
+            );
             if (ImGui::Button(label)) {
                 m_view_mode = mode;
                 save_preferences();
             }
-            if (active) ImGui::PopStyleColor();
+            ImGui::PopStyleColor(2);
         };
         view_button("Grid", AssetBrowserViewMode::Grid);
         ImGui::SameLine();
@@ -1583,12 +1576,72 @@ void AssetBrowserPanel::on_gui() {
         view_button("Details", AssetBrowserViewMode::Details);
         if (m_view_mode == AssetBrowserViewMode::Grid) {
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(120.0f);
+            ImGui::SetNextItemWidth(std::max(95.0f, ImGui::GetContentRegionAvail().x));
             ImGui::SliderFloat(
                 "##asset_size", &m_thumbnail_size, 48.0f, 112.0f, "Tiles %.0f"
             );
             if (ImGui::IsItemDeactivatedAfterEdit()) save_preferences();
         }
+    };
+
+    const float available_width = ImGui::GetContentRegionAvail().x;
+    if (available_width >= 900.0f && ImGui::BeginTable(
+            "AssetBrowserToolbar", 2,
+            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoPadOuterX
+        )) {
+        ImGui::TableSetupColumn("SearchFilters", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("ScopeView", ImGuiTableColumnFlags_WidthFixed, 410.0f);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        draw_search();
+        ImGui::TableSetColumnIndex(1);
+        draw_scope();
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        draw_filters(false);
+        ImGui::TableSetColumnIndex(1);
+        draw_view();
+        ImGui::EndTable();
+    } else {
+        draw_search();
+        draw_scope();
+        draw_filters(available_width < 560.0f);
+        draw_view();
+    }
+}
+
+void AssetBrowserPanel::on_gui() {
+    if (!is_open) return;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+    if (ImGui::Begin("Asset Browser", &is_open)) {
+        const bool at_root = m_current_path == m_root_path;
+        ImGui::BeginDisabled(at_root);
+        if (ImGui::Button("< Up")) navigate_to(m_current_path.parent_path());
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+
+        std::filesystem::path breadcrumb = m_root_path;
+        ImGui::PushID("asset_breadcrumb_root");
+        if (ImGui::SmallButton(m_root_path.filename().string().c_str())) navigate_to(m_root_path);
+        ImGui::PopID();
+        const std::filesystem::path relative = m_current_path.lexically_relative(m_root_path);
+        int breadcrumb_index = 0;
+        for (const auto& part : relative) {
+            if (part == ".") continue;
+            breadcrumb /= part;
+            ImGui::SameLine();
+            ImGui::TextDisabled("/");
+            ImGui::SameLine();
+            ImGui::PushID(breadcrumb_index++);
+            if (ImGui::SmallButton(part.string().c_str())) navigate_to(breadcrumb);
+            ImGui::PopID();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Refresh")) refresh();
+
+        draw_toolbar();
+        const ImGuiIO& io = ImGui::GetIO();
 
         AssetBrowserQueryOptions query_options;
         query_options.text = m_search_query.data();

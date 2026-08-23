@@ -88,12 +88,14 @@ void InspectorPanel::on_gui() {
 
     ImGui::SetNextWindowSize(ImVec2(320, 500), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 0.92f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 7.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 3.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 4.0f));
         if (!m_scene_manager || !m_selection) {
             ImGui::TextDisabled("Inspector unavailable.");
             ImGui::PopStyleVar(3);
+            ImGui::PopFont();
             ImGui::End();
             return;
         }
@@ -102,6 +104,7 @@ void InspectorPanel::on_gui() {
         if (!active_scene) {
             ImGui::TextDisabled("No active scene.");
             ImGui::PopStyleVar(3);
+            ImGui::PopFont();
             ImGui::End();
             return;
         }
@@ -116,6 +119,7 @@ void InspectorPanel::on_gui() {
             ImGui::Separator();
             ImGui::TextWrapped("Select an entity from the Scene Hierarchy panel or drag-select in the Viewport to inspect components.");
             ImGui::PopStyleVar(3);
+            ImGui::PopFont();
             ImGui::End();
             return;
         }
@@ -132,6 +136,7 @@ void InspectorPanel::on_gui() {
         }
         if (selected_ids.empty()) {
             ImGui::PopStyleVar(3);
+            ImGui::PopFont();
             ImGui::End();
             return;
         }
@@ -139,6 +144,7 @@ void InspectorPanel::on_gui() {
         if (selected_ids.size() > 1) {
             draw_multi_components(em, selected_ids);
             ImGui::PopStyleVar(3);
+            ImGui::PopFont();
             ImGui::End();
             return;
         }
@@ -147,6 +153,7 @@ void InspectorPanel::on_gui() {
 
         draw_components(em, selected_id);
         ImGui::PopStyleVar(3);
+        ImGui::PopFont();
     }
     ImGui::End();
 }
@@ -724,7 +731,6 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         m_asset_manager,
         m_command_history.get(),
         &m_property_transactions,
-        &m_animation_preview,
         m_anim_studio,
         is_locked,
         m_create_material,

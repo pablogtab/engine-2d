@@ -12,6 +12,9 @@
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <vector>
 
 namespace Engine {
 
@@ -149,20 +152,24 @@ void SpriteAnimationStudioPanel::on_gui() {
 
         // --- Main Workspace Columns (Left: Live Preview & Clips | Right: Spritesheet Slicer) ---
         float left_col_width = 300.0f;
-        float avail_width = ImGui::GetContentRegionAvail().x;
-        float avail_height = ImGui::GetContentRegionAvail().y - 140.0f; // Leave space for bottom timeline
+        const float workspace_height = std::max(
+            240.0f, ImGui::GetContentRegionAvail().y - 120.0f
+        );
 
         ImGui::Columns(2, "StudioColumns", true);
         ImGui::SetColumnWidth(0, left_col_width);
 
         // 1. Left: Live Preview Viewport & Clip Manager
-        render_preview_viewport(em, m_target_entity, left_col_width);
+        ImGui::BeginChild("AnimationSidebar", ImVec2(0.0f, workspace_height), false);
+        render_preview_viewport(em, m_target_entity);
+        render_animation_settings(em, m_target_entity);
         render_clip_tabs(em, m_target_entity);
+        ImGui::EndChild();
 
         ImGui::NextColumn();
 
         // 2. Right: Spritesheet Interactive Canvas & Slicer
-        render_spritesheet_canvas(em, m_target_entity);
+        render_spritesheet_canvas(em, m_target_entity, workspace_height);
 
         ImGui::Columns(1);
         ImGui::Separator();
@@ -191,7 +198,7 @@ void SpriteAnimationStudioPanel::render_top_bar(EntityManager& em, EntityID enti
     ImGui::SliderFloat("Sheet Zoom", &m_sheet_zoom, 0.5f, 4.0f, "%.1fx");
 }
 
-void SpriteAnimationStudioPanel::render_preview_viewport(EntityManager& em, EntityID entity, float avail_width) {
+void SpriteAnimationStudioPanel::render_preview_viewport(EntityManager& em, EntityID entity) {
     auto& anim = em.get_component<AnimationComponent>(entity);
     auto& sprite = em.get_component<SpriteComponent>(entity);
     Texture* tex = sprite.texture;
@@ -344,6 +351,61 @@ void SpriteAnimationStudioPanel::render_preview_viewport(EntityManager& em, Enti
     }
 }
 
+void SpriteAnimationStudioPanel::render_animation_settings(
+    EntityManager& em,
+    EntityID entity
+) {
+    auto& animation = em.get_component<AnimationComponent>(entity);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextColored(
+        ImVec4(0.49f, 0.46f, 0.95f, 1.0f),
+        "ANIMATION SETTINGS"
+    );
+
+    const AnimationComponent play_on_start_before = animation;
+    InspectorWidgets::property_bool("Play On Start", &animation.play_on_start);
+    track_edit(
+        em,
+        entity,
+        play_on_start_before,
+        "AnimationStudio.PlayOnStart",
+        "Toggle Animation Play On Start"
+    );
+
+    if (!animation.clips.empty()) {
+        std::vector<const char*> clip_names;
+        clip_names.reserve(animation.clips.size());
+        for (const AnimationClip& clip : animation.clips) {
+            clip_names.push_back(clip.name.c_str());
+        }
+        int default_clip = std::clamp(
+            animation.default_clip_index,
+            0,
+            static_cast<int>(animation.clips.size()) - 1
+        );
+        const AnimationComponent default_before = animation;
+        const bool default_changed = InspectorWidgets::property_enum(
+            "Default Clip",
+            &default_clip,
+            clip_names.data(),
+            static_cast<int>(clip_names.size())
+        );
+        if (default_changed) animation.default_clip_index = default_clip;
+        track_edit(
+            em,
+            entity,
+            default_before,
+            "AnimationStudio.DefaultClip",
+            "Change Default Animation Clip",
+            default_changed
+        );
+    } else {
+        ImGui::TextDisabled("Add a clip to choose the default animation.");
+    }
+}
+
 void SpriteAnimationStudioPanel::render_clip_tabs(EntityManager& em, EntityID entity) {
     auto& anim = em.get_component<AnimationComponent>(entity);
 
@@ -412,6 +474,42 @@ void SpriteAnimationStudioPanel::render_clip_tabs(EntityManager& em, EntityID en
         InspectorWidgets::capture_property_interaction();
         track_edit(em, entity, name_before, "AnimationStudio.ClipName", "Rename Animation Clip");
 
+        if (active_clip->custom_frames.empty()) {
+            const int maximum_frame = std::max(0, anim.columns * anim.rows - 1);
+            const AnimationComponent start_before = anim;
+            const bool start_changed = InspectorWidgets::property_int(
+                "Start Frame",
+                &active_clip->start_frame,
+                InspectorPropertyPolicies::bounded_int(1.0f, 0, maximum_frame)
+            );
+            track_edit(
+                em,
+                entity,
+                start_before,
+                "AnimationStudio.ClipStart",
+                "Edit Animation Clip Start Frame"
+            );
+            if (start_changed) m_preview_frame = active_clip->start_frame;
+
+            const AnimationComponent count_before = anim;
+            InspectorWidgets::property_int(
+                "Frame Count",
+                &active_clip->frame_count,
+                InspectorPropertyPolicies::bounded_int(
+                    1.0f, 1, std::max(1, anim.columns * anim.rows)
+                )
+            );
+            track_edit(
+                em,
+                entity,
+                count_before,
+                "AnimationStudio.ClipCount",
+                "Edit Animation Clip Frame Count"
+            );
+        } else {
+            ImGui::TextDisabled("%zu custom frames", active_clip->custom_frames.size());
+        }
+
         const AnimationComponent speed_before = anim;
         InspectorWidgets::begin_property_interaction("AnimationStudio.ClipSpeed");
         const auto& speed_policy = InspectorPropertyPolicies::Animation::FramesPerSecond;
@@ -430,10 +528,15 @@ void SpriteAnimationStudioPanel::render_clip_tabs(EntityManager& em, EntityID en
     }
 }
 
-void SpriteAnimationStudioPanel::render_spritesheet_canvas(EntityManager& em, EntityID entity) {
+void SpriteAnimationStudioPanel::render_spritesheet_canvas(
+    EntityManager& em,
+    EntityID entity,
+    float available_height
+) {
     auto& anim = em.get_component<AnimationComponent>(entity);
     auto& sprite = em.get_component<SpriteComponent>(entity);
     Texture* tex = sprite.texture;
+    const float controls_start_y = ImGui::GetCursorPosY();
 
     if (!tex || !tex->get_sdl_texture()) {
         ImGui::TextDisabled("No spritesheet texture assigned to this entity.");
@@ -486,25 +589,49 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(EntityManager& em, En
         );
         InspectorWidgets::capture_property_interaction();
         track_edit(em, entity, height_before, "AnimationStudio.FrameHeight", "Edit Animation Frame Height");
-        ImGui::SameLine();
+
         const AnimationComponent spacing_before = anim;
-        ImGui::SetNextItemWidth(60.0f);
+        float spacing[2]{anim.spacing_x, anim.spacing_y};
+        ImGui::SetNextItemWidth(150.0f);
         InspectorWidgets::begin_property_interaction("AnimationStudio.Spacing");
         const auto& padding_policy = InspectorPropertyPolicies::Animation::GridPadding;
-        if (ImGui::DragFloat(
-                "Spacing", &anim.spacing_x, padding_policy.speed,
+        if (ImGui::DragFloat2(
+                "Spacing", spacing, padding_policy.speed,
                 padding_policy.minimum, padding_policy.maximum, padding_policy.format
             )) {
-            anim.spacing_y = anim.spacing_x;
+            anim.spacing_x = padding_policy.sanitize(spacing[0]);
+            anim.spacing_y = padding_policy.sanitize(spacing[1]);
         }
         InspectorWidgets::capture_property_interaction();
         track_edit(em, entity, spacing_before, "AnimationStudio.Spacing", "Edit Animation Spacing");
+        ImGui::SameLine();
+
+        const AnimationComponent margin_before = anim;
+        float margin[2]{anim.margin_x, anim.margin_y};
+        ImGui::SetNextItemWidth(150.0f);
+        InspectorWidgets::begin_property_interaction("AnimationStudio.Margin");
+        if (ImGui::DragFloat2(
+                "Margin", margin, padding_policy.speed,
+                padding_policy.minimum, padding_policy.maximum, padding_policy.format
+            )) {
+            anim.margin_x = padding_policy.sanitize(margin[0]);
+            anim.margin_y = padding_policy.sanitize(margin[1]);
+        }
+        InspectorWidgets::capture_property_interaction();
+        track_edit(em, entity, margin_before, "AnimationStudio.Margin", "Edit Animation Margin");
     } else {
         ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "💡 Click & drag a box over the texture to carve any custom frame!");
     }
 
     // Canvas Scroll Area
-    ImGui::BeginChild("SpritesheetCanvas", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
+    const float controls_height = ImGui::GetCursorPosY() - controls_start_y;
+    const float canvas_height = std::max(100.0f, available_height - controls_height);
+    ImGui::BeginChild(
+        "SpritesheetCanvas",
+        ImVec2(0.0f, canvas_height),
+        ImGuiChildFlags_Borders,
+        ImGuiWindowFlags_HorizontalScrollbar
+    );
 
     float tex_w = static_cast<float>(tex->get_width());
     float tex_h = static_cast<float>(tex->get_height());

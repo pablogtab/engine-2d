@@ -71,6 +71,7 @@ private:
     void draw_folder_tree();
     void draw_folder_tree_node(const std::filesystem::path& directory);
     void draw_folder_drop_target(const std::filesystem::path& directory);
+    void draw_toolbar();
     void draw_selected_asset_details();
     void select_entry(const AssetBrowserEntry& entry);
     void select_only(const AssetBrowserEntry& entry);

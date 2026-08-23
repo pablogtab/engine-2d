@@ -35,8 +35,13 @@ public:
 
 private:
     void render_top_bar(EntityManager& em, EntityID entity);
-    void render_preview_viewport(EntityManager& em, EntityID entity, float avail_width);
-    void render_spritesheet_canvas(EntityManager& em, EntityID entity);
+    void render_preview_viewport(EntityManager& em, EntityID entity);
+    void render_animation_settings(EntityManager& em, EntityID entity);
+    void render_spritesheet_canvas(
+        EntityManager& em,
+        EntityID entity,
+        float available_height
+    );
     void render_timeline(EntityManager& em, EntityID entity);
     void render_clip_tabs(EntityManager& em, EntityID entity);
     void reset_preview(EntityID entity, const AnimationComponent& animation, int clip_index = -1);

@@ -264,8 +264,6 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
             AnimationInspectorDrawer::draw(em, entity, {
                 context.command_history,
-                context.transactions,
-                context.animation_preview,
                 context.animation_studio
             });
         },

@@ -20,7 +20,6 @@ class EditorCommandHistory;
 class EditorPropertyTransaction;
 class SpriteAnimationStudioPanel;
 class ScriptRuntime;
-struct AnimationPreviewState;
 
 enum class EditorComponentCategory {
     Core,
@@ -37,7 +36,6 @@ struct EditorInspectorContext {
     AssetManager* asset_manager{nullptr};
     EditorCommandHistory* command_history{nullptr};
     EditorPropertyTransaction* transactions{nullptr};
-    AnimationPreviewState* animation_preview{nullptr};
     SpriteAnimationStudioPanel* animation_studio{nullptr};
     bool locked{false};
     std::function<AssetHandle()> create_material;

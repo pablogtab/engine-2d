@@ -4,7 +4,6 @@
 #include "../EditorSelection.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/EditorPropertyTransaction.hpp"
-#include "../inspector/AnimationInspectorDrawer.hpp"
 #include "../../core/AssetHandle.hpp"
 #include <imgui.h>
 #include <string>
@@ -64,7 +63,6 @@ private:
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     std::shared_ptr<class EditorEntityStateStore> m_entity_state_store{nullptr};
     EditorPropertyTransaction m_property_transactions;
-    AnimationPreviewState m_animation_preview;
     SDL_Renderer* m_renderer{nullptr};
     AssetManager* m_asset_manager{nullptr};
     class SpriteAnimationStudioPanel* m_anim_studio{nullptr};
