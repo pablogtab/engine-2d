@@ -1070,6 +1070,70 @@ target_include_directories(PrefabStageControllerTests PRIVATE
 target_link_libraries(PrefabStageControllerTests PRIVATE SDL3::SDL3 glm::glm box2d)
 add_test(NAME PrefabStageControllerTests COMMAND PrefabStageControllerTests)
 
+# -----------------------------------------------------------------------------
+# EngineScript Research & Compiler Library Targets (Phase 11)
+# -----------------------------------------------------------------------------
+set(ENGINESCRIPT_SOURCES
+    src/enginescript/core/SourceManager.cpp
+    src/enginescript/core/DiagnosticEngine.cpp
+    src/enginescript/lexer/Lexer.cpp
+    src/enginescript/ast/ASTPrinter.cpp
+    src/enginescript/parser/Parser.cpp
+    src/enginescript/symbols/SymbolResolver.cpp
+    src/enginescript/depgraph/DependencyGraph.cpp
+    src/enginescript/types/TypeChecker.cpp
+    src/enginescript/ir/IRLowering.cpp
+    src/enginescript/ir/IRVerifier.cpp
+    src/enginescript/codegen/CppEmitter.cpp
+    src/enginescript/codegen/MetadataEmitter.cpp
+    src/enginescript/di/DependencyInjection.cpp
+    src/enginescript/generics/Generics.cpp
+    src/enginescript/cache/CompilerCache.cpp
+    src/enginescript/async/AsyncScheduler.cpp
+    src/enginescript/module/GameModule.cpp
+    src/enginescript/module/HotReloadManager.cpp
+    src/enginescript/editor/EngineScriptWorkspace.cpp
+    src/enginescript/lsp/LanguageServer.cpp
+)
+
+add_library(EngineScriptLib STATIC ${ENGINESCRIPT_SOURCES})
+target_include_directories(EngineScriptLib PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(EngineScriptLib PUBLIC glm::glm)
+
+macro(add_enginescript_test test_name test_source)
+    add_executable(${test_name} ${test_source})
+    target_include_directories(${test_name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    )
+    target_link_libraries(${test_name} PRIVATE EngineScriptLib glm::glm)
+    add_test(NAME ${test_name} COMMAND ${test_name})
+endmacro()
+
+add_enginescript_test(EngineScriptSourceTests tests/EngineScriptSourceTests.cpp)
+add_enginescript_test(EngineScriptLexerTests tests/EngineScriptLexerTests.cpp)
+add_enginescript_test(EngineScriptParserTests tests/EngineScriptParserTests.cpp)
+add_enginescript_test(EngineScriptResolverTests tests/EngineScriptResolverTests.cpp)
+add_enginescript_test(EngineScriptDependencyTests tests/EngineScriptDependencyTests.cpp)
+add_enginescript_test(EngineScriptTypeCheckerTests tests/EngineScriptTypeCheckerTests.cpp)
+add_enginescript_test(EngineScriptIRTests tests/EngineScriptIRTests.cpp)
+add_enginescript_test(EngineScriptCodegenTests tests/EngineScriptCodegenTests.cpp)
+add_enginescript_test(EngineScriptMetadataTests tests/EngineScriptMetadataTests.cpp)
+add_enginescript_test(EngineScriptDITests tests/EngineScriptDITests.cpp)
+add_enginescript_test(EngineScriptGenericTests tests/EngineScriptGenericTests.cpp)
+add_enginescript_test(EngineScriptCacheTests tests/EngineScriptCacheTests.cpp)
+add_enginescript_test(EngineScriptAsyncTests tests/EngineScriptAsyncTests.cpp)
+add_enginescript_test(EngineScriptModuleTests tests/EngineScriptModuleTests.cpp)
+add_enginescript_test(EngineScriptHotReloadTests tests/EngineScriptHotReloadTests.cpp)
+add_enginescript_test(EngineScriptEditorIntegrationTests tests/EngineScriptEditorIntegrationTests.cpp)
+add_enginescript_test(EngineScriptProjectTests tests/EngineScriptProjectTests.cpp)
+add_enginescript_test(EngineScriptLspTests tests/EngineScriptLspTests.cpp)
+add_enginescript_test(EngineScriptPlatformerSpikeTests tests/EngineScriptPlatformerSpikeTests.cpp)
+
+
 function(engine_use_runtime_for_test target)
     get_target_property(test_sources ${target} SOURCES)
     foreach(runtime_source IN LISTS ENGINE_RUNTIME_SOURCES)

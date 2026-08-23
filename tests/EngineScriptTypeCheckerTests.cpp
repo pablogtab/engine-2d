@@ -1,0 +1,101 @@
+#include <cassert>
+#include <iostream>
+#include "enginescript/core/SourceManager.hpp"
+#include "enginescript/lexer/Lexer.hpp"
+#include "enginescript/parser/Parser.hpp"
+#include "enginescript/symbols/SymbolResolver.hpp"
+#include "enginescript/types/TypeChecker.hpp"
+
+using namespace EngineScript;
+
+int main() {
+    std::cout << "[TEST] Running EngineScriptTypeCheckerTests...\n";
+
+    SourceManager sm("/workspace");
+    DiagnosticEngine diags;
+
+    // Test 1: Valid Platformer Player type checking
+    std::string player_code = R"(
+        @behaviour
+        export class PlatformerPlayer extends Behaviour {
+            constructor(
+                @inject private input: Input,
+                @component private body: RigidBody2D,
+                @optional private animator: Animator2D?
+            ) {}
+
+            @expose({ min: 0.0, max: 1000.0 })
+            walkSpeed: Float = 220.0;
+
+            @expose
+            jumpSpeed: Float = 480.0;
+
+            override update(deltaTime: Float): Void {
+                let axis: Float = input.axis("Horizontal");
+                body.velocity.x = axis * walkSpeed;
+                if (input.pressed("Jump") && body.isGrounded) {
+                    body.velocity.y = -jumpSpeed;
+                }
+            }
+
+            async respawn(): Task<Void> {
+                await delay(500.ms);
+                animator?.play("idle");
+            }
+        }
+    )";
+
+    FileId f1 = sm.register_source("Source/Behaviours/PlatformerPlayer.e2s", player_code);
+    Lexer l1(f1, player_code, diags);
+    Parser p1(f1, "Source/Behaviours/PlatformerPlayer.e2s", l1.tokenize_all(), diags);
+    auto m1 = p1.parse_module();
+
+    SymbolResolver resolver(sm, diags);
+    resolver.resolve_module(m1);
+
+    TypeChecker checker(resolver, diags);
+    bool ok = checker.check_module(m1);
+
+    assert(ok);
+    assert(!diags.has_errors());
+
+    // Test 2: Incompatible assignment type error
+    DiagnosticEngine err_diags;
+    std::string bad_code = R"(
+        function test(): Void {
+            let speed: Float = "fast";
+        }
+    )";
+    FileId f2 = sm.register_source("Source/Bad.e2s", bad_code);
+    Lexer l2(f2, bad_code, err_diags);
+    Parser p2(f2, "Source/Bad.e2s", l2.tokenize_all(), err_diags);
+    auto m2 = p2.parse_module();
+    SymbolResolver res2(sm, err_diags);
+    res2.resolve_module(m2);
+    TypeChecker check2(res2, err_diags);
+    check2.check_module(m2);
+
+    assert(err_diags.has_errors());
+    assert(err_diags.error_count() == 1);
+
+    // Test 3: Missing return on all paths
+    DiagnosticEngine ret_diags;
+    std::string no_ret_code = R"(
+        function calculate(): Float {
+            let x: Float = 10.0;
+        }
+    )";
+    FileId f3 = sm.register_source("Source/NoRet.e2s", no_ret_code);
+    Lexer l3(f3, no_ret_code, ret_diags);
+    Parser p3(f3, "Source/NoRet.e2s", l3.tokenize_all(), ret_diags);
+    auto m3 = p3.parse_module();
+    SymbolResolver res3(sm, ret_diags);
+    res3.resolve_module(m3);
+    TypeChecker check3(res3, ret_diags);
+    check3.check_module(m3);
+
+    assert(ret_diags.has_errors());
+
+    std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
+    return 0;
+}

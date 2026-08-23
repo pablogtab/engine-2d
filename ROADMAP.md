@@ -510,18 +510,18 @@ decorators, dependency injection, deterministic generic collections, structured
 async/await, C++20 generation, external VSCode tooling, and safe module hot
 reload.
 
-- [ ] Approve the language constitution, non-goals, ownership rules, grammar,
+- [x] Approve the language constitution, non-goals, ownership rules, grammar,
   type system, decorator semantics, DI scopes, and async contract.
-- [ ] Build the compiler frontend and native backend behind isolated tooling;
+- [x] Build the compiler frontend and native backend behind isolated tooling;
   keep Luau unchanged while the experiment is incomplete.
-- [ ] Generate deterministic editor metadata and a versioned GameModule ABI.
-- [ ] Validate compiler cache, dependency invalidation, hot reload rollback,
+- [x] Generate deterministic editor metadata and a versioned GameModule ABI.
+- [x] Validate compiler cache, dependency invalidation, hot reload rollback,
   serialization, Undo/Redo, and last-known-good behavior.
-- [ ] Provide compiler-backed VSCode/LSP authoring before considering the
+- [x] Provide compiler-backed VSCode/LSP authoring before considering the
   language usable.
-- [ ] Complete the mandatory platformer spike and record cold/incremental build,
+- [x] Complete the mandatory platformer spike and record cold/incremental build,
   reload, size, memory, diagnostic, macOS, Windows, and iOS results.
-- [ ] Make an explicit continue, reduce, change-language, or abandon decision.
+- [x] Make an explicit continue, reduce, change-language, or abandon decision.
 - [ ] Remove Luau only after approval of a complete clean migration.
 
 **Completion criteria:** EngineScript may replace Luau only when the platformer
@@ -638,15 +638,15 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phase 11 — EngineScript Research Suites
 
-- [ ] Add isolated source, lexer, parser, resolver, type-checker, TypedIR,
+- [x] Add isolated source, lexer, parser, resolver, type-checker, TypedIR,
   codegen, metadata, dependency-graph, and compiler-cache suites.
-- [ ] Compile generated C++ fixtures with supported native toolchains instead of
+- [x] Compile generated C++ fixtures with supported native toolchains instead of
   relying only on textual snapshots.
-- [ ] Add DI scope/cycle/component validation, deterministic collection, generic
+- [x] Add DI scope/cycle/component validation, deterministic collection, generic
   constraint/monomorphization, async scheduling/cancellation, module ABI, and hot
   reload rollback suites.
-- [ ] Add project/editor integration and compiler-backed LSP protocol suites.
-- [ ] Keep all EngineScript tests isolated from the active Luau runtime until the
+- [x] Add project/editor integration and compiler-backed LSP protocol suites.
+- [x] Keep all EngineScript tests isolated from the active Luau runtime until the
   replacement gate is approved.
 
 ### Continuous Test Gates
@@ -730,6 +730,6 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Add reversible import of locally generated WAV assets.
    - [ ] Add named command/build tools and audio analysis before expanding into material, prefab, scene, Tilemap, and animation authoring APIs.
 9. **EngineScript Specification Gate (Phase 11)**:
-   - [ ] Approve the language constitution and non-goals before implementing a compiler.
-   - [ ] Specify grammar, ownership, types, generics, decorators, DI, async, module ABI, and editor metadata.
-   - [ ] Keep Luau as the active runtime until the mandatory platformer spike and explicit replacement decision.
+   - [x] Approve the language constitution and non-goals before implementing a compiler.
+   - [x] Specify grammar, ownership, types, generics, decorators, DI, async, module ABI, and editor metadata.
+   - [x] Keep Luau as the active runtime until the mandatory platformer spike and explicit replacement decision.
