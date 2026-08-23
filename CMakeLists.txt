@@ -1160,6 +1160,15 @@ add_enginescript_test(EngineScriptProjectTests tests/EngineScriptProjectTests.cp
 add_enginescript_test(EngineScriptLspTests tests/EngineScriptLspTests.cpp)
 add_enginescript_test(EngineScriptPlatformerSpikeTests tests/EngineScriptPlatformerSpikeTests.cpp)
 
+add_executable(EngineScriptPlayModeTests tests/EngineScriptPlayModeTests.cpp)
+target_include_directories(EngineScriptPlayModeTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(EngineScriptPlayModeTests PRIVATE EngineRuntime EngineScriptLib glm::glm)
+add_test(NAME EngineScriptPlayModeTests COMMAND EngineScriptPlayModeTests)
+
 
 function(engine_use_runtime_for_test target)
     get_target_property(test_sources ${target} SOURCES)

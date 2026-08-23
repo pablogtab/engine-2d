@@ -18,6 +18,9 @@
 #include <lua.h>
 #include <lualib.h>
 
+#include "../enginescript/editor/EngineScriptWorkspace.hpp"
+#include "../enginescript/async/AsyncScheduler.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -242,6 +245,43 @@ CompiledAsset compile_asset(AssetHandle handle, const AssetDatabase& database) {
     const std::string source = FileSystem::read_text(path);
     if (source.empty()) {
         result.error = "script source is empty or unreadable";
+        return result;
+    }
+    const bool is_enginescript = record->source_path.ends_with(".e2s") || path.ends_with(".e2s");
+    if (is_enginescript) {
+        EngineScript::EngineScriptWorkspace ws("");
+        ws.add_source_file(record->source_path, source);
+        const auto res = ws.compile();
+        if (!res.success) {
+            result.error = res.diagnostics.empty() ? "EngineScript compilation failed" : res.diagnostics.front().message;
+            return result;
+        }
+        result.chunk_name = "@" + record->source_path;
+        result.success = true;
+        for (const auto& b : ws.metadata_manifest().behaviours) {
+            for (const auto& p : b.properties) {
+                ScriptPublicField f;
+                f.name = p.name;
+                if (p.type == "Float" || p.type == "Int") {
+                    f.type = ScriptFieldType::Number;
+                    try {
+                        f.value = std::stod(p.default_value_str.empty() ? "0.0" : p.default_value_str);
+                    } catch (...) {
+                        f.value = 0.0;
+                    }
+                } else if (p.type == "Bool") {
+                    f.type = ScriptFieldType::Boolean;
+                    f.value = (p.default_value_str == "true");
+                } else if (p.type == "String") {
+                    f.type = ScriptFieldType::String;
+                    f.value = p.default_value_str;
+                } else if (p.type == "Vec2") {
+                    f.type = ScriptFieldType::Vector2;
+                    f.value = ScriptVector2{0.0f, 0.0f};
+                }
+                result.fields.push_back(f);
+            }
+        }
         return result;
     }
     if (!has_strict_directive(source)) {
@@ -739,6 +779,8 @@ const ScriptPublicField* find_override(
 
 } // namespace
 
+ScriptRuntime::ScriptRuntime() {}
+
 ScriptRuntime::~ScriptRuntime() {
     shutdown();
 }
@@ -759,6 +801,9 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     m_event_dispatcher = dispatcher;
     m_services = std::move(other.m_services);
     m_instances = std::move(other.m_instances);
+    m_native_instances = std::move(other.m_native_instances);
+    m_native_workspace = std::move(other.m_native_workspace);
+    m_native_async_scheduler = std::move(other.m_native_async_scheduler);
     m_statuses = std::move(other.m_statuses);
     m_source_signatures = std::move(other.m_source_signatures);
     m_reload_errors = std::move(other.m_reload_errors);
@@ -770,6 +815,9 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     other.m_asset_database = nullptr;
     other.m_services = {};
     other.m_instances.clear();
+    other.m_native_instances.clear();
+    other.m_native_workspace.reset();
+    other.m_native_async_scheduler.reset();
     other.m_statuses.clear();
     other.m_source_signatures.clear();
     other.m_reload_errors.clear();
@@ -806,6 +854,8 @@ ScriptRuntimeStartResult ScriptRuntime::start(
     m_asset_database = &asset_database;
     m_event_dispatcher = event_dispatcher;
     m_services = std::move(services);
+    m_native_workspace = std::make_unique<EngineScript::EngineScriptWorkspace>("");
+    m_native_async_scheduler = std::make_unique<EngineScript::AsyncScheduler>();
     m_state = luaL_newstate();
     if (!m_state) {
         m_entity_manager = nullptr;
@@ -832,6 +882,32 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         if (!compiled->second.success) {
             error = compiled->second.error;
         }
+
+        const AssetRecord* record = asset_database.find(component.script_handle);
+        const bool is_enginescript = record && (record->source_path.ends_with(".e2s") || asset_database.resolve(component.script_handle).ends_with(".e2s"));
+        if (is_enginescript) {
+            if (compiled->second.success) {
+                NativeInstance inst;
+                inst.entity = entity;
+                inst.script_handle = component.script_handle;
+                inst.script_path = record->source_path;
+                inst.field_definitions = compiled->second.fields;
+                inst.on_start_fn = []() {};
+                inst.on_destroy_fn = []() {};
+                inst.update_fn = [this, entity](float dt) {
+                    static_cast<void>(dt);
+                    static_cast<void>(entity);
+                };
+                inst.on_start_fn();
+                m_native_instances.push_back(std::move(inst));
+                ++result.started;
+            } else {
+                ++result.failed;
+                set_error(entity, std::move(error));
+            }
+            return;
+        }
+
         if (compiled->second.success && create_instance(
                 entity,
                 component,
@@ -1291,6 +1367,19 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
 }
 
 void ScriptRuntime::update(float delta_time) {
+    if (m_native_async_scheduler) {
+        m_native_async_scheduler->step(delta_time, delta_time);
+    }
+    for (auto& inst : m_native_instances) {
+        const auto status_found = m_statuses.find(inst.entity);
+        if (status_found != m_statuses.end() && status_found->second.state == ScriptExecutionState::Error) continue;
+        if (!m_entity_manager || !m_entity_manager->is_alive(inst.entity) ||
+            !m_entity_manager->has_component<ScriptComponent>(inst.entity)) continue;
+        const auto& component = m_entity_manager->get_component<ScriptComponent>(inst.entity);
+        if (component.enabled && inst.update_fn) {
+            inst.update_fn(delta_time);
+        }
+    }
     if (!m_state || !m_entity_manager) return;
     for (auto& instance : m_instances) {
         const auto status_found = m_statuses.find(instance.entity);
@@ -1315,6 +1404,13 @@ void ScriptRuntime::release_instance(Instance& instance) {
 
 void ScriptRuntime::shutdown() {
     unsubscribe_from_events();
+    for (auto& inst : m_native_instances) {
+        if (inst.on_destroy_fn) inst.on_destroy_fn();
+    }
+    m_native_instances.clear();
+    m_native_workspace.reset();
+    m_native_async_scheduler.reset();
+
     if (m_state) {
         for (auto& instance : m_instances) {
             if (instance.created) static_cast<void>(call(instance, "on_destroy", 0.0f, false));

@@ -16,6 +16,11 @@
 
 struct lua_State;
 
+namespace EngineScript {
+class EngineScriptWorkspace;
+class AsyncScheduler;
+}
+
 namespace Engine {
 
 class AssetDatabase;
@@ -86,7 +91,7 @@ struct ScriptHotReloadResult {
 
 class ScriptRuntime {
 public:
-    ScriptRuntime() = default;
+    ScriptRuntime();
     ~ScriptRuntime();
 
     ScriptRuntime(const ScriptRuntime&) = delete;
@@ -105,8 +110,8 @@ public:
     [[nodiscard]] ScriptHotReloadResult reload_changed_scripts(bool force = false);
     void shutdown();
 
-    [[nodiscard]] bool is_running() const { return m_state != nullptr; }
-    [[nodiscard]] std::size_t instance_count() const { return m_instances.size(); }
+    [[nodiscard]] bool is_running() const { return m_state != nullptr || !m_native_instances.empty() || m_native_workspace != nullptr; }
+    [[nodiscard]] std::size_t instance_count() const { return m_instances.size() + m_native_instances.size(); }
     [[nodiscard]] const ScriptExecutionStatus* status(EntityID entity) const;
     [[nodiscard]] const std::string* reload_error(AssetHandle handle) const;
 
@@ -172,12 +177,26 @@ private:
     void release_instance(Instance& instance);
     void set_error(EntityID entity, std::string message);
 
+    struct NativeInstance {
+        EntityID entity{0};
+        AssetHandle script_handle{};
+        std::string script_path;
+        std::string class_name;
+        std::function<void(float)> update_fn;
+        std::function<void()> on_start_fn;
+        std::function<void()> on_destroy_fn;
+        std::vector<ScriptPublicField> field_definitions;
+    };
+
     lua_State* m_state{nullptr};
     EntityManager* m_entity_manager{nullptr};
     const AssetDatabase* m_asset_database{nullptr};
     EventDispatcher* m_event_dispatcher{nullptr};
     ScriptRuntimeServices m_services;
     std::vector<Instance> m_instances;
+    std::vector<NativeInstance> m_native_instances;
+    std::unique_ptr<EngineScript::EngineScriptWorkspace> m_native_workspace;
+    std::unique_ptr<EngineScript::AsyncScheduler> m_native_async_scheduler;
     std::unordered_map<EntityID, ScriptExecutionStatus> m_statuses;
     std::unordered_map<AssetHandle, std::optional<std::uint64_t>> m_source_signatures;
     std::unordered_map<AssetHandle, std::string> m_reload_errors;

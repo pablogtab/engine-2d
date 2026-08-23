@@ -1031,6 +1031,22 @@ void ViewportPanel::on_gui() {
                     if (ImGui::Button(" > Resume ", ImVec2(75, 24))) {
                         if (m_scene_manager) m_scene_manager->resume_play();
                     }
+                    ImGui::SameLine();
+                    if (ImGui::Button(" >| Step ", ImVec2(75, 24))) {
+                        if (m_scene_manager) {
+                            m_scene_manager->update(1.0f / 60.0f);
+                        }
+                    }
+                }
+
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(80.0f);
+                float ts = Time::get_time_scale();
+                if (ImGui::DragFloat("##TimeScale", &ts, 0.05f, 0.1f, 5.0f, "%.2fx")) {
+                    Time::set_time_scale(ts);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Simulation Timescale (0.1x - 5.0x)");
                 }
             }
 

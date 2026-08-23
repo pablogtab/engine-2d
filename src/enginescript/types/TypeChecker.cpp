@@ -455,6 +455,24 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 m_node_types[call] = m_type_void;
                 return m_type_void;
             }
+            if (mem->member_name == "play_sound" || mem->member_name == "play_music" || mem->member_name == "load_scene") {
+                m_node_types[call] = m_type_bool;
+                return m_type_bool;
+            }
+            if (mem->member_name == "stop_music" || mem->member_name == "set_master_volume") {
+                m_node_types[call] = m_type_void;
+                return m_type_void;
+            }
+            if (mem->member_name == "current_scene" || mem->member_name == "current_scene_name") {
+                m_node_types[call] = m_type_string;
+                return m_type_string;
+            }
+            if (mem->member_name == "raycast") {
+                auto hit_t = Type::make_generic(TypeKind::Class, "RaycastHit", {});
+                hit_t->is_nullable = true;
+                m_node_types[call] = hit_t;
+                return hit_t;
+            }
             if (mem->member_name == "push" || mem->member_name == "insert" || mem->member_name == "remove") {
                 m_node_types[call] = m_type_void;
                 return m_type_void;
@@ -514,6 +532,43 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             if (mem->member_name == "isGrounded") {
                 m_node_types[mem] = m_type_bool;
                 return m_type_bool;
+            }
+        }
+
+        // Display fields
+        if (obj_t->name == "Display") {
+            if (mem->member_name == "width" || mem->member_name == "height" || mem->member_name == "pixel_width" || mem->member_name == "pixel_height") {
+                m_node_types[mem] = m_type_int;
+                return m_type_int;
+            }
+            if (mem->member_name == "dpi_scale") {
+                m_node_types[mem] = m_type_float;
+                return m_type_float;
+            }
+            if (mem->member_name == "is_fullscreen") {
+                m_node_types[mem] = m_type_bool;
+                return m_type_bool;
+            }
+        }
+
+        // RaycastHit fields
+        if (obj_t->name == "RaycastHit") {
+            if (mem->member_name == "hit") {
+                m_node_types[mem] = m_type_bool;
+                return m_type_bool;
+            }
+            if (mem->member_name == "point" || mem->member_name == "normal") {
+                auto v2 = Type::make_primitive(TypeKind::Vec2);
+                m_node_types[mem] = v2;
+                return v2;
+            }
+            if (mem->member_name == "distance") {
+                m_node_types[mem] = m_type_float;
+                return m_type_float;
+            }
+            if (mem->member_name == "entity") {
+                m_node_types[mem] = m_type_entity;
+                return m_type_entity;
             }
         }
 
