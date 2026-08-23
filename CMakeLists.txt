@@ -237,6 +237,17 @@ target_include_directories(e2s-lsp PRIVATE
 )
 target_link_libraries(e2s-lsp PRIVATE EngineScriptLib glm::glm)
 
+add_custom_command(TARGET e2sc POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/editors/vscode/bin"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:e2sc>" "${CMAKE_SOURCE_DIR}/editors/vscode/bin/"
+    VERBATIM
+)
+add_custom_command(TARGET e2s-lsp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/editors/vscode/bin"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:e2s-lsp>" "${CMAKE_SOURCE_DIR}/editors/vscode/bin/"
+    VERBATIM
+)
+
 set(ENGINE_RUNTIME_SOURCES ${SOURCES})
 list(REMOVE_ITEM ENGINE_RUNTIME_SOURCES src/core/Application.cpp src/main.cpp)
 list(FILTER ENGINE_RUNTIME_SOURCES EXCLUDE REGEX "^src/editor/")

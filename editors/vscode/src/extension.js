@@ -1,48 +1,47 @@
 const path = require('path');
 const vscode = require('vscode');
-const { LanguageClient, TransportKind } = require('vscode-languageclient/node');
-
+const { LanguageClient } = require('vscode-languageclient/node');
 const fs = require('fs');
 
 let client;
 
 function findServerBinary() {
+    const isWindows = process.platform === 'win32';
+    const binaryName = isWindows ? 'e2s-lsp.exe' : 'e2s-lsp';
+
+    // 1. User specified custom path in settings
     const config = vscode.workspace.getConfiguration('enginescript');
     const customPath = config.get('serverPath');
     if (customPath && fs.existsSync(customPath)) {
         return customPath;
     }
 
-    // 1. Relative to extension directory in the repository
-    const extensionRelativeBuild = path.resolve(__dirname, '../../../build/e2s-lsp');
-    if (fs.existsSync(extensionRelativeBuild)) {
-        return extensionRelativeBuild;
+    // 2. Embedded directly in extension package: editors/vscode/bin/
+    const embeddedBin = path.resolve(__dirname, '..', 'bin', binaryName);
+    if (fs.existsSync(embeddedBin)) {
+        return embeddedBin;
     }
 
-    // 2. Check open workspace folders
+    // 3. Search in open workspace folders
     if (vscode.workspace.workspaceFolders) {
         for (const folder of vscode.workspace.workspaceFolders) {
             const root = folder.uri.fsPath;
-            const candidateBuild = path.join(root, 'build', 'e2s-lsp');
-            if (fs.existsSync(candidateBuild)) {
-                return candidateBuild;
+            const candidates = [
+                path.join(root, 'build', binaryName),
+                path.join(root, 'build', 'Debug', binaryName),
+                path.join(root, 'build', 'Release', binaryName),
+                path.join(root, 'bin', binaryName)
+            ];
+            for (const c of candidates) {
+                if (fs.existsSync(c)) {
+                    return c;
+                }
             }
         }
     }
 
-    // 3. Known system fallback locations
-    const knownLocations = [
-        '/Users/pablogtab/Documents/dev/utils/utils/build/e2s-lsp',
-        '/usr/local/bin/e2s-lsp',
-        '/opt/homebrew/bin/e2s-lsp'
-    ];
-    for (const loc of knownLocations) {
-        if (fs.existsSync(loc)) {
-            return loc;
-        }
-    }
-
-    return 'e2s-lsp';
+    // 4. Default to system PATH
+    return binaryName;
 }
 
 function activate(context) {
@@ -60,14 +59,20 @@ function activate(context) {
         }
     };
 
-    client = new LanguageClient(
-        'enginescriptLanguageServer',
-        'EngineScript Language Server',
-        serverOptions,
-        clientOptions
-    );
+    try {
+        client = new LanguageClient(
+            'enginescriptLanguageServer',
+            'EngineScript Language Server',
+            serverOptions,
+            clientOptions
+        );
 
-    client.start();
+        client.start().catch((err) => {
+            console.warn('[EngineScript] Language server start notification:', err);
+        });
+    } catch (err) {
+        console.warn('[EngineScript] Language client initialization warning:', err);
+    }
 
     context.subscriptions.push(
         vscode.commands.registerCommand('enginescript.restartServer', async () => {
