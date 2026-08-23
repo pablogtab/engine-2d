@@ -29,8 +29,8 @@ function activate(context) {
     const serverPath = findServerBinary();
 
     const serverOptions = {
-        run: { command: serverPath, transport: TransportKind.stdio },
-        debug: { command: serverPath, transport: TransportKind.stdio }
+        command: serverPath,
+        args: []
     };
 
     const clientOptions = {

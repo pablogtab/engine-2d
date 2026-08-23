@@ -6,6 +6,17 @@ namespace EngineScript {
 
 using json = nlohmann::ordered_json;
 
+namespace {
+json parse_id(const std::string& id) {
+    if (id.empty()) return 1;
+    try {
+        return json::parse(id);
+    } catch (...) {
+        return id;
+    }
+}
+}
+
 LanguageServer::LanguageServer(std::string project_root)
     : m_workspace(std::move(project_root)) {
 }
@@ -62,8 +73,7 @@ std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
 std::string LanguageServer::on_initialize(const std::string& id) {
     json resp;
     resp["jsonrpc"] = "2.0";
-    if (!id.empty()) resp["id"] = id.front() == '"' ? json::parse(id) : json(id);
-    else resp["id"] = 1;
+    resp["id"] = parse_id(id);
 
     json caps;
     caps["textDocumentSync"] = 1; // Full sync
@@ -124,7 +134,7 @@ std::string LanguageServer::publish_diagnostics(const std::string& uri) {
 std::string LanguageServer::on_document_symbol(const std::string& id, const std::string& uri) {
     json resp;
     resp["jsonrpc"] = "2.0";
-    resp["id"] = id.empty() ? json(1) : (id.front() == '"' ? json::parse(id) : json(id));
+    resp["id"] = parse_id(id);
 
     json syms = json::array();
     for (const auto& b : m_workspace.metadata_manifest().behaviours) {
@@ -165,7 +175,7 @@ std::string LanguageServer::on_document_symbol(const std::string& id, const std:
 std::string LanguageServer::on_completion(const std::string& id, const std::string& uri, uint32_t line, uint32_t character) {
     json resp;
     resp["jsonrpc"] = "2.0";
-    resp["id"] = id.empty() ? json(1) : (id.front() == '"' ? json::parse(id) : json(id));
+    resp["id"] = parse_id(id);
 
     json items = json::array();
 
@@ -198,7 +208,7 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
 std::string LanguageServer::on_hover(const std::string& id, const std::string& uri, uint32_t line, uint32_t character) {
     json resp;
     resp["jsonrpc"] = "2.0";
-    resp["id"] = id.empty() ? json(1) : (id.front() == '"' ? json::parse(id) : json(id));
+    resp["id"] = parse_id(id);
 
     json hover_obj;
     hover_obj["contents"] = {
@@ -212,7 +222,7 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
 std::string LanguageServer::on_definition(const std::string& id, const std::string& uri, uint32_t line, uint32_t character) {
     json resp;
     resp["jsonrpc"] = "2.0";
-    resp["id"] = id.empty() ? json(1) : (id.front() == '"' ? json::parse(id) : json(id));
+    resp["id"] = parse_id(id);
 
     json loc;
     loc["uri"] = uri;
