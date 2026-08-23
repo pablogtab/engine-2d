@@ -13,12 +13,32 @@ function findServerBinary() {
         return customPath;
     }
 
-    // Check workspace build directory
-    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-        const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
-        const candidateBuild = path.join(root, 'build', 'e2s-lsp');
-        if (fs.existsSync(candidateBuild)) {
-            return candidateBuild;
+    // 1. Relative to extension directory in the repository
+    const extensionRelativeBuild = path.resolve(__dirname, '../../../build/e2s-lsp');
+    if (fs.existsSync(extensionRelativeBuild)) {
+        return extensionRelativeBuild;
+    }
+
+    // 2. Check open workspace folders
+    if (vscode.workspace.workspaceFolders) {
+        for (const folder of vscode.workspace.workspaceFolders) {
+            const root = folder.uri.fsPath;
+            const candidateBuild = path.join(root, 'build', 'e2s-lsp');
+            if (fs.existsSync(candidateBuild)) {
+                return candidateBuild;
+            }
+        }
+    }
+
+    // 3. Known system fallback locations
+    const knownLocations = [
+        '/Users/pablogtab/Documents/dev/utils/utils/build/e2s-lsp',
+        '/usr/local/bin/e2s-lsp',
+        '/opt/homebrew/bin/e2s-lsp'
+    ];
+    for (const loc of knownLocations) {
+        if (fs.existsSync(loc)) {
+            return loc;
         }
     }
 
