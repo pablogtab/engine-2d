@@ -429,11 +429,11 @@ This is intentionally independent from the material workflow above. Materials re
 
 ---
 
-## Phase 10 — AI-Assisted Authoring
+## Phase 10 — AI-Assisted Authoring and Full Access
 
-**Architecture gate:** AI integrations must use the same validated editor contracts as human-authored operations. They must not mutate ECS state, scene files, or project assets through an untracked side channel.
+**Architecture gate:** Semantic scene and asset mutations must use the same validated editor contracts as human-authored operations. Full Access is an explicit Codex-subscription capability for local commands, scripts, and filesystem workflows; its direct changes are not editor Undo/Redo entries.
 
-**Goal:** Let an AI assistant inspect editor context, propose changes, and apply explicitly approved work through reversible commands.
+**Goal:** Let an AI assistant combine local automation with editor-native APIs: use shell/Python for broad generation and development workflows, then use validated tools whenever stable asset identity, scene serialization, review, or Undo/Redo is required.
 
 - [x] Add an editor-owned tool registry with strict read-only schemas for active-scene and selection context.
 - [x] Add an `AI Assistant` panel that previews and copies the exact structured context exposed to a future provider.
@@ -441,7 +441,8 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Load provider credentials from `OPENAI_API_KEY` without persisting or logging the secret.
 - [x] Add an OpenAI Responses API provider for Codex models with a provider-independent HTTP boundary.
 - [x] Add cancellable streaming, request status, structured errors, rate-limit feedback, and token-usage visibility.
-- [x] Add a local Codex App Server backend that uses the user's ChatGPT sign-in and keeps the engine workspace read-only without API-key billing.
+- [x] Add a local Codex App Server backend that uses the user's ChatGPT sign-in without API-key billing.
+- [x] Enable explicit Codex Full Access (`danger-full-access`, no intermediate approval) for local shell, Python, and filesystem workflows; replace persisted read-only threads when the access contract changes.
 - [x] Add authoring tools incrementally, beginning with entity creation, transforms, and registered component operations.
 - [x] Validate every proposed tool call before execution and present a human-readable preview requiring explicit confirmation by default, with an opt-in safe autonomous mode using the same gates.
 - [x] Execute an approved proposal as one atomic command group with exact Undo/Redo and rollback on partial failure.
@@ -449,11 +450,41 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Stream Codex reasoning summaries into an Activity timeline and audit App Server item durations/event gaps without persisting private reasoning or conversation content.
 - [x] Generate PNG textures through the Codex subscription ImageGen skill, preview them, and import/assign them through the same atomic Undo/Redo transaction with stable asset receipts.
 - [x] Import each generated texture once with bulk component assignments, reject duplicate queued imports, and record the editor's real apply/reject result in conversation history.
+- [x] Import a generated WAV from `Library/EditorAi/AudioPreviews/` to `Assets/Audio/` with RIFF/WAVE validation, stable asset registration, and reversible Undo/Redo.
 - [x] Let Codex navigate, frame, validate, and capture the live Scene Viewport through bounded main-thread tools and multimodal tool output without dirtying authored content.
 - [x] Expose editor/game cameras through the generic Scene render-view contract and test viewport navigation without depending on the temporary `GenericScene` helper.
 - [ ] Add an optional MCP adapter over the same tool registry for external Codex clients; do not create a second mutation path.
 
-**Completion criteria:** The assistant can inspect only intentionally exposed context, cannot bypass editor validation or command history, and every approved authoring request is previewable, atomic, reversible, and covered by deterministic tests.
+### Full Access Command and Build APIs
+
+- [ ] Add `run_project_command` for named build, test, format, export, and log commands with bounded output, exit status, artifact reporting, and audit records.
+- [ ] Add `get_build_status` for the latest configured build, executable paths, focused test failures, platform target, and concise diagnostics.
+- [ ] Add project-file operations that preview a diff before creating, editing, moving, or deleting project scripts, data, shader, and documentation files.
+- [ ] Add a Git workspace API for status, diff, branch, selective staging, and explicit user-requested commits. It must preserve unrelated local changes and never auto-commit.
+
+### Generated Asset APIs
+
+- [ ] Add `propose_create_audio_variations` with deterministic seed, BPM, duration, waveform/instrument recipe, loop validation, and versioned WAV import.
+- [ ] Add `inspect_audio_asset` for duration, sample rate, channels, peak level, silence, clipping, and loop-boundary diagnostics.
+- [ ] Add generated-audio playback assignment and authoring APIs for volume, pitch, loop, spatial blend, and gameplay triggers.
+- [ ] Add generic generated-asset import contracts where a bounded, validated format can be registered through `AssetDatabase` and the import can remain undoable.
+
+### Editor-Native Content APIs
+
+- [ ] Add `propose_create_material`: create and register a material, assign a shader and typed parameters, and optionally apply it to resolved render targets.
+- [ ] Add `propose_create_prefab`: archive a selected entity subtree into a versioned prefab asset with a reversible editor command.
+- [ ] Add `propose_create_scene`: create a scene plus optional camera, Canvas/UI baseline, and project registration through normal editor commands.
+- [ ] Add `run_scene_validation`: classify diagnostics and queue only unambiguous fixes as a grouped reversible proposal.
+- [ ] Add semantic Tilemap APIs for creation, bounded region painting, tileset assignment, and collider generation.
+- [ ] Add animation APIs for clips, spritesheets, state data, events, and entity/prefab assignment.
+
+### Observation, Runtime, and Quality APIs
+
+- [ ] Add gameplay capture workflows that launch a selected scene, attach bounded frame/video artifacts, and compare visual output against a requested reference.
+- [ ] Add `generate_test`: create focused C++ regression tests, run them, and report the exact result without auto-committing generated code.
+- [ ] Add structured asset, build, test, and command receipts to the conversation so follow-up turns use observed results rather than assumptions.
+
+**Completion criteria:** Full Access behavior is explicit and auditable. Editor-native mutations remain previewable, atomic, reversible, and covered by deterministic tests; direct commands clearly report their non-reversible filesystem effects.
 
 ---
 
@@ -553,12 +584,14 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [ ] `StandaloneSmokeTests` — launch, load initial scene, input, audio initialization, display defaults, save path, and clean shutdown.
 - [ ] Export smoke coverage on macOS, Windows, and Linux, including a clean environment without source-tree assets.
 
-### Phase 10 — AI-Assisted Authoring Suites
+### Phase 10 — AI-Assisted Authoring and Full Access Suites
 
-- [x] `EditorAiToolRegistryTests` — strict schemas, deterministic scene and selection context, rejected unknown tools and arguments, missing-scene handling, and read-only behavior.
+- [x] `EditorAiToolRegistryTests` — strict schemas, deterministic scene and selection context, rejected unknown tools and arguments, and missing-scene handling.
 - [x] `OpenAiResponsesProviderTests` — request construction, tool-call loops, streaming, cancellation, authentication failures, rate limits, usage, and provider-independent error mapping.
-- [x] `CodexAppServerProviderTests` — initialization, subscription-backed thread/turn protocol, streaming, history injection, dynamic editor tools, enforced read-only sandbox, usage, and cancellation.
-- [x] `EditorAiAuthoringTests` — proposal validation, atomic command grouping, rollback, Undo/Redo, invalid entities/components, and stale scene-revision isolation.
+- [x] `CodexAppServerProviderTests` — initialization, subscription-backed thread/turn protocol, streaming, history injection, dynamic editor tools, enforced Full Access sandbox, usage, and cancellation.
+- [x] `EditorAiAuthoringTests` — proposal validation, atomic command grouping, rollback, Undo/Redo, generated texture/audio import, invalid entities/components, and stale scene-revision isolation.
+- [ ] Add command/build API tests for named-command allowlists, cancellation, output bounds, artifact detection, and audit receipts.
+- [ ] Add generated-audio analysis and variation tests for WAV validity, reproducibility, loop boundaries, asset identity, and rollback.
 
 ### Continuous Test Gates
 
@@ -595,7 +628,7 @@ These items are useful but should not interrupt the architecture work above unle
 7. Phase 7 — Scripting and Play Mode.
 8. Phase 8 — Debugging and Performance.
 9. Phase 9 — Runtime/Editor Separation and Export.
-10. Phase 10 — AI-Assisted Authoring.
+10. Phase 10 — AI-Assisted Authoring and Full Access.
 
 ## Next Concrete Increments
 
@@ -628,12 +661,14 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Add anchor preset previews and direct component-backed entity creation to the Hierarchy.
    - [x] Add direct resize, anchor, and pivot handles.
    - [x] Add direct rotation handles and platform safe-area preview overlays.
-8. **AI Assistant Provider Boundary (Phase 10)**:
+8. **AI Assistant Provider Boundary and Full Access (Phase 10)**:
    - [x] Expose strict read-only scene and selection tools behind a provider-independent registry.
    - [x] Add a closed-by-default editor panel with live structured context preview.
    - [x] Connect the OpenAI Responses API through `OPENAI_API_KEY`, with streaming, cancellation, tool loops, errors, and visible usage state.
-   - [x] Connect Codex App Server through the local ChatGPT login with an enforced read-only engine workspace; game authoring remains behind validated editor tools.
+   - [x] Connect Codex App Server through the local ChatGPT login with explicit Full Access for shell, Python, and filesystem work; game authoring remains behind validated editor tools when Undo/Redo is required.
    - [x] Add allowlisted on-demand context for engine-wide and renderer-specific contracts.
    - [x] Add bounded live viewport navigation, rendered PNG observation, and scene diagnostics through the same provider tool boundary.
    - [x] Add confirmed and opt-in autonomous authoring proposals through one atomic reversible command group.
    - [x] Cover reasoning configuration, invalid-tool retry limits, 2D/3D Transform positions, and real Codex App Server transport with deterministic tests plus an opt-in live smoke.
+   - [x] Add reversible import of locally generated WAV assets.
+   - [ ] Add named command/build tools and audio analysis before expanding into material, prefab, scene, Tilemap, and animation authoring APIs.

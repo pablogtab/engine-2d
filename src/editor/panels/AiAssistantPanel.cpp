@@ -31,7 +31,7 @@ namespace {
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
-constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 6;
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 7;
 constexpr std::size_t AUTO_COMPACT_INPUT_TOKEN_THRESHOLD = 24000;
 std::string project_root();
 
@@ -859,7 +859,7 @@ std::string AiAssistantPanel::current_context_json() const {
     context["authoring"] = {
         {"mode", m_authoring_mode == AuthoringMode::AutonomousSafe
             ? "autonomous_safe" : "confirm_before_apply"},
-        {"filesystem", "read_only"},
+        {"filesystem", "full_access"},
         {"max_actions_per_proposal", EditorAiAuthoringRegistry::MAX_ACTIONS_PER_PROPOSAL},
         {"tools", m_authoring_registry.tool_schemas()}
     };
@@ -1364,8 +1364,9 @@ void AiAssistantPanel::start_request() {
           "Tool success means the proposal was queued, not applied. Never claim that a scene or asset change "
           "was created or applied; say that the proposal is prepared for editor validation. The editor reports "
           "the real application result separately and applies successful proposals atomically through Undo history."
-        : "Live authoring tools are unavailable for this request. Stay read-only and explain that the "
-          "editor must be in Edit mode with an active scene before changes can be proposed.";
+        : "Validated live authoring tools are unavailable for this request. You still have Full Access "
+          "to the local environment, but the editor must be in Edit mode with an active scene before "
+          "scene changes can be proposed.";
     if (authoring_available && authoring_mode == AuthoringMode::ConfirmBeforeApply) {
         request.instructions += " The user must confirm the proposal in the editor before it is applied.";
     } else if (authoring_available) {
@@ -2031,7 +2032,7 @@ void AiAssistantPanel::on_gui() {
         }
         if (m_backend == ProviderBackend::CodexSubscription) {
             ImGui::TextDisabled(
-                "Sandbox: engine read-only; game authoring requires validated editor tools"
+                "Full Access: Codex can run local commands; editor tools preserve scene Undo/Redo"
             );
             ImGui::TextDisabled(
                 "Context: automatic compaction after %zu input tokens",

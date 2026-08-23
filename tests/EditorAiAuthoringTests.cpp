@@ -592,6 +592,57 @@ void test_generated_png_import_is_allowlisted_and_reversible() {
     fs::remove_all(root, filesystem_error);
 }
 
+void test_generated_wav_import_is_allowlisted_and_reversible() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_ai_generated_audio_tests";
+    std::error_code filesystem_error;
+    fs::remove_all(root, filesystem_error);
+    const fs::path preview = root / "Library/EditorAi/AudioPreviews/loop.wav";
+    const std::vector<std::uint8_t> wav_bytes{
+        'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'A', 'V', 'E'
+    };
+    assert(FileSystem::write_bytes(preview.string(), wav_bytes));
+
+    AssetDatabase database(root);
+    TestSession session;
+    EditorAiAuthoringContext context = session.context();
+    context.serialization.asset_database = &database;
+    EditorAiAuthoringRegistry registry;
+
+    std::vector<EditorAiAuthoringAction> rejected;
+    assert(!registry.queue_action("propose_import_generated_audio", {
+        {"generated_path", "assets/audio/untrusted.wav"},
+        {"destination_path", "Assets/Audio/untrusted.wav"}
+    }, rejected).success);
+
+    std::vector<EditorAiAuthoringAction> actions;
+    assert(registry.queue_action("propose_import_generated_audio", {
+        {"generated_path", "Library/EditorAi/AudioPreviews/loop.wav"},
+        {"destination_path", "Assets/Audio/ai-loop.wav"}
+    }, actions).success);
+    assert(!registry.queue_action("propose_import_generated_audio", {
+        {"generated_path", "Library/EditorAi/AudioPreviews/loop.wav"},
+        {"destination_path", "Assets/Audio/ai-loop.wav"}
+    }, actions).success);
+
+    std::string error;
+    auto group = registry.build_command_group(actions, context, error);
+    assert(group && error.empty());
+    assert(session.history.execute_command(std::move(group)));
+    const fs::path destination = root / "Assets/Audio/ai-loop.wav";
+    assert(FileSystem::read_bytes(destination.string()) == wav_bytes);
+    assert(database.find_by_path(destination) != nullptr);
+    assert(database.find_by_path(destination)->type == AssetType::Audio);
+    const AssetHandle handle = database.find_by_path(destination)->handle;
+    session.history.undo();
+    assert(!fs::exists(destination));
+    assert(database.find_by_path(destination)->status == AssetStatus::MissingSource);
+    session.history.redo();
+    assert(FileSystem::read_bytes(destination.string()) == wav_bytes);
+    assert(database.find_by_path(destination)->handle == handle);
+    fs::remove_all(root, filesystem_error);
+}
+
 void test_proposal_rejects_a_stale_scene_revision() {
     TestSession session;
     const EntityID entity = create_basic_entity(session, "Original");
@@ -635,6 +686,7 @@ int main() {
     test_bulk_duplicate_and_delete_are_single_reversible_actions();
     test_asset_handles_and_prefabs_are_validated_from_frozen_context();
     test_generated_png_import_is_allowlisted_and_reversible();
+    test_generated_wav_import_is_allowlisted_and_reversible();
     test_proposal_rejects_a_stale_scene_revision();
     std::cout << "Editor AI authoring tests passed\n";
     return 0;

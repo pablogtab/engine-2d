@@ -1,9 +1,15 @@
 # AI-assisted authoring contract
 
-The AI Assistant is an editor integration, not an alternate engine or filesystem
-automation path. Codex may inspect allowlisted project documentation and a frozen
-snapshot of the active scene and selection. Its Codex App Server workspace remains
-read-only.
+The AI Assistant is an editor integration with **Full Access** when using the
+Codex-subscription backend. Codex may inspect, create, modify, and execute files
+and commands in the local environment. This is a direct automation path and may
+change files outside the editor's Undo/Redo history. It also receives a frozen
+snapshot of the active scene and selection plus validated editor tools.
+
+Use validated `propose_*` tools for scene changes whenever the result must retain
+the editor's atomic validation, serialization, Undo/Redo, and authoring-revision
+guarantees. Shell commands and scripts are not editor commands and cannot be
+undone by the editor.
 
 ## Authoring flow
 
@@ -33,7 +39,7 @@ confirmation click but uses exactly the same validation and command path.
 - `find_project_assets` returns bounded project asset matches and their stable
   `asset_handle`, type, and readiness status.
 - `get_asset_details` returns dependencies, dependents, and import settings for one
-  stable handle without giving the model arbitrary filesystem access.
+  stable handle without requiring the model to guess editor asset identity.
 
 Existing scene entities must always be addressed by `entity_id`. New entities
 receive request-local aliases such as `@enemy`; later actions in that same proposal
@@ -42,9 +48,10 @@ turns and never become persisted asset or entity identity. On every new turn,
 Codex resolves targets again from the latest frozen scene state. This makes the
 workflow iterative without allowing stale aliases to point at the wrong entity.
 Persistent Codex threads record the editor tool-contract version. When that
-contract changes, the editor starts a compatible replacement thread and injects
-the bounded local conversation history because App Server only accepts dynamic
-tool declarations on `thread/start`, not `thread/resume`.
+contract or Full Access policy changes, the editor starts a compatible replacement
+thread and injects the bounded local conversation history because App Server only
+accepts dynamic tool declarations and sandbox policy on `thread/start`, not
+`thread/resume`.
 
 ## Authoring action set
 
@@ -70,6 +77,10 @@ tool declarations on `thread/start`, not `thread/resume`.
   stable handle, and assigns that one imported asset to up to 20 Sprite Renderer or
   UI Image targets in the same transaction. Repeated imports of the same generated
   source or destination are rejected while the proposal is still being built.
+- `propose_import_generated_audio`: copies a PCM WAV synthesized by a local command
+  or Python script from `Library/EditorAi/AudioPreviews/` to a new path under
+  `Assets/Audio/`, then registers the stable audio handle. It is reversible through
+  the same proposal transaction, including Undo and Redo.
 
 ## Codex texture generation
 
@@ -78,7 +89,7 @@ the prompt requests a texture/image or when **Generate PNG with Codex** is enabl
 from the composer `+` menu. This uses App Server's built-in image-generation
 capability and does not require `OPENAI_API_KEY` or API credits.
 
-App Server writes its generated artifact outside the read-only workspace. The
+App Server may write its generated artifact outside the project workspace. The
 editor accepts only a bounded PNG reported by the current turn, copies it to a
 temporary `Library/EditorAi/TexturePreviews` entry, and shows that preview with the
 pending proposal. Confirming imports the bytes through `CreateBinaryAssetCommand`;
@@ -146,6 +157,15 @@ observes the currently applied scene, never an uncommitted proposal.
 
 No scene file is saved automatically. Persistence continues to use the editor's
 normal save flow and serialization contracts.
+
+## Local command workflows
+
+Full Access makes Codex's native shell, filesystem, and Python capabilities
+available alongside the editor APIs. For example, it can synthesize a WAV with the
+Python standard library into `Library/EditorAi/AudioPreviews/loop.wav`, then call
+`propose_import_generated_audio` with a new `Assets/Audio/loop.wav` destination.
+The script itself is external automation and cannot be undone; the asset import is
+the editor transaction that can be undone.
 
 ## Audit and performance
 

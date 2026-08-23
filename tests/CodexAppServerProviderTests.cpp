@@ -104,7 +104,7 @@ std::shared_ptr<FakeTransportState> standard_script() {
     return state;
 }
 
-void test_subscription_protocol_streaming_and_read_only_sandbox() {
+void test_subscription_protocol_streaming_and_full_access_sandbox() {
     auto state = standard_script();
     CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
     EditorAiProviderRequest request = basic_request();
@@ -133,7 +133,7 @@ void test_subscription_protocol_streaming_and_read_only_sandbox() {
     assert(state->writes.at(1).at("method") == "initialized");
     const auto& thread = state->writes.at(2);
     assert(thread.at("method") == "thread/start");
-    assert(thread.at("params").at("sandbox") == "read-only");
+    assert(thread.at("params").at("sandbox") == "danger-full-access");
     assert(thread.at("params").at("approvalPolicy") == "never");
     assert(thread.at("params").at("ephemeral") == true);
     assert(thread.at("params").at("serviceName") == "engine2d_editor");
@@ -435,7 +435,7 @@ void test_read_only_history_and_dynamic_tool_bridge() {
     assert(result.text == "One entity.");
     assert(result.tool_call_count == 1);
     assert(calls == 1);
-    assert(state->writes.at(2).at("params").at("sandbox") == "read-only");
+    assert(state->writes.at(2).at("params").at("sandbox") == "danger-full-access");
     assert(state->writes.at(3).at("method") == "thread/inject_items");
     assert(state->writes.at(3).at("params").at("items").size() == 2);
     assert(state->writes.at(5).at("id") == "tool-request");
@@ -569,7 +569,7 @@ void test_live_app_server_when_requested() {
 } // namespace
 
 int main() {
-    test_subscription_protocol_streaming_and_read_only_sandbox();
+    test_subscription_protocol_streaming_and_full_access_sandbox();
     test_reasoning_summary_stream_and_item_lifecycle();
     test_read_only_history_and_dynamic_tool_bridge();
     test_skill_input_and_generated_image_event();

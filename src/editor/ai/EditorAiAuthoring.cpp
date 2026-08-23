@@ -43,6 +43,7 @@ constexpr const char* DELETE_ENTITIES_TOOL = "propose_delete_entities";
 constexpr const char* INSTANTIATE_PREFAB_TOOL = "propose_instantiate_prefab";
 constexpr const char* UNPACK_PREFAB_TOOL = "propose_unpack_prefab";
 constexpr const char* IMPORT_GENERATED_TEXTURE_TOOL = "propose_import_generated_texture";
+constexpr const char* IMPORT_GENERATED_AUDIO_TOOL = "propose_import_generated_audio";
 
 struct EntityTarget {
     EntityID entity_id{0};
@@ -758,6 +759,32 @@ bool valid_generated_texture_destination(const std::string& path_text) {
     });
 }
 
+bool valid_generated_audio_source(const std::string& path_text) {
+    if (path_text.empty() || path_text.size() > 240 || path_text.find('\\') != std::string::npos) return false;
+    const std::filesystem::path path(path_text);
+    if (path.is_absolute() || path.extension() != ".wav") return false;
+    const std::filesystem::path normalized = path.lexically_normal();
+    const std::filesystem::path allowed_root{"Library/EditorAi/AudioPreviews"};
+    if (normalized.empty() || normalized.parent_path().empty() ||
+        normalized.string().rfind(allowed_root.string() + "/", 0) != 0) return false;
+    return std::none_of(normalized.begin(), normalized.end(), [](const auto& part) {
+        return part == ".." || part == ".";
+    });
+}
+
+bool valid_generated_audio_destination(const std::string& path_text) {
+    if (path_text.empty() || path_text.size() > 240 || path_text.find('\\') != std::string::npos) return false;
+    const std::filesystem::path path(path_text);
+    if (path.is_absolute() || path.extension() != ".wav") return false;
+    const std::filesystem::path normalized = path.lexically_normal();
+    const std::filesystem::path allowed_root{"Assets/Audio"};
+    if (normalized.empty() || normalized.parent_path().empty() ||
+        normalized.string().rfind(allowed_root.string() + "/", 0) != 0) return false;
+    return std::none_of(normalized.begin(), normalized.end(), [](const auto& part) {
+        return part == ".." || part == ".";
+    });
+}
+
 } // namespace
 
 EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* component_registry)
@@ -850,6 +877,10 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
             {"items", generated_texture_assignment_schema},
             {"maxItems", 20}
         }}
+    };
+    const Json generated_audio_properties{
+        {"generated_path", {{"type", "string"}}},
+        {"destination_path", {{"type", "string"}}}
     };
 
     m_tool_schemas = Json::array({
@@ -954,6 +985,14 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
                 {"required", Json::array({"generated_path", "destination_path", "assignments"})},
                 {"additionalProperties", false}}},
             {"strict", true}
+        },
+        {
+            {"type", "function"}, {"name", IMPORT_GENERATED_AUDIO_TOOL},
+            {"description", "Queues an import of a WAV created by this request with Python or a local command. First generate a PCM WAV below Library/EditorAi/AudioPreviews/, then pass its project-relative generated_path and one new destination_path below Assets/Audio/. The editor copies, registers, and makes the audio asset undoable."},
+            {"parameters", {{"type", "object"}, {"properties", generated_audio_properties},
+                {"required", Json::array({"generated_path", "destination_path"})},
+                {"additionalProperties", false}}},
+            {"strict", true}
         }
     });
 }
@@ -965,7 +1004,8 @@ bool EditorAiAuthoringRegistry::is_authoring_tool(const std::string& tool_name) 
         tool_name == REPARENT_ENTITY_TOOL ||
         tool_name == DELETE_ENTITY_TOOL || tool_name == DUPLICATE_ENTITIES_TOOL ||
         tool_name == DELETE_ENTITIES_TOOL || tool_name == INSTANTIATE_PREFAB_TOOL ||
-        tool_name == UNPACK_PREFAB_TOOL || tool_name == IMPORT_GENERATED_TEXTURE_TOOL;
+        tool_name == UNPACK_PREFAB_TOOL || tool_name == IMPORT_GENERATED_TEXTURE_TOOL ||
+        tool_name == IMPORT_GENERATED_AUDIO_TOOL;
 }
 
 EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
@@ -1024,6 +1064,29 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
         return frozen_context && frozen_context->contains("entity_index") &&
             frozen_context->at("entity_index").is_array();
     };
+    if (tool_name == IMPORT_GENERATED_AUDIO_TOOL) {
+        if (!only_keys(arguments, {"generated_path", "destination_path"}) ||
+            !arguments.contains("generated_path") || !arguments.at("generated_path").is_string() ||
+            !valid_generated_audio_source(arguments.at("generated_path").get<std::string>()) ||
+            !arguments.contains("destination_path") || !arguments.at("destination_path").is_string() ||
+            !valid_generated_audio_destination(arguments.at("destination_path").get<std::string>())) {
+            return {false, {}, "Generated audio import requires a WAV in Library/EditorAi/AudioPreviews/ and one new Assets/Audio/*.wav destination"};
+        }
+        const std::string destination_path = arguments.at("destination_path").get<std::string>();
+        for (const EditorAiAuthoringAction& action : actions) {
+            if (action.tool_name == IMPORT_GENERATED_AUDIO_TOOL &&
+                action.arguments.value("destination_path", "") == destination_path) {
+                return {false, {}, "Generated audio destination is already queued"};
+            }
+        }
+        summary = "Import generated audio " + destination_path;
+        actions.push_back({tool_name, std::move(stored_arguments), std::move(summary)});
+        return {
+            true,
+            {{"queued", true}, {"action_index", actions.size() - 1}, {"summary", actions.back().summary}},
+            {}
+        };
+    }
     if (tool_name == IMPORT_GENERATED_TEXTURE_TOOL) {
         if (!only_keys(arguments, {"generated_path", "destination_path", "assignments"}) ||
             !arguments.contains("generated_path") || !arguments.at("generated_path").is_string() ||
@@ -1396,6 +1459,8 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
     std::unordered_set<std::string> declared_aliases;
     std::unordered_set<std::string> generated_texture_destinations;
     std::unordered_set<std::string> generated_texture_sources;
+    std::unordered_set<std::string> generated_audio_destinations;
+    std::unordered_set<std::string> generated_audio_sources;
     auto group = std::make_unique<EditorCommandGroup>(
         "AI Session (" + std::to_string(actions.size()) +
         (actions.size() == 1 ? " action)" : " actions)")
@@ -1445,6 +1510,52 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
         if (!is_authoring_tool(action.tool_name)) {
             error = "Proposal contains an unknown action: " + action.tool_name;
             return nullptr;
+        }
+        if (action.tool_name == IMPORT_GENERATED_AUDIO_TOOL) {
+            AssetDatabase* database = context.serialization.asset_database;
+            if (!database) {
+                error = "The project asset database is unavailable";
+                return nullptr;
+            }
+            const std::filesystem::path relative_source =
+                action.arguments.at("generated_path").get<std::string>();
+            const std::filesystem::path source =
+                (database->project_root() / relative_source).lexically_normal();
+            constexpr std::size_t MAX_GENERATED_WAV_BYTES = 64 * 1024 * 1024;
+            constexpr std::uint8_t RIFF_SIGNATURE[] = {'R', 'I', 'F', 'F'};
+            constexpr std::uint8_t WAVE_SIGNATURE[] = {'W', 'A', 'V', 'E'};
+            std::error_code source_error;
+            const std::uintmax_t source_size = std::filesystem::file_size(source, source_error);
+            if (!valid_generated_audio_source(relative_source.generic_string()) || source_error ||
+                source_size < 12 || source_size > MAX_GENERATED_WAV_BYTES) {
+                error = "Generated audio preview is missing or invalid";
+                return nullptr;
+            }
+            std::vector<std::uint8_t> wav_bytes = FileSystem::read_bytes(source.string());
+            if (wav_bytes.size() < 12 || wav_bytes.size() > MAX_GENERATED_WAV_BYTES ||
+                !std::equal(std::begin(RIFF_SIGNATURE), std::end(RIFF_SIGNATURE), wav_bytes.begin()) ||
+                !std::equal(std::begin(WAVE_SIGNATURE), std::end(WAVE_SIGNATURE), wav_bytes.begin() + 8)) {
+                error = "Generated audio preview is missing or invalid";
+                return nullptr;
+            }
+            const std::filesystem::path relative_destination =
+                action.arguments.at("destination_path").get<std::string>();
+            const std::filesystem::path destination =
+                (database->project_root() / relative_destination).lexically_normal();
+            if (!valid_generated_audio_destination(relative_destination.generic_string()) ||
+                std::filesystem::exists(destination)) {
+                error = "Generated audio destination is invalid or already exists";
+                return nullptr;
+            }
+            if (!generated_audio_destinations.insert(destination.string()).second ||
+                !generated_audio_sources.insert(source.string()).second) {
+                error = "Generated audio imports require unique source and destination paths";
+                return nullptr;
+            }
+            group->add_command(std::make_unique<CreateBinaryAssetCommand>(
+                database, destination, std::move(wav_bytes)
+            ));
+            continue;
         }
         if (action.tool_name == IMPORT_GENERATED_TEXTURE_TOOL) {
             AssetDatabase* database = context.serialization.asset_database;

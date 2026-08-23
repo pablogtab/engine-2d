@@ -199,10 +199,10 @@ EditorAiProviderResult CodexAppServerProvider::run(
     const std::string root = project_root.lexically_normal().string();
     std::string instructions =
         "You are embedded in Engine2D Editor. Use dynamic editor tools as the primary source for live "
-        "scene context and authoring. The filesystem is read-only. Do not inspect workspace files unless "
-        "the user explicitly asks about engine code or contracts and the allowlisted document tools are "
-        "insufficient. Scene changes may only use validated editor tools so undo/redo and serialization "
-        "contracts remain intact.";
+        "scene context and authoring. Full Access is enabled: you may inspect, create, modify, and run "
+        "files and commands in the local environment. Prefer the project workspace and explain material "
+        "filesystem or command effects in your final response. Use validated editor tools for scene "
+        "changes whenever Undo/Redo and serialization guarantees are required.";
     if (!request.instructions.empty()) instructions += "\n\n" + request.instructions;
     nlohmann::json thread_params{
         {"model", request.model},
@@ -210,7 +210,7 @@ EditorAiProviderResult CodexAppServerProvider::run(
         {"runtimeWorkspaceRoots", nlohmann::json::array({root})},
         {"developerInstructions", instructions},
         {"approvalPolicy", "never"},
-        {"sandbox", "read-only"}
+        {"sandbox", "danger-full-access"}
     };
     const bool resuming_thread = !request.provider_thread_id.empty();
     if (resuming_thread) {
