@@ -378,6 +378,13 @@ This is intentionally independent from the material workflow above. Materials re
 
 **Completion criteria:** Gameplay behavior can be authored, inspected, debugged, and reloaded while Edit and Play state remain predictably isolated.
 
+**Planned replacement research:** Luau remains the active validated runtime. A
+custom statically typed gameplay language that transpiles to C++20 is documented
+separately in [`docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md`](docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md).
+That roadmap is design-only and may be abandoned at its specification, native
+backend, or platformer-spike gates. Luau must not be removed or weakened before
+the spike is explicitly approved.
+
 ---
 
 ## Phase 8 — Debugging and Performance
@@ -488,6 +495,42 @@ This is intentionally independent from the material workflow above. Materials re
 
 ---
 
+## Phase 11 — EngineScript Language Research
+
+**Detailed design roadmap:**
+[`docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md`](docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md).
+
+**Architecture gate:** This phase is research and specification until its
+mandatory platformer spike succeeds. It must not introduce a permanent second
+runtime, generated files into authored project content, or a compatibility layer
+for the unreleased Luau format.
+
+**Goal:** Evaluate a statically typed, object-oriented gameplay language with
+decorators, dependency injection, deterministic generic collections, structured
+async/await, C++20 generation, external VSCode tooling, and safe module hot
+reload.
+
+- [ ] Approve the language constitution, non-goals, ownership rules, grammar,
+  type system, decorator semantics, DI scopes, and async contract.
+- [ ] Build the compiler frontend and native backend behind isolated tooling;
+  keep Luau unchanged while the experiment is incomplete.
+- [ ] Generate deterministic editor metadata and a versioned GameModule ABI.
+- [ ] Validate compiler cache, dependency invalidation, hot reload rollback,
+  serialization, Undo/Redo, and last-known-good behavior.
+- [ ] Provide compiler-backed VSCode/LSP authoring before considering the
+  language usable.
+- [ ] Complete the mandatory platformer spike and record cold/incremental build,
+  reload, size, memory, diagnostic, macOS, Windows, and iOS results.
+- [ ] Make an explicit continue, reduce, change-language, or abandon decision.
+- [ ] Remove Luau only after approval of a complete clean migration.
+
+**Completion criteria:** EngineScript may replace Luau only when the platformer
+spike demonstrates a better authoring workflow, stable DI/reflection/async
+contracts, reliable rollback, usable VSCode tooling, and a verified export
+strategy without retaining two gameplay runtimes.
+
+---
+
 ## Required Test Suites by Module
 
 Tests are part of each module's completion criteria. They must be added with the behavior they protect, not postponed until the debugging or export phases. Pure logic should run headlessly in CTest; SDL, GPU, window, audio, and filesystem behavior should use injected fake backends where practical and retain a smaller real-platform smoke layer.
@@ -593,6 +636,19 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [ ] Add command/build API tests for named-command allowlists, cancellation, output bounds, artifact detection, and audit receipts.
 - [ ] Add generated-audio analysis and variation tests for WAV validity, reproducibility, loop boundaries, asset identity, and rollback.
 
+### Phase 11 — EngineScript Research Suites
+
+- [ ] Add isolated source, lexer, parser, resolver, type-checker, TypedIR,
+  codegen, metadata, dependency-graph, and compiler-cache suites.
+- [ ] Compile generated C++ fixtures with supported native toolchains instead of
+  relying only on textual snapshots.
+- [ ] Add DI scope/cycle/component validation, deterministic collection, generic
+  constraint/monomorphization, async scheduling/cancellation, module ABI, and hot
+  reload rollback suites.
+- [ ] Add project/editor integration and compiler-backed LSP protocol suites.
+- [ ] Keep all EngineScript tests isolated from the active Luau runtime until the
+  replacement gate is approved.
+
 ### Continuous Test Gates
 
 - [ ] Every bug fix receives a regression test at the lowest practical layer.
@@ -629,6 +685,7 @@ These items are useful but should not interrupt the architecture work above unle
 8. Phase 8 — Debugging and Performance.
 9. Phase 9 — Runtime/Editor Separation and Export.
 10. Phase 10 — AI-Assisted Authoring and Full Access.
+11. Phase 11 — EngineScript Language Research.
 
 ## Next Concrete Increments
 
@@ -672,3 +729,7 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Cover reasoning configuration, invalid-tool retry limits, 2D/3D Transform positions, and real Codex App Server transport with deterministic tests plus an opt-in live smoke.
    - [x] Add reversible import of locally generated WAV assets.
    - [ ] Add named command/build tools and audio analysis before expanding into material, prefab, scene, Tilemap, and animation authoring APIs.
+9. **EngineScript Specification Gate (Phase 11)**:
+   - [ ] Approve the language constitution and non-goals before implementing a compiler.
+   - [ ] Specify grammar, ownership, types, generics, decorators, DI, async, module ABI, and editor metadata.
+   - [ ] Keep Luau as the active runtime until the mandatory platformer spike and explicit replacement decision.
