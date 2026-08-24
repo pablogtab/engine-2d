@@ -1,4 +1,4 @@
-foreach(required ENGINE_SOURCE_DIR ENGINE_TEST_BINARY_DIR)
+foreach(required ENGINE_SOURCE_DIR ENGINE_TEST_BINARY_DIR ENGINE_SCRIPT_COMPILER)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "${required} is required")
     endif()
@@ -31,6 +31,7 @@ foreach(index RANGE ${last_case})
             "-DENGINE_PROJECT_DIR=${fixture_project}"
             "-DENGINE_STAGE_DIR=${stage_dir}"
             "-DENGINE_EXECUTABLE=${dummy_executable}"
+            "-DENGINE_SCRIPT_COMPILER=${ENGINE_SCRIPT_COMPILER}"
             "-DENGINE_SHADER_VARIANT=${shader_variant}"
             "-DENGINE_SHADER_FORMAT=${format}"
             "-DENGINE_SHADER_ENTRY_POINT=${entry_point}"

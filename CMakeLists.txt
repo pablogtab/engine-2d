@@ -699,6 +699,7 @@ add_test(
     COMMAND ${CMAKE_COMMAND}
         "-DENGINE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
         "-DENGINE_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/test-output"
+        "-DENGINE_SCRIPT_COMPILER=$<TARGET_FILE:e2sc>"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/RuntimeShaderStagingTests.cmake"
 )
 
