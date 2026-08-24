@@ -379,6 +379,27 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Stage and load the generated native `GameModule` in standalone exports; editor Play Mode keeps the development-time rebuild path for hot reload.
 - [x] Execute authored async methods through the runtime scheduler; spawned `Task<Void>` calls are behaviour-owned and cancelled with their entity scope.
 
+### Deferred — Custom Particle Authoring
+
+This is planned work and is intentionally not part of the current EngineScript
+increment. Preset names must remain optional templates, not the public runtime
+contract or the only way to create effects.
+
+- [ ] Add a versioned `.particle` asset containing texture, colors, size,
+  lifetime, velocity and variation, acceleration, gravity, rotation, collision,
+  bounciness, render layer, continuous emission, and burst defaults.
+- [ ] Add Asset Browser and Inspector authoring with preview, validation,
+  stable asset handles, serialization, and Undo/Redo.
+- [ ] Integrate ECS particle emitters with scene update and render ownership;
+  authored emitters must work identically in editor Play Mode and exports.
+- [ ] Expose typed EngineScript APIs for one-shot emission from a particle asset
+  at a world position and for controlling an attached `ParticleEmitter2D`,
+  including `active`, `emitRate`, effect assignment, and explicit `burst(count)`.
+- [ ] Allow scripts to apply bounded runtime overrides without exposing renderer
+  pointers or requiring hardcoded engine presets.
+- [ ] Add asset, serialization, Inspector, runtime, codegen, LSP, Play Mode, and
+  standalone tests before migrating demo sparkles, dust, fire, or impacts.
+
 **Completion criteria:** Gameplay behavior can be authored, inspected, debugged, and reloaded while Edit and Play state remain predictably isolated.
 
 EngineScript is the only active gameplay scripting architecture. Luau has been
