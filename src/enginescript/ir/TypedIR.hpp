@@ -82,6 +82,7 @@ struct IRCall : public IROperation {
 struct IRMethodCall : public IROperation {
     std::shared_ptr<IROperation> target;
     std::string method_name;
+    std::vector<std::string> type_arguments;
     std::vector<std::shared_ptr<IROperation>> args;
 };
 

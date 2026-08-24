@@ -374,7 +374,8 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Keep Play Mode changes isolated and discard them unconditionally on Stop.
 - [x] Keep runtime script state distinct from serialized public fields.
 - [x] Bind audio, asset availability requests, display, deferred scene loading, UI, and custom events with Play/export parity.
-- [ ] Complete the remaining language expression surface and typed resource loaders.
+- [ ] Complete the remaining language expression surface.
+- [x] Add typed resource loaders for Texture, AudioClip, Font, and DataAsset with async Play/export parity.
 - [x] Stage and load the generated native `GameModule` in standalone exports; editor Play Mode keeps the development-time rebuild path for hot reload.
 - [x] Execute authored async methods through the runtime scheduler; spawned `Task<Void>` calls are behaviour-owned and cancelled with their entity scope.
 

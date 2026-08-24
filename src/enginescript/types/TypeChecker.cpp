@@ -446,6 +446,23 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         if (auto mem = dynamic_cast<MemberAccessExpr*>(call->callee.get())) {
             auto target_t = get_type_of_node(mem->object.get());
             if (target_t) {
+                if (target_t->name == "Assets" && mem->member_name == "load") {
+                    const bool valid_type = call->type_arguments.size() == 1 &&
+                        (call->type_arguments.front().name == "Texture" ||
+                         call->type_arguments.front().name == "AudioClip" ||
+                         call->type_arguments.front().name == "Font" ||
+                         call->type_arguments.front().name == "DataAsset");
+                    if (!valid_type) {
+                        m_diagnostics.report_error("E3036", "Assets.load requires exactly one resource type: Texture, AudioClip, Font, or DataAsset", call->span);
+                    }
+                    if (call->arguments.size() != 1 || !get_type_of_node(call->arguments.front().get())->is_string()) {
+                        m_diagnostics.report_error("E3037", "Assets.load requires one String path", call->span);
+                    }
+                    auto asset_type = Type::make_generic(TypeKind::Class, "Asset", {});
+                    auto task_type = Type::make_generic(TypeKind::Task, "Task", {asset_type});
+                    m_node_types[call] = task_type;
+                    return task_type;
+                }
                 if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(
                         target_t->name, mem->member_name)) {
                     if (call->arguments.size() < method->min_arguments ||

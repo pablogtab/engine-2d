@@ -628,7 +628,16 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             }
         }
 
-        std::string s = emit_operation_cpp(mc->target.get()) + member_access_operator(mc->target.get()) + mc->method_name + "(";
+        std::string s = emit_operation_cpp(mc->target.get()) + member_access_operator(mc->target.get()) + mc->method_name;
+        if (!mc->type_arguments.empty()) {
+            s += "<";
+            for (size_t i = 0; i < mc->type_arguments.size(); ++i) {
+                if (i != 0) s += ", ";
+                s += "EngineScript::" + mc->type_arguments[i];
+            }
+            s += ">";
+        }
+        s += "(";
         for (size_t i = 0; i < mc->args.size(); ++i) {
             s += emit_operation_cpp(mc->args[i].get());
             if (i + 1 < mc->args.size()) s += ", ";

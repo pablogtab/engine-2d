@@ -53,8 +53,8 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 16;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v16";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 17;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v17";
 
 class Input {
 public:
@@ -221,12 +221,31 @@ struct Asset {
     bool ready{false};
 };
 
+struct Texture {};
+struct AudioClip {};
+struct Font {};
+struct DataAsset {};
+
+enum class ResourceType : uint8_t { Texture, AudioClip, Font, DataAsset };
+
+template <typename T>
+inline constexpr ResourceType resource_type_for = ResourceType::DataAsset;
+template <> inline constexpr ResourceType resource_type_for<Texture> = ResourceType::Texture;
+template <> inline constexpr ResourceType resource_type_for<AudioClip> = ResourceType::AudioClip;
+template <> inline constexpr ResourceType resource_type_for<Font> = ResourceType::Font;
+
 class Assets {
 public:
     virtual ~Assets() = default;
     [[nodiscard]] virtual Asset* find(const std::string& path) = 0;
     [[nodiscard]] virtual bool exists(const std::string& path) const = 0;
     virtual bool request(const std::string& path) = 0;
+    virtual Task<Asset*> load_resource(const std::string& path, ResourceType type) = 0;
+
+    template <typename T>
+    Task<Asset*> load(const std::string& path) {
+        return load_resource(path, resource_type_for<T>);
+    }
 };
 
 template <typename T, typename E = std::string>

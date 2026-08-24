@@ -386,10 +386,18 @@ export class ServiceUser extends Behaviour {
             events.emit("AssetReady", "script");
         }
         assets.request("Assets/scripts/ServiceUser.e2s");
+        loadHudTexture();
         let status: Entity = entities.findByName("Status");
         ui.setText(status, "Ready");
         ui.setVisible(status, true);
         instantiate("Transient");
+    }
+
+    async loadHudTexture(): Task<Void> {
+        let loaded: Asset = await assets.load<Texture>("Assets/Textures/Hud.png");
+        if (loaded.ready) {
+            events.emit("TypedAssetLoaded", loaded.path);
+        }
     }
 
     on_event(name: String, payload: String): Void {
@@ -398,11 +406,14 @@ export class ServiceUser extends Behaviour {
 }
 )";
     write_test_file(root / "Assets/scripts/ServiceUser.e2s", code);
+    write_test_file(root / "Assets/Textures/Hud.png", "texture-bytes");
 
     AssetDatabase asset_database(root);
     static_cast<void>(asset_database.scan("Assets"));
     const AssetRecord* record = asset_database.find_by_path(root / "Assets/scripts/ServiceUser.e2s");
     assert(record != nullptr);
+    const AssetRecord* texture_record = asset_database.find_by_path(root / "Assets/Textures/Hud.png");
+    assert(texture_record != nullptr);
 
     EntityManager entity_manager;
     const EntityID entity = entity_manager.create_entity();
@@ -441,7 +452,7 @@ export class ServiceUser extends Behaviour {
         return true;
     };
     services.preload_asset = [&](AssetHandle handle, std::string&) {
-        return handle == record->handle;
+        return handle == record->handle || handle == texture_record->handle;
     };
     services.query_display = []() {
         ScriptDisplayInfo info;
@@ -469,8 +480,8 @@ export class ServiceUser extends Behaviour {
             assert(event.name == "AssetReady");
             assert(event.payload == "script");
         } else {
-            assert(event.name == "AssetLoaded");
-            assert(event.payload == "Assets/scripts/ServiceUser.e2s");
+            assert(event.name == "AssetLoaded" || event.name == "TypedAssetLoaded");
+            assert(event.payload == "Assets/scripts/ServiceUser.e2s" || event.payload == "Assets/Textures/Hud.png");
         }
         ++script_events;
     });
@@ -493,7 +504,10 @@ export class ServiceUser extends Behaviour {
     runtime.update(0.0f);
     dispatcher.dispatch_queued();
     runtime.dispatch_events();
-    assert(script_events == 3);
+    runtime.update(0.0f);
+    dispatcher.dispatch_queued();
+    runtime.dispatch_events();
+    assert(script_events == 4);
     const ScriptComponent& updated_component = entity_manager.get_component<ScriptComponent>(entity);
     const auto received = std::find_if(updated_component.public_fields.begin(), updated_component.public_fields.end(), [](const ScriptPublicField& field) {
         return field.name == "received";

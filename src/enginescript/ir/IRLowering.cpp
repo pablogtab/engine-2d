@@ -323,6 +323,9 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
                 auto mc = std::make_shared<IRMethodCall>();
                 mc->target = lower_expression(mem->object);
                 mc->method_name = mem->member_name;
+                for (const auto& type_argument : call->type_arguments) {
+                    mc->type_arguments.push_back(type_argument.to_string());
+                }
                 for (const auto& a : call->arguments) {
                     mc->args.push_back(lower_expression(a));
                 }

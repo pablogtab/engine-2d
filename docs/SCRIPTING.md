@@ -101,6 +101,10 @@ connected execution surface includes:
   Textures are decoded into the renderer cache; audio, font, and data payloads
   are retained as runtime bytes. Requests emit `AssetLoaded` or
   `AssetLoadFailed` through `Events`.
+  `await assets.load<Texture|AudioClip|Font|DataAsset>(path)` is the typed
+  alternative: it validates the registered asset type, precaches it on the
+  next frame, and returns `Asset` on success or `null` when unavailable or the
+  requested type does not match.
 
 These services use the same calls in editor Play Mode and generated native
 modules. Audio and scene requests are routed through the host runtime, so a

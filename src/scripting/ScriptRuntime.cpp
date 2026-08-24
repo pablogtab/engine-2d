@@ -208,7 +208,28 @@ private:
             }, entity);
             return true;
         }
+        EngineScript::Task<EngineScript::Asset*> load_resource(const std::string& path, EngineScript::ResourceType type) override {
+            const AssetRecord* record = record_for(path);
+            if (!record || record->status != AssetStatus::Ready || !matches(type, record->type) ||
+                !m_binding.async_scheduler || !m_binding.services || !m_binding.services->preload_asset) co_return nullptr;
+            const AssetHandle handle = record->handle;
+            const std::string source_path = record->source_path;
+            co_await m_binding.async_scheduler->next_frame(m_binding.entity);
+            std::string error;
+            if (!m_binding.services->preload_asset(handle, error)) co_return nullptr;
+            m_asset = EngineScript::Asset{handle.value, source_path, AssetDatabase::type_name(record->type), "ready", true};
+            co_return &m_asset;
+        }
     private:
+        static bool matches(EngineScript::ResourceType requested, AssetType actual) {
+            switch (requested) {
+                case EngineScript::ResourceType::Texture: return actual == AssetType::Texture;
+                case EngineScript::ResourceType::AudioClip: return actual == AssetType::Audio;
+                case EngineScript::ResourceType::Font: return actual == AssetType::Font;
+                case EngineScript::ResourceType::DataAsset: return actual == AssetType::Data;
+            }
+            return false;
+        }
         const AssetRecord* record_for(const std::string& path) const {
             if (!m_binding.asset_database) return nullptr;
             return m_binding.asset_database->find_by_path(path);

@@ -1008,6 +1008,32 @@ std::shared_ptr<Expression> Parser::parse_postfix(std::shared_ptr<Expression> ex
             Token close_tok = consume(TokenType::CloseParen, "E1252", "Expected ')'");
             call->span = call->span.merge(close_tok.span);
             expr = call;
+        } else if (check(TokenType::Less) && dynamic_cast<MemberAccessExpr*>(expr.get()) != nullptr) {
+            // Generic call arguments are only unambiguous in postfix position
+            // when immediately followed by a call, e.g. assets.load<Texture>(path).
+            const size_t saved = m_current;
+            advance();
+            std::vector<TypeAnnotation> type_arguments;
+            while (!check(TokenType::Greater) && !is_at_end()) {
+                type_arguments.push_back(parse_type_annotation());
+                if (!match(TokenType::Comma)) break;
+            }
+            if (!match(TokenType::Greater) || !check(TokenType::OpenParen)) {
+                m_current = saved;
+                break;
+            }
+            advance();
+            auto call = std::make_shared<CallExpr>();
+            call->callee = expr;
+            call->type_arguments = std::move(type_arguments);
+            call->span = expr->span;
+            while (!check(TokenType::CloseParen) && !is_at_end()) {
+                call->arguments.push_back(parse_expression());
+                if (!match(TokenType::Comma)) break;
+            }
+            Token close_tok = consume(TokenType::CloseParen, "E1252", "Expected ')' after call arguments");
+            call->span = call->span.merge(close_tok.span);
+            expr = call;
         } else {
             break;
         }
