@@ -53,8 +53,8 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 5;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v5";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 6;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v6";
 
 class Input {
 public:
@@ -82,6 +82,20 @@ struct SpriteRenderer2D {
     bool flipX{false};
 };
 
+struct Transform2D {
+    glm::vec2 position{0.0f, 0.0f};
+    float rotation{0.0f};
+    glm::vec2 scale{1.0f, 1.0f};
+};
+
+struct Time {
+    float deltaTime{0.0f};
+    float realDeltaTime{0.0f};
+    float elapsed{0.0f};
+    float realElapsed{0.0f};
+    uint64_t frameCount{0};
+};
+
 struct Entity {
     uint32_t id = 0;
     std::string name;
@@ -94,6 +108,23 @@ struct Entity {
     void destroy() const {
         if (destroy_callback) destroy_callback(runtime_context, id);
     }
+};
+
+class Entities {
+public:
+    virtual ~Entities() = default;
+    virtual Entity create(const std::string& name) = 0;
+    [[nodiscard]] virtual Entity findByName(const std::string& name) const = 0;
+    [[nodiscard]] virtual Entity findByTag(const std::string& tag) const = 0;
+    [[nodiscard]] virtual bool exists(const Entity& entity) const = 0;
+    [[nodiscard]] virtual std::vector<Entity> findAllByTag(const std::string& tag) const = 0;
+    [[nodiscard]] virtual std::vector<Entity> findAllWithTransform() const = 0;
+    [[nodiscard]] virtual bool hasTransform(const Entity& entity) const = 0;
+    [[nodiscard]] virtual Transform2D* transform(const Entity& entity) = 0;
+    [[nodiscard]] virtual bool hasRigidBody(const Entity& entity) const = 0;
+    [[nodiscard]] virtual RigidBody2D* rigidBody(const Entity& entity) = 0;
+    [[nodiscard]] virtual bool hasSpriteRenderer(const Entity& entity) const = 0;
+    [[nodiscard]] virtual SpriteRenderer2D* spriteRenderer(const Entity& entity) = 0;
 };
 
 class Animator2D {

@@ -656,6 +656,30 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             return m_type_bool;
         }
 
+        if (obj_t->name == "Transform2D") {
+            if (mem->member_name == "position" || mem->member_name == "scale") {
+                auto v2 = Type::make_primitive(TypeKind::Vec2);
+                m_node_types[mem] = v2;
+                return v2;
+            }
+            if (mem->member_name == "rotation") {
+                m_node_types[mem] = m_type_float;
+                return m_type_float;
+            }
+        }
+
+        if (obj_t->name == "Time") {
+            if (mem->member_name == "deltaTime" || mem->member_name == "realDeltaTime" ||
+                mem->member_name == "elapsed" || mem->member_name == "realElapsed") {
+                m_node_types[mem] = m_type_float;
+                return m_type_float;
+            }
+            if (mem->member_name == "frameCount") {
+                m_node_types[mem] = m_type_int;
+                return m_type_int;
+            }
+        }
+
         // Display fields
         if (obj_t->name == "Display") {
             if (mem->member_name == "width" || mem->member_name == "height" || mem->member_name == "pixel_width" || mem->member_name == "pixel_height") {

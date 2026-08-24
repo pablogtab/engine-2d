@@ -4,6 +4,7 @@
 #include "../core/FileSystem.hpp"
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
+#include "../core/Time.hpp"
 #include "../ecs/EntityManager.hpp"
 #include "../ecs/components/AnimationComponents.hpp"
 #include "../ecs/components/CoreComponents.hpp"
@@ -52,6 +53,9 @@ public:
             else if (type == "RigidBody2D") m_arguments.push_back(&m_rigid_body);
             else if (type == "SpriteRenderer2D") m_arguments.push_back(&m_sprite);
             else if (type == "Animator2D") m_arguments.push_back(&m_animator);
+            else if (type == "Transform2D") m_arguments.push_back(&m_transform);
+            else if (type == "Time") m_arguments.push_back(&m_time);
+            else if (type == "Entities") m_arguments.push_back(&m_entities);
             else if (kind == EngineScript::NativeDependencyKind::OptionalComponent) m_arguments.push_back(nullptr);
             else { error = "unsupported native EngineScript dependency: " + type; return false; }
         }
@@ -68,6 +72,17 @@ public:
         if (entities.has_component<SpriteComponent>(m_binding.entity)) {
             m_sprite.flipX = entities.get_component<SpriteComponent>(m_binding.entity).flip_x;
         }
+        if (entities.has_component<TransformComponent>(m_binding.entity)) {
+            const TransformComponent& transform = entities.get_component<TransformComponent>(m_binding.entity);
+            m_transform.position = glm::vec2(transform.position);
+            m_transform.rotation = transform.rotation;
+            m_transform.scale = transform.scale;
+        }
+        m_time.deltaTime = Time::get_delta_time();
+        m_time.realDeltaTime = Time::get_real_delta_time();
+        m_time.elapsed = Time::get_time();
+        m_time.realElapsed = Time::get_real_time();
+        m_time.frameCount = Time::get_frame_count();
     }
 
     void sync_after() {
@@ -79,6 +94,13 @@ public:
         if (entities.has_component<SpriteComponent>(m_binding.entity)) {
             entities.get_component<SpriteComponent>(m_binding.entity).flip_x = m_sprite.flipX;
         }
+        if (entities.has_component<TransformComponent>(m_binding.entity)) {
+            TransformComponent& transform = entities.get_component<TransformComponent>(m_binding.entity);
+            transform.position = glm::vec3(m_transform.position, transform.position.z);
+            transform.rotation = m_transform.rotation;
+            transform.scale = m_transform.scale;
+        }
+        m_entities.sync_after();
     }
 
     void** arguments() { return m_arguments.empty() ? nullptr : m_arguments.data(); }
@@ -120,6 +142,124 @@ private:
         explicit Animator(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
         void play(const std::string& clip) override { if (m_binding.entity_manager) SpriteAnimationSystem::play_clip(*m_binding.entity_manager, m_binding.entity, clip); }
     private: const ScriptRuntimeBinding& m_binding; };
+    class EntityService final : public EngineScript::Entities {
+    public:
+        explicit EntityService(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        EngineScript::Entity create(const std::string& name) override {
+            if (!m_binding.entity_manager) return {};
+            EntityManager& entities = *m_binding.entity_manager;
+            const EntityID id = entities.create_entity();
+            entities.add_component<TagComponent>(id, TagComponent{name});
+            entities.add_component<TransformComponent>(id, TransformComponent{});
+            return make_entity(id);
+        }
+        EngineScript::Entity findByName(const std::string& name) const override { return find(name); }
+        EngineScript::Entity findByTag(const std::string& tag) const override { return find(tag); }
+        bool exists(const EngineScript::Entity& entity) const override {
+            return m_binding.entity_manager && m_binding.entity_manager->is_alive(entity.id);
+        }
+        std::vector<EngineScript::Entity> findAllByTag(const std::string& tag) const override {
+            return find_all([&tag](const TagComponent& value) { return value.tag == tag; });
+        }
+        std::vector<EngineScript::Entity> findAllWithTransform() const override {
+            std::vector<EngineScript::Entity> results;
+            if (!m_binding.entity_manager) return results;
+            m_binding.entity_manager->for_each<TransformComponent>([&](EntityID id, const TransformComponent&) {
+                results.push_back(make_entity(id));
+            });
+            return results;
+        }
+        bool hasTransform(const EngineScript::Entity& entity) const override {
+            return m_binding.entity_manager && m_binding.entity_manager->is_alive(entity.id) &&
+                m_binding.entity_manager->has_component<TransformComponent>(entity.id);
+        }
+        EngineScript::Transform2D* transform(const EngineScript::Entity& entity) override {
+            if (!hasTransform(entity)) return nullptr;
+            const TransformComponent& source = m_binding.entity_manager->get_component<TransformComponent>(entity.id);
+            m_transform.id = entity.id;
+            m_transform.value.position = glm::vec2(source.position);
+            m_transform.value.rotation = source.rotation;
+            m_transform.value.scale = source.scale;
+            return &m_transform.value;
+        }
+        bool hasRigidBody(const EngineScript::Entity& entity) const override {
+            return alive_with<RigidBodyComponent>(entity.id);
+        }
+        EngineScript::RigidBody2D* rigidBody(const EngineScript::Entity& entity) override {
+            if (!hasRigidBody(entity)) return nullptr;
+            const RigidBodyComponent& source = m_binding.entity_manager->get_component<RigidBodyComponent>(entity.id);
+            m_rigid_body.id = entity.id;
+            m_rigid_body.value.velocity = source.velocity;
+            m_rigid_body.value.isGrounded = PhysicsSystem::is_grounded(*m_binding.entity_manager, entity.id);
+            return &m_rigid_body.value;
+        }
+        bool hasSpriteRenderer(const EngineScript::Entity& entity) const override {
+            return alive_with<SpriteComponent>(entity.id);
+        }
+        EngineScript::SpriteRenderer2D* spriteRenderer(const EngineScript::Entity& entity) override {
+            if (!hasSpriteRenderer(entity)) return nullptr;
+            m_sprite_renderer.id = entity.id;
+            m_sprite_renderer.value.flipX = m_binding.entity_manager->get_component<SpriteComponent>(entity.id).flip_x;
+            return &m_sprite_renderer.value;
+        }
+        void sync_after() {
+            if (!m_binding.entity_manager) return;
+            if (m_transform.id != 0 && alive_with<TransformComponent>(m_transform.id)) {
+                TransformComponent& target = m_binding.entity_manager->get_component<TransformComponent>(m_transform.id);
+                target.position = glm::vec3(m_transform.value.position, target.position.z);
+                target.rotation = m_transform.value.rotation;
+                target.scale = m_transform.value.scale;
+            }
+            if (m_rigid_body.id != 0 && alive_with<RigidBodyComponent>(m_rigid_body.id)) {
+                PhysicsSystem::set_velocity(*m_binding.entity_manager, m_rigid_body.id, m_rigid_body.value.velocity);
+            }
+            if (m_sprite_renderer.id != 0 && alive_with<SpriteComponent>(m_sprite_renderer.id)) {
+                m_binding.entity_manager->get_component<SpriteComponent>(m_sprite_renderer.id).flip_x = m_sprite_renderer.value.flipX;
+            }
+        }
+    private:
+        template <typename Predicate>
+        std::vector<EngineScript::Entity> find_all(Predicate predicate) const {
+            std::vector<EngineScript::Entity> results;
+            if (!m_binding.entity_manager) return results;
+            m_binding.entity_manager->for_each<TagComponent>([&](EntityID id, const TagComponent& value) {
+                if (predicate(value)) results.push_back(make_entity(id));
+            });
+            return results;
+        }
+        template <typename Component>
+        bool alive_with(EntityID id) const {
+            return m_binding.entity_manager && m_binding.entity_manager->is_alive(id) &&
+                m_binding.entity_manager->has_component<Component>(id);
+        }
+        EngineScript::Entity find(const std::string& value) const {
+            if (!m_binding.entity_manager) return {};
+            EntityID result = 0;
+            m_binding.entity_manager->for_each<TagComponent>([&](EntityID id, const TagComponent& tag) {
+                if (result == 0 && tag.tag == value) result = id;
+            });
+            return make_entity(result);
+        }
+        EngineScript::Entity make_entity(EntityID id) const {
+            EngineScript::Entity entity;
+            entity.id = id;
+            if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(id)) return entity;
+            if (m_binding.entity_manager->has_component<TagComponent>(id)) {
+                entity.name = m_binding.entity_manager->get_component<TagComponent>(id).tag;
+                entity.tag = entity.name;
+            }
+            entity.runtime_context = m_binding.entity_manager;
+            entity.destroy_callback = [](void* context, uint32_t entity_id) {
+                auto* entities = static_cast<EntityManager*>(context);
+                if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
+            };
+            return entity;
+        }
+        const ScriptRuntimeBinding& m_binding;
+        struct { EntityID id{0}; EngineScript::Transform2D value; } m_transform;
+        struct { EntityID id{0}; EngineScript::RigidBody2D value; } m_rigid_body;
+        struct { EntityID id{0}; EngineScript::SpriteRenderer2D value; } m_sprite_renderer;
+    };
 
     ScriptRuntimeBinding& m_binding;
     Input m_input;
@@ -127,8 +267,11 @@ private:
     Audio m_audio;
     Scene m_scene;
     Animator m_animator;
+    EntityService m_entities{m_binding};
     EngineScript::RigidBody2D m_rigid_body;
     EngineScript::SpriteRenderer2D m_sprite;
+    EngineScript::Transform2D m_transform;
+    EngineScript::Time m_time;
     std::vector<void*> m_arguments;
 };
 
@@ -1044,8 +1187,15 @@ ScriptRuntimeStartResult ScriptRuntime::start(
                 set_error(entity, "missing required SpriteRenderer2D component");
                 return;
             }
+            if (dependency.is_component && dependency.type == "Transform2D" &&
+                !entity_manager.has_component<TransformComponent>(entity)) {
+                ++result.failed;
+                set_error(entity, "missing required Transform2D component");
+                return;
+            }
             if (dependency.is_service && dependency.type != "Input" && dependency.type != "Log" &&
-                dependency.type != "Audio" && dependency.type != "Scene") {
+                dependency.type != "Audio" && dependency.type != "Scene" && dependency.type != "Time" &&
+                dependency.type != "Entities") {
                 ++result.failed;
                 set_error(entity, "unsupported injected service: " + dependency.type);
                 return;
