@@ -195,15 +195,15 @@ private:
             const EntityID entity = m_binding.entity;
             const AssetDatabase* database = m_binding.asset_database;
             EventDispatcher* dispatcher = m_binding.event_dispatcher;
-            m_binding.async_scheduler->schedule_next_frame([database, dispatcher, entity, handle, source_path]() {
-                std::error_code error;
-                const std::string resolved_path = database ? database->resolve(handle) : std::string{};
-                const bool available = dispatcher && !resolved_path.empty() &&
-                    std::filesystem::is_regular_file(resolved_path, error) && !error;
+            const ScriptRuntimeServices* services = m_binding.services;
+            m_binding.async_scheduler->schedule_next_frame([database, dispatcher, services, entity, handle, source_path]() {
+                std::string error;
+                const bool available = database && dispatcher && services && services->preload_asset &&
+                    services->preload_asset(handle, error);
                 dispatcher->queue(ScriptEvent{
                     entity,
                     available ? "AssetLoaded" : "AssetLoadFailed",
-                    source_path
+                    available ? source_path : source_path + ": " + error
                 });
             }, entity);
             return true;

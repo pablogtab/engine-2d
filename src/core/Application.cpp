@@ -105,6 +105,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
         m_window->get_sdl_renderer()
     ));
     m_renderer->set_thread_pool(&m_thread_pool);
+    m_runtime_asset_cache = std::make_unique<RuntimeAssetCache>();
 
     if (!start_with_editor) {
         DisplaySettings defaults;
@@ -124,6 +125,11 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_scene_manager.set_asset_database(&AssetDatabase::get());
     ScriptRuntimeServices script_services;
     script_services.hot_reload_enabled = start_with_editor;
+    script_services.preload_asset = [this](AssetHandle handle, std::string& error) {
+        return m_runtime_asset_cache && m_runtime_asset_cache->preload(
+            AssetDatabase::get(), handle, m_window->get_sdl_renderer(), error
+        );
+    };
     if (!start_with_editor) {
 #if defined(_WIN32)
         constexpr const char* native_module_name = "EngineScript_1.dll";

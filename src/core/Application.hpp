@@ -3,6 +3,7 @@
 #include "Window.hpp"
 #include "AssetDatabase.hpp"
 #include "AssetManager.hpp"
+#include "RuntimeAssetCache.hpp"
 #include "ThreadPool.hpp"
 #include "ProjectSettings.hpp"
 #include "ProjectContext.hpp"
@@ -78,6 +79,7 @@ private:
     std::unique_ptr<Window> m_window;
     std::unique_ptr<DisplayManager> m_display_manager;
     std::unique_ptr<Renderer2D> m_renderer;
+    std::unique_ptr<RuntimeAssetCache> m_runtime_asset_cache;
 #if ENGINE_WITH_EDITOR
     std::unique_ptr<EditorLayer> m_editor_layer;
 #endif

@@ -6,6 +6,7 @@
 #include <string>
 
 #include "core/AssetDatabase.hpp"
+#include "core/RuntimeAssetCache.hpp"
 #include "ecs/EntityManager.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/ScriptingComponents.hpp"
@@ -77,6 +78,10 @@ export class PlayerController extends Behaviour {
     const AssetRecord* record = asset_database.find_by_path(root / "Assets/scripts/PlayerController.e2s");
     assert(record != nullptr);
     assert(record->handle.is_valid());
+    RuntimeAssetCache asset_cache;
+    std::string asset_error;
+    assert(asset_cache.preload(asset_database, record->handle, nullptr, asset_error));
+    assert(asset_cache.is_preloaded(record->handle));
 
     EntityManager entity_manager;
     ScriptRuntime runtime;
@@ -434,6 +439,9 @@ export class ServiceUser extends Behaviour {
     services.request_scene_load = [&](const std::string& path, std::string&) {
         loaded_scene = path;
         return true;
+    };
+    services.preload_asset = [&](AssetHandle handle, std::string&) {
+        return handle == record->handle;
     };
     services.query_display = []() {
         ScriptDisplayInfo info;

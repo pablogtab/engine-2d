@@ -97,8 +97,10 @@ connected execution surface includes:
   runtime scene is activated; scripts can subscribe to `SceneLoaded` or
   `SceneLoadFailed` through `Events`.
 - `Assets`: `find(path)`, `exists(path)`, and `request(path)`. Requests only
-  accept registered ready assets and resolve at the next frame boundary,
-  emitting `AssetLoaded` or `AssetLoadFailed` through `Events`.
+  accept registered ready assets and resolve at the next frame boundary.
+  Textures are decoded into the renderer cache; audio, font, and data payloads
+  are retained as runtime bytes. Requests emit `AssetLoaded` or
+  `AssetLoadFailed` through `Events`.
 
 These services use the same calls in editor Play Mode and generated native
 modules. Audio and scene requests are routed through the host runtime, so a

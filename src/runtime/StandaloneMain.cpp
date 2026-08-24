@@ -4,6 +4,8 @@
 #include "core/ProjectContext.hpp"
 #include "scene/GenericScene.hpp"
 #include "scene/SceneSerializer.hpp"
+#include "scripting/ScriptRuntime.hpp"
+#include "events/EventDispatcher.hpp"
 #include "enginescript/module/GameModule.hpp"
 
 #include <filesystem>
@@ -89,6 +91,19 @@ int run_smoke_test(const Engine::ProjectContext& project) {
         std::cerr << "[RUNTIME SMOKE] Native gameplay module is unavailable: " << module_error << '\n';
         return 1;
     }
+    Engine::EventDispatcher dispatcher;
+    Engine::ScriptRuntime runtime;
+    Engine::ScriptRuntimeServices services;
+    services.native_module_path = native_module_path.string();
+    const Engine::ScriptRuntimeStartResult started = runtime.start(
+        loaded_scene.get_entity_manager(), database, &dispatcher, std::move(services)
+    );
+    if (started.failed != 0) {
+        std::cerr << "[RUNTIME SMOKE] Native gameplay scripts failed to start\n";
+        return 1;
+    }
+    runtime.update(0.0f);
+    runtime.shutdown();
     std::cout << "[RUNTIME SMOKE] Project=" << project.descriptor().name
               << " Assets=" << scan.ready
               << " Scene=" << project.descriptor().startup_scene.generic_string()

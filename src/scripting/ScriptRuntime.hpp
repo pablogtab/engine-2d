@@ -64,6 +64,7 @@ struct ScriptRuntimeServices {
     std::function<std::string()> current_scene_name;
     std::function<bool()> is_scene_loading;
     std::function<std::string()> scene_load_error;
+    std::function<bool(AssetHandle, std::string&)> preload_asset;
     std::string native_module_path;
 };
 
