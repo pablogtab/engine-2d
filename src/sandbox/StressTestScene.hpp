@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../scene/Scene.hpp"
+#include "../scene/CustomScene.hpp"
 #include "../scene/Camera2D.hpp"
 #include "../renderer/Texture.hpp"
 #include "../renderer/Renderer2D.hpp"
@@ -18,7 +18,7 @@ struct Particle {
     SDL_Color color;
 };
 
-class StressTestScene : public Engine::Scene {
+class StressTestScene : public Engine::CustomScene {
 public:
     explicit StressTestScene(SDL_Renderer* renderer, Engine::ThreadPool* thread_pool = nullptr, size_t particle_count = 3000);
 

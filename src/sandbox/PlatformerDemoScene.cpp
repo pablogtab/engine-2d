@@ -40,7 +40,7 @@ Engine::PostProcessProfile post_process_profile_for_mode(int mode) {
 }
 
 PlatformerDemoScene::PlatformerDemoScene(SDL_Renderer* renderer)
-    : Engine::Scene("2D Platformer & Collision Layer Matrix"),
+    : Engine::CustomScene("2D Platformer & Collision Layer Matrix"),
       m_sdl_renderer(renderer),
       m_camera(1280.0f, 720.0f) {}
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../scene/Scene.hpp"
+#include "../scene/CustomScene.hpp"
 #include "../scene/Camera2D.hpp"
 #include "../renderer/Texture.hpp"
 #include <memory>
@@ -8,7 +8,7 @@
 
 namespace Sandbox {
 
-class DepthDemoScene : public Engine::Scene {
+class DepthDemoScene : public Engine::CustomScene {
 public:
     DepthDemoScene(SDL_Renderer* renderer);
 

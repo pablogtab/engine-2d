@@ -8,7 +8,7 @@
 namespace Sandbox {
 
 DepthDemoScene::DepthDemoScene(SDL_Renderer* renderer)
-    : Engine::Scene("2.5D Depth & Parallax Test"),
+    : Engine::CustomScene("2.5D Depth & Parallax Test"),
       m_sdl_renderer(renderer),
       m_camera(1280.0f, 720.0f) {}
 

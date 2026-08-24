@@ -9,7 +9,7 @@ The engine is intentionally incomplete. An unchecked item is not automatically a
 - `[x]` means implemented and validated at the level required by the current phase.
 - `[ ]` means pending, incomplete, or implemented visually but not yet meeting its completion criteria.
 - A module is complete only when its behavior, undo/redo rules, serialization, and relevant tests are complete.
-- `GenericScene` remains a temporary integration helper until its hardcoded behavior is represented by configurable engine and editor systems.
+- Scene assets own only entities, events, and serializable `SceneSettings`; runtime, renderer, and editor-view state are composed by `SceneManager`.
 
 ## Guiding Rules
 
@@ -289,7 +289,7 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Support entity- or layer-scoped multipass effects through managed intermediate surfaces.
   - [x] Add reusable `.layereffect` recipes with ordered material passes plus scene-owned layer assignments, cached runtime resolution, authoring, and undo/redo.
   - [x] Add entity-scoped multipass isolation and authoring through a serializable `RenderEffectComponent`, reusable profile assets, pooled composition surfaces, missing-asset diagnostics, and undo/redo.
-  - [x] Extract profile resolution and runtime pass caching from `GenericScene` into the reusable `RenderEffectSystem`.
+  - [x] Resolve profiles and cache runtime passes through `SceneRenderer` and the reusable `RenderEffectSystem`.
 - [x] Keep simple single-pass sprite materials on the direct fast path.
 - [x] Define clear ownership and pooling for render targets.
 - [x] Track draw calls, material switches, pass timings, and render-target memory.
@@ -481,7 +481,7 @@ Remaining language/backend work is tracked in
 - [x] Import each generated texture once with bulk component assignments, reject duplicate queued imports, and record the editor's real apply/reject result in conversation history.
 - [x] Import a generated WAV from `Library/EditorAi/AudioPreviews/` to `Assets/Audio/` with RIFF/WAVE validation, stable asset registration, and reversible Undo/Redo.
 - [x] Let Codex navigate, frame, validate, and capture the live Scene Viewport through bounded main-thread tools and multimodal tool output without dirtying authored content.
-- [x] Expose editor/game cameras through the generic Scene render-view contract and test viewport navigation without depending on the temporary `GenericScene` helper.
+- [x] Move editor/game cameras to `EditorSceneView` and `SceneRuntime`, expose them through `SceneManager`, and keep viewport navigation independent from scene data.
 - [ ] Add an optional MCP adapter over the same tool registry for external Codex clients; do not create a second mutation path.
 
 ### Full Access Command and Build APIs

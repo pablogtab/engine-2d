@@ -14,7 +14,7 @@
 #include "../core/Window.hpp"
 #include "../scene/SceneManager.hpp"
 #include "../scene/Scene.hpp"
-#include "../scene/GenericScene.hpp"
+#include "../scene/Scene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "panels/ViewportPanel.hpp"
 #include "panels/SceneHierarchyPanel.hpp"
@@ -642,7 +642,7 @@ void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
 
 void EditorLayer::create_new_scene(const std::string& name) {
     if (!m_scene_manager) return;
-    auto new_scene = std::make_shared<GenericScene>(name);
+    auto new_scene = std::make_shared<Scene>(name);
     EntityManager& entity_manager = new_scene->get_entity_manager();
     const EntityID camera_entity = entity_manager.create_entity();
     entity_manager.add_component<TagComponent>(camera_entity, TagComponent{"Main Camera"});
@@ -862,7 +862,7 @@ void EditorLayer::load_scene(const std::string& path) {
     std::filesystem::path p(path);
     std::string scene_name = p.stem().string();
 
-    auto new_scene = std::make_shared<GenericScene>(scene_name);
+    auto new_scene = std::make_shared<Scene>(scene_name);
     auto loaded_editor_state = std::make_shared<EditorEntityStateStore>();
     SceneEditorMetadata editor_metadata;
     SceneSerializer serializer(new_scene.get(), m_renderer, nullptr, &editor_metadata);
@@ -1425,7 +1425,7 @@ void EditorLayer::render_recovery_modal() {
 void EditorLayer::recover_autosave(const AutosaveRecord& record) {
     if (!m_scene_manager) return;
 
-    auto recovered_scene = std::make_shared<GenericScene>(record.scene_name);
+    auto recovered_scene = std::make_shared<Scene>(record.scene_name);
     auto recovered_editor_state = std::make_shared<EditorEntityStateStore>();
     SceneEditorMetadata editor_metadata;
     SceneSerializer serializer(recovered_scene.get(), m_renderer, nullptr, &editor_metadata);

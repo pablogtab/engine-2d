@@ -3,7 +3,7 @@
 #include "editor/EditorLayer.hpp"
 #include "editor/ProjectHub.hpp"
 #include "editor/state/EditorEntityStateStore.hpp"
-#include "scene/GenericScene.hpp"
+#include "scene/Scene.hpp"
 #include "scene/SceneSerializer.hpp"
 
 #include <cstdlib>
@@ -77,7 +77,7 @@ public:
 protected:
     void on_init() override {
         const auto scene_path = get_project().resolve(get_project().descriptor().startup_scene);
-        auto scene = std::make_shared<Engine::GenericScene>(get_project().descriptor().name);
+        auto scene = std::make_shared<Engine::Scene>(get_project().descriptor().name);
         Engine::SceneEditorMetadata metadata;
         Engine::SceneSerializer serializer(
             scene.get(), get_window().get_sdl_renderer(), nullptr, &metadata

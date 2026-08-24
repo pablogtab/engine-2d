@@ -41,12 +41,12 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
    - Si durante el trabajo se detecta una implementación que no escala bien, situaciones hardcodeadas, la necesidad de un cambio arquitectónico o una optimización relevante, plantear la situación al usuario antes de continuar en esa dirección.
    - Explicar el impacto y el enfoque propuesto para que el usuario pueda decidir de forma deliberada.
 
-8. **Rol Transitorio de `GenericScene`:**
-   - `GenericScene` es un helper temporal de integración mientras las funcionalidades del motor se vuelven configurables desde datos y herramientas del editor.
-   - Se permite hardcodear temporalmente allí la composición de demos o la conexión de sistemas que todavía no tienen una ruta configurable.
-   - No usar `GenericScene` como arquitectura final ni como referencia para introducir hardcoding en el núcleo del motor.
-   - Cuando una funcionalidad obtenga configuración propia, extraer su lógica a componentes, sistemas o datos y retirar el código transitorio correspondiente de `GenericScene`.
-   - Seguir señalando cualquier hardcoding fuera de este alcance o que impida una extracción limpia posterior.
+8. **Ownership de Escenas:**
+   - `Scene` contiene entidades, eventos y `SceneSettings` serializables; no posee cámaras de editor, recursos GPU ni estado transitorio de sistemas.
+   - `SceneRuntime` ejecuta física, animación, cámara de gameplay e input de UI.
+   - `SceneRenderer` conecta render, iluminación, efectos, post-proceso y Canvas.
+   - `EditorSceneView` posee cámara, filtro de visibilidad y overlays efímeros del editor.
+   - `SceneManager` compone y despacha estos contextos. No introducir nuevamente una escena concreta que concentre esas responsabilidades.
 
 9. **Método de Refactorización, Incrementos y Entrega:**
    - Antes de modificar una funcionalidad, inspeccionar su flujo completo y sus consumidores reales: estado, comandos, serialización, recursos derivados, UI, runtime y pruebas. No asumir que un cambio local resuelve el contrato completo.

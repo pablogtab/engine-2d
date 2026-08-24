@@ -367,8 +367,7 @@ bool ViewportPanel::get_ai_view_state(ViewportAiState& state, std::string& error
         error = "Viewport navigation is available only in Edit mode";
         return false;
     }
-    const Scene* scene = m_scene_manager->get_active_scene();
-    const Camera2D* camera = scene ? scene->get_render_camera(RenderViewKind::Editor) : nullptr;
+    const Camera2D* camera = m_scene_manager->get_render_camera(RenderViewKind::Editor);
     if (!camera) {
         error = "The active scene does not expose an editor camera";
         return false;
@@ -390,8 +389,7 @@ bool ViewportPanel::ai_pan(const glm::vec2& world_delta, std::string& error) {
         error = "Viewport navigation is available only in Edit mode";
         return false;
     }
-    Scene* scene = m_scene_manager->get_active_scene();
-    if (!ViewportNavigation::pan_world(scene, world_delta)) {
+    if (!ViewportNavigation::pan_world(m_scene_manager->get_render_camera(RenderViewKind::Editor), world_delta)) {
         error = "The active scene does not expose an editor camera";
         return false;
     }
@@ -404,8 +402,7 @@ bool ViewportPanel::ai_zoom(float factor, std::string& error) {
         error = "Viewport navigation is available only in Edit mode";
         return false;
     }
-    Scene* scene = m_scene_manager->get_active_scene();
-    if (!ViewportNavigation::zoom(scene, factor)) {
+    if (!ViewportNavigation::zoom(m_scene_manager->get_render_camera(RenderViewKind::Editor), factor)) {
         error = "The active scene does not expose an editor camera";
         return false;
     }
@@ -423,7 +420,8 @@ bool ViewportPanel::ai_focus_entities(
         return false;
     }
     Scene* scene = m_scene_manager->get_active_scene();
-    if (!scene || !scene->get_render_camera(RenderViewKind::Editor)) {
+    Camera2D* camera = m_scene_manager->get_render_camera(RenderViewKind::Editor);
+    if (!scene || !camera) {
         error = "The active scene does not expose an editor camera";
         return false;
     }
@@ -433,7 +431,7 @@ bool ViewportPanel::ai_focus_entities(
             return false;
         }
     }
-    if (!ViewportNavigation::frame_entities(scene, entities, padding)) {
+    if (!ViewportNavigation::frame_entities(scene, camera, entities, padding)) {
         error = "Viewport targets do not have visible transform bounds";
         return false;
     }
@@ -447,11 +445,12 @@ bool ViewportPanel::ai_frame_all(float padding, std::string& error) {
         return false;
     }
     Scene* scene = m_scene_manager->get_active_scene();
-    if (!scene || !scene->get_render_camera(RenderViewKind::Editor)) {
+    Camera2D* camera = m_scene_manager->get_render_camera(RenderViewKind::Editor);
+    if (!scene || !camera) {
         error = "The active scene does not expose an editor camera";
         return false;
     }
-    if (!ViewportNavigation::frame_all(scene, padding)) {
+    if (!ViewportNavigation::frame_all(scene, camera, padding)) {
         error = "The active scene has no visible transform bounds";
         return false;
     }
@@ -464,8 +463,7 @@ bool ViewportPanel::ai_reset(std::string& error) {
         error = "Viewport navigation is available only in Edit mode";
         return false;
     }
-    Scene* scene = m_scene_manager->get_active_scene();
-    if (!ViewportNavigation::reset(scene)) {
+    if (!ViewportNavigation::reset(m_scene_manager->get_render_camera(RenderViewKind::Editor))) {
         error = "The active scene does not expose an editor camera";
         return false;
     }
@@ -888,14 +886,14 @@ void ViewportPanel::begin_render() {
         configure_scene_view();
         SDL_SetRenderTarget(m_renderer, m_viewport_texture);
         Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
-        const SDL_Color clear_color = active_scene ? active_scene->get_clear_color() : SDL_Color{24, 28, 36, 255};
+        const SDL_Color clear_color = m_scene_manager ? m_scene_manager->get_clear_color() : SDL_Color{24, 28, 36, 255};
         SDL_SetRenderDrawColor(m_renderer, clear_color.r, clear_color.g, clear_color.b, clear_color.a);
         SDL_RenderClear(m_renderer);
         if (active_scene) {
             m_visibility_filter.set_entity_manager(&active_scene->get_entity_manager());
-            active_scene->set_render_filter(&m_visibility_filter);
+            m_scene_manager->set_render_filter(&m_visibility_filter);
         }
-        const Camera2D* editor_camera = active_scene ? active_scene->get_render_camera(RenderViewKind::Editor) : nullptr;
+        const Camera2D* editor_camera = m_scene_manager ? m_scene_manager->get_render_camera(RenderViewKind::Editor) : nullptr;
         if (editor_camera && m_grid_settings.visible && m_scene_manager && m_scene_manager->is_editing()) {
             draw_viewport_grid_to_render_target(m_renderer, *editor_camera, m_gizmo.snap_settings().position_step, m_grid_settings);
         }
@@ -1275,8 +1273,8 @@ void ViewportPanel::on_gui() {
             if (active_scene) {
                 m_visibility_filter.set_entity_manager(&active_scene->get_entity_manager());
             }
-            Camera2D* active_cam = active_scene
-                ? active_scene->get_render_camera(is_editing ? RenderViewKind::Editor : RenderViewKind::Game)
+            Camera2D* active_cam = m_scene_manager
+                ? m_scene_manager->get_render_camera(is_editing ? RenderViewKind::Editor : RenderViewKind::Game)
                 : nullptr;
             if (m_project_settings) {
                 const auto& game_view = m_project_settings->display();
@@ -1377,7 +1375,7 @@ void ViewportPanel::on_gui() {
 
             // --- 3. Viewport Camera Navigation (Pan / Zoom / Focus 'F') ---
             if (is_editing && active_cam && active_scene && m_selection) {
-                m_camera_controller.handle_input(active_scene, *m_selection, viewport_tools_hovered, m_is_focused, m_viewport_mouse_pos, viewport_mouse_delta);
+                m_camera_controller.handle_input(active_scene, active_cam, *m_selection, viewport_tools_hovered, m_is_focused, m_viewport_mouse_pos, viewport_mouse_delta);
             }
 
             const bool is_guide_interaction = is_editing && active_cam

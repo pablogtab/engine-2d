@@ -8,7 +8,7 @@ Use this checklist when closing an editor, engine, runtime, or tooling increment
 - [ ] Editor-only code, ImGui state, commands, and diagnostics do not leak into the standalone runtime path.
 - [ ] The public contract is clear: inputs, outputs, ownership, failure behavior, and threading assumptions are explicit.
 - [ ] Existing approved behavior is preserved unless the increment explicitly changes it.
-- [ ] A temporary `GenericScene` integration remains isolated and has a clear future extraction path.
+- [ ] Scene data remains independent from runtime, renderer, GPU-resource, and editor-view state.
 
 ### 2. Undo, redo, cancellation, and dirty state
 

@@ -12,7 +12,7 @@ already implemented.
   script source location, or render pass.
 - Make frame cost visible before attempting optimization.
 - Keep debugging controls and visualizations generic and independent from game
-  content or `GenericScene`.
+  content or a concrete scene implementation.
 - Preserve the runtime/editor build boundary: runtime targets collect neutral
   diagnostic data, while editor targets own panels, overlays, and interaction.
 - Keep instrumentation disabled or inexpensive when it is not being observed.

@@ -71,8 +71,10 @@ set(SOURCES
     src/scene/CameraController2D.cpp
     src/scene/BuiltinComponentRegistrations.cpp
     src/scene/ComponentRegistry.cpp
+    src/scene/EditorSceneView.cpp
     src/scene/SceneManager.cpp
-    src/scene/GenericScene.cpp
+    src/scene/SceneRenderer.cpp
+    src/scene/SceneRuntime.cpp
     src/scene/SceneSchema.cpp
     src/scene/SceneSerializer.cpp
     src/scene/SceneValidator.cpp
@@ -1116,9 +1118,9 @@ add_executable(PrefabStageControllerTests
     src/scene/PrefabPropagation.cpp
     src/scene/PrefabOverrides.cpp
     src/scene/SceneManager.cpp
-
-
-    src/scene/GenericScene.cpp
+    src/scene/EditorSceneView.cpp
+    src/scene/SceneRenderer.cpp
+    src/scene/SceneRuntime.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EntityCommands.cpp
     src/editor/commands/HierarchyCommands.cpp

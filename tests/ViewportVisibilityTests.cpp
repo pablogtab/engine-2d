@@ -20,14 +20,6 @@ class ContractScene final : public Scene {
 public:
     ContractScene() : Scene("ContractScene"), editor_camera(800.0f, 600.0f), game_camera(1280.0f, 720.0f) {}
 
-    Camera2D* get_render_camera(RenderViewKind view) override {
-        return view == RenderViewKind::Editor ? &editor_camera : &game_camera;
-    }
-
-    const Camera2D* get_render_camera(RenderViewKind view) const override {
-        return view == RenderViewKind::Editor ? &editor_camera : &game_camera;
-    }
-
     Camera2D editor_camera;
     Camera2D game_camera;
 };
@@ -187,14 +179,14 @@ void test_navigation_uses_scene_render_camera_contract() {
     ContractScene scene;
     scene.game_camera.set_position({77.0f, 88.0f});
 
-    assert(ViewportNavigation::pan_world(&scene, {25.0f, -10.0f}));
+    assert(ViewportNavigation::pan_world(&scene.editor_camera, {25.0f, -10.0f}));
     assert(near(scene.editor_camera.get_position().x, 25.0f));
     assert(near(scene.editor_camera.get_position().y, -10.0f));
     assert(near(scene.game_camera.get_position().x, 77.0f));
 
-    assert(ViewportNavigation::zoom(&scene, 2.0f));
+    assert(ViewportNavigation::zoom(&scene.editor_camera, 2.0f));
     assert(near(scene.editor_camera.get_zoom(), 2.0f));
-    assert(ViewportNavigation::reset(&scene));
+    assert(ViewportNavigation::reset(&scene.editor_camera));
     assert(near(scene.editor_camera.get_position().x, 0.0f));
     assert(near(scene.editor_camera.get_position().y, 0.0f));
     assert(near(scene.editor_camera.get_zoom(), 1.0f));
@@ -216,11 +208,11 @@ void test_navigation_frames_entities_without_generic_scene() {
     right_transform.position = {100.0f, 25.0f, 0.0f};
     manager.add_component<TransformComponent>(right, right_transform);
 
-    assert(ViewportNavigation::frame_entities(&scene, {left, right}, 0.0f));
+    assert(ViewportNavigation::frame_entities(&scene, &scene.editor_camera, {left, right}, 0.0f));
     assert(near(scene.editor_camera.get_position().x, 0.0f));
     assert(near(scene.editor_camera.get_position().y, 25.0f));
     assert(scene.editor_camera.get_zoom() > 1.0f);
-    assert(!ViewportNavigation::frame_entities(&scene, {999999}, 0.0f));
+    assert(!ViewportNavigation::frame_entities(&scene, &scene.editor_camera, {999999}, 0.0f));
 
     std::cout << "[PASS] test_navigation_frames_entities_without_generic_scene" << std::endl;
 }

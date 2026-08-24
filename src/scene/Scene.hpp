@@ -1,57 +1,25 @@
 #pragma once
 
-#include "../renderer/RenderView.hpp"
 #include "../ecs/EntityManager.hpp"
 #include "../events/EventDispatcher.hpp"
 #include "../core/AssetHandle.hpp"
 #include "../renderer/RenderLayerEffectProfile.hpp"
-#include <SDL3/SDL.h>
+#include <glm/glm.hpp>
 #include <vector>
 
 namespace Engine {
 
-class Renderer2D;
-class Camera2D;
-class IEntityRenderFilter;
-class PostProcessPipeline;
-struct PostProcessProfile;
-class AssetDatabase;
+struct SceneSettings {
+    bool physics_enabled{true};
+    glm::vec2 gravity{0.0f, -980.0f};
+    AssetHandle post_process_profile_handle{};
+    std::vector<RenderLayerEffectAssignment> render_layer_effect_assignments;
+};
 
 class Scene {
 public:
+    explicit Scene(std::string name = "Untitled Scene") : m_name(std::move(name)) {}
     virtual ~Scene() = default;
-
-    virtual void on_attach() {}
-    virtual void on_detach() {}
-    virtual void on_update(float delta_time) {}
-    virtual void on_render(Renderer2D& renderer) {}
-    virtual void on_viewport_resize(RenderViewKind view, const RenderViewConfiguration& configuration) {}
-    virtual void on_render_resources_invalidated() {}
-
-    // Returns the camera used to render a specific view. Scenes that support
-    // editor or game viewport interaction expose those cameras through this
-    // generic render contract; callers must not depend on a concrete Scene.
-    [[nodiscard]] virtual Camera2D* get_render_camera(RenderViewKind) { return nullptr; }
-    [[nodiscard]] virtual const Camera2D* get_render_camera(RenderViewKind) const { return nullptr; }
-    virtual void set_render_filter(const IEntityRenderFilter*) {}
-
-    [[nodiscard]] virtual SDL_Color get_clear_color() const { return SDL_Color{24, 28, 36, 255}; }
-
-    [[nodiscard]] virtual PostProcessPipeline* get_post_process_pipeline() { return nullptr; }
-    [[nodiscard]] virtual PostProcessProfile* get_editable_post_process_profile() { return nullptr; }
-    [[nodiscard]] virtual bool supports_post_process_profile_assets() const { return false; }
-    [[nodiscard]] virtual AssetHandle get_post_process_profile_handle() const { return {}; }
-    virtual bool set_post_process_profile_handle(AssetHandle, const AssetDatabase&) { return false; }
-    [[nodiscard]] virtual bool supports_render_layer_effects() const { return false; }
-    [[nodiscard]] virtual const std::vector<RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const {
-        static const std::vector<RenderLayerEffectAssignment> empty;
-        return empty;
-    }
-    virtual bool set_render_layer_effect_assignments(std::vector<RenderLayerEffectAssignment>, const AssetDatabase&) { return false; }
-    virtual bool refresh_render_layer_effects(const AssetDatabase&) { return false; }
-
-    virtual void set_is_editing(bool is_editing) {}
-    [[nodiscard]] virtual bool is_editing() const { return true; }
 
     const std::string& get_name() const { return m_name; }
 
@@ -59,15 +27,24 @@ public:
     const EntityManager& get_entity_manager() const { return m_entity_manager; }
     void swap_entity_manager(EntityManager& replacement) noexcept { m_entity_manager.swap(replacement); }
     EventDispatcher& get_event_dispatcher() { return m_event_dispatcher; }
+    [[nodiscard]] SceneSettings& settings() { return m_settings; }
+    [[nodiscard]] const SceneSettings& settings() const { return m_settings; }
+    [[nodiscard]] AssetHandle get_post_process_profile_handle() const { return m_settings.post_process_profile_handle; }
+    void set_post_process_profile_handle(AssetHandle handle) { m_settings.post_process_profile_handle = handle; }
+    [[nodiscard]] const std::vector<RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const {
+        return m_settings.render_layer_effect_assignments;
+    }
+    void set_render_layer_effect_assignments(std::vector<RenderLayerEffectAssignment> assignments) {
+        m_settings.render_layer_effect_assignments = std::move(assignments);
+    }
 
 protected:
-    explicit Scene(std::string name) : m_name(std::move(name)) {}
-
     EntityManager m_entity_manager;
     EventDispatcher m_event_dispatcher;
 
 private:
     std::string m_name;
+    SceneSettings m_settings;
 };
 
 } // namespace Engine

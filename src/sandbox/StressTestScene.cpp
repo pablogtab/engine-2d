@@ -8,7 +8,7 @@
 namespace Sandbox {
 
 StressTestScene::StressTestScene(SDL_Renderer *renderer, Engine::ThreadPool* thread_pool, size_t particle_count)
-    : Engine::Scene("GPU/CPU Stress Test"),
+    : Engine::CustomScene("GPU/CPU Stress Test"),
       m_sdl_renderer(renderer), m_thread_pool(thread_pool), m_camera(1280.0f, 720.0f) {
 
   set_particle_count(particle_count);

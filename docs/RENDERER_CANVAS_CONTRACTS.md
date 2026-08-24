@@ -2,7 +2,7 @@
 
 This document is the architectural entry point for work that crosses the renderer,
 display, Canvas layout, UI input, or Scene View authoring. Update it when one of
-these contracts changes; do not infer a new ownership model from `GenericScene`.
+these contracts changes.
 
 ## Frame composition
 
@@ -177,8 +177,15 @@ view-only state. Authored UI edits are not:
 - `UIInputSystem` owns transient hover, capture, focus, and click state.
 - `DisplayManager` owns current platform display state and change notifications.
 - `Application` maps display state into render-view configuration.
-- `GenericScene` only connects these reusable systems while it remains the temporary
-  integration scene. It is not the owner of any renderer or Canvas contract.
+- `Scene` owns entities, events, and serializable `SceneSettings` only.
+- `SceneRuntime` owns transient physics, animation, gameplay camera, and UI-input state.
+- `SceneRenderer` owns lighting, render-effect resolution, Canvas drawing caches,
+  and post-process GPU resources.
+- `EditorSceneView` owns the editor camera, visibility filter, and preview overlays.
+- `SceneManager` composes one execution context per loaded scene and dispatches lifecycle,
+  view configuration, updates, rendering, and resource invalidation.
+- `CustomScene` is restricted to isolated engine validation scenes that need a
+  handcrafted render path; project scenes never derive from it.
 
 ## Regression coverage
 
@@ -195,5 +202,5 @@ Changes to this area should update the smallest relevant focused suite:
   target lifetime, and backend integration.
 - `RenderResolutionTests`: fixed/dynamic policy normalization, bounds, timing
   response, hysteresis, and hitch rejection.
-- `ViewportVisibilityTests`: render-camera contract, navigation, entity framing,
-  selection, and editor visibility filtering without a `GenericScene` dependency.
+- `ViewportVisibilityTests`: manager-owned render-camera access, navigation, entity
+  framing, selection, and editor visibility filtering.

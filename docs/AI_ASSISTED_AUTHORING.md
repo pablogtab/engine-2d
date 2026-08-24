@@ -128,9 +128,9 @@ render targets are not worker-thread APIs. Each request is pinned to the active
 scene and authoring revision captured at turn start; a scene switch or concurrent
 authored edit rejects later live calls instead of inspecting a mixed state.
 
-Viewport navigation depends on `Scene::get_render_camera(RenderViewKind)`, not on
-`GenericScene`. The reusable `ViewportNavigation` helper is shared by human input and
-AI tools, and is covered with a minimal independent `Scene` implementation.
+Viewport navigation obtains the active editor camera from `SceneManager`; scene
+data does not own view state. The reusable `ViewportNavigation` helper receives
+that camera explicitly and is shared by human input and AI tools.
 Authoring actions remain queued until the turn completes, so a viewport capture
 observes the currently applied scene, never an uncommitted proposal.
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../scene/Scene.hpp"
+#include "../scene/CustomScene.hpp"
 #include "../scene/Camera2D.hpp"
 #include "../renderer/Texture.hpp"
 #include "../renderer/SpriteSheet.hpp"
@@ -9,7 +9,7 @@
 
 namespace Sandbox {
 
-class AnimatedSpriteDemoScene : public Engine::Scene {
+class AnimatedSpriteDemoScene : public Engine::CustomScene {
 public:
     explicit AnimatedSpriteDemoScene(SDL_Renderer* renderer);
     ~AnimatedSpriteDemoScene() override = default;

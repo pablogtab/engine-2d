@@ -8,6 +8,8 @@
 
 namespace Engine {
 
+class Camera2D;
+
 class ViewportCameraController {
 public:
     ViewportCameraController() = default;
@@ -15,6 +17,7 @@ public:
     // Handles viewport navigation and its focus-scoped framing shortcuts.
     void handle_input(
         Scene* scene,
+        Camera2D* camera,
         const EditorSelection& selection,
         bool is_viewport_hovered,
         bool is_viewport_focused,

@@ -2,7 +2,7 @@
 #include "core/AssetDatabase.hpp"
 #include "core/FileSystem.hpp"
 #include "core/ProjectContext.hpp"
-#include "scene/GenericScene.hpp"
+#include "scene/Scene.hpp"
 #include "scene/SceneSerializer.hpp"
 #include "scripting/ScriptRuntime.hpp"
 #include "events/EventDispatcher.hpp"
@@ -55,7 +55,7 @@ public:
 protected:
     void on_init() override {
         const auto scene_path = get_project().resolve(get_project().descriptor().startup_scene);
-        auto scene = std::make_shared<Engine::GenericScene>(get_project().descriptor().name);
+        auto scene = std::make_shared<Engine::Scene>(get_project().descriptor().name);
         Engine::SceneSerializer serializer(scene.get(), get_window().get_sdl_renderer());
         if (!serializer.deserialize(scene_path.string())) {
             std::cerr << "Cannot load startup scene: " << scene_path << '\n';
@@ -77,7 +77,7 @@ int run_smoke_test(const Engine::ProjectContext& project) {
         std::cerr << "[RUNTIME SMOKE] Startup scene is unavailable\n";
         return 1;
     }
-    Engine::GenericScene loaded_scene(project.descriptor().name);
+    Engine::Scene loaded_scene(project.descriptor().name);
     Engine::SceneSerializer serializer(&loaded_scene);
     if (!serializer.deserialize(project.resolve(project.descriptor().startup_scene).string())) {
         std::cerr << "[RUNTIME SMOKE] Startup scene could not be deserialized\n";

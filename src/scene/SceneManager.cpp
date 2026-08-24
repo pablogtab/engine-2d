@@ -1,4 +1,5 @@
 #include "SceneManager.hpp"
+#include "CustomScene.hpp"
 #include "SceneSerializer.hpp"
 #include "../renderer/material/MaterialAsset.hpp"
 #include "../renderer/Renderer2D.hpp"
@@ -6,6 +7,8 @@
 #include "../core/Log.hpp"
 #include "../core/Time.hpp"
 #include "../ecs/TransformSystem.hpp"
+#include "../ecs/CameraSystem.hpp"
+#include "../ecs/components/RenderingComponents.hpp"
 #include <algorithm>
 #include <fstream>
 
@@ -19,13 +22,15 @@ namespace {
 
 MaterialAssetRefreshResult SceneManager::refresh_material_assets(const AssetDatabase& database) {
     MaterialAssetRefreshResult result;
-    const auto refresh = [&result, &database](const std::shared_ptr<Scene>& scene) {
+    const auto refresh = [this, &result, &database](const std::shared_ptr<Scene>& scene) {
         if (!scene) return;
         const auto refreshed = MaterialAsset::refresh_assigned(scene->get_entity_manager(), database);
         result.reloaded += refreshed.reloaded;
         result.unavailable += refreshed.unavailable;
-        if (scene->supports_render_layer_effects()) {
-            static_cast<void>(scene->refresh_render_layer_effects(database));
+        if (auto* custom = dynamic_cast<CustomScene*>(scene.get())) {
+            static_cast<void>(custom->refresh_render_layer_effects(database));
+        } else if (auto context = m_execution_contexts.find(scene.get()); context != m_execution_contexts.end()) {
+            static_cast<void>(context->second->renderer.refresh_render_layer_effects(*scene, database));
         }
     };
     for (const auto& scene : m_scenes) refresh(scene);
@@ -82,12 +87,12 @@ void SceneManager::add_scene(std::shared_ptr<Scene> scene) {
     for (size_t i = 0; i < m_scenes.size(); ++i) {
         if (m_scenes[i] && m_scenes[i]->get_name() == scene->get_name()) {
             if (m_active_index == static_cast<int>(i)) {
-                m_scenes[i]->on_detach();
+                detach_scene(*m_scenes[i]);
             }
+            discard_execution_context(m_scenes[i].get());
             m_scenes[i] = scene;
             if (m_active_index == static_cast<int>(i)) {
-                m_scenes[i]->set_is_editing(is_editing());
-                m_scenes[i]->on_attach();
+                attach_scene(*m_scenes[i]);
                 apply_active_view();
             }
             return;
@@ -107,12 +112,11 @@ void SceneManager::set_active_scene(size_t index) {
     if (m_active_index == static_cast<int>(index)) return; // Prevent redundant double attach!
 
     if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
-        m_scenes[m_active_index]->on_detach();
+        detach_scene(*m_scenes[m_active_index]);
     }
 
     m_active_index = static_cast<int>(index);
-    m_scenes[m_active_index]->set_is_editing(is_editing());
-    m_scenes[m_active_index]->on_attach();
+    attach_scene(*m_scenes[m_active_index]);
     apply_active_view();
 
     save_state();
@@ -180,10 +184,11 @@ void SceneManager::advance_play_startup() {
             break;
         }
         case PlayStartupPhase::PrepareRuntime: {
-            active_scene->on_detach();
-            active_scene->set_is_editing(false);
-            active_scene->on_attach();
-            active_scene->on_viewport_resize(RenderViewKind::Game, m_game_view);
+            detach_scene(*active_scene);
+            m_play_state = ScenePlayState::Play;
+            attach_scene(*active_scene);
+            configure_scene_view(*active_scene, RenderViewKind::Game, m_game_view);
+            m_play_state = ScenePlayState::Edit;
             m_play_startup_phase = PlayStartupPhase::StartScripts;
             std::size_t script_count = 0;
             const AssetDatabase& database = m_asset_database ? *m_asset_database : AssetDatabase::get();
@@ -271,12 +276,11 @@ void SceneManager::activate_pending_runtime_scene() {
     if (!m_pending_runtime_scene || m_play_state == ScenePlayState::Edit) return;
 
     m_script_runtime.shutdown();
-    if (Scene* current = get_active_scene()) current->on_detach();
+    if (Scene* current = get_active_scene()) detach_scene(*current);
 
     m_runtime_scene = std::move(m_pending_runtime_scene);
-    m_runtime_scene->set_is_editing(false);
-    m_runtime_scene->on_attach();
-    m_runtime_scene->on_viewport_resize(RenderViewKind::Game, m_game_view);
+    attach_scene(*m_runtime_scene);
+    configure_scene_view(*m_runtime_scene, RenderViewKind::Game, m_game_view);
     start_scripts(*m_runtime_scene);
     m_game_session.complete_loaded();
     m_runtime_scene->get_event_dispatcher().queue(GameSessionEvent{"SceneLoaded", m_game_session.path()});
@@ -303,10 +307,9 @@ void SceneManager::stop_play() {
     if (m_play_state == ScenePlayState::Edit && m_play_startup_phase == PlayStartupPhase::None) return;
     if (m_play_state == ScenePlayState::Edit) {
         if (Scene* active_scene = get_active_scene()) {
-            active_scene->on_detach();
-            active_scene->set_is_editing(true);
-            active_scene->on_attach();
-            active_scene->on_viewport_resize(RenderViewKind::Editor, m_editor_view);
+            detach_scene(*active_scene);
+            attach_scene(*active_scene);
+            configure_scene_view(*active_scene, RenderViewKind::Editor, m_editor_view);
         }
         m_play_startup_phase = PlayStartupPhase::None;
         m_play_load_progress = {};
@@ -319,17 +322,18 @@ void SceneManager::stop_play() {
     m_game_session.cancel();
     const bool had_runtime_scene = m_runtime_scene != nullptr;
     if (had_runtime_scene) {
-        m_runtime_scene->on_detach();
+        detach_scene(*m_runtime_scene);
+        discard_execution_context(m_runtime_scene.get());
         m_runtime_scene.reset();
     }
+    m_play_state = ScenePlayState::Edit;
 
     Scene* active_scene = nullptr;
     if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
         active_scene = m_scenes[m_active_index].get();
     }
     if (active_scene) {
-        if (!had_runtime_scene) active_scene->on_detach();
-        active_scene->set_is_editing(true);
+        if (!had_runtime_scene) detach_scene(*active_scene);
 
         // Restore pristine authoring state from memory snapshot
         if (!m_snapshot_json.empty()) {
@@ -339,10 +343,10 @@ void SceneManager::stop_play() {
 
         TransformSystem::update(active_scene->get_entity_manager());
         const auto& editor = m_editor_view;
-        active_scene->on_viewport_resize(RenderViewKind::Editor, editor);
+        attach_scene(*active_scene);
+        configure_scene_view(*active_scene, RenderViewKind::Editor, editor);
     }
 
-    m_play_state = ScenePlayState::Edit;
     Time::set_time_scale(0.0f);
     ENGINE_LOG_INFO("[SCENE PLAY] Stopped Simulation: Authoring snapshot restored, switched back to Editor Camera.");
 }
@@ -358,7 +362,8 @@ void SceneManager::update(float delta_time) {
             static_cast<void>(m_script_runtime.reload_changed_scripts());
             m_script_runtime.update(delta_time);
         }
-        active->on_update(delta_time);
+        if (auto* custom = dynamic_cast<CustomScene*>(active)) custom->on_update(delta_time);
+        else execution_context(*active).runtime.update(*active, delta_time);
         if (m_play_state == ScenePlayState::Play) {
             active->get_event_dispatcher().dispatch_queued();
             m_script_runtime.dispatch_events();
@@ -373,7 +378,15 @@ void SceneManager::render(Renderer2D& renderer) {
     renderer.clear_all_entity_effect_profiles();
     Scene* active = get_active_scene();
     if (active) {
-        active->on_render(renderer);
+        if (auto* custom = dynamic_cast<CustomScene*>(active)) {
+            custom->on_render(renderer);
+        } else {
+            auto& context = execution_context(*active);
+            context.renderer.render(
+                *active, context.runtime, context.editor_view, renderer, is_editing(),
+                m_asset_database ? *m_asset_database : AssetDatabase::get()
+            );
+        }
     }
 }
 
@@ -391,17 +404,25 @@ void SceneManager::configure_view(RenderViewKind view, const RenderViewConfigura
     if (view == active_view) {
         Scene* active = get_active_scene();
         if (active) {
-            active->on_viewport_resize(view, metrics);
+            configure_scene_view(*active, view, metrics);
         }
     }
 }
 
 void SceneManager::invalidate_render_resources() {
     for (const auto& scene : m_scenes) {
-        if (scene) scene->on_render_resources_invalidated();
+        if (!scene) continue;
+        if (auto* custom = dynamic_cast<CustomScene*>(scene.get())) custom->on_render_resources_invalidated();
+        else execution_context(*scene).renderer.invalidate_resources();
     }
-    if (m_transient_scene) m_transient_scene->on_render_resources_invalidated();
-    if (m_runtime_scene) m_runtime_scene->on_render_resources_invalidated();
+    if (m_transient_scene) {
+        if (auto* custom = dynamic_cast<CustomScene*>(m_transient_scene.get())) custom->on_render_resources_invalidated();
+        else execution_context(*m_transient_scene).renderer.invalidate_resources();
+    }
+    if (m_runtime_scene) {
+        if (auto* custom = dynamic_cast<CustomScene*>(m_runtime_scene.get())) custom->on_render_resources_invalidated();
+        else execution_context(*m_runtime_scene).renderer.invalidate_resources();
+    }
 }
 
 void SceneManager::apply_active_view() {
@@ -409,7 +430,7 @@ void SceneManager::apply_active_view() {
     if (!active) return;
     const RenderViewKind view = is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
     const RenderViewConfiguration& metrics = view == RenderViewKind::Editor ? m_editor_view : m_game_view;
-    active->on_viewport_resize(view, metrics);
+    configure_scene_view(*active, view, metrics);
 }
 
 
@@ -437,20 +458,162 @@ void SceneManager::enter_transient_scene(std::shared_ptr<Scene> stage) {
         ENGINE_LOG_WARN("[SCENE] enter_transient_scene called while one is already active — ignoring.");
         return;
     }
+    if (Scene* underlying = get_active_scene()) detach_scene(*underlying);
     m_transient_scene = std::move(stage);
-    m_transient_scene->set_is_editing(true);
-    m_transient_scene->on_attach();
-    m_transient_scene->on_viewport_resize(RenderViewKind::Editor, m_editor_view);
+    attach_scene(*m_transient_scene);
+    configure_scene_view(*m_transient_scene, RenderViewKind::Editor, m_editor_view);
     ENGINE_LOG_INFO("[SCENE] Entered transient scene: '{}'", m_transient_scene->get_name());
 }
 
 void SceneManager::exit_transient_scene() {
     if (!m_transient_scene) return;
-    m_transient_scene->on_detach();
+    detach_scene(*m_transient_scene);
     ENGINE_LOG_INFO("[SCENE] Exited transient scene: '{}'", m_transient_scene->get_name());
+    discard_execution_context(m_transient_scene.get());
     m_transient_scene.reset();
-    // Re-apply the underlying authoring scene view so it renders correctly.
+    if (Scene* underlying = get_active_scene()) attach_scene(*underlying);
     apply_active_view();
+}
+
+SceneExecutionContext& SceneManager::execution_context(Scene& scene) {
+    auto& context = m_execution_contexts[&scene];
+    if (!context) context = std::make_unique<SceneExecutionContext>();
+    return *context;
+}
+
+const SceneExecutionContext* SceneManager::find_execution_context(const Scene& scene) const {
+    const auto found = m_execution_contexts.find(&scene);
+    return found == m_execution_contexts.end() ? nullptr : found->second.get();
+}
+
+void SceneManager::discard_execution_context(const Scene* scene) {
+    if (scene) m_execution_contexts.erase(scene);
+}
+
+void SceneManager::attach_scene(Scene& scene) {
+    if (auto* custom = dynamic_cast<CustomScene*>(&scene)) {
+        custom->set_is_editing(is_editing());
+        custom->on_attach();
+        return;
+    }
+    auto& context = execution_context(scene);
+    context.runtime.attach(scene);
+    context.attached = true;
+}
+
+void SceneManager::detach_scene(Scene& scene) {
+    if (auto* custom = dynamic_cast<CustomScene*>(&scene)) {
+        custom->on_detach();
+        return;
+    }
+    auto& context = execution_context(scene);
+    if (!context.attached) return;
+    context.runtime.detach();
+    context.renderer.detach();
+    context.attached = false;
+}
+
+void SceneManager::configure_scene_view(
+    Scene& scene, RenderViewKind view, const RenderViewConfiguration& configuration
+) {
+    if (auto* custom = dynamic_cast<CustomScene*>(&scene)) {
+        custom->on_viewport_resize(view, configuration);
+        return;
+    }
+    auto& context = execution_context(scene);
+    if (view == RenderViewKind::Editor) context.editor_view.configure(configuration);
+    else context.runtime.configure_game_view(configuration);
+    context.renderer.configure_view(view, configuration);
+}
+
+Camera2D* SceneManager::get_render_camera(RenderViewKind view) {
+    Scene* scene = get_active_scene();
+    if (!scene) return nullptr;
+    if (auto* custom = dynamic_cast<CustomScene*>(scene)) return custom->get_render_camera(view);
+    auto& context = execution_context(*scene);
+    return view == RenderViewKind::Editor ? &context.editor_view.camera() : &context.runtime.game_camera();
+}
+
+const Camera2D* SceneManager::get_render_camera(RenderViewKind view) const {
+    const Scene* scene = get_active_scene();
+    if (!scene) return nullptr;
+    if (const auto* custom = dynamic_cast<const CustomScene*>(scene)) return custom->get_render_camera(view);
+    const auto* context = find_execution_context(*scene);
+    if (!context) return nullptr;
+    return view == RenderViewKind::Editor ? &context->editor_view.camera() : &context->runtime.game_camera();
+}
+
+void SceneManager::set_render_filter(const IEntityRenderFilter* filter) {
+    Scene* scene = get_active_scene();
+    if (!scene) return;
+    if (auto* custom = dynamic_cast<CustomScene*>(scene)) custom->set_render_filter(filter);
+    else execution_context(*scene).editor_view.set_render_filter(filter);
+}
+
+SDL_Color SceneManager::get_clear_color() const {
+    const Scene* scene = get_active_scene();
+    if (!scene) return {24, 28, 36, 255};
+    if (const auto* custom = dynamic_cast<const CustomScene*>(scene)) return custom->get_clear_color();
+    const EntityManager& entities = scene->get_entity_manager();
+    EntityID first = 0;
+    EntityID primary = 0;
+    for (const EntityID entity : entities.get_living_entities()) {
+        if (!entities.has_component<CameraComponent>(entity) ||
+            !entities.has_component<TransformComponent>(entity)) continue;
+        if (first == 0) first = entity;
+        if (entities.get_component<CameraComponent>(entity).is_primary) {
+            primary = entity;
+            break;
+        }
+    }
+    const EntityID active = primary != 0 ? primary : first;
+    return active != 0 ? entities.get_component<CameraComponent>(active).clear_color
+                       : SDL_Color{24, 28, 36, 255};
+}
+
+PostProcessPipeline* SceneManager::get_post_process_pipeline() {
+    Scene* scene = get_active_scene();
+    if (!scene) return nullptr;
+    if (auto* custom = dynamic_cast<CustomScene*>(scene)) return custom->get_post_process_pipeline();
+    return execution_context(*scene).renderer.post_process_pipeline(
+        *scene, m_asset_database ? *m_asset_database : AssetDatabase::get()
+    );
+}
+
+PostProcessProfile* SceneManager::get_editable_post_process_profile() {
+    Scene* scene = get_active_scene();
+    if (!scene) return nullptr;
+    if (auto* custom = dynamic_cast<CustomScene*>(scene)) return custom->get_editable_post_process_profile();
+    return execution_context(*scene).renderer.editable_post_process_profile(
+        *scene, m_asset_database ? *m_asset_database : AssetDatabase::get()
+    );
+}
+
+bool SceneManager::set_post_process_profile_handle(AssetHandle handle, const AssetDatabase& database) {
+    Scene* scene = get_active_scene();
+    if (!scene) return false;
+    if (auto* custom = dynamic_cast<CustomScene*>(scene)) return custom->set_post_process_profile_handle(handle, database);
+    return execution_context(*scene).renderer.set_post_process_profile(*scene, handle, database);
+}
+
+bool SceneManager::set_render_layer_effect_assignments(
+    std::vector<RenderLayerEffectAssignment> assignments, const AssetDatabase& database
+) {
+    Scene* scene = get_active_scene();
+    if (!scene) return false;
+    if (auto* custom = dynamic_cast<CustomScene*>(scene)) {
+        return custom->set_render_layer_effect_assignments(std::move(assignments), database);
+    }
+    return execution_context(*scene).renderer.set_render_layer_effects(
+        *scene, std::move(assignments), database
+    );
+}
+
+bool SceneManager::refresh_render_layer_effects(const AssetDatabase& database) {
+    Scene* scene = get_active_scene();
+    if (!scene) return false;
+    if (auto* custom = dynamic_cast<CustomScene*>(scene)) return custom->refresh_render_layer_effects(database);
+    return execution_context(*scene).renderer.refresh_render_layer_effects(*scene, database);
 }
 
 } // namespace Engine

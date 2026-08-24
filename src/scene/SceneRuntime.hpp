@@ -1,0 +1,36 @@
+#pragma once
+
+#include "Camera2D.hpp"
+#include "CameraController2D.hpp"
+#include "Scene.hpp"
+#include "../ui/UIInputSystem.hpp"
+
+namespace Engine {
+
+class SceneRuntime {
+public:
+    SceneRuntime();
+
+    void attach(Scene& scene);
+    void detach();
+    void update(Scene& scene, float delta_time);
+    void configure_game_view(const RenderViewConfiguration& configuration);
+
+    [[nodiscard]] Camera2D& game_camera() { return m_game_camera; }
+    [[nodiscard]] const Camera2D& game_camera() const { return m_game_camera; }
+    [[nodiscard]] UIInputSystem& ui_input() { return m_ui_input; }
+    [[nodiscard]] const glm::vec2& ui_output_size() const { return m_ui_output_size; }
+    [[nodiscard]] const SafeAreaInsets& ui_safe_area() const { return m_ui_safe_area; }
+
+private:
+    void synchronize_game_camera(Scene& scene, float delta_time, bool reset_controller);
+
+    Camera2D m_game_camera;
+    CameraController2D m_camera_controller;
+    UIInputSystem m_ui_input;
+    EntityID m_active_camera_entity{0};
+    glm::vec2 m_ui_output_size{1920.0f, 1080.0f};
+    SafeAreaInsets m_ui_safe_area{};
+};
+
+} // namespace Engine

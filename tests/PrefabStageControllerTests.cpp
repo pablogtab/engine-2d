@@ -3,7 +3,8 @@
 // open/save/discard/close lifecycle.
 
 #include "scene/SceneManager.hpp"
-#include "scene/GenericScene.hpp"
+#include "scene/Scene.hpp"
+#include "scene/CustomScene.hpp"
 #include "scene/EntitySubtreeArchive.hpp"
 #include "editor/stage/PrefabStageController.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
@@ -55,9 +56,9 @@ private:
 // ──────────────────────────────────────────────────────────────────────────────
 // Spy scene for verifying update / render / resize dispatch
 // ──────────────────────────────────────────────────────────────────────────────
-class SpyScene : public Scene {
+class SpyScene : public CustomScene {
 public:
-    SpyScene(std::string name) : Scene(std::move(name)) {}
+    SpyScene(std::string name) : CustomScene(std::move(name)) {}
     int update_count{0};
     int render_count{0};
     int resize_count{0};
@@ -90,7 +91,7 @@ struct NopCommand : IEditorCommand {
 
 static SceneManager make_scene_manager_with_authoring_scene() {
     SceneManager sm;
-    auto scene = std::make_shared<GenericScene>("AuthoringScene");
+    auto scene = std::make_shared<Scene>("AuthoringScene");
     sm.add_scene(scene);
     return sm;
 }
@@ -125,7 +126,7 @@ void test_transient_scene_not_in_scene_list() {
     SceneManager sm = make_scene_manager_with_authoring_scene();
     assert(sm.get_scene_count() == 1);
 
-    auto stage = std::make_shared<GenericScene>("Prefab: TestPrefab");
+    auto stage = std::make_shared<Scene>("Prefab: TestPrefab");
     sm.enter_transient_scene(stage);
 
     assert(sm.is_transient_scene_active());
@@ -145,12 +146,12 @@ void test_transient_scene_not_in_scene_list() {
 // ──────────────────────────────────────────────────────────────────────────────
 void test_transient_scene_blocks_navigation() {
     SceneManager sm;
-    sm.add_scene(std::make_shared<GenericScene>("Scene1"));
-    sm.add_scene(std::make_shared<GenericScene>("Scene2"));
+    sm.add_scene(std::make_shared<Scene>("Scene1"));
+    sm.add_scene(std::make_shared<Scene>("Scene2"));
     sm.set_active_scene(size_t(0));
     assert(sm.get_active_index() == 0);
 
-    auto stage = std::make_shared<GenericScene>("Prefab: Foo");
+    auto stage = std::make_shared<Scene>("Prefab: Foo");
     sm.enter_transient_scene(stage);
 
     sm.next_scene(); // no-op
@@ -251,7 +252,7 @@ void test_prefab_stage_discard_preserves_disk_asset() {
 // ──────────────────────────────────────────────────────────────────────────────
 void test_prefab_stage_close_restores_authoring_scene() {
     const std::string prefab_path = write_test_prefab("restore_test.prefab");
-    auto authoring = std::make_shared<GenericScene>("AuthoringScene");
+    auto authoring = std::make_shared<Scene>("AuthoringScene");
     SceneManager sm;
     sm.add_scene(authoring);
 

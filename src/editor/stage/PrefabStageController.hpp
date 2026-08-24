@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../../scene/SceneManager.hpp"
-#include "../../scene/GenericScene.hpp"
+#include "../../scene/Scene.hpp"
 #include "../EditorSelection.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../state/EditorEntityStateStore.hpp"
@@ -27,7 +27,7 @@ public:
     PrefabStageController& operator=(const PrefabStageController&) = delete;
 
     /// Opens a .prefab file in an isolated stage scene.
-    /// Loads the JSON, spawns entities into a fresh GenericScene, calls enter_transient_scene().
+    /// Loads the JSON, spawns entities into a fresh transient Scene, then activates it.
     /// Returns false (and changes nothing) if the file is missing, invalid, or another stage is already active.
     [[nodiscard]] bool open(
         const std::string& prefab_path,
@@ -74,7 +74,7 @@ private:
     SceneManager* m_scene_manager{nullptr};
     SDL_Renderer* m_renderer{nullptr};
 
-    std::shared_ptr<GenericScene> m_stage_scene;
+    std::shared_ptr<Scene> m_stage_scene;
     EntityID m_root_entity{0};
 
     std::shared_ptr<EditorCommandHistory> m_command_history;

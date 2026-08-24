@@ -2,11 +2,13 @@
 
 #include "Scene.hpp"
 #include "GameSession.hpp"
+#include "SceneExecutionContext.hpp"
 #include "../scripting/ScriptRuntime.hpp"
 #include <vector>
 #include <memory>
 #include <string>
 #include <functional>
+#include <unordered_map>
 #include <SDL3/SDL.h>
 
 namespace Engine {
@@ -77,6 +79,18 @@ public:
     void render(Renderer2D& renderer);
     void configure_view(RenderViewKind view, const RenderViewConfiguration& configuration);
     void invalidate_render_resources();
+    [[nodiscard]] Camera2D* get_render_camera(RenderViewKind view);
+    [[nodiscard]] const Camera2D* get_render_camera(RenderViewKind view) const;
+    void set_render_filter(const IEntityRenderFilter* filter);
+    [[nodiscard]] SDL_Color get_clear_color() const;
+    [[nodiscard]] PostProcessPipeline* get_post_process_pipeline();
+    [[nodiscard]] PostProcessProfile* get_editable_post_process_profile();
+    [[nodiscard]] bool set_post_process_profile_handle(AssetHandle handle, const AssetDatabase& database);
+    [[nodiscard]] bool set_render_layer_effect_assignments(
+        std::vector<RenderLayerEffectAssignment> assignments,
+        const AssetDatabase& database
+    );
+    [[nodiscard]] bool refresh_render_layer_effects(const AssetDatabase& database);
     [[nodiscard]] MaterialAssetRefreshResult refresh_material_assets(const AssetDatabase& database);
     [[nodiscard]] std::size_t preview_material_asset(
         AssetHandle handle,
@@ -92,6 +106,12 @@ public:
 private:
     void save_state();
     void apply_active_view();
+    void attach_scene(Scene& scene);
+    void detach_scene(Scene& scene);
+    void configure_scene_view(Scene& scene, RenderViewKind view, const RenderViewConfiguration& configuration);
+    [[nodiscard]] SceneExecutionContext& execution_context(Scene& scene);
+    [[nodiscard]] const SceneExecutionContext* find_execution_context(const Scene& scene) const;
+    void discard_execution_context(const Scene* scene);
     void start_scripts(Scene& scene);
     void advance_play_startup();
     [[nodiscard]] bool request_runtime_scene_load(const std::string& path, std::string& error);
@@ -116,6 +136,7 @@ private:
     RuntimeSceneLoader m_runtime_scene_loader;
     std::function<void()> m_on_authoring_state_invalidated;
     ScriptRuntime m_script_runtime;
+    std::unordered_map<const Scene*, std::unique_ptr<SceneExecutionContext>> m_execution_contexts;
     enum class PlayStartupPhase { None, Snapshot, PrepareRuntime, StartScripts };
     PlayStartupPhase m_play_startup_phase{PlayStartupPhase::None};
     SceneLoadProgress m_play_load_progress;

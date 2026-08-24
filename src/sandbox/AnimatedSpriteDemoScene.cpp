@@ -12,7 +12,7 @@
 namespace Sandbox {
 
 AnimatedSpriteDemoScene::AnimatedSpriteDemoScene(SDL_Renderer *renderer)
-    : Engine::Scene("2D Animated Sprites & Asset Loader"),
+    : Engine::CustomScene("2D Animated Sprites & Asset Loader"),
       m_sdl_renderer(renderer), m_camera(1280.0f, 720.0f) {}
 
 Engine::Texture *AnimatedSpriteDemoScene::generate_procedural_spritesheet() {

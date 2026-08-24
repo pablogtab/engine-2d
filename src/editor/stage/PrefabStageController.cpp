@@ -47,7 +47,7 @@ bool PrefabStageController::open(
     const std::string stage_name = "Prefab: " + prefab_name;
 
     // Create the isolated stage scene
-    auto stage_scene = std::make_shared<GenericScene>(stage_name);
+    auto stage_scene = std::make_shared<Scene>(stage_name);
     EntityManager& stage_em = stage_scene->get_entity_manager();
 
     ComponentSerializationContext context{

@@ -1,6 +1,7 @@
 #include "PostProcessProfileCommands.hpp"
 #include "../../renderer/postprocess/PostProcessPipeline.hpp"
 #include "../../scene/Scene.hpp"
+#include "../../scene/CustomScene.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include <utility>
 
@@ -38,7 +39,12 @@ SetSceneRenderLayerEffectsCommand::SetSceneRenderLayerEffectsCommand(
 ) : m_scene(scene), m_database(database), m_before(std::move(before)), m_after(std::move(after)) {}
 
 bool SetSceneRenderLayerEffectsCommand::apply(const std::vector<RenderLayerEffectAssignment>& assignments) {
-    return m_scene && m_database && m_scene->set_render_layer_effect_assignments(assignments, *m_database);
+    if (!m_scene || !m_database) return false;
+    if (auto* custom = dynamic_cast<CustomScene*>(m_scene)) {
+        return custom->set_render_layer_effect_assignments(assignments, *m_database);
+    }
+    m_scene->set_render_layer_effect_assignments(assignments);
+    return true;
 }
 bool SetSceneRenderLayerEffectsCommand::execute() { return apply(m_after); }
 bool SetSceneRenderLayerEffectsCommand::undo() { return apply(m_before); }
@@ -57,9 +63,10 @@ bool ModifyRenderLayerEffectProfileCommand::apply(
     const std::string asset_path = (m_database->project_root() / record->source_path).string();
     std::string error;
     if (!profile.save_asset(asset_path, *m_database, &error)) return false;
-    if (!m_scene || m_scene->refresh_render_layer_effects(*m_database)) return true;
+    auto* custom = dynamic_cast<CustomScene*>(m_scene);
+    if (!custom || custom->refresh_render_layer_effects(*m_database)) return true;
     static_cast<void>(rollback.save_asset(asset_path, *m_database));
-    static_cast<void>(m_scene->refresh_render_layer_effects(*m_database));
+    static_cast<void>(custom->refresh_render_layer_effects(*m_database));
     return false;
 }
 bool ModifyRenderLayerEffectProfileCommand::execute() { return apply(m_after, m_before); }

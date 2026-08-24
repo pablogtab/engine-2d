@@ -4,7 +4,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/ScriptingComponents.hpp"
-#include "scene/Scene.hpp"
+#include "scene/CustomScene.hpp"
 #include "scene/SceneManager.hpp"
 #include "scene/SceneSerializer.hpp"
 
@@ -16,9 +16,9 @@
 
 namespace {
 
-class TestScene final : public Engine::Scene {
+class TestScene final : public Engine::CustomScene {
 public:
-    explicit TestScene(std::string name = "PlayModeIsolation") : Scene(std::move(name)) {}
+    explicit TestScene(std::string name = "PlayModeIsolation") : CustomScene(std::move(name)) {}
 
     void set_is_editing(bool is_editing) override { m_is_editing = is_editing; }
     [[nodiscard]] bool is_editing() const override { return m_is_editing; }

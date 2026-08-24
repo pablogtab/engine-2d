@@ -4,7 +4,7 @@
 #include "../events/Event.hpp"
 #include "../scene/Camera2D.hpp"
 #include "../scene/CameraController2D.hpp"
-#include "../scene/Scene.hpp"
+#include "../scene/CustomScene.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/Texture.hpp"
 #include "../renderer/postprocess/PostProcessPipeline.hpp"
@@ -24,7 +24,7 @@
 
 namespace Sandbox {
 
-class PlatformerDemoScene : public Engine::Scene {
+class PlatformerDemoScene : public Engine::CustomScene {
 public:
     explicit PlatformerDemoScene(SDL_Renderer* renderer);
     ~PlatformerDemoScene() override = default;

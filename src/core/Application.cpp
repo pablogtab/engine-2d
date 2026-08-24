@@ -23,7 +23,7 @@
 #include "../editor/panels/SpriteAnimationStudioPanel.hpp"
 #include "../editor/panels/AiAssistantPanel.hpp"
 #endif
-#include "../scene/GenericScene.hpp"
+#include "../scene/Scene.hpp"
 #include "../scene/SceneSerializer.hpp"
 #include "../ecs/TransformSystem.hpp"
 #include "../renderer/material/SDLGPUMaterialBackend.hpp"
@@ -187,7 +187,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_scene_manager.set_script_runtime_services(std::move(script_services));
     m_scene_manager.set_runtime_scene_loader([this](const std::string& path, std::string& error) {
         const std::filesystem::path absolute_path = m_project.resolve(path);
-        auto scene = std::make_shared<GenericScene>(absolute_path.stem().string());
+        auto scene = std::make_shared<Scene>(absolute_path.stem().string());
         SceneSerializer serializer(scene.get(), m_window->get_sdl_renderer());
         if (!serializer.deserialize(absolute_path.string())) {
             error = "Could not deserialize scene asset: " + path;
@@ -715,9 +715,7 @@ void Application::run() {
 #if ENGINE_WITH_EDITOR
         ViewportPanel* vp = m_editor_layer ? m_editor_layer->get_viewport_panel() : nullptr;
         if (vp && m_editor_layer->is_visible()) {
-            const SDL_Color scene_clear_color = m_scene_manager.get_active_scene()
-                ? m_scene_manager.get_active_scene()->get_clear_color()
-                : SDL_Color{24, 28, 36, 255};
+            const SDL_Color scene_clear_color = m_scene_manager.get_clear_color();
             m_renderer->set_scene_clear_color(scene_clear_color);
             vp->begin_render();
             m_renderer->set_custom_render_target(vp->get_viewport_texture());
@@ -730,9 +728,7 @@ void Application::run() {
             m_window->clear(23, 26, 33, 255);
         } else {
             m_renderer->set_custom_render_target(nullptr);
-            const SDL_Color scene_clear_color = m_scene_manager.get_active_scene()
-                ? m_scene_manager.get_active_scene()->get_clear_color()
-                : SDL_Color{24, 28, 36, 255};
+            const SDL_Color scene_clear_color = m_scene_manager.get_clear_color();
             m_renderer->set_scene_clear_color(scene_clear_color);
             m_window->clear(scene_clear_color.r, scene_clear_color.g, scene_clear_color.b, scene_clear_color.a);
             on_render();
@@ -740,9 +736,7 @@ void Application::run() {
         }
 #else
         m_renderer->set_custom_render_target(nullptr);
-        const SDL_Color scene_clear_color = m_scene_manager.get_active_scene()
-            ? m_scene_manager.get_active_scene()->get_clear_color()
-            : SDL_Color{24, 28, 36, 255};
+        const SDL_Color scene_clear_color = m_scene_manager.get_clear_color();
         m_renderer->set_scene_clear_color(scene_clear_color);
         m_window->clear(scene_clear_color.r, scene_clear_color.g, scene_clear_color.b, scene_clear_color.a);
         on_render();

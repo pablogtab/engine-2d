@@ -18,6 +18,7 @@
 #include "core/AssetDatabase.hpp"
 #include "core/FileSystem.hpp"
 #include "scene/Scene.hpp"
+#include "scene/CustomScene.hpp"
 #include <cassert>
 #include <cmath>
 #include <filesystem>
@@ -113,10 +114,9 @@ public:
     Engine::LightingContext last_context{};
 };
 
-class LayerEffectTestScene final : public Engine::Scene {
+class LayerEffectTestScene final : public Engine::CustomScene {
 public:
-    LayerEffectTestScene() : Scene("LayerEffectTest") {}
-    [[nodiscard]] bool supports_render_layer_effects() const override { return true; }
+    LayerEffectTestScene() : CustomScene("LayerEffectTest") {}
     [[nodiscard]] const std::vector<Engine::RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const override { return assignments; }
     bool set_render_layer_effect_assignments(std::vector<Engine::RenderLayerEffectAssignment> next, const Engine::AssetDatabase&) override {
         assignments = std::move(next); return true;
@@ -125,10 +125,9 @@ public:
     std::vector<Engine::RenderLayerEffectAssignment> assignments;
 };
 
-class RejectingLayerEffectTestScene final : public Engine::Scene {
+class RejectingLayerEffectTestScene final : public Engine::CustomScene {
 public:
-    RejectingLayerEffectTestScene() : Scene("RejectingLayerEffectTest") {}
-    [[nodiscard]] bool supports_render_layer_effects() const override { return true; }
+    RejectingLayerEffectTestScene() : CustomScene("RejectingLayerEffectTest") {}
     [[nodiscard]] const std::vector<Engine::RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const override { return assignments; }
     bool set_render_layer_effect_assignments(std::vector<Engine::RenderLayerEffectAssignment>, const Engine::AssetDatabase&) override {
         return false;

@@ -80,8 +80,8 @@ void PostProcessTunerPanel::on_gui() {
     }
 
     Scene* scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
-    PostProcessPipeline* pipeline = scene ? scene->get_post_process_pipeline() : nullptr;
-    PostProcessProfile* profile = scene ? scene->get_editable_post_process_profile() : nullptr;
+    PostProcessPipeline* pipeline = m_scene_manager ? m_scene_manager->get_post_process_pipeline() : nullptr;
+    PostProcessProfile* profile = m_scene_manager ? m_scene_manager->get_editable_post_process_profile() : nullptr;
     if (!scene) {
         ImGui::TextDisabled("No active scene.");
         ImGui::End();
@@ -89,7 +89,7 @@ void PostProcessTunerPanel::on_gui() {
     }
     AssetDatabase& database = AssetDatabase::get();
 
-    if (scene->supports_render_layer_effects() && ImGui::CollapsingHeader("Render Layer Effects", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::CollapsingHeader("Render Layer Effects", ImGuiTreeNodeFlags_DefaultOpen)) {
         const auto assignments = scene->get_render_layer_effect_assignments();
         ImGui::InputInt("Target Layer", &m_layer_effect_target_layer);
         m_layer_effect_target_layer = std::clamp(m_layer_effect_target_layer, 0, 31);
@@ -180,9 +180,7 @@ void PostProcessTunerPanel::on_gui() {
         return;
     }
 
-    if (scene->supports_post_process_profile_assets()) {
-        m_selected_profile_handle = scene->get_post_process_profile_handle();
-    }
+    m_selected_profile_handle = scene->get_post_process_profile_handle();
 
     ImGui::TextColored(ImVec4(0.4f, 0.75f, 1.0f, 1.0f), "%s", profile->name.c_str());
     ImGui::TextDisabled("Base profile. Runtime volumes blend over these values.");
@@ -190,18 +188,15 @@ void PostProcessTunerPanel::on_gui() {
         ? database.find(m_selected_profile_handle) : nullptr;
     if (ImGui::BeginCombo("Profile Asset", selected_asset ? selected_asset->source_path.c_str() : "Unsaved scene profile")) {
         if (ImGui::Selectable("Unsaved scene profile", !m_selected_profile_handle.is_valid())) {
-            m_selected_profile_handle = {};
+            if (m_scene_manager->set_post_process_profile_handle({}, database)) {
+                m_selected_profile_handle = {};
+            }
         }
         for (const AssetRecord& record : database.records()) {
             if (record.type != AssetType::PostProcessProfile || record.status != AssetStatus::Ready) continue;
             const bool selected = record.handle == m_selected_profile_handle;
             if (ImGui::Selectable(record.source_path.c_str(), selected)) {
-                if (scene->supports_post_process_profile_assets()) {
-                    if (scene->set_post_process_profile_handle(record.handle, database)) {
-                        m_selected_profile_handle = record.handle;
-                    }
-                } else if (const auto loaded = PostProcessProfile::load_asset(record.handle, database)) {
-                    apply_immediate(profile, pipeline, *loaded);
+                if (m_scene_manager->set_post_process_profile_handle(record.handle, database)) {
                     m_selected_profile_handle = record.handle;
                 }
             }

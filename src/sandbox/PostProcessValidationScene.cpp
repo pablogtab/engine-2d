@@ -28,7 +28,7 @@ Engine::PostProcessProfile profile_for_mode(int mode) {
 } // namespace
 
 PostProcessValidationScene::PostProcessValidationScene(SDL_Renderer* renderer)
-    : Engine::Scene("Post-Processing Validation"),
+    : Engine::CustomScene("Post-Processing Validation"),
       m_sdl_renderer(renderer),
       m_camera(1280.0f, 720.0f) {}
 

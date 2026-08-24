@@ -2,6 +2,7 @@
 #include "core/DisplayManager.hpp"
 #include "core/Time.hpp"
 #include "scene/SceneManager.hpp"
+#include "scene/CustomScene.hpp"
 
 #include <SDL3/SDL_events.h>
 #include <cassert>
@@ -9,9 +10,9 @@
 
 namespace {
 
-class ResourceScene final : public Engine::Scene {
+class ResourceScene final : public Engine::CustomScene {
 public:
-    explicit ResourceScene(const char* name) : Scene(name) {}
+    explicit ResourceScene(const char* name) : CustomScene(name) {}
     void on_render_resources_invalidated() override { ++invalidations; }
     int invalidations{0};
 };

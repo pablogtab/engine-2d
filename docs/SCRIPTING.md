@@ -123,11 +123,11 @@ Use `toString(Int)` when composing numeric HUD or log text. For example,
 `ui.setText(hud, "Coins: " + toString(coins))` remains statically typed and
 generates a native string conversion.
 
-The external platformer demo keeps gameplay in its `PlatformerPlayer.e2s`
-behaviour: movement, coyote time, jump buffering, double jump, drop-through
-platforms, trampoline bounce, coin destruction, persistent high score, HUD,
-music, and the moving elevator. `GenericScene` only advances engine systems;
-it contains no tag-specific platformer fallback.
+The external platformer demo keeps gameplay in project-owned EngineScript
+behaviours: player movement, coyote time, jump buffering, double jump,
+drop-through platforms, trampoline bounce, coin destruction, persistent high
+score, HUD, music, and moving platforms. `SceneRuntime` advances reusable engine
+systems and contains no tag-specific platformer fallback.
 
 The C++ backend emits native `NativeBehaviour` subclasses and factories. Play
 Mode compiles every valid script project to a versioned dynamic module, validates

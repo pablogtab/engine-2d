@@ -2,7 +2,7 @@
 
 #include "../core/AssetHandle.hpp"
 #include "../scene/Camera2D.hpp"
-#include "../scene/Scene.hpp"
+#include "../scene/CustomScene.hpp"
 #include "../renderer/Font.hpp"
 #include "../renderer/Texture.hpp"
 #include "../renderer/postprocess/PostProcessPipeline.hpp"
@@ -17,7 +17,7 @@ class ILocalEffectPass;
 
 namespace Sandbox {
 
-class PostProcessValidationScene final : public Engine::Scene {
+class PostProcessValidationScene final : public Engine::CustomScene {
 public:
     explicit PostProcessValidationScene(SDL_Renderer* renderer);
 
