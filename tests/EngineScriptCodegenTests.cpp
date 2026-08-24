@@ -129,10 +129,13 @@ int main() {
     assert(output.header_content.find("EngineScript::SpriteRenderer2D* sprite") != std::string::npos);
     assert(output.header_content.find("EngineScript::Audio* audio") != std::string::npos);
     assert(output.header_content.find("EngineScript::Scene* scene") != std::string::npos);
+    assert(output.header_content.find("set_exposed_property") != std::string::npos);
     assert(output.source_content.find("(*m_log)(\"Updated\")") != std::string::npos);
     assert(output.source_content.find("other.destroy()") != std::string::npos);
     assert(output.source_content.find("m_audio->playSound(\"Assets/Audio/step.wav\")") != std::string::npos);
     assert(output.source_content.find("m_scene->load(\"Assets/Scenes/Next.scene\")") != std::string::npos);
+    assert(output.source_content.find("PlatformerPlayer::set_exposed_property") != std::string::npos);
+    assert(output.source_content.find("PlatformerPlayer::get_exposed_property") != std::string::npos);
     assert(output.source_content.find("co_await delay(0.5f)") != std::string::npos);
     assert(output.source_content.find("#line") != std::string::npos);
     require_generated_cpp_compiles(output, entrypoint);

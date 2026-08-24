@@ -285,6 +285,11 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
         out += std::format("){};\n", virt);
     }
 
+    if (cls.is_behaviour) {
+        out += "    bool set_exposed_property(const std::string& name, const ExposedPropertyValue& value) override;\n";
+        out += "    bool get_exposed_property(const std::string& name, ExposedPropertyValue& value) const override;\n";
+    }
+
     out += "private:\n";
     for (const auto& p : cls.constructor_params) {
         out += std::format("    {} m_{};\n", type_to_cpp(p.type.get()), p.name);
@@ -339,6 +344,10 @@ void CppEmitter::emit_class_source(const IRClass& cls, const std::string& header
     }
     out += "}\n\n";
 
+    if (cls.is_behaviour) {
+        emit_exposed_property_bridge(cls, out);
+    }
+
     // Method implementations
     for (const auto& m : cls.methods) {
         emit_method_source(cls, m, out);
@@ -358,6 +367,77 @@ void CppEmitter::emit_class_source(const IRClass& cls, const std::string& header
     }
     out += ");\n";
     out += "}\n\n";
+}
+
+void CppEmitter::emit_exposed_property_bridge(const IRClass& cls, std::string& out) {
+    const auto is_exposed = [](const IRProperty& property) {
+        return std::find(property.decorators.begin(), property.decorators.end(), "expose") != property.decorators.end();
+    };
+    const auto is_number = [](const Type* type) {
+        return type && (type->is_integer() || type->is_float());
+    };
+
+    out += std::format(
+        "bool {}::set_exposed_property(const std::string& name, const ExposedPropertyValue& value) {{\n",
+        cls.name
+    );
+    for (const IRProperty& property : cls.properties) {
+        if (!is_exposed(property)) continue;
+        out += std::format("    if (name == \"{}\") {{\n", property.name);
+        if (is_number(property.type.get())) {
+            out += std::format(
+                "        if (const auto* typed_value = std::get_if<double>(&value)) {{ {} = static_cast<{}>(*typed_value); return true; }}\n",
+                property.name,
+                type_to_cpp(property.type.get())
+            );
+        } else if (property.type && property.type->is_bool()) {
+            out += std::format(
+                "        if (const auto* typed_value = std::get_if<bool>(&value)) {{ {} = *typed_value; return true; }}\n",
+                property.name
+            );
+        } else if (property.type && property.type->is_string()) {
+            out += std::format(
+                "        if (const auto* typed_value = std::get_if<std::string>(&value)) {{ {} = *typed_value; return true; }}\n",
+                property.name
+            );
+        } else if (property.type && property.type->kind == TypeKind::Vec2) {
+            out += std::format(
+                "        if (const auto* typed_value = std::get_if<glm::vec2>(&value)) {{ {} = *typed_value; return true; }}\n",
+                property.name
+            );
+        } else if (property.type && property.type->kind == TypeKind::Entity) {
+            out += std::format(
+                "        if (const auto* typed_value = std::get_if<EngineScript::Entity>(&value)) {{ {} = *typed_value; return true; }}\n",
+                property.name
+            );
+        }
+        out += "        return false;\n    }\n";
+    }
+    out += "    return false;\n}\n\n";
+
+    out += std::format(
+        "bool {}::get_exposed_property(const std::string& name, ExposedPropertyValue& value) const {{\n",
+        cls.name
+    );
+    for (const IRProperty& property : cls.properties) {
+        if (!is_exposed(property)) continue;
+        out += std::format("    if (name == \"{}\") {{\n", property.name);
+        if (is_number(property.type.get())) {
+            out += std::format("        value = static_cast<double>({}); return true;\n", property.name);
+        } else if (property.type && property.type->is_bool()) {
+            out += std::format("        value = {}; return true;\n", property.name);
+        } else if (property.type && property.type->is_string()) {
+            out += std::format("        value = {}; return true;\n", property.name);
+        } else if (property.type && property.type->kind == TypeKind::Vec2) {
+            out += std::format("        value = {}; return true;\n", property.name);
+        } else if (property.type && property.type->kind == TypeKind::Entity) {
+            out += std::format("        value = {}; return true;\n", property.name);
+        } else {
+            out += "        return false;\n";
+        }
+        out += "    }\n";
+    }
+    out += "    return false;\n}\n\n";
 }
 
 void CppEmitter::emit_method_source(const IRClass& cls, const IRMethod& m, std::string& out) {

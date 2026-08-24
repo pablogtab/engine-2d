@@ -33,6 +33,7 @@ private:
     void emit_function_header(const IRFunction& fn, std::string& out);
 
     void emit_class_source(const IRClass& cls, const std::string& header_name, std::string& out);
+    void emit_exposed_property_bridge(const IRClass& cls, std::string& out);
     void emit_method_source(const IRClass& cls, const IRMethod& m, std::string& out);
     void emit_statement_cpp(const IRStatement& st, std::string& out, int indent);
     void emit_operation_statement_cpp(const IROperation* op, std::string& out, int indent);

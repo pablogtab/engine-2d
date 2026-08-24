@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <functional>
 #include <memory>
+#include <variant>
 #include <algorithm>
 #include <cctype>
 
@@ -52,8 +53,8 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 4;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v4";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 5;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v5";
 
 class Input {
 public:
@@ -126,11 +127,23 @@ public:
 
 class NativeBehaviour {
 public:
+    using ExposedPropertyValue = std::variant<bool, double, std::string, glm::vec2, Entity>;
+
     virtual ~NativeBehaviour() = default;
     virtual void update(float delta_time) {}
     virtual void on_start() {}
     virtual void on_destroy() {}
     virtual void on_collision_enter(const Entity& other) { static_cast<void>(other); }
+    virtual bool set_exposed_property(const std::string& name, const ExposedPropertyValue& value) {
+        static_cast<void>(name);
+        static_cast<void>(value);
+        return false;
+    }
+    virtual bool get_exposed_property(const std::string& name, ExposedPropertyValue& value) const {
+        static_cast<void>(name);
+        static_cast<void>(value);
+        return false;
+    }
 
     [[nodiscard]] AsyncScheduler::DelayAwaiter delay(float seconds) const {
         return async_scheduler
