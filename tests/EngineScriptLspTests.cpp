@@ -107,7 +107,7 @@ int main() {
         "method":"textDocument/didChange",
         "params":{
             "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":3},
-            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  audio: Audio;\n  update(deltaTime: Float): Void {\n    audio.playSound(\"jump\");\n  }\n}"}]
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  audio: Audio;\n  sprite: SpriteRenderer2D;\n  update(deltaTime: Float): Void {\n    let waiting = delay(1.ms);\n    audio.playSound(\"jump\");\n    sprite.flipX = true;\n  }\n}"}]
         }
     })";
     json player_diagnostics = json::parse(server.handle_message(player_fixed));
@@ -126,7 +126,7 @@ int main() {
         "method":"textDocument/completion",
         "params":{
             "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
-            "position":{"line":4,"character":10}
+            "position":{"line":6,"character":10}
         }
     })";
     json member_completion = json::parse(server.handle_message(member_completion_req));
@@ -138,6 +138,64 @@ int main() {
     }
     assert(has_play_sound);
     assert(!has_scene_load);
+
+    // Component properties are suggested from the catalog after an injected field.
+    std::string sprite_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":5,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":7,"character":11}
+        }
+    })";
+    json sprite_completion = json::parse(server.handle_message(sprite_completion_req));
+    bool has_flip_x = false;
+    for (const auto& item : sprite_completion["result"]) {
+        has_flip_x |= item["label"] == "flipX";
+    }
+    assert(has_flip_x);
+
+    // Hover exposes the TypeChecker result for an inferred local variable.
+    std::string inferred_hover_req = R"({
+        "jsonrpc":"2.0",
+        "id":5,
+        "method":"textDocument/hover",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":5,"character":10}
+        }
+    })";
+    json inferred_hover = json::parse(server.handle_message(inferred_hover_req));
+    assert(inferred_hover["result"]["contents"]["value"].get<std::string>().find("Task<Void>") != std::string::npos);
+
+    // A one-character typo before a member access offers a replacement for the typed field.
+    std::string typo_change_req = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":4},
+            "contentChanges":[{"text":"export class Player { sprite: SpriteRenderer2D; update(): Void { srite. } }"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(typo_change_req));
+    std::string typo_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":6,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":0,"character":71}
+        }
+    })";
+    json typo_completion = json::parse(server.handle_message(typo_completion_req));
+    bool has_sprite_correction = false;
+    for (const auto& item : typo_completion["result"]) {
+        if (item["label"] == "sprite" && item.contains("textEdit")) {
+            has_sprite_correction = item["textEdit"]["newText"] == "sprite";
+        }
+    }
+    assert(has_sprite_correction);
 
     std::cout << "[PASS] EngineScriptLspTests passed!\n";
     return 0;

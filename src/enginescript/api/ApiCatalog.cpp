@@ -63,6 +63,15 @@ ApiCatalog::ApiCatalog() {
             parse_availability(method)
         });
     }
+    for (const Json& property : document.value("properties", Json::array())) {
+        m_properties.push_back({
+            property.at("ownerType").get<std::string>(),
+            property.at("name").get<std::string>(),
+            property.at("type").get<std::string>(),
+            property.value("writable", false),
+            parse_availability(property)
+        });
+    }
 }
 
 bool ApiCatalog::has_available_type(std::string_view name) const {

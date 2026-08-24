@@ -18,6 +18,7 @@ void EngineScriptWorkspace::set_project_root(std::string project_root) {
     m_source_manager.set_project_root(project_root);
     m_cache = CompilerCache(m_source_manager.project_root() + "/Library/EngineScript/Cache");
     m_dep_graph.clear();
+    m_inferred_types.clear();
     m_last_workspace_hash.clear();
     m_last_result.reset();
 }
@@ -62,6 +63,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
 
     m_diagnostics.clear();
     m_ir_modules.clear();
+    m_inferred_types.clear();
     m_manifest = {};
     m_dep_graph.clear();
     CompilationResult result;
@@ -142,6 +144,9 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     // 4. Type Checking
     TypeChecker checker(resolver, m_diagnostics);
     checker.check_all(ast_modules);
+    for (const InferredTypeInfo& inferred : checker.inferred_types()) {
+        m_inferred_types.push_back({inferred.span, inferred.type_name});
+    }
 
     if (m_diagnostics.has_errors()) {
         result.success = false;
@@ -212,6 +217,21 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     result.warning_count = m_diagnostics.warning_count();
     result.diagnostics = m_diagnostics.get_diagnostics();
     return finish(std::move(result));
+}
+
+std::optional<std::string> EngineScriptWorkspace::inferred_type_at(FileId file_id, uint32_t byte_offset) const {
+    const WorkspaceInferredType* best_match = nullptr;
+    for (const WorkspaceInferredType& inferred : m_inferred_types) {
+        if (inferred.span.file_id != file_id || byte_offset < inferred.span.start_offset ||
+            byte_offset > inferred.span.end_offset) {
+            continue;
+        }
+        if (!best_match || inferred.span.length() < best_match->span.length()) {
+            best_match = &inferred;
+        }
+    }
+    if (!best_match) return std::nullopt;
+    return best_match->type_name;
 }
 
 std::string EngineScriptWorkspace::serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const {

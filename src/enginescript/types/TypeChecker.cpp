@@ -23,6 +23,16 @@ std::shared_ptr<Type> TypeChecker::get_type_of_node(const ASTNode* node) const {
     return m_type_error;
 }
 
+std::vector<InferredTypeInfo> TypeChecker::inferred_types() const {
+    std::vector<InferredTypeInfo> inferred;
+    inferred.reserve(m_node_types.size());
+    for (const auto& [node, type] : m_node_types) {
+        if (!node || !type || !node->span.is_valid() || type->is_error()) continue;
+        inferred.push_back({node->span, type->to_string()});
+    }
+    return inferred;
+}
+
 std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation& annot, const Scope* scope) const {
     std::shared_ptr<Type> t;
     if (annot.name == "Void") t = m_type_void;
@@ -140,6 +150,9 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
     if (!cls_scope) return;
 
     for (const auto& prop : cls.properties) {
+        if (prop->type_annotation) {
+            m_node_types[prop.get()] = resolve_type_annotation(*prop->type_annotation, cls_scope.get());
+        }
         if (prop->initializer) {
             auto init_t = check_expression(prop->initializer, cls_scope);
             if (prop->type_annotation) {
@@ -179,6 +192,9 @@ void TypeChecker::check_struct_decl(const StructDecl& st, const std::shared_ptr<
     if (!st_scope) return;
 
     for (const auto& prop : st.properties) {
+        if (prop->type_annotation) {
+            m_node_types[prop.get()] = resolve_type_annotation(*prop->type_annotation, st_scope.get());
+        }
         if (prop->initializer) {
             auto init_t = check_expression(prop->initializer, st_scope);
             if (prop->type_annotation) {
@@ -234,6 +250,9 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
             check_statement(s, blk_scope, expected_return, is_async);
         }
     } else if (auto v = dynamic_cast<VarDeclStmt*>(stmt.get())) {
+        if (v->type_annotation) {
+            m_node_types[v] = resolve_type_annotation(*v->type_annotation, scope.get());
+        }
         if (v->initializer) {
             auto init_t = check_expression(v->initializer, scope);
             if (v->type_annotation) {

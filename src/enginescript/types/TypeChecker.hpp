@@ -9,6 +9,11 @@
 
 namespace EngineScript {
 
+struct InferredTypeInfo {
+    SourceSpan span;
+    std::string type_name;
+};
+
 class TypeChecker {
 public:
     TypeChecker(const SymbolResolver& resolver, DiagnosticEngine& diagnostics);
@@ -18,6 +23,7 @@ public:
 
     std::shared_ptr<Type> get_type_of_node(const ASTNode* node) const;
     std::shared_ptr<Type> resolve_type_annotation(const TypeAnnotation& annot, const Scope* scope = nullptr) const;
+    std::vector<InferredTypeInfo> inferred_types() const;
 
 private:
     void check_declaration(const std::shared_ptr<Declaration>& decl, const std::shared_ptr<Scope>& scope);

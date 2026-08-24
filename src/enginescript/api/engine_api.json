@@ -32,6 +32,9 @@
     { "name": "instantiate", "returnType": "Entity" },
     { "name": "findEntities", "returnType": "Array<Entity>" }
   ],
+  "properties": [
+    { "ownerType": "SpriteRenderer2D", "name": "flipX", "type": "Bool", "writable": true }
+  ],
   "methods": [
     { "ownerType": "Entities", "name": "create", "returnType": "Entity", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Entities", "name": "findByName", "returnType": "Entity", "minArguments": 1, "maxArguments": 1 },

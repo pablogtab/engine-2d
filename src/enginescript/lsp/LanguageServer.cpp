@@ -97,22 +97,126 @@ std::string base_type_name(std::string type_name) {
     return type_name;
 }
 
+std::optional<std::string> infer_initializer_type(
+    const SourceFile& file,
+    const std::string& variable_name,
+    uint32_t last_line
+) {
+    static const std::regex function_initializer_pattern(
+        R"(\blet\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]+>)?\s*\()"
+    );
+    static const std::regex method_initializer_pattern(
+        R"(\blet\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\()"
+    );
+
+    std::istringstream lines(file.content);
+    std::string source_line;
+    for (uint32_t line = 0; line <= last_line && std::getline(lines, source_line); ++line) {
+        std::smatch match;
+        if (std::regex_search(source_line, match, method_initializer_pattern) && match[1].str() == variable_name) {
+            if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(match[2].str(), match[3].str())) {
+                return method->return_type;
+            }
+        }
+        if (std::regex_search(source_line, match, function_initializer_pattern) && match[1].str() == variable_name) {
+            for (const ApiFunctionDescriptor& function : ApiCatalog::instance().functions()) {
+                if (function.availability == ApiAvailability::Available && function.name == match[2].str()) {
+                    return function.return_type;
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::pair<std::string, std::string>> find_typed_symbol(
+    const SourceFile& file,
+    const std::string& requested_name
+) {
+    static const std::regex typed_symbol_pattern(
+        R"(\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:<[^;=(){}]+>)?\??))"
+    );
+    std::istringstream lines(file.content);
+    std::string source_line;
+    while (std::getline(lines, source_line)) {
+        std::smatch match;
+        if (std::regex_search(source_line, match, typed_symbol_pattern) && match[1].str() == requested_name) {
+            return std::pair{match[1].str(), base_type_name(match[2].str())};
+        }
+    }
+    return std::nullopt;
+}
+
+uint32_t edit_distance(std::string_view left, std::string_view right) {
+    std::vector<uint32_t> previous(right.size() + 1);
+    std::vector<uint32_t> current(right.size() + 1);
+    for (uint32_t index = 0; index <= right.size(); ++index) previous[index] = index;
+    for (uint32_t left_index = 1; left_index <= left.size(); ++left_index) {
+        current[0] = left_index;
+        for (uint32_t right_index = 1; right_index <= right.size(); ++right_index) {
+            current[right_index] = std::min({
+                previous[right_index] + 1,
+                current[right_index - 1] + 1,
+                previous[right_index - 1] + (left[left_index - 1] == right[right_index - 1] ? 0U : 1U)
+            });
+        }
+        std::swap(previous, current);
+    }
+    return previous[right.size()];
+}
+
+std::optional<std::pair<std::string, std::string>> find_nearby_typed_symbol(
+    const SourceFile& file,
+    const std::string& requested_name
+) {
+    static const std::regex typed_symbol_pattern(
+        R"(\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:<[^;=(){}]+>)?\??))"
+    );
+    std::optional<std::pair<std::string, std::string>> closest;
+    uint32_t closest_distance = 2;
+    std::istringstream lines(file.content);
+    std::string source_line;
+    while (std::getline(lines, source_line)) {
+        std::smatch match;
+        if (!std::regex_search(source_line, match, typed_symbol_pattern)) continue;
+        const uint32_t distance = edit_distance(requested_name, match[1].str());
+        if (distance < closest_distance) {
+            closest = std::pair{match[1].str(), base_type_name(match[2].str())};
+            closest_distance = distance;
+        }
+    }
+    return closest;
+}
+
 std::optional<std::string> infer_receiver_type(
-    const SourceManager& source_manager,
+    const EngineScriptWorkspace& workspace,
     const std::string& source_path,
+    uint32_t line,
     std::string_view line_prefix
 ) {
     static const std::regex receiver_pattern(R"(([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*$)");
-    std::cmatch receiver_match;
-    if (!std::regex_search(line_prefix.begin(), line_prefix.end(), receiver_match, receiver_pattern)) {
+    const std::string prefix(line_prefix);
+    std::smatch receiver_match;
+    if (!std::regex_search(prefix, receiver_match, receiver_pattern)) {
         return std::nullopt;
     }
 
     const std::string receiver = receiver_match[1].str();
     if (ApiCatalog::instance().has_available_type(receiver)) return receiver;
 
+    const SourceManager& source_manager = workspace.source_manager();
     const SourceFile* file = source_manager.get_file(source_path);
     if (!file) return std::nullopt;
+    if (line < file->line_offsets.size()) {
+        const uint32_t receiver_offset = file->line_offsets[line] +
+            static_cast<uint32_t>(receiver_match.position(1));
+        if (const auto semantic_type = workspace.inferred_type_at(file->id, receiver_offset)) {
+            return base_type_name(*semantic_type);
+        }
+    }
+    if (const auto initializer_type = infer_initializer_type(*file, receiver, line)) {
+        return base_type_name(*initializer_type);
+    }
 
     const std::regex typed_declaration_pattern(
         R"(\b(?:let|const)?\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:<[^;=(){}]+>)?\??))"
@@ -137,7 +241,9 @@ std::optional<std::string> infer_receiver_type(
         }
         if (source_line.starts_with(std::string(line_prefix))) break;
     }
-    return inferred_type;
+    if (inferred_type) return inferred_type;
+    if (const auto direct_symbol = find_typed_symbol(*file, receiver)) return direct_symbol->second;
+    return std::nullopt;
 }
 }
 
@@ -381,7 +487,16 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
         line_content[character - 1] == '@';
     const std::string line_prefix = line_content.substr(0, std::min<std::size_t>(character, line_content.size()));
     if (const auto receiver_type = infer_receiver_type(
-            m_workspace.source_manager(), source_path_for_uri(uri), line_prefix)) {
+            m_workspace, source_path_for_uri(uri), line, line_prefix)) {
+        for (const ApiPropertyDescriptor& property : ApiCatalog::instance().properties()) {
+            if (property.availability != ApiAvailability::Available || property.owner_type != *receiver_type) continue;
+            items.push_back({
+                {"label", property.name},
+                {"kind", 10},
+                {"detail", property.owner_type + "." + property.name + ": " + property.type +
+                    (property.writable ? "" : " (read-only) ")}
+            });
+        }
         for (const ApiMethodDescriptor& method : ApiCatalog::instance().methods()) {
             if (method.availability != ApiAvailability::Available || method.owner_type != *receiver_type) continue;
             items.push_back({
@@ -394,6 +509,30 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
         }
         resp["result"] = items;
         return resp.dump();
+    }
+
+    static const std::regex receiver_pattern(R"(([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*$)");
+    std::smatch receiver_match;
+    const std::string source_path = source_path_for_uri(uri);
+    const SourceFile* source_file = m_workspace.source_manager().get_file(source_path);
+    if (source_file && std::regex_search(line_prefix, receiver_match, receiver_pattern)) {
+        const std::string receiver = receiver_match[1].str();
+        if (const auto correction = find_nearby_typed_symbol(*source_file, receiver)) {
+            const uint32_t receiver_start = static_cast<uint32_t>(receiver_match.position(1));
+            items.push_back({
+                {"label", correction->first},
+                {"kind", 6},
+                {"detail", "Did you mean " + correction->first + ": " + correction->second + "?"},
+                {"sortText", "0"},
+                {"textEdit", {
+                    {"newText", correction->first},
+                    {"range", {
+                        {"start", {{"line", line}, {"character", receiver_start}}},
+                        {"end", {{"line", line}, {"character", character}}}
+                    }}
+                }}
+            });
+        }
     }
 
     // Keywords
@@ -585,6 +724,20 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
 
     if (markdown.empty()) {
         markdown = "**`" + (word.empty() ? "EngineScript Symbol" : word) + "`**\n\nEngineScript gameplay language symbol.";
+    }
+
+    const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
+    const SourceFile* file = m_workspace.source_manager().get_file(file_id);
+    if (file && line < file->line_offsets.size()) {
+        const uint32_t byte_offset = file->line_offsets[line] +
+            std::min(character, static_cast<uint32_t>(line_content.size()));
+        auto inferred_type = m_workspace.inferred_type_at(file_id, byte_offset);
+        if (!inferred_type) {
+            inferred_type = infer_initializer_type(*file, word, line);
+        }
+        if (inferred_type) {
+            markdown += "\n\n**Inferred type:** `" + *inferred_type + "`";
+        }
     }
 
     json hover_obj;

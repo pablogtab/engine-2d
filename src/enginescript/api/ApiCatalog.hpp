@@ -31,6 +31,14 @@ struct ApiMethodDescriptor {
     ApiAvailability availability{ApiAvailability::Available};
 };
 
+struct ApiPropertyDescriptor {
+    std::string owner_type;
+    std::string name;
+    std::string type;
+    bool writable{false};
+    ApiAvailability availability{ApiAvailability::Available};
+};
+
 class ApiCatalog {
 public:
     static const ApiCatalog& instance();
@@ -40,6 +48,7 @@ public:
     [[nodiscard]] const std::vector<ApiTypeDescriptor>& types() const { return m_types; }
     [[nodiscard]] const std::vector<ApiFunctionDescriptor>& functions() const { return m_functions; }
     [[nodiscard]] const std::vector<ApiMethodDescriptor>& methods() const { return m_methods; }
+    [[nodiscard]] const std::vector<ApiPropertyDescriptor>& properties() const { return m_properties; }
     [[nodiscard]] bool has_available_type(std::string_view name) const;
     [[nodiscard]] bool has_available_function(std::string_view name) const;
     [[nodiscard]] const ApiMethodDescriptor* find_available_method(
@@ -55,6 +64,7 @@ private:
     std::vector<ApiTypeDescriptor> m_types;
     std::vector<ApiFunctionDescriptor> m_functions;
     std::vector<ApiMethodDescriptor> m_methods;
+    std::vector<ApiPropertyDescriptor> m_properties;
 };
 
 } // namespace EngineScript
