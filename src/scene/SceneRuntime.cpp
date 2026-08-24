@@ -1,9 +1,7 @@
 #include "SceneRuntime.hpp"
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
-#include "../ecs/CameraSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
-#include "../ecs/components/RenderingComponents.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
 
@@ -21,14 +19,16 @@ void SceneRuntime::attach(Scene& scene) {
     PhysicsSystem::set_gravity(scene.settings().gravity);
     TransformSystem::update(scene.get_entity_manager());
     m_ui_input.reset();
-    synchronize_game_camera(scene, 0.0f, true);
+    static_cast<void>(m_camera_controller.update_from_entities(
+        scene.get_entity_manager(), 0.0f, true
+    ));
     ENGINE_LOG_INFO("[SCENE RUNTIME] Attached scene '{}'", scene.get_name());
 }
 
 void SceneRuntime::detach() {
     PhysicsSystem::clear();
     m_ui_input.reset();
-    m_active_camera_entity = 0;
+    m_camera_controller.reset_entity_tracking();
 }
 
 void SceneRuntime::configure_game_view(const RenderViewConfiguration& configuration) {
@@ -78,45 +78,9 @@ void SceneRuntime::update(Scene& scene, float delta_time) {
     }
     SpriteAnimationSystem::update(scene.get_entity_manager(), delta_time);
     TransformSystem::update(scene.get_entity_manager());
-    synchronize_game_camera(scene, delta_time, false);
-}
-
-void SceneRuntime::synchronize_game_camera(Scene& scene, float delta_time, bool reset_controller) {
-    EntityManager& entities = scene.get_entity_manager();
-    const EntityID primary = CameraSystem::find_primary(entities);
-    if (primary == 0) {
-        m_active_camera_entity = 0;
-        m_game_camera.set_position(glm::vec2(0.0f));
-        m_game_camera.set_rotation(0.0f);
-        m_game_camera.set_zoom(1.0f);
-        return;
-    }
-
-    const bool camera_changed = primary != m_active_camera_entity;
-    m_active_camera_entity = primary;
-    if (!CameraSystem::apply_to_runtime(entities, primary, m_game_camera, true)) return;
-
-    const auto& camera = entities.get_component<CameraComponent>(primary);
-    const auto& transform = entities.get_component<TransformComponent>(primary);
-    const glm::vec2 authored_position(transform.world_position);
-    if (reset_controller || camera_changed) m_camera_controller.reset_center(authored_position);
-
-    m_camera_controller.set_follow_speed(camera.follow_speed);
-    m_camera_controller.enable_bounds(camera.enable_bounds);
-    if (camera.enable_bounds) {
-        m_camera_controller.set_bounds(
-            glm::vec2(camera.bounds.x, camera.bounds.y),
-            glm::vec2(camera.bounds.z, camera.bounds.w)
-        );
-    }
-    if (camera.follow_target != 0 && entities.is_alive(camera.follow_target) &&
-        entities.has_component<TransformComponent>(camera.follow_target)) {
-        const auto& target = entities.get_component<TransformComponent>(camera.follow_target);
-        m_camera_controller.set_target(glm::vec2(target.world_position) + camera.follow_offset);
-        m_camera_controller.update(delta_time);
-    } else {
-        m_game_camera.set_position(authored_position);
-    }
+    static_cast<void>(m_camera_controller.update_from_entities(
+        scene.get_entity_manager(), delta_time
+    ));
 }
 
 } // namespace Engine

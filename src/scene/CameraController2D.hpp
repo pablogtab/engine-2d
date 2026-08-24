@@ -1,10 +1,13 @@
 #pragma once
 
 #include "Camera2D.hpp"
+#include "../ecs/EcsTypes.hpp"
 #include <glm/glm.hpp>
 #include <algorithm>
 
 namespace Engine {
+
+class EntityManager;
 
 // ---------------------------------------------------------------------------
 // CameraController2D
@@ -70,6 +73,15 @@ public:
     // --- Per-frame update ---
     void update(float dt);
 
+    // Default ECS adapter used by SceneRuntime. Resolves the active authored
+    // camera, configures this controller, and advances follow behavior.
+    [[nodiscard]] bool update_from_entities(
+        EntityManager& entity_manager,
+        float dt,
+        bool reset_tracking = false
+    );
+    void reset_entity_tracking() { m_active_camera_entity = 0; }
+
 private:
     Camera2D* m_camera{nullptr};
 
@@ -79,6 +91,7 @@ private:
     glm::vec2 m_current_center{0.0f, 0.0f};
     glm::vec2 m_lookahead_offset{0.0f, 0.0f};
     float m_follow_speed{5.0f};
+    EntityID m_active_camera_entity{0};
 
     // Deadzone
     glm::vec2 m_deadzone{0.0f, 0.0f};

@@ -484,6 +484,14 @@ target_include_directories(Camera2DTests PRIVATE
 target_link_libraries(Camera2DTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME Camera2DTests COMMAND Camera2DTests)
 
+add_executable(CameraController2DTests tests/CameraController2DTests.cpp)
+target_include_directories(CameraController2DTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(CameraController2DTests PRIVATE EngineRuntime)
+add_test(NAME CameraController2DTests COMMAND CameraController2DTests)
+
 add_executable(MobileSurfaceTests
     tests/MobileSurfaceTests.cpp
     src/core/ApplicationLifecycle.cpp

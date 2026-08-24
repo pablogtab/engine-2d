@@ -23,12 +23,9 @@ public:
     [[nodiscard]] const SafeAreaInsets& ui_safe_area() const { return m_ui_safe_area; }
 
 private:
-    void synchronize_game_camera(Scene& scene, float delta_time, bool reset_controller);
-
     Camera2D m_game_camera;
     CameraController2D m_camera_controller;
     UIInputSystem m_ui_input;
-    EntityID m_active_camera_entity{0};
     glm::vec2 m_ui_output_size{1920.0f, 1080.0f};
     SafeAreaInsets m_ui_safe_area{};
 };

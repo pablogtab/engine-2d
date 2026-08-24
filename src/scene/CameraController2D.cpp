@@ -1,4 +1,8 @@
 #include "CameraController2D.hpp"
+#include "../ecs/CameraSystem.hpp"
+#include "../ecs/EntityManager.hpp"
+#include "../ecs/components/CoreComponents.hpp"
+#include "../ecs/components/RenderingComponents.hpp"
 #include <cmath>
 
 namespace Engine {
@@ -105,6 +109,53 @@ void CameraController2D::update(float dt) {
 
     // 6. Push final combined position to Camera2D
     m_camera->set_position(m_current_center + shake_offset);
+}
+
+bool CameraController2D::update_from_entities(
+    EntityManager& entity_manager,
+    float dt,
+    bool reset_tracking
+) {
+    if (!m_camera) return false;
+
+    const EntityID primary = CameraSystem::find_primary(entity_manager);
+    if (primary == 0) {
+        m_active_camera_entity = 0;
+        reset_center(glm::vec2(0.0f));
+        m_camera->set_rotation(0.0f);
+        m_camera->set_zoom(1.0f);
+        return false;
+    }
+
+    const bool camera_changed = primary != m_active_camera_entity;
+    m_active_camera_entity = primary;
+    if (!CameraSystem::apply_to_runtime(entity_manager, primary, *m_camera, true)) return false;
+
+    const auto& camera = entity_manager.get_component<CameraComponent>(primary);
+    const auto& transform = entity_manager.get_component<TransformComponent>(primary);
+    const glm::vec2 authored_position(transform.world_position);
+    if (reset_tracking || camera_changed) reset_center(authored_position);
+
+    set_follow_speed(camera.follow_speed);
+    enable_bounds(camera.enable_bounds);
+    if (camera.enable_bounds) {
+        set_bounds(
+            glm::vec2(camera.bounds.x, camera.bounds.y),
+            glm::vec2(camera.bounds.z, camera.bounds.w)
+        );
+    }
+
+    if (camera.follow_target == 0 ||
+        !entity_manager.is_alive(camera.follow_target) ||
+        !entity_manager.has_component<TransformComponent>(camera.follow_target)) {
+        reset_center(authored_position);
+        return true;
+    }
+
+    const auto& target = entity_manager.get_component<TransformComponent>(camera.follow_target);
+    set_target(glm::vec2(target.world_position) + camera.follow_offset);
+    update(dt);
+    return true;
 }
 
 } // namespace Engine
