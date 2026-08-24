@@ -581,7 +581,10 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     if (auto call = dynamic_cast<const IRCall*>(op)) {
         const bool injected_callable = m_injected_members.contains(call->callee_name);
         std::string s;
-        if (call->callee_name == "delay" || call->callee_name == "realDelay" ||
+        if (call->callee_name == "__array_literal") {
+            std::string type = call->result_type ? type_to_cpp(call->result_type.get()) : "std::vector<int>";
+            s = type + "{";
+        } else if (call->callee_name == "delay" || call->callee_name == "realDelay" ||
             call->callee_name == "nextFrame" || call->callee_name == "fixedUpdate" ||
             call->callee_name == "instantiate" || call->callee_name == "findEntities") {
             s = "this->" + identifier_to_cpp(call->callee_name) + "(";
@@ -594,8 +597,12 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             s += emit_operation_cpp(call->args[i].get());
             if (i + 1 < call->args.size()) s += ", ";
         }
-        s += ")";
+        s += call->callee_name == "__array_literal" ? "}" : ")";
         return s;
+    }
+
+    if (auto idx = dynamic_cast<const IRIndexGet*>(op)) {
+        return emit_operation_cpp(idx->target.get()) + "[" + emit_operation_cpp(idx->index.get()) + "]";
     }
 
     if (auto mc = dynamic_cast<const IRMethodCall*>(op)) {

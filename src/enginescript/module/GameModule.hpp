@@ -53,8 +53,8 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 17;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v17";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 18;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v18";
 
 class Input {
 public:
@@ -265,8 +265,9 @@ public:
 
     [[nodiscard]] bool isOk() const { return m_value.has_value(); }
     [[nodiscard]] bool isError() const { return !isOk(); }
-    [[nodiscard]] const T* value() const { return m_value ? &*m_value : nullptr; }
-    [[nodiscard]] const E* error() const { return m_error ? &*m_error : nullptr; }
+    // Callers must check isOk()/isError() before reading the matching value.
+    [[nodiscard]] T value() const { return m_value.value_or(T{}); }
+    [[nodiscard]] E error() const { return m_error.value_or(E{}); }
 
 private:
     std::optional<T> m_value;
@@ -285,7 +286,7 @@ public:
 
     [[nodiscard]] bool isOk() const { return !m_error.has_value(); }
     [[nodiscard]] bool isError() const { return !isOk(); }
-    [[nodiscard]] const E* error() const { return m_error ? &*m_error : nullptr; }
+    [[nodiscard]] E error() const { return m_error.value_or(E{}); }
 
 private:
     std::optional<E> m_error;

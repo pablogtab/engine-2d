@@ -175,6 +175,14 @@ The native SDK supplies `Result<T, String>` with `success`, `failure`, `isOk`,
 `Result.failure<Float, String>(message)`. This keeps error and success types
 fully checked before native code generation.
 
+## Expression support
+
+The native backend supports literals, arithmetic and boolean expressions,
+property access, calls, `await`, typed `Result` operations, array literals, and
+array/map indexing. Object literals, casts, arrow functions, `this`, and indexed
+assignment are diagnosed by EngineScript as unsupported instead of reaching the
+C++ compiler with partial output.
+
 ## Compiler cache and generated content
 
 `EngineScriptWorkspace` hashes the project inputs and SDK contract. An unchanged

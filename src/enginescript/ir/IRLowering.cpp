@@ -365,6 +365,24 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
         }
     }
 
+    if (auto idx = dynamic_cast<const IndexExpr*>(expr.get())) {
+        auto get = std::make_shared<IRIndexGet>();
+        get->target = lower_expression(idx->object);
+        get->index = lower_expression(idx->index);
+        get->result_type = m_type_checker.get_type_of_node(idx);
+        get->span = idx->span;
+        return get;
+    }
+
+    if (auto arr = dynamic_cast<const ArrayLiteralExpr*>(expr.get())) {
+        auto call = std::make_shared<IRCall>();
+        call->callee_name = "__array_literal";
+        for (const auto& element : arr->elements) call->args.push_back(lower_expression(element));
+        call->result_type = m_type_checker.get_type_of_node(arr);
+        call->span = arr->span;
+        return call;
+    }
+
     if (auto aw = dynamic_cast<const AwaitExpr*>(expr.get())) {
         auto ir_aw = std::make_shared<IRAwait>();
         ir_aw->operand = lower_expression(aw->operand);

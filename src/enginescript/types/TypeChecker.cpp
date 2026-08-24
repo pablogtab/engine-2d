@@ -352,6 +352,34 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 return t;
             }
 
+            if (sym->type_string.starts_with("Result<") && sym->type_string.ends_with('>')) {
+                const std::string inner = sym->type_string.substr(7, sym->type_string.size() - 8);
+                const size_t separator = inner.find(',');
+                if (separator != std::string::npos) {
+                    const auto trim = [](std::string value) {
+                        const size_t first = value.find_first_not_of(' ');
+                        const size_t last = value.find_last_not_of(' ');
+                        return first == std::string::npos ? std::string{} : value.substr(first, last - first + 1);
+                    };
+                    TypeAnnotation value_annotation{trim(inner.substr(0, separator))};
+                    TypeAnnotation error_annotation{trim(inner.substr(separator + 1))};
+                    auto t = Type::make_generic(
+                        TypeKind::Result,
+                        "Result",
+                        {resolve_type_annotation(value_annotation, scope.get()), resolve_type_annotation(error_annotation, scope.get())}
+                    );
+                    m_node_types[id] = t;
+                    return t;
+                }
+            }
+
+            if (sym->type_string.starts_with("Array<") && sym->type_string.ends_with('>')) {
+                TypeAnnotation element_annotation{sym->type_string.substr(6, sym->type_string.size() - 7)};
+                auto t = Type::make_generic(TypeKind::Array, "Array", {resolve_type_annotation(element_annotation, scope.get())});
+                m_node_types[id] = t;
+                return t;
+            }
+
             TypeAnnotation annot;
             annot.name = sym->type_string;
             auto t = resolve_type_annotation(annot, scope.get());
@@ -427,6 +455,11 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
     }
 
     if (auto assign = dynamic_cast<AssignmentExpr*>(expr.get())) {
+        if (!dynamic_cast<IdentifierExpr*>(assign->target.get()) && !dynamic_cast<MemberAccessExpr*>(assign->target.get())) {
+            m_diagnostics.report_error("E3043", "Only variables and properties are assignable in the native EngineScript backend", assign->target->span);
+            m_node_types[assign] = m_type_error;
+            return m_type_error;
+        }
         auto target_t = check_expression(assign->target, scope);
         auto val_t = check_expression(assign->value, scope);
         if (!val_t->is_assignable_to(target_t)) {
@@ -613,6 +646,21 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 auto res_t = Type::make_generic(TypeKind::Result, "Result", {value_t, error_t});
                 m_node_types[call] = res_t;
                 return res_t;
+            }
+            if (target_t && target_t->kind == TypeKind::Result) {
+                if (mem->member_name == "isOk" || mem->member_name == "isError") {
+                    if (!call->arguments.empty()) m_diagnostics.report_error("E3041", std::format("Result.{} expects no arguments", mem->member_name), call->span);
+                    m_node_types[call] = m_type_bool;
+                    return m_type_bool;
+                }
+                if (mem->member_name == "value" || mem->member_name == "error") {
+                    if (!call->arguments.empty()) m_diagnostics.report_error("E3041", std::format("Result.{} expects no arguments", mem->member_name), call->span);
+                    const size_t type_index = mem->member_name == "value" ? 0 : 1;
+                    if (target_t->type_args.size() == 2) {
+                        m_node_types[call] = target_t->type_args[type_index];
+                        return target_t->type_args[type_index];
+                    }
+                }
             }
         }
 
@@ -832,6 +880,13 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         auto arr_t = Type::make_generic(TypeKind::Array, "Array", {elem_t});
         m_node_types[arr] = arr_t;
         return arr_t;
+    }
+
+    if (dynamic_cast<ObjectLiteralExpr*>(expr.get()) || dynamic_cast<CastExpr*>(expr.get()) ||
+        dynamic_cast<ArrowFunctionExpr*>(expr.get()) || dynamic_cast<ThisExpr*>(expr.get())) {
+        m_diagnostics.report_error("E3042", "This expression is parsed but not supported by the native EngineScript backend", expr->span);
+        m_node_types[expr.get()] = m_type_error;
+        return m_type_error;
     }
 
     if (auto aw = dynamic_cast<AwaitExpr*>(expr.get())) {

@@ -26,10 +26,10 @@ int main() {
 
     const Result<int, std::string> successful_result = Result<int, std::string>::success(42);
     assert(successful_result.isOk());
-    assert(successful_result.value() && *successful_result.value() == 42);
+    assert(successful_result.value() == 42);
     const Result<int, std::string> failed_result = Result<int, std::string>::failure("not found");
     assert(failed_result.isError());
-    assert(failed_result.error() && *failed_result.error() == "not found");
+    assert(failed_result.error() == "not found");
 
     // Test 2: Scheduler delay and time stepping
     AsyncScheduler scheduler;

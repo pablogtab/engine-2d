@@ -388,6 +388,10 @@ export class ServiceUser extends Behaviour {
         assets.request("Assets/scripts/ServiceUser.e2s");
         let started: Result<Int, String> = Result.success<Int, String>(7);
         let rejected: Result<Int, String> = Result.failure<Int, String>("not ready");
+        let points: Array<Int> = [1, 2, 3];
+        if (started.isOk() && started.value() == points[0] + 6 && rejected.isError()) {
+            events.emit("ResultReady", rejected.error());
+        }
         loadHudTexture();
         let status: Entity = entities.findByName("Status");
         ui.setText(status, "Ready");
@@ -482,8 +486,8 @@ export class ServiceUser extends Behaviour {
             assert(event.name == "AssetReady");
             assert(event.payload == "script");
         } else {
-            assert(event.name == "AssetLoaded" || event.name == "TypedAssetLoaded");
-            assert(event.payload == "Assets/scripts/ServiceUser.e2s" || event.payload == "Assets/Textures/Hud.png");
+            assert(event.name == "AssetLoaded" || event.name == "TypedAssetLoaded" || event.name == "ResultReady");
+            assert(event.payload == "Assets/scripts/ServiceUser.e2s" || event.payload == "Assets/Textures/Hud.png" || event.payload == "not ready");
         }
         ++script_events;
     });
@@ -509,7 +513,7 @@ export class ServiceUser extends Behaviour {
     runtime.update(0.0f);
     dispatcher.dispatch_queued();
     runtime.dispatch_events();
-    assert(script_events == 4);
+    assert(script_events == 5);
     const ScriptComponent& updated_component = entity_manager.get_component<ScriptComponent>(entity);
     const auto received = std::find_if(updated_component.public_fields.begin(), updated_component.public_fields.end(), [](const ScriptPublicField& field) {
         return field.name == "received";
