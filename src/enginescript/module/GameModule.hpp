@@ -53,8 +53,8 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 6;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v6";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 13;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v13";
 
 class Input {
 public:
@@ -96,6 +96,21 @@ struct Time {
     uint64_t frameCount{0};
 };
 
+class Display {
+public:
+    virtual ~Display() = default;
+
+    int width{0};
+    int height{0};
+    int pixelWidth{0};
+    int pixelHeight{0};
+    float dpiScale{1.0f};
+    bool isFullscreen{false};
+
+    virtual bool setVsync(bool enabled) = 0;
+    virtual bool setFullscreen(bool enabled) = 0;
+};
+
 struct Entity {
     uint32_t id = 0;
     std::string name;
@@ -108,6 +123,35 @@ struct Entity {
     void destroy() const {
         if (destroy_callback) destroy_callback(runtime_context, id);
     }
+};
+
+struct ParticleEmitter2D {
+    float emitRate{0.0f};
+    int burstCount{0};
+    bool active{false};
+};
+
+struct Joint2D {
+    Entity target{};
+    bool collideConnected{false};
+};
+
+struct RaycastHit {
+    bool hit{false};
+    Entity entity{};
+    glm::vec2 point{0.0f, 0.0f};
+    glm::vec2 normal{0.0f, 0.0f};
+    float distance{0.0f};
+};
+
+class Physics {
+public:
+    virtual ~Physics() = default;
+    [[nodiscard]] virtual RaycastHit* raycast(
+        const glm::vec2& origin,
+        const glm::vec2& destination,
+        uint32_t mask = 0xFFFFu
+    ) = 0;
 };
 
 class Entities {
@@ -125,6 +169,10 @@ public:
     [[nodiscard]] virtual RigidBody2D* rigidBody(const Entity& entity) = 0;
     [[nodiscard]] virtual bool hasSpriteRenderer(const Entity& entity) const = 0;
     [[nodiscard]] virtual SpriteRenderer2D* spriteRenderer(const Entity& entity) = 0;
+    [[nodiscard]] virtual bool hasParticleEmitter(const Entity& entity) const = 0;
+    [[nodiscard]] virtual ParticleEmitter2D* particleEmitter(const Entity& entity) = 0;
+    [[nodiscard]] virtual bool hasJoint(const Entity& entity) const = 0;
+    [[nodiscard]] virtual Joint2D* joint(const Entity& entity) = 0;
 };
 
 class Animator2D {
@@ -156,6 +204,39 @@ public:
     [[nodiscard]] virtual std::string currentName() const = 0;
 };
 
+class Events {
+public:
+    virtual ~Events() = default;
+    virtual bool emit(const std::string& name, const std::string& payload = {}) = 0;
+};
+
+struct Asset {
+    uint64_t handle{0};
+    std::string path;
+    bool ready{false};
+};
+
+class Assets {
+public:
+    virtual ~Assets() = default;
+    [[nodiscard]] virtual Asset* find(const std::string& path) = 0;
+    [[nodiscard]] virtual bool exists(const std::string& path) const = 0;
+};
+
+class UI {
+public:
+    virtual ~UI() = default;
+    virtual bool setText(const Entity& entity, const std::string& text) = 0;
+    virtual bool setVisible(const Entity& entity, bool visible) = 0;
+};
+
+class Tilemap {
+public:
+    virtual ~Tilemap() = default;
+    [[nodiscard]] virtual int getTile(const Entity& entity, int x, int y) const = 0;
+    virtual bool setTile(const Entity& entity, int x, int y, int tile_id) = 0;
+};
+
 class NativeBehaviour {
 public:
     using ExposedPropertyValue = std::variant<bool, double, std::string, glm::vec2, Entity>;
@@ -180,6 +261,24 @@ public:
         return async_scheduler
             ? async_scheduler->delay(seconds, task_scope_id)
             : AsyncScheduler::DelayAwaiter{nullptr, seconds, task_scope_id, false};
+    }
+
+    [[nodiscard]] AsyncScheduler::DelayAwaiter realDelay(float seconds) const {
+        return async_scheduler
+            ? async_scheduler->real_delay(seconds, task_scope_id)
+            : AsyncScheduler::DelayAwaiter{nullptr, seconds, task_scope_id, true};
+    }
+
+    [[nodiscard]] AsyncScheduler::NextFrameAwaiter nextFrame() const {
+        return async_scheduler
+            ? async_scheduler->next_frame(task_scope_id)
+            : AsyncScheduler::NextFrameAwaiter{nullptr, task_scope_id};
+    }
+
+    [[nodiscard]] AsyncScheduler::FixedUpdateAwaiter fixedUpdate() const {
+        return async_scheduler
+            ? async_scheduler->fixed_update(task_scope_id)
+            : AsyncScheduler::FixedUpdateAwaiter{nullptr, task_scope_id};
     }
 
     uint32_t entity_id = 0;

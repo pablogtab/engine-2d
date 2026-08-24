@@ -136,7 +136,7 @@ int main() {
     assert(output.source_content.find("m_scene->load(\"Assets/Scenes/Next.scene\")") != std::string::npos);
     assert(output.source_content.find("PlatformerPlayer::set_exposed_property") != std::string::npos);
     assert(output.source_content.find("PlatformerPlayer::get_exposed_property") != std::string::npos);
-    assert(output.source_content.find("co_await delay(0.5f)") != std::string::npos);
+    assert(output.source_content.find("co_await this->delay(0.5f)") != std::string::npos);
     assert(output.source_content.find("#line") != std::string::npos);
     require_generated_cpp_compiles(output, entrypoint);
 

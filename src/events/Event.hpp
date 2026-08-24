@@ -5,6 +5,7 @@
 #include <string>
 #include <cstdint>
 #include <typeindex>
+#include <utility>
 
 namespace Engine {
 
@@ -57,6 +58,17 @@ struct CustomLogEvent : public IEvent {
     explicit CustomLogEvent(const std::string& msg) : message(msg) {}
     const char* get_name() const override { return "CustomLogEvent"; }
     std::type_index get_type_index() const override { return std::type_index(typeid(CustomLogEvent)); }
+};
+
+struct ScriptEvent : public IEvent {
+    EntityID source{0};
+    std::string name;
+    std::string payload;
+
+    ScriptEvent(EntityID source_id, std::string event_name, std::string event_payload)
+        : source(source_id), name(std::move(event_name)), payload(std::move(event_payload)) {}
+    const char* get_name() const override { return "ScriptEvent"; }
+    std::type_index get_type_index() const override { return std::type_index(typeid(ScriptEvent)); }
 };
 
 struct UIButtonClickedEvent : public IEvent {

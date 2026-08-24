@@ -682,15 +682,15 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Display fields
         if (obj_t->name == "Display") {
-            if (mem->member_name == "width" || mem->member_name == "height" || mem->member_name == "pixel_width" || mem->member_name == "pixel_height") {
+            if (mem->member_name == "width" || mem->member_name == "height" || mem->member_name == "pixelWidth" || mem->member_name == "pixelHeight") {
                 m_node_types[mem] = m_type_int;
                 return m_type_int;
             }
-            if (mem->member_name == "dpi_scale") {
+            if (mem->member_name == "dpiScale") {
                 m_node_types[mem] = m_type_float;
                 return m_type_float;
             }
-            if (mem->member_name == "is_fullscreen") {
+            if (mem->member_name == "isFullscreen") {
                 m_node_types[mem] = m_type_bool;
                 return m_type_bool;
             }
@@ -715,6 +715,31 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 m_node_types[mem] = m_type_entity;
                 return m_type_entity;
             }
+        }
+
+        if (obj_t->name == "Asset") {
+            if (mem->member_name == "handle") {
+                m_node_types[mem] = Type::make_primitive(TypeKind::UInt64);
+                return m_node_types[mem];
+            }
+            if (mem->member_name == "path") {
+                m_node_types[mem] = m_type_string;
+                return m_type_string;
+            }
+            if (mem->member_name == "ready") {
+                m_node_types[mem] = m_type_bool;
+                return m_type_bool;
+            }
+        }
+
+        if (obj_t->name == "ParticleEmitter2D") {
+            if (mem->member_name == "emitRate") { m_node_types[mem] = m_type_float; return m_type_float; }
+            if (mem->member_name == "burstCount") { m_node_types[mem] = m_type_int; return m_type_int; }
+            if (mem->member_name == "active") { m_node_types[mem] = m_type_bool; return m_type_bool; }
+        }
+        if (obj_t->name == "Joint2D") {
+            if (mem->member_name == "target") { m_node_types[mem] = m_type_entity; return m_type_entity; }
+            if (mem->member_name == "collideConnected") { m_node_types[mem] = m_type_bool; return m_type_bool; }
         }
 
         // String fields / properties

@@ -9,7 +9,10 @@
 #include "../ecs/components/AnimationComponents.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/PhysicsComponents.hpp"
+#include "../ecs/components/ParticleComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
+#include "../ecs/components/UIComponents.hpp"
+#include "../tilemap/Tilemap.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
 #include "../events/Event.hpp"
@@ -25,6 +28,7 @@
 #include <cmath>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <unordered_map>
 #include <string_view>
@@ -35,6 +39,8 @@ namespace Engine {
 
 struct ScriptRuntimeBinding {
     EntityManager* entity_manager{nullptr};
+    EventDispatcher* event_dispatcher{nullptr};
+    const AssetDatabase* asset_database{nullptr};
     EntityID entity{0};
     const ScriptRuntimeServices* services{nullptr};
 };
@@ -42,7 +48,7 @@ struct ScriptRuntimeBinding {
 class NativeBehaviourHost {
 public:
     explicit NativeBehaviourHost(ScriptRuntimeBinding& binding)
-        : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding), m_animator(binding) {}
+        : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding), m_events(binding), m_assets(binding), m_ui(binding), m_tilemap(binding), m_display(binding), m_physics(binding), m_animator(binding) {}
 
     bool prepare(const EngineScript::BehaviourTypeRegistration& registration, std::string& error) {
         for (const auto& [type, kind] : registration.constructor_dependencies) {
@@ -50,12 +56,18 @@ public:
             else if (type == "Log") m_arguments.push_back(&m_log);
             else if (type == "Audio") m_arguments.push_back(&m_audio);
             else if (type == "Scene") m_arguments.push_back(&m_scene);
+            else if (type == "Events") m_arguments.push_back(&m_events);
+            else if (type == "Assets") m_arguments.push_back(&m_assets);
+            else if (type == "UI") m_arguments.push_back(&m_ui);
+            else if (type == "Tilemap") m_arguments.push_back(&m_tilemap);
             else if (type == "RigidBody2D") m_arguments.push_back(&m_rigid_body);
             else if (type == "SpriteRenderer2D") m_arguments.push_back(&m_sprite);
             else if (type == "Animator2D") m_arguments.push_back(&m_animator);
             else if (type == "Transform2D") m_arguments.push_back(&m_transform);
             else if (type == "Time") m_arguments.push_back(&m_time);
             else if (type == "Entities") m_arguments.push_back(&m_entities);
+            else if (type == "Display") m_arguments.push_back(&m_display);
+            else if (type == "Physics") m_arguments.push_back(&m_physics);
             else if (kind == EngineScript::NativeDependencyKind::OptionalComponent) m_arguments.push_back(nullptr);
             else { error = "unsupported native EngineScript dependency: " + type; return false; }
         }
@@ -83,6 +95,7 @@ public:
         m_time.elapsed = Time::get_time();
         m_time.realElapsed = Time::get_real_time();
         m_time.frameCount = Time::get_frame_count();
+        m_display.sync();
     }
 
     void sync_after() {
@@ -137,6 +150,151 @@ private:
         bool load(const std::string& path) override { std::string error; return m_binding.services && m_binding.services->request_scene_load && m_binding.services->request_scene_load(path, error); }
         std::string currentName() const override { return m_binding.services && m_binding.services->current_scene_name ? m_binding.services->current_scene_name() : std::string{}; }
     private: const ScriptRuntimeBinding& m_binding; };
+    class Events final : public EngineScript::Events {
+    public:
+        explicit Events(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        bool emit(const std::string& name, const std::string& payload) override {
+            if (!m_binding.event_dispatcher || name.empty()) return false;
+            m_binding.event_dispatcher->queue(ScriptEvent{m_binding.entity, name, payload});
+            return true;
+        }
+    private: const ScriptRuntimeBinding& m_binding; };
+    class Assets final : public EngineScript::Assets {
+    public:
+        explicit Assets(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        EngineScript::Asset* find(const std::string& path) override {
+            const AssetRecord* record = record_for(path);
+            if (!record) return nullptr;
+            m_asset.handle = record->handle.value;
+            m_asset.path = record->source_path;
+            m_asset.ready = record->status == AssetStatus::Ready;
+            return &m_asset;
+        }
+        bool exists(const std::string& path) const override { return record_for(path) != nullptr; }
+    private:
+        const AssetRecord* record_for(const std::string& path) const {
+            if (!m_binding.asset_database) return nullptr;
+            return m_binding.asset_database->find_by_path(path);
+        }
+        const ScriptRuntimeBinding& m_binding;
+        EngineScript::Asset m_asset;
+    };
+    class UI final : public EngineScript::UI {
+    public:
+        explicit UI(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        bool setText(const EngineScript::Entity& entity, const std::string& text) override {
+            if (!alive(entity.id) || !m_binding.entity_manager->has_component<UITextComponent>(entity.id)) return false;
+            m_binding.entity_manager->get_component<UITextComponent>(entity.id).text = text;
+            return true;
+        }
+        bool setVisible(const EngineScript::Entity& entity, bool visible) override {
+            if (!alive(entity.id)) return false;
+            bool changed = false;
+            if (m_binding.entity_manager->has_component<UITextComponent>(entity.id)) {
+                m_binding.entity_manager->get_component<UITextComponent>(entity.id).enabled = visible;
+                changed = true;
+            }
+            if (m_binding.entity_manager->has_component<UIImageComponent>(entity.id)) {
+                m_binding.entity_manager->get_component<UIImageComponent>(entity.id).enabled = visible;
+                changed = true;
+            }
+            if (m_binding.entity_manager->has_component<UIButtonComponent>(entity.id)) {
+                m_binding.entity_manager->get_component<UIButtonComponent>(entity.id).enabled = visible;
+                changed = true;
+            }
+            return changed;
+        }
+    private:
+        bool alive(EntityID id) const { return m_binding.entity_manager && m_binding.entity_manager->is_alive(id); }
+        const ScriptRuntimeBinding& m_binding;
+    };
+    class Tilemap final : public EngineScript::Tilemap {
+    public:
+        explicit Tilemap(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        int getTile(const EngineScript::Entity& entity, int x, int y) const override {
+            const TilemapComponent* tilemap = component(entity.id);
+            return tilemap ? static_cast<int>(tilemap->get_tile(x, y)) : 0;
+        }
+        bool setTile(const EngineScript::Entity& entity, int x, int y, int tile_id) override {
+            if (tile_id < 0 || tile_id > std::numeric_limits<uint16_t>::max()) return false;
+            TilemapComponent* tilemap = component(entity.id);
+            if (!tilemap) return false;
+            tilemap->set_tile(x, y, static_cast<uint16_t>(tile_id));
+            return true;
+        }
+    private:
+        TilemapComponent* component(EntityID id) const {
+            if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(id) ||
+                !m_binding.entity_manager->has_component<TilemapComponent>(id)) return nullptr;
+            return &m_binding.entity_manager->get_component<TilemapComponent>(id);
+        }
+        const ScriptRuntimeBinding& m_binding;
+    };
+    class Display final : public EngineScript::Display {
+    public:
+        explicit Display(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        void sync() {
+            if (!m_binding.services || !m_binding.services->query_display) return;
+            const ScriptDisplayInfo info = m_binding.services->query_display();
+            width = info.reference_width;
+            height = info.reference_height;
+            pixelWidth = info.pixel_width;
+            pixelHeight = info.pixel_height;
+            dpiScale = info.dpi_scale;
+            isFullscreen = info.window_mode != WindowMode::Windowed;
+        }
+        bool setVsync(bool enabled) override {
+            ScriptDisplayRequest request;
+            request.vsync = enabled;
+            return apply(request);
+        }
+        bool setFullscreen(bool enabled) override {
+            ScriptDisplayRequest request;
+            request.window_mode = enabled ? WindowMode::BorderlessFullscreen : WindowMode::Windowed;
+            return apply(request);
+        }
+    private:
+        bool apply(const ScriptDisplayRequest& request) {
+            std::string error;
+            const bool applied = m_binding.services && m_binding.services->apply_display &&
+                m_binding.services->apply_display(request, error);
+            if (applied) sync();
+            return applied;
+        }
+        const ScriptRuntimeBinding& m_binding;
+    };
+    class Physics final : public EngineScript::Physics {
+    public:
+        explicit Physics(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        EngineScript::RaycastHit* raycast(const glm::vec2& origin, const glm::vec2& destination, uint32_t mask) override {
+            const RaycastHit2D hit = PhysicsSystem::raycast(origin, destination, static_cast<uint16_t>(mask));
+            if (!hit.hit) return nullptr;
+            m_hit.hit = true;
+            m_hit.entity = make_entity(hit.entity_id);
+            m_hit.point = hit.point;
+            m_hit.normal = hit.normal;
+            m_hit.distance = hit.distance;
+            return &m_hit;
+        }
+    private:
+        EngineScript::Entity make_entity(EntityID id) const {
+            EngineScript::Entity entity;
+            entity.id = id;
+            if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(id)) return entity;
+            if (m_binding.entity_manager->has_component<TagComponent>(id)) {
+                entity.name = m_binding.entity_manager->get_component<TagComponent>(id).tag;
+                entity.tag = entity.name;
+            }
+            entity.runtime_context = m_binding.entity_manager;
+            entity.destroy_callback = [](void* context, uint32_t entity_id) {
+                auto* entities = static_cast<EntityManager*>(context);
+                if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
+            };
+            return entity;
+        }
+        const ScriptRuntimeBinding& m_binding;
+        EngineScript::RaycastHit m_hit;
+    };
     class Animator final : public EngineScript::Animator2D {
     public:
         explicit Animator(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
@@ -202,6 +360,25 @@ private:
             m_sprite_renderer.value.flipX = m_binding.entity_manager->get_component<SpriteComponent>(entity.id).flip_x;
             return &m_sprite_renderer.value;
         }
+        bool hasParticleEmitter(const EngineScript::Entity& entity) const override { return alive_with<ParticleEmitter2DComponent>(entity.id); }
+        EngineScript::ParticleEmitter2D* particleEmitter(const EngineScript::Entity& entity) override {
+            if (!hasParticleEmitter(entity)) return nullptr;
+            const ParticleEmitter2DComponent& source = m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(entity.id);
+            m_particle.id = entity.id;
+            m_particle.value.emitRate = source.emit_rate;
+            m_particle.value.burstCount = source.burst_count;
+            m_particle.value.active = source.active;
+            return &m_particle.value;
+        }
+        bool hasJoint(const EngineScript::Entity& entity) const override { return alive_with<JointComponent>(entity.id); }
+        EngineScript::Joint2D* joint(const EngineScript::Entity& entity) override {
+            if (!hasJoint(entity)) return nullptr;
+            const JointComponent& source = m_binding.entity_manager->get_component<JointComponent>(entity.id);
+            m_joint.id = entity.id;
+            m_joint.value.target = make_entity(source.target_entity);
+            m_joint.value.collideConnected = source.collide_connected;
+            return &m_joint.value;
+        }
         void sync_after() {
             if (!m_binding.entity_manager) return;
             if (m_transform.id != 0 && alive_with<TransformComponent>(m_transform.id)) {
@@ -215,6 +392,17 @@ private:
             }
             if (m_sprite_renderer.id != 0 && alive_with<SpriteComponent>(m_sprite_renderer.id)) {
                 m_binding.entity_manager->get_component<SpriteComponent>(m_sprite_renderer.id).flip_x = m_sprite_renderer.value.flipX;
+            }
+            if (m_particle.id != 0 && alive_with<ParticleEmitter2DComponent>(m_particle.id)) {
+                ParticleEmitter2DComponent& target = m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(m_particle.id);
+                target.emit_rate = m_particle.value.emitRate;
+                target.burst_count = m_particle.value.burstCount;
+                target.active = m_particle.value.active;
+            }
+            if (m_joint.id != 0 && alive_with<JointComponent>(m_joint.id)) {
+                JointComponent& target = m_binding.entity_manager->get_component<JointComponent>(m_joint.id);
+                target.target_entity = m_joint.value.target.id;
+                target.collide_connected = m_joint.value.collideConnected;
             }
         }
     private:
@@ -259,6 +447,8 @@ private:
         struct { EntityID id{0}; EngineScript::Transform2D value; } m_transform;
         struct { EntityID id{0}; EngineScript::RigidBody2D value; } m_rigid_body;
         struct { EntityID id{0}; EngineScript::SpriteRenderer2D value; } m_sprite_renderer;
+        struct { EntityID id{0}; EngineScript::ParticleEmitter2D value; } m_particle;
+        struct { EntityID id{0}; EngineScript::Joint2D value; } m_joint;
     };
 
     ScriptRuntimeBinding& m_binding;
@@ -266,6 +456,12 @@ private:
     Log m_log;
     Audio m_audio;
     Scene m_scene;
+    Events m_events;
+    Assets m_assets;
+    UI m_ui;
+    Tilemap m_tilemap;
+    Display m_display;
+    Physics m_physics;
     Animator m_animator;
     EntityService m_entities{m_binding};
     EngineScript::RigidBody2D m_rigid_body;
@@ -1195,7 +1391,9 @@ ScriptRuntimeStartResult ScriptRuntime::start(
             }
             if (dependency.is_service && dependency.type != "Input" && dependency.type != "Log" &&
                 dependency.type != "Audio" && dependency.type != "Scene" && dependency.type != "Time" &&
-                dependency.type != "Entities") {
+                dependency.type != "Entities" && dependency.type != "Display" && dependency.type != "Physics" &&
+                dependency.type != "Events" && dependency.type != "Assets" && dependency.type != "UI" &&
+                dependency.type != "Tilemap") {
                 ++result.failed;
                 set_error(entity, "unsupported injected service: " + dependency.type);
                 return;
@@ -1225,6 +1423,8 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         instance.field_definitions = std::move(compiled_fields);
         instance.binding = std::make_unique<ScriptRuntimeBinding>();
         instance.binding->entity_manager = &entity_manager;
+        instance.binding->event_dispatcher = event_dispatcher;
+        instance.binding->asset_database = &asset_database;
         instance.binding->entity = entity;
         instance.binding->services = &m_services;
         void** factory_arguments = nullptr;

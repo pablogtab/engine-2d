@@ -563,7 +563,10 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     if (auto call = dynamic_cast<const IRCall*>(op)) {
         const bool injected_callable = m_injected_members.contains(call->callee_name);
         std::string s;
-        if (injected_callable) {
+        if (call->callee_name == "delay" || call->callee_name == "realDelay" ||
+            call->callee_name == "nextFrame" || call->callee_name == "fixedUpdate") {
+            s = "this->" + identifier_to_cpp(call->callee_name) + "(";
+        } else if (injected_callable) {
             s = "(*" + identifier_to_cpp(call->callee_name) + ")(";
         } else {
             s = identifier_to_cpp(call->callee_name) + "(";

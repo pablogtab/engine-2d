@@ -84,6 +84,26 @@ public:
         void await_resume() const noexcept {}
     };
 
+    struct FixedUpdateAwaiter {
+        AsyncScheduler* scheduler;
+        uint32_t scope_id;
+
+        bool await_ready() const noexcept { return false; }
+        template <typename Promise>
+        void await_suspend(std::coroutine_handle<Promise> h) noexcept {
+            static_assert(std::is_base_of_v<detail::TaskPromiseBase, Promise>);
+            if (!scheduler) return;
+            ScheduledAction action;
+            action.id = scheduler->next_action_id();
+            action.scope_id = scope_id;
+            action.is_fixed_update = true;
+            action.coroutine_handle = h;
+            action.coroutine_control = h.promise().control;
+            scheduler->m_actions.push_back(std::move(action));
+        }
+        void await_resume() const noexcept {}
+    };
+
     DelayAwaiter delay(float seconds, uint32_t scope_id = 0) {
         return DelayAwaiter{this, seconds, scope_id, false};
     }
@@ -94,6 +114,10 @@ public:
 
     NextFrameAwaiter next_frame(uint32_t scope_id = 0) {
         return NextFrameAwaiter{this, scope_id};
+    }
+
+    FixedUpdateAwaiter fixed_update(uint32_t scope_id = 0) {
+        return FixedUpdateAwaiter{this, scope_id};
     }
 
 private:

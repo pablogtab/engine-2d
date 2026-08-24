@@ -11,6 +11,7 @@
 #include "ecs/components/ScriptingComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
+#include "ecs/components/UIComponents.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "events/Event.hpp"
 #include "events/EventDispatcher.hpp"
@@ -313,7 +314,12 @@ void test_audio_and_scene_services() {
 export class ServiceUser extends Behaviour {
     constructor(
         @inject private audio: Audio,
-        @inject private scene: Scene
+        @inject private scene: Scene,
+        @inject private display: Display,
+        @inject private events: Events,
+        @inject private assets: Assets,
+        @inject private entities: Entities,
+        @inject private ui: UI
     ) {}
 
     override on_start(): Void {
@@ -321,6 +327,15 @@ export class ServiceUser extends Behaviour {
         audio.playSound("Assets/Audio/start.wav", 0.5, 1.25);
         audio.playMusic("Assets/Audio/theme.ogg", 0.8, true);
         scene.load("Assets/Scenes/Level2.scene");
+        display.setVsync(display.pixelWidth == 1920);
+        display.setFullscreen(false);
+        events.emit("PlayerReady", "level-2");
+        if (assets.exists("Assets/scripts/ServiceUser.e2s")) {
+            events.emit("AssetReady", "script");
+        }
+        let status: Entity = entities.findByName("Status");
+        ui.setText(status, "Ready");
+        ui.setVisible(status, true);
     }
 }
 )";
@@ -337,11 +352,16 @@ export class ServiceUser extends Behaviour {
     component.enabled = true;
     component.script_handle = record->handle;
     entity_manager.add_component<ScriptComponent>(entity, component);
+    const EntityID status = entity_manager.create_entity();
+    entity_manager.add_component<TagComponent>(status, TagComponent{"Status"});
+    entity_manager.add_component<UITextComponent>(status, UITextComponent{});
 
     int played_sounds = 0;
     int played_music = 0;
     float master_volume = 0.0f;
     std::string loaded_scene;
+    int display_changes = 0;
+    int script_events = 0;
     ScriptRuntimeServices services;
     services.play_sound = [&](const std::string& path, float volume, float pitch, std::string&) {
         assert(path == "Assets/Audio/start.wav");
@@ -362,15 +382,47 @@ export class ServiceUser extends Behaviour {
         loaded_scene = path;
         return true;
     };
+    services.query_display = []() {
+        ScriptDisplayInfo info;
+        info.pixel_width = 1920;
+        info.pixel_height = 1080;
+        info.reference_width = 960;
+        info.reference_height = 540;
+        info.dpi_scale = 2.0f;
+        info.window_mode = WindowMode::BorderlessFullscreen;
+        info.vsync = true;
+        return info;
+    };
+    services.apply_display = [&](const ScriptDisplayRequest& request, std::string&) {
+        if (display_changes == 0) assert(request.vsync && *request.vsync);
+        if (display_changes == 1) assert(request.window_mode && *request.window_mode == WindowMode::Windowed);
+        ++display_changes;
+        return true;
+    };
+
+    EventDispatcher dispatcher;
+    dispatcher.subscribe<ScriptEvent>([&](const ScriptEvent& event) {
+        assert(event.source == entity);
+        if (event.name == "PlayerReady") assert(event.payload == "level-2");
+        else {
+            assert(event.name == "AssetReady");
+            assert(event.payload == "script");
+        }
+        ++script_events;
+    });
 
     ScriptRuntime runtime;
-    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, nullptr, services);
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, &dispatcher, services);
     assert(started.started == 1);
     assert(started.failed == 0);
     assert(played_sounds == 1);
     assert(played_music == 1);
     assert(std::abs(master_volume - 0.65f) < 0.001f);
     assert(loaded_scene == "Assets/Scenes/Level2.scene");
+    assert(display_changes == 2);
+    assert(entity_manager.get_component<UITextComponent>(status).text == "Ready");
+    dispatcher.dispatch_queued();
+    assert(script_events == 2);
 
     runtime.shutdown();
     fs::remove_all(root, error);
