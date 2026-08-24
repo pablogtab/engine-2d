@@ -1,6 +1,8 @@
 #include <cassert>
 #include <iostream>
+#include "enginescript/api/ApiCatalog.hpp"
 #include "enginescript/lsp/LanguageServer.hpp"
+#include "enginescript/module/GameModule.hpp"
 #include <nlohmann/json.hpp>
 
 using namespace EngineScript;
@@ -8,6 +10,17 @@ using json = nlohmann::json;
 
 int main() {
     std::cout << "[TEST] Running EngineScriptLspTests...\n";
+
+    const ApiCatalog& api = ApiCatalog::instance();
+    assert(api.abi_version() == ENGINE_SCRIPT_ABI_VERSION);
+    assert(api.find_available_method("Input", "down") != nullptr);
+    assert(api.find_available_method("Input", "released") != nullptr);
+    assert(api.find_available_method("Animator2D", "stop") == nullptr);
+    assert(api.find_available_method("PlayerPrefs", "setVec3") != nullptr);
+    const ApiPropertyDescriptor* body_velocity = api.find_available_property("RigidBody2D", "velocity");
+    assert(body_velocity && body_velocity->writable && body_velocity->type == "Vec2");
+    const ApiPropertyDescriptor* grounded = api.find_available_property("RigidBody2D", "isGrounded");
+    assert(grounded && !grounded->writable);
 
     LanguageServer server("/workspace/My Game");
 
@@ -169,13 +182,198 @@ int main() {
     json inferred_hover = json::parse(server.handle_message(inferred_hover_req));
     assert(inferred_hover["result"]["contents"]["value"].get<std::string>().find("Task<Void>") != std::string::npos);
 
+    std::string component_receiver_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":4},
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  constructor(\n    @inject private input: Input,\n    @component private body: RigidBody2D\n  ) {}\n  override update(deltaTime: Float): Void {\n    body.\n  }\n}"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(component_receiver_change));
+    std::string component_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":6,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":7,"character":9}
+        }
+    })";
+    json component_completion = json::parse(server.handle_message(component_completion_req));
+    bool has_velocity = false;
+    bool has_grounded = false;
+    for (const auto& item : component_completion["result"]) {
+        has_velocity |= item["label"] == "velocity";
+        has_grounded |= item["label"] == "isGrounded";
+    }
+    assert(has_velocity && has_grounded);
+
+    std::string nested_receiver_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":5},
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  constructor(\n    @component private body: RigidBody2D\n  ) {}\n  override update(deltaTime: Float): Void {\n    body.velocity.\n  }\n}"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(nested_receiver_change));
+    std::string nested_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":7,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":6,"character":18}
+        }
+    })";
+    json nested_completion = json::parse(server.handle_message(nested_completion_req));
+    bool has_x = false;
+    bool has_y = false;
+    bool leaked_keyword = false;
+    for (const auto& item : nested_completion["result"]) {
+        has_x |= item["label"] == "x";
+        has_y |= item["label"] == "y";
+        leaked_keyword |= item["label"] == "if";
+    }
+    assert(has_x && has_y && !leaked_keyword);
+
+    std::string scoped_symbols_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":6},
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  constructor(\n    @component private body: RigidBody2D,\n    @component private sprite: SpriteRenderer2D\n  ) {}\n  private coyoteTimer: Float = 0.0;\n  override update(deltaTime: Float): Void {\n    let movement: Float = 1.0;\n    spri\n    let futureValue: Float = 2.0;\n  }\n}"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(scoped_symbols_change));
+    std::string scoped_symbols_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":8,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":9,"character":8}
+        }
+    })";
+    json scoped_symbols_completion = json::parse(server.handle_message(scoped_symbols_completion_req));
+    bool has_sprite_symbol = false;
+    bool has_body_symbol = false;
+    bool has_movement_symbol = false;
+    bool has_delta_time_symbol = false;
+    bool has_class_field = false;
+    bool leaked_future_symbol = false;
+    for (const auto& item : scoped_symbols_completion["result"]) {
+        has_sprite_symbol |= item["label"] == "sprite" && item.value("sortText", "").starts_with("0_");
+        has_body_symbol |= item["label"] == "body";
+        has_movement_symbol |= item["label"] == "movement";
+        has_delta_time_symbol |= item["label"] == "deltaTime";
+        has_class_field |= item["label"] == "coyoteTimer";
+        leaked_future_symbol |= item["label"] == "futureValue";
+    }
+    assert(has_sprite_symbol && has_body_symbol && has_movement_symbol && has_delta_time_symbol && has_class_field);
+    assert(!leaked_future_symbol);
+
+    std::string inferred_symbols_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":7},
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  constructor(@inject private input: Input) {}\n  override update(deltaTime: Float): Void {\n    let inferredMovement = input.axis(\"Horizontal\");\n    \n  }\n}"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(inferred_symbols_change));
+    std::string inferred_symbols_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":9,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":5,"character":4}
+        }
+    })";
+    json inferred_symbols_completion = json::parse(server.handle_message(inferred_symbols_completion_req));
+    bool has_inferred_local = false;
+    for (const auto& item : inferred_symbols_completion["result"]) {
+        has_inferred_local |= item["label"] == "inferredMovement" &&
+            item.value("detail", "").find("Float") != std::string::npos;
+    }
+    assert(has_inferred_local);
+
+    std::string method_snippet_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":8},
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  constructor(@inject private input: Input) {}\n  override update(deltaTime: Float): Void {\n    input.\n  }\n}"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(method_snippet_change));
+    std::string method_snippet_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":10,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":4,"character":10}
+        }
+    })";
+    json method_snippet_completion = json::parse(server.handle_message(method_snippet_completion_req));
+    bool has_axis_signature = false;
+    for (const auto& item : method_snippet_completion["result"]) {
+        has_axis_signature |= item["label"] == "axis" &&
+            item.value("detail", "").find("name: String") != std::string::npos &&
+            item.value("insertText", "").find("${1:name}") != std::string::npos;
+    }
+    assert(has_axis_signature);
+
+    std::string imported_source_open = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didOpen",
+        "params":{
+            "textDocument":{
+                "uri":"file:///workspace/My%20Game/Source/Shared.e2s",
+                "version":1,
+                "text":"export class SharedConfig {}"
+            }
+        }
+    })";
+    static_cast<void>(server.handle_message(imported_source_open));
+    std::string imported_symbol_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":9},
+            "contentChanges":[{"text":"import { SharedConfig as Config } from \"./Shared\";\n@behaviour\nexport class Player extends Behaviour {\n  override update(deltaTime: Float): Void {\n    Conf\n  }\n}"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(imported_symbol_change));
+    std::string imported_symbol_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":11,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":4,"character":8}
+        }
+    })";
+    json imported_symbol_completion = json::parse(server.handle_message(imported_symbol_completion_req));
+    bool has_import_alias = false;
+    bool leaked_original_import_name = false;
+    for (const auto& item : imported_symbol_completion["result"]) {
+        has_import_alias |= item["label"] == "Config" && item.value("detail", "").find("SharedConfig as Config") != std::string::npos;
+        leaked_original_import_name |= item["label"] == "SharedConfig" && item.value("sortText", "").starts_with("0_");
+    }
+    assert(has_import_alias && !leaked_original_import_name);
+
+
     // A one-character typo before a member access offers a replacement for the typed field.
     std::string typo_change_req = R"({
         "jsonrpc":"2.0",
         "method":"textDocument/didChange",
         "params":{
             "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":4},
-            "contentChanges":[{"text":"export class Player { sprite: SpriteRenderer2D; update(): Void { srite. } }"}]
+            "contentChanges":[{"text":"export class Player { sprite: SpriteRenderer2D; update(): Void { spri. } }"}]
         }
     })";
     static_cast<void>(server.handle_message(typo_change_req));
@@ -185,7 +383,7 @@ int main() {
         "method":"textDocument/completion",
         "params":{
             "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
-            "position":{"line":0,"character":71}
+            "position":{"line":0,"character":70}
         }
     })";
     json typo_completion = json::parse(server.handle_message(typo_completion_req));

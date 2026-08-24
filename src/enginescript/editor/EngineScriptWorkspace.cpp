@@ -5,6 +5,7 @@
 #include "../module/GameModule.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <functional>
 
 namespace EngineScript {
 
@@ -19,6 +20,7 @@ void EngineScriptWorkspace::set_project_root(std::string project_root) {
     m_cache = CompilerCache(m_source_manager.project_root() + "/Library/EngineScript/Cache");
     m_dep_graph.clear();
     m_inferred_types.clear();
+    m_document_symbols.clear();
     m_last_workspace_hash.clear();
     m_last_result.reset();
 }
@@ -41,6 +43,10 @@ void EngineScriptWorkspace::remove_source_file(const std::string& relative_path)
         m_registered_files.end()
     );
     m_cache.invalidate(relative_path);
+    const FileId file_id = m_source_manager.find_file_id(relative_path);
+    std::erase_if(m_document_symbols, [file_id](const WorkspaceDocumentSymbol& symbol) {
+        return symbol.file_id == file_id;
+    });
 }
 
 CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
@@ -94,6 +100,91 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         if (mod_node) {
             ast_modules.push_back(mod_node);
 
+            std::erase_if(m_document_symbols, [file_id](const WorkspaceDocumentSymbol& symbol) {
+                return symbol.file_id == file_id;
+            });
+            const auto add_symbol = [this, file_id](const std::string& name, const TypeAnnotation& type,
+                                                     const SourceSpan& declaration, const SourceSpan& scope,
+                                                     WorkspaceDocumentSymbolKind kind) {
+                m_document_symbols.push_back({file_id, name, type.to_string(), declaration, scope, kind});
+            };
+            std::function<void(const std::shared_ptr<Statement>&, const SourceSpan&)> index_statement;
+            index_statement = [&](const std::shared_ptr<Statement>& statement, const SourceSpan& scope) {
+                if (!statement) return;
+                if (const auto variable = std::dynamic_pointer_cast<VarDeclStmt>(statement)) {
+                    if (variable->type_annotation) {
+                        add_symbol(variable->name, *variable->type_annotation, variable->span, scope,
+                                   WorkspaceDocumentSymbolKind::Variable);
+                    }
+                    return;
+                }
+                if (const auto block = std::dynamic_pointer_cast<BlockStmt>(statement)) {
+                    for (const auto& child : block->statements) index_statement(child, block->span);
+                    return;
+                }
+                if (const auto conditional = std::dynamic_pointer_cast<IfStmt>(statement)) {
+                    index_statement(conditional->then_branch, scope);
+                    index_statement(conditional->else_branch, scope);
+                    return;
+                }
+                if (const auto loop = std::dynamic_pointer_cast<WhileStmt>(statement)) {
+                    index_statement(loop->body, scope);
+                    return;
+                }
+                if (const auto loop = std::dynamic_pointer_cast<ForStmt>(statement)) {
+                    index_statement(loop->initializer, scope);
+                    index_statement(loop->body, scope);
+                }
+            };
+            for (const auto& declaration : mod_node->declarations) {
+                if (const auto import_decl = std::dynamic_pointer_cast<ImportDecl>(declaration)) {
+                    for (const ImportDecl::ImportItem& item : import_decl->items) {
+                        const std::string& local_name = item.alias ? *item.alias : item.name;
+                        m_document_symbols.push_back({
+                            file_id, local_name, item.name, item.span, mod_node->span,
+                            WorkspaceDocumentSymbolKind::Import
+                        });
+                    }
+                    if (import_decl->is_wildcard && !import_decl->wildcard_alias.empty()) {
+                        m_document_symbols.push_back({
+                            file_id, import_decl->wildcard_alias, import_decl->module_path,
+                            import_decl->span, mod_node->span, WorkspaceDocumentSymbolKind::Import
+                        });
+                    }
+                    continue;
+                }
+                const auto class_decl = std::dynamic_pointer_cast<ClassDecl>(declaration);
+                if (!class_decl) continue;
+                for (const auto& property : class_decl->properties) {
+                    if (property && property->type_annotation) {
+                        add_symbol(property->name, *property->type_annotation, property->span, class_decl->span,
+                                   WorkspaceDocumentSymbolKind::Field);
+                    }
+                }
+                if (class_decl->constructor_decl) {
+                    for (const auto& parameter : class_decl->constructor_decl->params) {
+                        if (!parameter) continue;
+                        const SourceSpan& scope = parameter->access == AccessModifier::None
+                            ? class_decl->constructor_decl->span : class_decl->span;
+                        add_symbol(parameter->name, parameter->type_annotation, parameter->span, scope,
+                                   parameter->access == AccessModifier::None
+                                       ? WorkspaceDocumentSymbolKind::Parameter
+                                       : WorkspaceDocumentSymbolKind::Field);
+                    }
+                    index_statement(class_decl->constructor_decl->body, class_decl->constructor_decl->span);
+                }
+                for (const auto& method : class_decl->methods) {
+                    if (!method) continue;
+                    for (const auto& parameter : method->params) {
+                        if (parameter) {
+                            add_symbol(parameter->name, parameter->type_annotation, parameter->span, method->span,
+                                       WorkspaceDocumentSymbolKind::Parameter);
+                        }
+                    }
+                    index_statement(method->body, method->span);
+                }
+            }
+
             // Record dependency edges
             for (const auto& decl : mod_node->declarations) {
                 if (auto imp = dynamic_cast<const ImportDecl*>(decl.get())) {
@@ -106,13 +197,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         }
     }
 
-    if (m_diagnostics.has_errors()) {
-        result.success = false;
-        result.error_count = m_diagnostics.error_count();
-        result.warning_count = m_diagnostics.warning_count();
-        result.diagnostics = m_diagnostics.get_diagnostics();
-        return finish(std::move(result));
-    }
+    const bool has_parse_errors = m_diagnostics.has_errors();
 
     // 2. Check for dependency cycles
     std::vector<std::string> cycle;
@@ -130,22 +215,106 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     }
 
     // 3. Symbol Resolution
-    SymbolResolver resolver(m_source_manager, m_diagnostics);
+    // Parsing errors in one open document must not disable semantic completion
+    // everywhere else. Resolve and type-check the recovered AST with an
+    // isolated diagnostic sink so speculative cascades are not published.
+    DiagnosticEngine speculative_diagnostics;
+    DiagnosticEngine& semantic_diagnostics = has_parse_errors ? speculative_diagnostics : m_diagnostics;
+    SymbolResolver resolver(m_source_manager, semantic_diagnostics);
     resolver.resolve_all(ast_modules);
 
-    if (m_diagnostics.has_errors()) {
+    if (!has_parse_errors && semantic_diagnostics.has_errors()) {
+        result.success = false;
+        result.error_count = semantic_diagnostics.error_count();
+        result.warning_count = semantic_diagnostics.warning_count();
+        result.diagnostics = semantic_diagnostics.get_diagnostics();
+        return finish(std::move(result));
+    }
+
+    // 4. Type Checking
+    TypeChecker checker(resolver, semantic_diagnostics);
+    checker.check_all(ast_modules);
+    for (const InferredTypeInfo& inferred : checker.inferred_types()) {
+        m_inferred_types.push_back({inferred.span, inferred.type_name});
+    }
+
+    // Complete the syntactic symbol index with types inferred by the checker.
+    // Explicitly typed symbols are indexed before semantic analysis so that
+    // completion still works while the user is editing invalid code; inferred
+    // symbols are added here whenever the current document can be checked.
+    for (const auto& module : ast_modules) {
+        if (!module) continue;
+        const FileId file_id = module->file_id;
+        const auto add_inferred_symbol = [this, &checker, file_id](
+                                             const std::string& name,
+                                             const ASTNode* node,
+                                             const SourceSpan& declaration,
+                                             const SourceSpan& scope,
+                                             WorkspaceDocumentSymbolKind kind) {
+            const std::shared_ptr<Type> type = checker.get_type_of_node(node);
+            if (!type || type->is_error()) return;
+            m_document_symbols.push_back({file_id, name, type->to_string(), declaration, scope, kind});
+        };
+        std::function<void(const std::shared_ptr<Statement>&, const SourceSpan&)> index_inferred_statement;
+        index_inferred_statement = [&](const std::shared_ptr<Statement>& statement, const SourceSpan& scope) {
+            if (!statement) return;
+            if (const auto variable = std::dynamic_pointer_cast<VarDeclStmt>(statement)) {
+                if (!variable->type_annotation) {
+                    add_inferred_symbol(variable->name,
+                                        variable->initializer
+                                            ? static_cast<const ASTNode*>(variable->initializer.get())
+                                            : static_cast<const ASTNode*>(variable.get()),
+                                        variable->span, scope,
+                                        WorkspaceDocumentSymbolKind::Variable);
+                }
+                return;
+            }
+            if (const auto block = std::dynamic_pointer_cast<BlockStmt>(statement)) {
+                for (const auto& child : block->statements) index_inferred_statement(child, block->span);
+                return;
+            }
+            if (const auto conditional = std::dynamic_pointer_cast<IfStmt>(statement)) {
+                index_inferred_statement(conditional->then_branch, scope);
+                index_inferred_statement(conditional->else_branch, scope);
+                return;
+            }
+            if (const auto loop = std::dynamic_pointer_cast<WhileStmt>(statement)) {
+                index_inferred_statement(loop->body, scope);
+                return;
+            }
+            if (const auto loop = std::dynamic_pointer_cast<ForStmt>(statement)) {
+                index_inferred_statement(loop->initializer, scope);
+                index_inferred_statement(loop->body, scope);
+            }
+        };
+        for (const auto& declaration : module->declarations) {
+            const auto class_decl = std::dynamic_pointer_cast<ClassDecl>(declaration);
+            if (!class_decl) continue;
+            for (const auto& property : class_decl->properties) {
+                if (property && !property->type_annotation) {
+                    add_inferred_symbol(property->name,
+                                        property->initializer
+                                            ? static_cast<const ASTNode*>(property->initializer.get())
+                                            : static_cast<const ASTNode*>(property.get()),
+                                        property->span, class_decl->span,
+                                        WorkspaceDocumentSymbolKind::Field);
+                }
+            }
+            if (class_decl->constructor_decl) {
+                index_inferred_statement(class_decl->constructor_decl->body, class_decl->constructor_decl->span);
+            }
+            for (const auto& method : class_decl->methods) {
+                if (method) index_inferred_statement(method->body, method->span);
+            }
+        }
+    }
+
+    if (has_parse_errors) {
         result.success = false;
         result.error_count = m_diagnostics.error_count();
         result.warning_count = m_diagnostics.warning_count();
         result.diagnostics = m_diagnostics.get_diagnostics();
         return finish(std::move(result));
-    }
-
-    // 4. Type Checking
-    TypeChecker checker(resolver, m_diagnostics);
-    checker.check_all(ast_modules);
-    for (const InferredTypeInfo& inferred : checker.inferred_types()) {
-        m_inferred_types.push_back({inferred.span, inferred.type_name});
     }
 
     if (m_diagnostics.has_errors()) {
@@ -232,6 +401,50 @@ std::optional<std::string> EngineScriptWorkspace::inferred_type_at(FileId file_i
     }
     if (!best_match) return std::nullopt;
     return best_match->type_name;
+}
+
+std::optional<std::string> EngineScriptWorkspace::symbol_type_at(
+    FileId file_id,
+    std::string_view name,
+    uint32_t byte_offset
+) const {
+    const WorkspaceDocumentSymbol* best_match = nullptr;
+    for (const WorkspaceDocumentSymbol& symbol : m_document_symbols) {
+        if (symbol.file_id != file_id || symbol.name != name ||
+            byte_offset < symbol.scope_span.start_offset || byte_offset > symbol.scope_span.end_offset ||
+            byte_offset < symbol.declaration_span.start_offset) {
+            continue;
+        }
+        if (!best_match || symbol.scope_span.length() < best_match->scope_span.length()) best_match = &symbol;
+    }
+    if (!best_match) return std::nullopt;
+    return best_match->type_name;
+}
+
+std::vector<WorkspaceDocumentSymbol> EngineScriptWorkspace::symbols_in_scope(
+    FileId file_id,
+    uint32_t byte_offset
+) const {
+    std::unordered_map<std::string, WorkspaceDocumentSymbol> visible;
+    for (const WorkspaceDocumentSymbol& symbol : m_document_symbols) {
+        if (symbol.file_id != file_id || byte_offset < symbol.scope_span.start_offset ||
+            byte_offset > symbol.scope_span.end_offset || byte_offset < symbol.declaration_span.start_offset) {
+            continue;
+        }
+        const auto existing = visible.find(symbol.name);
+        if (existing == visible.end() || symbol.scope_span.length() < existing->second.scope_span.length() ||
+            (symbol.scope_span.length() == existing->second.scope_span.length() &&
+             symbol.declaration_span.start_offset > existing->second.declaration_span.start_offset)) {
+            visible[symbol.name] = symbol;
+        }
+    }
+    std::vector<WorkspaceDocumentSymbol> result;
+    result.reserve(visible.size());
+    for (auto& [name, symbol] : visible) result.push_back(std::move(symbol));
+    std::sort(result.begin(), result.end(), [](const WorkspaceDocumentSymbol& lhs, const WorkspaceDocumentSymbol& rhs) {
+        return lhs.name < rhs.name;
+    });
+    return result;
 }
 
 std::string EngineScriptWorkspace::serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const {

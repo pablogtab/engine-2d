@@ -30,6 +30,22 @@ struct WorkspaceInferredType {
     std::string type_name;
 };
 
+enum class WorkspaceDocumentSymbolKind {
+    Variable,
+    Parameter,
+    Field,
+    Import
+};
+
+struct WorkspaceDocumentSymbol {
+    FileId file_id{INVALID_FILE_ID};
+    std::string name;
+    std::string type_name;
+    SourceSpan declaration_span;
+    SourceSpan scope_span;
+    WorkspaceDocumentSymbolKind kind{WorkspaceDocumentSymbolKind::Variable};
+};
+
 class EngineScriptWorkspace {
 public:
     explicit EngineScriptWorkspace(std::string project_root);
@@ -51,6 +67,8 @@ public:
     const std::vector<IRModule>& ir_modules() const { return m_ir_modules; }
     const std::vector<std::string>& registered_files() const { return m_registered_files; }
     std::optional<std::string> inferred_type_at(FileId file_id, uint32_t byte_offset) const;
+    std::optional<std::string> symbol_type_at(FileId file_id, std::string_view name, uint32_t byte_offset) const;
+    std::vector<WorkspaceDocumentSymbol> symbols_in_scope(FileId file_id, uint32_t byte_offset) const;
 
     // Serialization helper for scene files
     std::string serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const;
@@ -64,6 +82,7 @@ private:
     ProjectMetadataManifest m_manifest;
     std::vector<IRModule> m_ir_modules;
     std::vector<WorkspaceInferredType> m_inferred_types;
+    std::vector<WorkspaceDocumentSymbol> m_document_symbols;
     std::vector<std::string> m_registered_files;
     std::string m_last_workspace_hash;
     std::optional<CompilationResult> m_last_result;

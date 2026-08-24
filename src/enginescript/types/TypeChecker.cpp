@@ -481,6 +481,16 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         }
         auto target_t = check_expression(assign->target, scope);
         auto val_t = check_expression(assign->value, scope);
+        if (auto member = dynamic_cast<MemberAccessExpr*>(assign->target.get())) {
+            const auto owner_t = get_type_of_node(member->object.get());
+            std::string owner_name = owner_t ? owner_t->name : "";
+            if (owner_t && owner_t->kind == TypeKind::String) owner_name = "String";
+            if (owner_t && owner_t->kind == TypeKind::Entity) owner_name = "Entity";
+            if (const ApiPropertyDescriptor* property = ApiCatalog::instance().find_available_property(owner_name, member->member_name);
+                property && !property->writable) {
+                m_diagnostics.report_error("E3044", std::format("{}.{} is read-only", owner_name, member->member_name), member->span);
+            }
+        }
         if (!val_t->is_assignable_to(target_t)) {
             m_diagnostics.report_error("E3020", std::format("Cannot assign type '{}' to target of type '{}'", val_t->to_string(), target_t->to_string()), assign->value->span);
         }
@@ -515,15 +525,19 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     m_node_types[call] = task_type;
                     return task_type;
                 }
+                std::string catalog_owner = target_t->name;
+                if (target_t->kind == TypeKind::String) catalog_owner = "String";
+                if (target_t->kind == TypeKind::Entity) catalog_owner = "Entity";
+                if (target_t->kind == TypeKind::Array) catalog_owner = "Array";
                 if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(
-                        target_t->name, mem->member_name)) {
+                        catalog_owner, mem->member_name)) {
                     if (call->arguments.size() < method->min_arguments ||
                         call->arguments.size() > method->max_arguments) {
                         m_diagnostics.report_error(
                             "E3035",
                             std::format(
                                 "{}.{} expects {} to {} arguments, got {}",
-                                target_t->name,
+                                catalog_owner,
                                 mem->member_name,
                                 method->min_arguments,
                                 method->max_arguments,
@@ -532,9 +546,23 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                             call->span
                         );
                     }
+                    for (std::size_t index = 0; index < call->arguments.size() && index < method->parameters.size(); ++index) {
+                        TypeAnnotation parameter_annotation{method->parameters[index].type};
+                        const auto parameter_type = resolve_type_annotation(parameter_annotation, scope.get());
+                        const auto argument_type = get_type_of_node(call->arguments[index].get());
+                        if (argument_type && !argument_type->is_assignable_to(parameter_type)) {
+                            m_diagnostics.report_error(
+                                "E3045",
+                                std::format("{}.{} argument '{}' expects '{}', got '{}'", catalog_owner, mem->member_name,
+                                    method->parameters[index].name, parameter_type->to_string(), argument_type->to_string()),
+                                call->arguments[index]->span
+                            );
+                        }
+                    }
                     TypeAnnotation return_annotation;
                     return_annotation.name = method->return_type;
                     auto return_type = resolve_type_annotation(return_annotation, scope.get());
+                    return_type->is_nullable = method->nullable_return;
                     m_node_types[call] = return_type;
                     return return_type;
                 }
@@ -572,13 +600,12 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 };
 
                 if (mem->member_name == "includes" || mem->member_name == "contains" ||
-                    mem->member_name == "startsWith" || mem->member_name == "starts_with" ||
-                    mem->member_name == "endsWith" || mem->member_name == "ends_with") {
+                    mem->member_name == "startsWith" || mem->member_name == "endsWith") {
                     static_cast<void>(validate_string_argument());
                     m_node_types[call] = m_type_bool;
                     return m_type_bool;
                 }
-                if (mem->member_name == "indexOf" || mem->member_name == "index_of") {
+                if (mem->member_name == "indexOf") {
                     static_cast<void>(validate_string_argument());
                     m_node_types[call] = m_type_int;
                     return m_type_int;
@@ -588,8 +615,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     m_node_types[call] = m_type_int;
                     return m_type_int;
                 }
-                if (mem->member_name == "toLowerCase" || mem->member_name == "to_lower" ||
-                    mem->member_name == "toUpperCase" || mem->member_name == "to_upper") {
+                if (mem->member_name == "toLowerCase" || mem->member_name == "toUpperCase") {
                     static_cast<void>(validate_argument_count(0));
                     m_node_types[call] = m_type_string;
                     return m_type_string;
@@ -608,36 +634,6 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 return m_type_void;
             }
 
-            if (mem->member_name == "axis") {
-                m_node_types[call] = m_type_float;
-                return m_type_float;
-            }
-            if (mem->member_name == "pressed" || mem->member_name == "released" || mem->member_name == "down") {
-                m_node_types[call] = m_type_bool;
-                return m_type_bool;
-            }
-            if (mem->member_name == "play" || mem->member_name == "stop") {
-                m_node_types[call] = m_type_void;
-                return m_type_void;
-            }
-            if (mem->member_name == "play_sound" || mem->member_name == "play_music" || mem->member_name == "load_scene") {
-                m_node_types[call] = m_type_bool;
-                return m_type_bool;
-            }
-            if (mem->member_name == "stop_music" || mem->member_name == "set_master_volume") {
-                m_node_types[call] = m_type_void;
-                return m_type_void;
-            }
-            if (mem->member_name == "current_scene" || mem->member_name == "current_scene_name") {
-                m_node_types[call] = m_type_string;
-                return m_type_string;
-            }
-            if (mem->member_name == "raycast") {
-                auto hit_t = Type::make_generic(TypeKind::Class, "RaycastHit", {});
-                hit_t->is_nullable = true;
-                m_node_types[call] = hit_t;
-                return hit_t;
-            }
             if (mem->member_name == "push" || mem->member_name == "insert" || mem->member_name == "remove") {
                 m_node_types[call] = m_type_void;
                 return m_type_void;
@@ -679,6 +675,21 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                         m_node_types[call] = target_t->type_args[type_index];
                         return target_t->type_args[type_index];
                     }
+                }
+            }
+            if (target_t) {
+                std::string catalog_owner = target_t->name;
+                if (target_t->kind == TypeKind::String) catalog_owner = "String";
+                if (target_t->kind == TypeKind::Entity) catalog_owner = "Entity";
+                if (target_t->kind == TypeKind::Array) catalog_owner = "Array";
+                if (ApiCatalog::instance().has_available_type(catalog_owner)) {
+                    m_diagnostics.report_error(
+                        "E3047",
+                        std::format("{} has no EngineScript method '{}'; use the documented SDK name", catalog_owner, mem->member_name),
+                        mem->span
+                    );
+                    m_node_types[call] = m_type_error;
+                    return m_type_error;
                 }
             }
         }
@@ -723,6 +734,21 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
     if (auto mem = dynamic_cast<MemberAccessExpr*>(expr.get())) {
         auto obj_t = check_expression(mem->object, scope);
+
+        std::string catalog_owner = obj_t->name;
+        if (obj_t->kind == TypeKind::String) catalog_owner = "String";
+        if (obj_t->kind == TypeKind::Entity) catalog_owner = "Entity";
+        if (obj_t->kind == TypeKind::Array) catalog_owner = "Array";
+        if (const ApiPropertyDescriptor* property = ApiCatalog::instance().find_available_property(catalog_owner, mem->member_name)) {
+            if (!property->readable) {
+                m_diagnostics.report_error("E3046", std::format("{}.{} is write-only", catalog_owner, mem->member_name), mem->span);
+            }
+            TypeAnnotation annotation{property->type};
+            auto property_type = resolve_type_annotation(annotation, scope.get());
+            property_type->is_nullable = property->nullable;
+            m_node_types[mem] = property_type;
+            return property_type;
+        }
 
         // Vector fields
         if (obj_t->kind == TypeKind::Vec2 || obj_t->kind == TypeKind::Vec3 || obj_t->kind == TypeKind::Vec4) {

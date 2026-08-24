@@ -53,14 +53,16 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 18;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v18";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 19;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v19";
 
 class Input {
 public:
     virtual ~Input() = default;
     [[nodiscard]] virtual float axis(const std::string& name) const = 0;
+    [[nodiscard]] virtual bool down(const std::string& action) const = 0;
     [[nodiscard]] virtual bool pressed(const std::string& action) const = 0;
+    [[nodiscard]] virtual bool released(const std::string& action) const = 0;
 };
 
 class Log {
@@ -158,6 +160,11 @@ class Entities {
 public:
     virtual ~Entities() = default;
     virtual Entity create(const std::string& name) = 0;
+    virtual bool destroy(const Entity& entity) = 0;
+    virtual bool setTag(const Entity& entity, const std::string& tag) = 0;
+    [[nodiscard]] virtual Entity parent(const Entity& entity) const = 0;
+    virtual bool setParent(const Entity& child, const Entity& parent) = 0;
+    virtual bool clearParent(const Entity& child) = 0;
     [[nodiscard]] virtual Entity findByName(const std::string& name) const = 0;
     [[nodiscard]] virtual Entity findByTag(const std::string& tag) const = 0;
     [[nodiscard]] virtual bool exists(const Entity& entity) const = 0;
@@ -211,6 +218,27 @@ public:
     virtual ~Events() = default;
     virtual bool emit(const std::string& name, const std::string& payload = {}) = 0;
     virtual bool subscribe(const std::string& name) = 0;
+};
+
+class PlayerPrefs {
+public:
+    virtual ~PlayerPrefs() = default;
+    [[nodiscard]] virtual bool has(const std::string& key) const = 0;
+    [[nodiscard]] virtual int getInt(const std::string& key, int fallback = 0) const = 0;
+    [[nodiscard]] virtual float getFloat(const std::string& key, float fallback = 0.0f) const = 0;
+    [[nodiscard]] virtual bool getBool(const std::string& key, bool fallback = false) const = 0;
+    [[nodiscard]] virtual std::string getString(const std::string& key, const std::string& fallback = {}) const = 0;
+    [[nodiscard]] virtual glm::vec2 getVec2(const std::string& key, const glm::vec2& fallback = {}) const = 0;
+    [[nodiscard]] virtual glm::vec3 getVec3(const std::string& key, const glm::vec3& fallback = {}) const = 0;
+    virtual void setInt(const std::string& key, int value) = 0;
+    virtual void setFloat(const std::string& key, float value) = 0;
+    virtual void setBool(const std::string& key, bool value) = 0;
+    virtual void setString(const std::string& key, const std::string& value) = 0;
+    virtual void setVec2(const std::string& key, const glm::vec2& value) = 0;
+    virtual void setVec3(const std::string& key, const glm::vec3& value) = 0;
+    virtual void remove(const std::string& key) = 0;
+    virtual void clear() = 0;
+    [[nodiscard]] virtual bool save() = 0;
 };
 
 struct Asset {

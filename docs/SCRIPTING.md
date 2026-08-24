@@ -84,9 +84,10 @@ connected execution surface includes:
 - local declarations, assignments, arithmetic, comparisons, boolean operators,
   and `if`/`else`;
 - live exposed-property reads and writes;
-- named Input axes/actions;
-- required `RigidBody2D` velocity and grounded access;
-- optional `Animator2D.play`.
+- named, remappable Input axes/actions: `axis`, `down`, `pressed`, and `released`;
+- required `RigidBody2D` velocity and grounded access, plus typed Transform,
+  SpriteRenderer, Time, Display, physics hit, asset, particle, and joint properties;
+- optional `Animator2D.play` and runtime entity hierarchy operations through `Entities`.
 
 `@inject` can also request the following gameplay services:
 
@@ -110,6 +111,12 @@ These services use the same calls in editor Play Mode and generated native
 modules. Audio and scene requests are routed through the host runtime, so a
 headless host may deliberately leave a service unavailable.
 
+`@inject private prefs: PlayerPrefs` exposes typed preferences only: Bool,
+numbers, String, Vec2, and Vec3 values can be read with fallbacks, written,
+removed, cleared, and saved. It never exposes project paths or arbitrary file
+access. Use the canonical camelCase SDK names; unsupported legacy aliases are
+compiler errors rather than calls that can fail later during native compilation.
+
 The C++ backend emits native `NativeBehaviour` subclasses and factories. Play
 Mode compiles every valid script project to a versioned dynamic module, validates
 its ABI, and creates native behaviour instances with ordered host bindings.
@@ -122,6 +129,11 @@ the gameplay SDK surface. The compiler resolves its builtin types and functions
 from this catalog, and its ABI version and SDK hash are checked against the
 native `GameModule` contract. Entries marked `planned` are intentionally not
 visible to authored scripts yet.
+
+Each method declares typed parameters, defaults, return nullability, and
+availability. Each property declares read/write access and nullability. The
+compiler and LSP consume those descriptors, and tests verify that runtime
+services and component descriptors remain represented by the catalog.
 
 Exposed properties use a typed bridge shared by the runtime and generated
 behaviours: `Bool`, numbers, `String`, `Vec2`, and `Entity` are pushed from the

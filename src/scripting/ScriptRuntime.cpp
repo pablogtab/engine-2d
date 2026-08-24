@@ -4,6 +4,7 @@
 #include "../core/FileSystem.hpp"
 #include "../core/Input.hpp"
 #include "../core/Log.hpp"
+#include "../core/PlayerPrefs.hpp"
 #include "../core/Time.hpp"
 #include "../ecs/EntityManager.hpp"
 #include "../ecs/components/AnimationComponents.hpp"
@@ -49,7 +50,7 @@ struct ScriptRuntimeBinding {
 class NativeBehaviourHost {
 public:
     explicit NativeBehaviourHost(ScriptRuntimeBinding& binding)
-        : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding), m_events(binding), m_assets(binding), m_ui(binding), m_tilemap(binding), m_display(binding), m_physics(binding), m_animator(binding) {}
+        : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding), m_events(binding), m_prefs(), m_assets(binding), m_ui(binding), m_tilemap(binding), m_display(binding), m_physics(binding), m_animator(binding) {}
 
     bool prepare(const EngineScript::BehaviourTypeRegistration& registration, std::string& error) {
         for (const auto& [type, kind] : registration.constructor_dependencies) {
@@ -58,6 +59,7 @@ public:
             else if (type == "Audio") m_arguments.push_back(&m_audio);
             else if (type == "Scene") m_arguments.push_back(&m_scene);
             else if (type == "Events") m_arguments.push_back(&m_events);
+            else if (type == "PlayerPrefs") m_arguments.push_back(&m_prefs);
             else if (type == "Assets") m_arguments.push_back(&m_assets);
             else if (type == "UI") m_arguments.push_back(&m_ui);
             else if (type == "Tilemap") m_arguments.push_back(&m_tilemap);
@@ -126,7 +128,9 @@ private:
     public:
         explicit Input(const ScriptRuntimeBinding&) {}
         float axis(const std::string& name) const override { return Engine::Input::get_axis(name); }
+        bool down(const std::string& action) const override { return Engine::Input::is_action_pressed(action); }
         bool pressed(const std::string& action) const override { return Engine::Input::is_action_just_pressed(action); }
+        bool released(const std::string& action) const override { return Engine::Input::is_action_just_released(action); }
     };
     class Log final : public EngineScript::Log {
     public:
@@ -174,6 +178,25 @@ private:
     private:
         const ScriptRuntimeBinding& m_binding;
         std::unordered_set<std::string> m_subscriptions;
+    };
+    class PlayerPrefs final : public EngineScript::PlayerPrefs {
+    public:
+        bool has(const std::string& key) const override { return Engine::PlayerPrefs::has_key(key); }
+        int getInt(const std::string& key, int fallback) const override { return Engine::PlayerPrefs::get_int(key, fallback); }
+        float getFloat(const std::string& key, float fallback) const override { return Engine::PlayerPrefs::get_float(key, fallback); }
+        bool getBool(const std::string& key, bool fallback) const override { return Engine::PlayerPrefs::get_bool(key, fallback); }
+        std::string getString(const std::string& key, const std::string& fallback) const override { return Engine::PlayerPrefs::get_string(key, fallback); }
+        glm::vec2 getVec2(const std::string& key, const glm::vec2& fallback) const override { return Engine::PlayerPrefs::get_vec2(key, fallback); }
+        glm::vec3 getVec3(const std::string& key, const glm::vec3& fallback) const override { return Engine::PlayerPrefs::get_vec3(key, fallback); }
+        void setInt(const std::string& key, int value) override { Engine::PlayerPrefs::set_int(key, value); }
+        void setFloat(const std::string& key, float value) override { Engine::PlayerPrefs::set_float(key, value); }
+        void setBool(const std::string& key, bool value) override { Engine::PlayerPrefs::set_bool(key, value); }
+        void setString(const std::string& key, const std::string& value) override { Engine::PlayerPrefs::set_string(key, value); }
+        void setVec2(const std::string& key, const glm::vec2& value) override { Engine::PlayerPrefs::set_vec2(key, value); }
+        void setVec3(const std::string& key, const glm::vec3& value) override { Engine::PlayerPrefs::set_vec3(key, value); }
+        void remove(const std::string& key) override { Engine::PlayerPrefs::delete_key(key); }
+        void clear() override { Engine::PlayerPrefs::delete_all(); }
+        bool save() override { return Engine::PlayerPrefs::save(); }
     };
     class Assets final : public EngineScript::Assets {
     public:
@@ -369,6 +392,28 @@ private:
             entities.add_component<TransformComponent>(id, TransformComponent{});
             return make_entity(id);
         }
+        bool destroy(const EngineScript::Entity& entity) override {
+            if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(entity.id)) return false;
+            m_binding.entity_manager->destroy_entity(entity.id);
+            return true;
+        }
+        bool setTag(const EngineScript::Entity& entity, const std::string& tag) override {
+            if (!alive_with<TagComponent>(entity.id)) return false;
+            m_binding.entity_manager->get_component<TagComponent>(entity.id).tag = tag;
+            return true;
+        }
+        EngineScript::Entity parent(const EngineScript::Entity& entity) const override {
+            if (!alive_with<HierarchyComponent>(entity.id)) return {};
+            return make_entity(m_binding.entity_manager->get_component<HierarchyComponent>(entity.id).parent);
+        }
+        bool setParent(const EngineScript::Entity& child, const EngineScript::Entity& parent) override {
+            if (!m_binding.entity_manager) return false;
+            return m_binding.entity_manager->set_parent(child.id, parent.id).changed();
+        }
+        bool clearParent(const EngineScript::Entity& child) override {
+            if (!m_binding.entity_manager) return false;
+            return m_binding.entity_manager->remove_parent(child.id).changed();
+        }
         EngineScript::Entity findByName(const std::string& name) const override { return find(name); }
         EngineScript::Entity findByTag(const std::string& tag) const override { return find(tag); }
         bool exists(const EngineScript::Entity& entity) const override {
@@ -515,6 +560,7 @@ private:
     Audio m_audio;
     Scene m_scene;
     Events m_events;
+    PlayerPrefs m_prefs;
     Assets m_assets;
     UI m_ui;
     Tilemap m_tilemap;

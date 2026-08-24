@@ -97,6 +97,64 @@ std::string base_type_name(std::string type_name) {
     return type_name;
 }
 
+std::string parameter_signature(const ApiParameterDescriptor& parameter) {
+    std::string signature = parameter.name + ": " + parameter.type;
+    if (!parameter.default_value.empty()) signature += " = " + parameter.default_value;
+    else if (parameter.optional) signature += "?";
+    return signature;
+}
+
+std::string callable_signature(
+    std::string_view name,
+    const std::vector<ApiParameterDescriptor>& parameters,
+    uint32_t min_arguments,
+    uint32_t max_arguments,
+    std::string_view return_type
+) {
+    std::string signature(name);
+    signature += '(';
+    if (!parameters.empty()) {
+        for (std::size_t index = 0; index < parameters.size(); ++index) {
+            if (index > 0) signature += ", ";
+            signature += parameter_signature(parameters[index]);
+        }
+    } else if (max_arguments > 0) {
+        for (uint32_t index = 0; index < max_arguments; ++index) {
+            if (index > 0) signature += ", ";
+            signature += "arg" + std::to_string(index + 1);
+            if (index >= min_arguments) signature += '?';
+        }
+    }
+    signature += ") -> ";
+    signature += return_type;
+    return signature;
+}
+
+std::string callable_snippet(
+    std::string_view name,
+    const std::vector<ApiParameterDescriptor>& parameters,
+    uint32_t max_arguments
+) {
+    std::string snippet(name);
+    snippet += '(';
+    if (!parameters.empty()) {
+        for (std::size_t index = 0; index < parameters.size(); ++index) {
+            if (index > 0) snippet += ", ";
+            snippet += "${" + std::to_string(index + 1) + ':' + parameters[index].name + '}';
+        }
+        snippet += ")$0";
+    } else if (max_arguments > 0) {
+        for (uint32_t index = 0; index < max_arguments; ++index) {
+            if (index > 0) snippet += ", ";
+            snippet += "${" + std::to_string(index + 1) + ":arg" + std::to_string(index + 1) + '}';
+        }
+        snippet += ")$0";
+    } else {
+        snippet += ")$0";
+    }
+    return snippet;
+}
+
 std::optional<std::string> infer_initializer_type(
     const SourceFile& file,
     const std::string& variable_name,
@@ -173,7 +231,10 @@ std::optional<std::pair<std::string, std::string>> find_nearby_typed_symbol(
         R"(\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:<[^;=(){}]+>)?\??))"
     );
     std::optional<std::pair<std::string, std::string>> closest;
-    uint32_t closest_distance = 2;
+    // A four-character prefix such as "spri" is a common incomplete spelling
+    // of a typed receiver such as "sprite". Keep corrections conservative,
+    // while allowing two edits for those short partially typed names.
+    uint32_t closest_distance = 3;
     std::istringstream lines(file.content);
     std::string source_line;
     while (std::getline(lines, source_line)) {
@@ -194,56 +255,53 @@ std::optional<std::string> infer_receiver_type(
     uint32_t line,
     std::string_view line_prefix
 ) {
-    static const std::regex receiver_pattern(R"(([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*$)");
+    static const std::regex receiver_pattern(
+        R"(([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*\.\s*$)"
+    );
     const std::string prefix(line_prefix);
     std::smatch receiver_match;
     if (!std::regex_search(prefix, receiver_match, receiver_pattern)) {
         return std::nullopt;
     }
 
-    const std::string receiver = receiver_match[1].str();
-    if (ApiCatalog::instance().has_available_type(receiver)) return receiver;
+    const std::string receiver_expression = receiver_match[1].str();
+    static const std::regex identifier_pattern(R"([A-Za-z_][A-Za-z0-9_]*)");
+    std::vector<std::string> receiver_chain;
+    for (std::sregex_iterator it(receiver_expression.begin(), receiver_expression.end(), identifier_pattern), end;
+         it != end; ++it) {
+        receiver_chain.push_back(it->str());
+    }
+    if (receiver_chain.empty()) return std::nullopt;
+    const std::string& receiver = receiver_chain.front();
 
     const SourceManager& source_manager = workspace.source_manager();
     const SourceFile* file = source_manager.get_file(source_path);
     if (!file) return std::nullopt;
+    uint32_t receiver_offset = 0;
+    std::optional<std::string> resolved_type;
     if (line < file->line_offsets.size()) {
-        const uint32_t receiver_offset = file->line_offsets[line] +
+        receiver_offset = file->line_offsets[line] +
             static_cast<uint32_t>(receiver_match.position(1));
-        if (const auto semantic_type = workspace.inferred_type_at(file->id, receiver_offset)) {
-            return base_type_name(*semantic_type);
+    }
+    if (ApiCatalog::instance().has_available_type(receiver)) resolved_type = receiver;
+    if (!resolved_type) {
+        if (const auto initializer_type = infer_initializer_type(*file, receiver, line)) {
+            resolved_type = base_type_name(*initializer_type);
         }
     }
-    if (const auto initializer_type = infer_initializer_type(*file, receiver, line)) {
-        return base_type_name(*initializer_type);
+    if (const auto symbol_type = workspace.symbol_type_at(file->id, receiver, receiver_offset)) {
+        resolved_type = base_type_name(*symbol_type);
     }
+    if (!resolved_type) return std::nullopt;
 
-    const std::regex typed_declaration_pattern(
-        R"(\b(?:let|const)?\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:<[^;=(){}]+>)?\??))"
-    );
-    const std::regex service_assignment_pattern(
-        R"(\b(?:let|const)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*))"
-    );
-
-    std::optional<std::string> inferred_type;
-    std::istringstream lines(file->content);
-    std::string source_line;
-    while (std::getline(lines, source_line)) {
-        const std::string searchable_line = source_line.size() > line_prefix.size() &&
-            source_line.starts_with(std::string(line_prefix)) ? std::string(line_prefix) : source_line;
-        std::smatch match;
-        if (std::regex_search(searchable_line, match, typed_declaration_pattern) && match[1].str() == receiver) {
-            inferred_type = base_type_name(match[2].str());
-        }
-        if (std::regex_search(searchable_line, match, service_assignment_pattern) && match[1].str() == receiver &&
-            ApiCatalog::instance().has_available_type(match[2].str())) {
-            inferred_type = match[2].str();
-        }
-        if (source_line.starts_with(std::string(line_prefix))) break;
+    for (std::size_t index = 1; index < receiver_chain.size(); ++index) {
+        const ApiPropertyDescriptor* property = ApiCatalog::instance().find_available_property(
+            *resolved_type, receiver_chain[index]
+        );
+        if (!property || !property->readable) return std::nullopt;
+        resolved_type = base_type_name(property->type);
     }
-    if (inferred_type) return inferred_type;
-    if (const auto direct_symbol = find_typed_symbol(*file, receiver)) return direct_symbol->second;
-    return std::nullopt;
+    return resolved_type;
 }
 }
 
@@ -494,7 +552,8 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
                 {"label", property.name},
                 {"kind", 10},
                 {"detail", property.owner_type + "." + property.name + ": " + property.type +
-                    (property.writable ? "" : " (read-only) ")}
+                    (property.writable ? "" : " (read-only)")},
+                {"sortText", "0_" + property.name}
             });
         }
         for (const ApiMethodDescriptor& method : ApiCatalog::instance().methods()) {
@@ -502,22 +561,27 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
             items.push_back({
                 {"label", method.name},
                 {"kind", 2},
-                {"detail", method.owner_type + "." + method.name + "(...) -> " + method.return_type},
+                {"detail", method.owner_type + "." + callable_signature(
+                    method.name, method.parameters, method.min_arguments, method.max_arguments, method.return_type)},
                 {"insertTextFormat", 2},
-                {"insertText", method.name + "($0)"}
+                {"insertText", callable_snippet(method.name, method.parameters, method.max_arguments)},
+                {"sortText", "1_" + method.name}
             });
         }
         resp["result"] = items;
         return resp.dump();
     }
 
-    static const std::regex receiver_pattern(R"(([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*$)");
+    static const std::regex receiver_pattern(
+        R"(([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*\.\s*$)"
+    );
     std::smatch receiver_match;
     const std::string source_path = source_path_for_uri(uri);
     const SourceFile* source_file = m_workspace.source_manager().get_file(source_path);
     if (source_file && std::regex_search(line_prefix, receiver_match, receiver_pattern)) {
         const std::string receiver = receiver_match[1].str();
-        if (const auto correction = find_nearby_typed_symbol(*source_file, receiver)) {
+        if (receiver.find('.') == std::string::npos) {
+          if (const auto correction = find_nearby_typed_symbol(*source_file, receiver)) {
             const uint32_t receiver_start = static_cast<uint32_t>(receiver_match.position(1));
             items.push_back({
                 {"label", correction->first},
@@ -532,6 +596,37 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
                     }}
                 }}
             });
+          }
+        }
+        // A member-access expression must never fall back to language keywords
+        // or global API entries. That list is misleading while its receiver is
+        // unresolved and hides the actual typing problem.
+        resp["result"] = items;
+        return resp.dump();
+    }
+
+    std::string identifier_prefix;
+    static const std::regex identifier_prefix_pattern(R"(([A-Za-z_][A-Za-z0-9_]*)$)");
+    std::smatch identifier_prefix_match;
+    if (std::regex_search(line_prefix, identifier_prefix_match, identifier_prefix_pattern)) {
+        identifier_prefix = identifier_prefix_match[1].str();
+    }
+    if (source_file && line < source_file->line_offsets.size()) {
+        const uint32_t cursor_offset = source_file->line_offsets[line] +
+            static_cast<uint32_t>(std::min<std::size_t>(character, line_content.size()));
+        for (const WorkspaceDocumentSymbol& symbol : m_workspace.symbols_in_scope(file_id, cursor_offset)) {
+            const bool is_import = symbol.kind == WorkspaceDocumentSymbolKind::Import;
+            const bool is_field = symbol.kind == WorkspaceDocumentSymbolKind::Field;
+            json item = {
+                {"label", symbol.name},
+                {"kind", is_import ? 18 : (is_field ? 5 : 6)},
+                {"detail", is_import
+                    ? "import " + symbol.type_name + (symbol.name == symbol.type_name ? "" : " as " + symbol.name)
+                    : symbol.name + ": " + symbol.type_name},
+                {"sortText", "0_" + symbol.name}
+            };
+            if (!identifier_prefix.empty() && symbol.name.starts_with(identifier_prefix)) item["preselect"] = true;
+            items.push_back(std::move(item));
         }
     }
 
@@ -543,7 +638,7 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
     };
     if (!completing_decorator) {
         for (const auto& k : kw) {
-            items.push_back({{"label", k}, {"kind", 14}}); // Keyword
+            items.push_back({{"label", k}, {"kind", 14}, {"sortText", "4_" + k}}); // Keyword
         }
 
         items.push_back({
@@ -551,16 +646,22 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
             {"kind", 15},
             {"detail", "Engine2D behaviour template"},
             {"insertTextFormat", 2},
-            {"insertText", "@behaviour\\nexport class ${1:Name} extends Behaviour {\\n    $0\\n}"}
+            {"insertText", "@behaviour\\nexport class ${1:Name} extends Behaviour {\\n    $0\\n}"},
+            {"sortText", "3_behaviour_class"}
         });
         for (const ApiFunctionDescriptor& function : ApiCatalog::instance().functions()) {
             if (function.availability != ApiAvailability::Available) continue;
             items.push_back({
                 {"label", function.name},
                 {"kind", 3},
-                {"detail", function.name + "(...) -> " + function.return_type},
+                {"detail", callable_signature(
+                    function.name, function.parameters,
+                    static_cast<uint32_t>(function.parameters.size()),
+                    static_cast<uint32_t>(function.parameters.size()), function.return_type)},
                 {"insertTextFormat", 2},
-                {"insertText", function.name + "($0)"}
+                {"insertText", callable_snippet(
+                    function.name, function.parameters, static_cast<uint32_t>(function.parameters.size()))},
+                {"sortText", "2_" + function.name}
             });
         }
         items.push_back({
@@ -568,14 +669,15 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
             {"kind", 15},
             {"detail", "EngineScript lifecycle method"},
             {"insertTextFormat", 2},
-            {"insertText", "override update(deltaTime: Float): Void {\\n    $0\\n}"}
+            {"insertText", "override update(deltaTime: Float): Void {\\n    $0\\n}"},
+            {"sortText", "3_update"}
         });
     }
 
     // Decorators
     std::vector<std::string> decs = {"behaviour", "expose", "inject", "component", "optional", "range", "serializable"};
     for (const auto& d : decs) {
-        json item = {{"label", "@" + d}, {"kind", 15}};
+        json item = {{"label", "@" + d}, {"kind", 15}, {"sortText", "1_" + d}};
         if (d == "expose") {
             item["insertTextFormat"] = 2;
             item["insertText"] = "@expose({ min: ${1:0}, max: ${2:100} })";
@@ -587,7 +689,12 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
     if (!completing_decorator) {
         for (const ApiTypeDescriptor& type : ApiCatalog::instance().types()) {
             if (type.availability != ApiAvailability::Available) continue;
-            items.push_back({{"label", type.name}, {"kind", 7}, {"detail", "EngineScript " + type.name}});
+            items.push_back({
+                {"label", type.name},
+                {"kind", 7},
+                {"detail", "EngineScript " + type.name},
+                {"sortText", "5_" + type.name}
+            });
         }
     }
 
@@ -732,6 +839,9 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
         const uint32_t byte_offset = file->line_offsets[line] +
             std::min(character, static_cast<uint32_t>(line_content.size()));
         auto inferred_type = m_workspace.inferred_type_at(file_id, byte_offset);
+        if (!inferred_type && !word.empty()) {
+            inferred_type = m_workspace.symbol_type_at(file_id, word, byte_offset);
+        }
         if (!inferred_type) {
             inferred_type = infer_initializer_type(*file, word, line);
         }

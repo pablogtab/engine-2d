@@ -13,12 +13,22 @@ enum class ApiAvailability {
 
 struct ApiTypeDescriptor {
     std::string name;
+    std::string documentation;
     ApiAvailability availability{ApiAvailability::Available};
+};
+
+struct ApiParameterDescriptor {
+    std::string name;
+    std::string type;
+    std::string default_value;
+    bool optional{false};
 };
 
 struct ApiFunctionDescriptor {
     std::string name;
     std::string return_type;
+    std::vector<ApiParameterDescriptor> parameters;
+    std::string documentation;
     ApiAvailability availability{ApiAvailability::Available};
 };
 
@@ -26,8 +36,11 @@ struct ApiMethodDescriptor {
     std::string owner_type;
     std::string name;
     std::string return_type;
+    std::vector<ApiParameterDescriptor> parameters;
     uint32_t min_arguments{0};
     uint32_t max_arguments{0};
+    bool nullable_return{false};
+    std::string documentation;
     ApiAvailability availability{ApiAvailability::Available};
 };
 
@@ -35,7 +48,10 @@ struct ApiPropertyDescriptor {
     std::string owner_type;
     std::string name;
     std::string type;
+    bool readable{true};
     bool writable{false};
+    bool nullable{false};
+    std::string documentation;
     ApiAvailability availability{ApiAvailability::Available};
 };
 
@@ -52,6 +68,10 @@ public:
     [[nodiscard]] bool has_available_type(std::string_view name) const;
     [[nodiscard]] bool has_available_function(std::string_view name) const;
     [[nodiscard]] const ApiMethodDescriptor* find_available_method(
+        std::string_view owner_type,
+        std::string_view name
+    ) const;
+    [[nodiscard]] const ApiPropertyDescriptor* find_available_property(
         std::string_view owner_type,
         std::string_view name
     ) const;
