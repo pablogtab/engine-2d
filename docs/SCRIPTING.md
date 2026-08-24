@@ -170,8 +170,10 @@ the entry without touching the destroyed coroutine frame. Authored async method
 calls returning `Task<T>` are retained by their owning behaviour, advanced at
 the frame boundary, and cancelled when that behaviour is destroyed or reloaded.
 The native SDK supplies `Result<T, String>` with `success`, `failure`, `isOk`,
-`isError`, `value`, and `error`; parser-level result construction remains part
-of the remaining language-expression work.
+`isError`, `value`, and `error`. Construct results with explicit types:
+`Result.success<Float, String>(value)` or
+`Result.failure<Float, String>(message)`. This keeps error and success types
+fully checked before native code generation.
 
 ## Compiler cache and generated content
 

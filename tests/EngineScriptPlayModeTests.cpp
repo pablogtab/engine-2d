@@ -386,6 +386,8 @@ export class ServiceUser extends Behaviour {
             events.emit("AssetReady", "script");
         }
         assets.request("Assets/scripts/ServiceUser.e2s");
+        let started: Result<Int, String> = Result.success<Int, String>(7);
+        let rejected: Result<Int, String> = Result.failure<Int, String>("not ready");
         loadHudTexture();
         let status: Entity = entities.findByName("Status");
         ui.setText(status, "Ready");

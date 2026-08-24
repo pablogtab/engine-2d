@@ -168,12 +168,12 @@ export struct DamageEvent {
 
 export function applyDamage(targetHp: Float, damage: Float): Result<Float, String> {
     if (damage < 0.0) {
-        return Result.err("Damage cannot be negative");
+        return Result.failure<Float, String>("Damage cannot be negative");
     }
     let newHp: Float = targetHp - damage;
     if (newHp < 0.0) {
         newHp = 0.0;
     }
-    return Result.ok(newHp);
+    return Result.success<Float, String>(newHp);
 }
 ```

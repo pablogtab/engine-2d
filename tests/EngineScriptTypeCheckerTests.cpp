@@ -133,6 +133,26 @@ int main() {
     assert(method_diags.has_errors());
     assert(method_diags.error_count() == 5);
 
+    // Test 5: Result constructors require an explicit matching <Value, Error> contract.
+    DiagnosticEngine result_diags;
+    std::string bad_results_code = R"(
+        function invalidResults(): Void {
+            let missing: Result<Int, String> = Result.success<Int>("wrong");
+            let badError: Result<Int, String> = Result.failure<Int, String>(3);
+        }
+    )";
+    FileId f5 = sm.register_source("Source/BadResults.e2s", bad_results_code);
+    Lexer l5(f5, bad_results_code, result_diags);
+    Parser p5(f5, "Source/BadResults.e2s", l5.tokenize_all(), result_diags);
+    auto m5 = p5.parse_module();
+    SymbolResolver res5(sm, result_diags);
+    res5.resolve_module(m5);
+    TypeChecker check5(res5, result_diags);
+    check5.check_module(m5);
+
+    assert(result_diags.has_errors());
+    assert(result_diags.error_count() == 3);
+
     std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;
 }

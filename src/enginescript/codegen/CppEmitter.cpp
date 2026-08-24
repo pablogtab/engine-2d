@@ -628,6 +628,17 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             }
         }
 
+        if (mc->target && mc->target->result_type && mc->target->result_type->name == "Result" &&
+            (mc->method_name == "success" || mc->method_name == "failure") &&
+            mc->result_type && mc->result_type->kind == TypeKind::Result) {
+            std::string s = type_to_cpp(mc->result_type.get()) + "::" + mc->method_name + "(";
+            for (size_t i = 0; i < mc->args.size(); ++i) {
+                s += emit_operation_cpp(mc->args[i].get());
+                if (i + 1 < mc->args.size()) s += ", ";
+            }
+            return s + ")";
+        }
+
         std::string s = emit_operation_cpp(mc->target.get()) + member_access_operator(mc->target.get()) + mc->method_name;
         if (!mc->type_arguments.empty()) {
             s += "<";

@@ -590,17 +590,27 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 m_node_types[call] = m_type_void;
                 return m_type_void;
             }
-            if (mem->member_name == "ok") {
-                // Result.ok(...)
-                std::shared_ptr<Type> arg_t = call->arguments.empty() ? m_type_void : get_type_of_node(call->arguments[0].get());
-                auto res_t = Type::make_generic(TypeKind::Result, "Result", {arg_t, m_type_string});
-                m_node_types[call] = res_t;
-                return res_t;
-            }
-            if (mem->member_name == "err") {
-                // Result.err(...)
-                std::shared_ptr<Type> err_t = call->arguments.empty() ? m_type_string : get_type_of_node(call->arguments[0].get());
-                auto res_t = Type::make_generic(TypeKind::Result, "Result", {m_type_void, err_t});
+            if (target_t && target_t->name == "Result" &&
+                (mem->member_name == "success" || mem->member_name == "failure")) {
+                if (call->type_arguments.size() != 2) {
+                    m_diagnostics.report_error("E3038", "Result.success and Result.failure require <Value, Error> type arguments", call->span);
+                }
+                const TypeAnnotation value_annotation = call->type_arguments.empty() ? TypeAnnotation{"Void"} : call->type_arguments[0];
+                const TypeAnnotation error_annotation = call->type_arguments.size() < 2 ? TypeAnnotation{"String"} : call->type_arguments[1];
+                auto value_t = resolve_type_annotation(value_annotation, scope.get());
+                auto error_t = resolve_type_annotation(error_annotation, scope.get());
+                const bool is_success = mem->member_name == "success";
+                const size_t expected_arguments = is_success && value_t->is_void() ? 0 : 1;
+                if (call->arguments.size() != expected_arguments) {
+                    m_diagnostics.report_error("E3039", std::format("Result.{} expects {} argument{}", mem->member_name, expected_arguments, expected_arguments == 1 ? "" : "s"), call->span);
+                } else if (expected_arguments == 1) {
+                    const auto argument_t = get_type_of_node(call->arguments.front().get());
+                    const auto expected_t = is_success ? value_t : error_t;
+                    if (!argument_t->is_assignable_to(expected_t)) {
+                        m_diagnostics.report_error("E3040", std::format("Result.{} argument type '{}' is not assignable to '{}'", mem->member_name, argument_t->to_string(), expected_t->to_string()), call->arguments.front()->span);
+                    }
+                }
+                auto res_t = Type::make_generic(TypeKind::Result, "Result", {value_t, error_t});
                 m_node_types[call] = res_t;
                 return res_t;
             }
