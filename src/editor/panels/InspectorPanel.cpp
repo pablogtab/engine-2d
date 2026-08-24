@@ -3,7 +3,6 @@
 #include "SpriteAnimationStudioPanel.hpp"
 #include "../stage/PrefabStageController.hpp"
 #include "../commands/EntityCommands.hpp"
-#include "../commands/PlayModeCommands.hpp"
 #include "../commands/PrefabCommands.hpp"
 #include "../commands/EditorEntityStateCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
@@ -109,8 +108,6 @@ void InspectorPanel::on_gui() {
             return;
         }
 
-        draw_play_mode_apply_back(*active_scene);
-
         const auto& selected_set = m_selection->get_selected();
         EntityManager& em = active_scene->get_entity_manager();
 
@@ -156,96 +153,6 @@ void InspectorPanel::on_gui() {
         ImGui::PopFont();
     }
     ImGui::End();
-}
-
-void InspectorPanel::draw_play_mode_apply_back(Scene& scene) {
-    if (!m_scene_manager || m_scene_manager->is_transient_scene_active() ||
-        !m_scene_manager->has_play_mode_changes()) return;
-
-    const std::size_t count = m_scene_manager->get_play_mode_changes().size();
-    bool review_requested = false;
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.14f, 0.08f, 0.95f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);
-    if (ImGui::BeginChild(
-            "##play_mode_apply_back",
-            ImVec2(0.0f, 58.0f),
-            ImGuiChildFlags_Borders,
-            ImGuiWindowFlags_NoScrollbar
-        )) {
-        ImGui::Text("%zu Play Mode %s captured", count, count == 1 ? "change" : "changes");
-        if (ImGui::Button("Review Apply-Back", ImVec2(145.0f, 22.0f))) {
-            review_requested = true;
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Discard", ImVec2(75.0f, 22.0f))) {
-            m_scene_manager->clear_play_mode_changes();
-        }
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
-    if (review_requested) ImGui::OpenPopup("Apply Play Mode Changes");
-
-    bool popup_open = true;
-    ImGui::SetNextWindowSize(ImVec2(620.0f, 480.0f), ImGuiCond_FirstUseEver);
-    if (ImGui::BeginPopupModal("Apply Play Mode Changes", &popup_open)) {
-        ImGui::TextWrapped(
-            "Select only the runtime properties that should become authored values. "
-            "Applying creates one Undo/Redo command."
-        );
-        if (ImGui::Button("Select All")) m_scene_manager->select_all_play_mode_changes(true);
-        ImGui::SameLine();
-        if (ImGui::Button("Clear Selection")) m_scene_manager->select_all_play_mode_changes(false);
-        ImGui::Separator();
-
-        if (ImGui::BeginChild("##play_mode_change_list", ImVec2(0.0f, -42.0f), ImGuiChildFlags_Borders)) {
-            for (const PlayModePropertyChange& change : m_scene_manager->get_play_mode_changes()) {
-                ImGui::PushID(static_cast<int>(change.id));
-                bool selected = change.selected;
-                const std::string label =
-                    "Entity #" + std::to_string(change.entity) + " / " +
-                    change.component + " / " + change.property;
-                if (ImGui::Checkbox(label.c_str(), &selected)) {
-                    m_scene_manager->select_play_mode_change(change.id, selected);
-                }
-                ImGui::Indent(24.0f);
-                ImGui::TextDisabled("%s -> %s", change.before_value.c_str(), change.after_value.c_str());
-                ImGui::Unindent(24.0f);
-                ImGui::Separator();
-                ImGui::PopID();
-            }
-        }
-        ImGui::EndChild();
-
-        const bool has_selected = std::any_of(
-            m_scene_manager->get_play_mode_changes().begin(),
-            m_scene_manager->get_play_mode_changes().end(),
-            [](const PlayModePropertyChange& change) { return change.selected; }
-        );
-        ImGui::BeginDisabled(!has_selected || !m_command_history);
-        if (ImGui::Button("Apply Selected", ImVec2(130.0f, 26.0f))) {
-            if (auto snapshot = m_scene_manager->build_play_mode_apply_snapshot(); snapshot) {
-                const bool applied = m_command_history->execute_command(
-                    std::make_unique<ApplyPlayModeChangesCommand>(
-                        &scene,
-                        m_renderer,
-                        std::move(*snapshot)
-                    )
-                );
-                if (applied) {
-                    m_scene_manager->clear_play_mode_changes();
-                    ImGui::CloseCurrentPopup();
-                }
-            }
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Discard All", ImVec2(100.0f, 26.0f))) {
-            m_scene_manager->clear_play_mode_changes();
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
 }
 
 void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<EntityID>& entities) {

@@ -6,7 +6,6 @@
 #include <memory>
 #include <string>
 #include <functional>
-#include <optional>
 #include <SDL3/SDL.h>
 
 namespace Engine {
@@ -19,24 +18,6 @@ enum class ScenePlayState {
     Edit,
     Play,
     Pause
-};
-
-struct PlayModePropertyChange {
-    std::size_t id{0};
-    EntityID entity{0};
-    std::string component;
-    std::string property;
-    std::string before_value;
-    std::string after_value;
-    bool selected{false};
-    std::string json_pointer;
-    bool existed_after{true};
-};
-
-struct PlayModeApplySnapshot {
-    std::string before_json;
-    std::string after_json;
-    std::size_t property_count{0};
 };
 
 class SceneManager {
@@ -74,15 +55,6 @@ public:
     [[nodiscard]] bool is_paused() const { return m_play_state == ScenePlayState::Pause; }
     [[nodiscard]] bool is_editing() const { return m_play_state == ScenePlayState::Edit; }
     [[nodiscard]] const ScriptRuntime& get_script_runtime() const { return m_script_runtime; }
-    [[nodiscard]] const std::vector<PlayModePropertyChange>& get_play_mode_changes() const {
-        return m_play_mode_changes;
-    }
-    [[nodiscard]] bool has_play_mode_changes() const { return !m_play_mode_changes.empty(); }
-    void select_play_mode_change(std::size_t id, bool selected);
-    void select_all_play_mode_changes(bool selected);
-    [[nodiscard]] std::optional<PlayModeApplySnapshot> build_play_mode_apply_snapshot();
-    void clear_play_mode_changes() { m_play_mode_changes.clear(); }
-
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
     void set_asset_database(const AssetDatabase* asset_database) { m_asset_database = asset_database; }
     void set_script_runtime_services(ScriptRuntimeServices services) { m_script_services = std::move(services); }
@@ -111,7 +83,6 @@ private:
     void start_scripts(Scene& scene);
     [[nodiscard]] bool request_runtime_scene_load(const std::string& path, std::string& error);
     void activate_pending_runtime_scene();
-    void collect_play_mode_changes(const std::string& runtime_json);
 
     std::vector<std::shared_ptr<Scene>> m_scenes;
     int m_active_index{-1};
@@ -129,7 +100,6 @@ private:
     RuntimeSceneLoader m_runtime_scene_loader;
     std::function<void()> m_on_authoring_state_invalidated;
     ScriptRuntime m_script_runtime;
-    std::vector<PlayModePropertyChange> m_play_mode_changes;
 };
 
 } // namespace Engine

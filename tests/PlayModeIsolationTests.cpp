@@ -1,7 +1,6 @@
 #include "core/AssetDatabase.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/commands/EntityCommands.hpp"
-#include "editor/commands/PlayModeCommands.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/ScriptingComponents.hpp"
@@ -9,13 +8,11 @@
 #include "scene/SceneManager.hpp"
 #include "scene/SceneSerializer.hpp"
 
-#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <optional>
 
 namespace {
 
@@ -125,28 +122,6 @@ export class SwitchScene extends Behaviour {
     assert(restored_body.mass == authored_body.mass);
     assert(restored_body.friction == authored_body.friction);
     assert(restored_body.active_forces.empty());
-    assert(manager.has_play_mode_changes());
-    const auto x_change = std::find_if(
-        manager.get_play_mode_changes().begin(),
-        manager.get_play_mode_changes().end(),
-        [entity](const PlayModePropertyChange& change) {
-            return change.entity == entity && change.component == "transform" &&
-                change.property == "position[0]";
-        }
-    );
-    assert(x_change != manager.get_play_mode_changes().end());
-    manager.select_play_mode_change(x_change->id, true);
-    const std::optional<PlayModeApplySnapshot> apply_snapshot =
-        manager.build_play_mode_apply_snapshot();
-    assert(apply_snapshot && apply_snapshot->property_count == 1);
-    SceneSerializer apply_serializer(scene.get());
-    assert(apply_serializer.deserialize_from_string(apply_snapshot->after_json));
-    const glm::vec3 applied = scene->get_entity_manager().get_component<TransformComponent>(entity).position;
-    assert(applied.x == 12.0f && applied.y == 3.0f);
-    assert(apply_serializer.deserialize_from_string(apply_snapshot->before_json));
-    const glm::vec3 undone = scene->get_entity_manager().get_component<TransformComponent>(entity).position;
-    assert(undone.x == 2.0f && undone.y == 3.0f);
-    manager.clear_play_mode_changes();
 
     auto history_scene = std::make_shared<TestScene>("CommandHistoryIsolation");
     EntityManager& history_entities = history_scene->get_entity_manager();
@@ -183,32 +158,6 @@ export class SwitchScene extends Behaviour {
     assert(history_entities.get_component<TransformComponent>(history_entity).position.x == 1.0f);
     history.redo();
     assert(history_entities.get_component<TransformComponent>(history_entity).position.x == 5.0f);
-
-    const auto history_x_change = std::find_if(
-        history_manager.get_play_mode_changes().begin(),
-        history_manager.get_play_mode_changes().end(),
-        [history_entity](const PlayModePropertyChange& change) {
-            return change.entity == history_entity && change.component == "transform" &&
-                change.property == "position[0]";
-        }
-    );
-    assert(history_x_change != history_manager.get_play_mode_changes().end());
-    history_manager.select_play_mode_change(history_x_change->id, true);
-    std::optional<PlayModeApplySnapshot> history_apply =
-        history_manager.build_play_mode_apply_snapshot();
-    assert(history_apply && history_apply->property_count == 1);
-    assert(history.execute_command(std::make_unique<ApplyPlayModeChangesCommand>(
-        history_scene.get(), nullptr, std::move(*history_apply)
-    )));
-    assert(history_entities.get_component<TransformComponent>(history_entity).position.x == 25.0f);
-    assert(history.get_undo_count() == 2 && history.get_current_revision() == 2);
-    history.undo();
-    assert(history_entities.get_component<TransformComponent>(history_entity).position.x == 5.0f);
-    history.undo();
-    assert(history_entities.get_component<TransformComponent>(history_entity).position.x == 1.0f);
-    history.redo();
-    history.redo();
-    assert(history_entities.get_component<TransformComponent>(history_entity).position.x == 25.0f);
 
     fs::remove_all(root, error);
     std::cout << "PlayModeIsolationTests passed\n";

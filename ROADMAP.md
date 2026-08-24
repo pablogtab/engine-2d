@@ -371,7 +371,7 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Add fail-stop hot reload: invalid new code stops affected gameplay and exposes an error; it never silently resumes the previous implementation.
 - [x] Preserve the current safe default: Stop tears down scripts and restores the authoring snapshot.
 - [x] Synchronize Inspector public-field edits into running instances for live Play Mode tuning.
-- [x] Add opt-in Play Mode apply-back for explicitly selected properties.
+- [x] Keep Play Mode changes isolated and discard them unconditionally on Stop.
 - [x] Keep runtime script state distinct from serialized public fields.
 - [ ] Complete remaining runtime bindings for audio, asset queries, display, scene loading, UI/custom events, and the full language expression surface.
 - [ ] Load the generated native `GameModule` in standalone exports; editor Play Mode currently uses the compiler's TypedIR-backed module adapter.
@@ -613,7 +613,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [x] `EngineScriptPlayModeTests` — authored lifecycle execution, live public fields, DI/component validation, collision handling, and deterministic teardown.
 - [x] `ScriptHotReloadTests` — changed implementation execution, syntax failure, fail-stop behavior, serialized-value preservation, and valid-save recovery.
 - [x] `ScriptSerializationTests` — public fields, defaults, type changes, missing scripts, asset/entity references, schema evolution, and transactional rejection.
-- [x] `PlayModeIsolationTests` — authoring and physics-state restoration, command-history preservation, atomic selected-property apply-back, and isolated runtime scene switching.
+- [x] `PlayModeIsolationTests` — authoring and physics-state restoration, command-history preservation, and isolated runtime scene switching.
 
 ### Phases 8 and 9 — Performance and Export Suites
 

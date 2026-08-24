@@ -66,9 +66,8 @@ the schema source; matching authored values survive recompilation and missing
 values receive their declared defaults.
 
 Inspector edits during Play Mode are read by the behaviour on the following
-update. Script-side changes affect only the runtime component. Stop restores the
-authoring snapshot unless the user explicitly selects values in the Play Mode
-apply-back review.
+update. Script-side changes affect only the runtime component. Stop always
+restores the authoring snapshot and discards runtime changes.
 
 ## Play Mode execution
 
