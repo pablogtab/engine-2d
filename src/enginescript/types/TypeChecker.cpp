@@ -625,6 +625,11 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             }
         }
 
+        if (obj_t->name == "SpriteRenderer2D" && mem->member_name == "flipX") {
+            m_node_types[mem] = m_type_bool;
+            return m_type_bool;
+        }
+
         // Display fields
         if (obj_t->name == "Display") {
             if (mem->member_name == "width" || mem->member_name == "height" || mem->member_name == "pixel_width" || mem->member_name == "pixel_height") {

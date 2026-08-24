@@ -10,6 +10,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/ScriptingComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
+#include "ecs/components/RenderingComponents.hpp"
 #include "events/Event.hpp"
 #include "events/EventDispatcher.hpp"
 #include "scripting/ScriptRuntime.hpp"
@@ -154,7 +155,10 @@ void test_dynamic_inspector_field_modifications() {
     std::string code = R"(
 @behaviour
 export class DynamicPlayer extends Behaviour {
-    constructor(@component private body: RigidBody2D) {}
+    constructor(
+        @component private body: RigidBody2D,
+        @component private sprite: SpriteRenderer2D
+    ) {}
 
     @expose
     walkSpeed: Float = 280.0;
@@ -164,6 +168,7 @@ export class DynamicPlayer extends Behaviour {
 
     override update(deltaTime: Float): Void {
         body.velocity.x = walkSpeed;
+        sprite.flipX = true;
     }
 }
 )";
@@ -181,6 +186,7 @@ export class DynamicPlayer extends Behaviour {
     EntityID entity = entity_manager.create_entity();
     RigidBodyComponent body = RigidBodyComponent::Dynamic();
     entity_manager.add_component<RigidBodyComponent>(entity, body);
+    entity_manager.add_component<SpriteComponent>(entity, SpriteComponent{});
 
     ScriptComponent script_comp;
     script_comp.enabled = true;
@@ -198,6 +204,7 @@ export class DynamicPlayer extends Behaviour {
     // Initial update
     runtime.update(0.016f);
     assert(std::abs(entity_manager.get_component<RigidBodyComponent>(entity).velocity.x - 280.0f) < 0.001f);
+    assert(entity_manager.get_component<SpriteComponent>(entity).flip_x);
 
     // Modify speed dynamically in-game (as done via Inspector)
     auto& live_comp = entity_manager.get_component<ScriptComponent>(entity);

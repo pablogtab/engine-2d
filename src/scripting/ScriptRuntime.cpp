@@ -44,7 +44,8 @@ struct RuntimeObjectRef {
         Log,
         RigidBody,
         BodyVelocity,
-        Animator
+        Animator,
+        SpriteRenderer
     };
 
     Kind kind{Kind::Input};
@@ -157,6 +158,11 @@ private:
                 const bool available = m_binding && m_binding->entity_manager &&
                     m_binding->entity_manager->has_component<AnimationComponent>(m_binding->entity);
                 return RuntimeObjectRef{RuntimeObjectRef::Kind::Animator, available};
+            }
+            if (type == "SpriteRenderer2D") {
+                const bool available = m_binding && m_binding->entity_manager &&
+                    m_binding->entity_manager->has_component<SpriteComponent>(m_binding->entity);
+                return RuntimeObjectRef{RuntimeObjectRef::Kind::SpriteRenderer, available};
             }
         }
 
@@ -279,6 +285,11 @@ private:
                 if (member->member_name == "x") return static_cast<double>(body.velocity.x);
                 if (member->member_name == "y") return static_cast<double>(body.velocity.y);
             }
+            if (object->kind == RuntimeObjectRef::Kind::SpriteRenderer &&
+                member->member_name == "flipX" &&
+                m_binding->entity_manager->has_component<SpriteComponent>(m_binding->entity)) {
+                return m_binding->entity_manager->get_component<SpriteComponent>(m_binding->entity).flip_x;
+            }
             return {};
         }
         if (const auto* method = dynamic_cast<const IRMethodCall*>(operation)) {
@@ -394,6 +405,12 @@ private:
                 if (member_set->member_name == "x") velocity.x = value;
                 if (member_set->member_name == "y") velocity.y = value;
                 PhysicsSystem::set_velocity(*m_binding->entity_manager, m_binding->entity, velocity);
+            }
+            if (object && object->available && object->kind == RuntimeObjectRef::Kind::SpriteRenderer &&
+                member_set->member_name == "flipX" && m_binding && m_binding->entity_manager &&
+                m_binding->entity_manager->has_component<SpriteComponent>(m_binding->entity)) {
+                m_binding->entity_manager->get_component<SpriteComponent>(m_binding->entity).flip_x =
+                    runtime_boolean(evaluate(member_set->value.get(), environment));
             }
             return false;
         }
@@ -704,6 +721,12 @@ ScriptRuntimeStartResult ScriptRuntime::start(
                 !entity_manager.has_component<AnimationComponent>(entity)) {
                 ++result.failed;
                 set_error(entity, "missing required Animator2D component");
+                return;
+            }
+            if (dependency.is_component && dependency.type == "SpriteRenderer2D" &&
+                !entity_manager.has_component<SpriteComponent>(entity)) {
+                ++result.failed;
+                set_error(entity, "missing required SpriteRenderer2D component");
                 return;
             }
             if (dependency.is_service && dependency.type != "Input" && dependency.type != "Log") {

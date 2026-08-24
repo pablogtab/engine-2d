@@ -62,7 +62,8 @@ int main() {
             constructor(
                 @inject private input: Input,
                 @inject private log: Log,
-                @component private body: RigidBody2D
+                @component private body: RigidBody2D,
+                @component private sprite: SpriteRenderer2D
             ) {}
 
             @expose({ min: 0.0, max: 1000.0 })
@@ -71,6 +72,7 @@ int main() {
             override update(deltaTime: Float): Void {
                 let axis: Float = input.axis("Horizontal");
                 body.velocity.x = axis * walkSpeed;
+                sprite.flipX = axis < 0.0;
                 log("Updated");
             }
 
@@ -112,6 +114,7 @@ int main() {
     assert(output.source_content.find("create_PlatformerPlayer") != std::string::npos);
     assert(output.source_content.find("EngineScript::StringOps::to_lower") != std::string::npos);
     assert(output.source_content.find("EngineScript::StringOps::includes") != std::string::npos);
+    assert(output.header_content.find("EngineScript::SpriteRenderer2D* sprite") != std::string::npos);
     assert(output.source_content.find("(*m_log)(\"Updated\")") != std::string::npos);
     assert(output.source_content.find("other.destroy()") != std::string::npos);
     assert(output.source_content.find("co_await delay(0.5f)") != std::string::npos);

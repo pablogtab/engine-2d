@@ -51,8 +51,8 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 2;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v2";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 3;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v3";
 
 class Input {
 public:
@@ -74,6 +74,10 @@ public:
 struct RigidBody2D {
     glm::vec2 velocity{0.0f, 0.0f};
     bool isGrounded{false};
+};
+
+struct SpriteRenderer2D {
+    bool flipX{false};
 };
 
 struct Entity {

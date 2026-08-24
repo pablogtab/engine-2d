@@ -21,6 +21,7 @@ int main() {
             constructor(
                 @inject private input: Input,
                 @component private body: RigidBody2D,
+                @component private sprite: SpriteRenderer2D,
                 @optional private animator: Animator2D?
             ) {}
 
@@ -33,8 +34,13 @@ int main() {
             override update(deltaTime: Float): Void {
                 let axis: Float = input.axis("Horizontal");
                 body.velocity.x = axis * walkSpeed;
+                if (axis < 0.0) {
+                    sprite.flipX = true;
+                } else if (axis > 0.0) {
+                    sprite.flipX = false;
+                }
                 if (input.pressed("Jump") && body.isGrounded) {
-                    body.velocity.y = -jumpSpeed;
+                    body.velocity.y = jumpSpeed;
                 }
             }
 

@@ -22,7 +22,7 @@ public:
         velocity_x = axis * walkSpeed;
 
         if (isGrounded) {
-            velocity_y = -jumpSpeed;
+            velocity_y = jumpSpeed;
         }
     }
 
@@ -65,7 +65,7 @@ int main() {
                 let axis: Float = input.axis("Horizontal");
                 body.velocity.x = axis * walkSpeed;
                 if (input.pressed("Jump") && body.isGrounded) {
-                    body.velocity.y = -jumpSpeed;
+                    body.velocity.y = jumpSpeed;
                 }
             }
 
@@ -119,7 +119,7 @@ int main() {
     // Tick update
     player->update(0.016f);
     assert(player->velocity_x == 220.0f);
-    assert(player->velocity_y == -480.0f);
+    assert(player->velocity_y == 480.0f);
 
     // Step 5: Async Task Execution & Cancellation
     AsyncScheduler scheduler;
