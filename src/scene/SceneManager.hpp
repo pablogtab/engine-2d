@@ -85,6 +85,11 @@ public:
     [[nodiscard]] SDL_Color get_clear_color() const;
     [[nodiscard]] PostProcessPipeline* get_post_process_pipeline();
     [[nodiscard]] PostProcessProfile* get_editable_post_process_profile();
+    [[nodiscard]] bool apply_scene_settings(
+        Scene& scene,
+        const SceneSettings& settings,
+        const AssetDatabase& database
+    );
     [[nodiscard]] bool set_post_process_profile_handle(AssetHandle handle, const AssetDatabase& database);
     [[nodiscard]] bool set_render_layer_effect_assignments(
         std::vector<RenderLayerEffectAssignment> assignments,

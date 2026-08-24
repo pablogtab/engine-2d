@@ -99,10 +99,33 @@ void test_unsupported_versions_fail_with_actionable_errors() {
     assert(error.find("No migration from schema version 1") != std::string::npos);
 }
 
+void test_v2_scene_migrates_root_fields_to_settings() {
+    ComponentRegistry registry = make_registry(1);
+    Json v2_doc = scene(2, Json{{"transform", 1}});
+    v2_doc["post_process_profile_handle"] = "42";
+    v2_doc["render_layer_effect_assignments"] = Json::array({
+        Json{{"profile_handle", "100"}, {"render_layer", 2}, {"enabled", true}}
+    });
+    v2_doc["custom_metadata"] = Json{{"author", "TestUser"}};
+
+    std::string error;
+    assert(SceneSchema::migrate_to_current(v2_doc, registry, error));
+    assert(SceneSchema::validate_structure(v2_doc, registry, error));
+    assert(v2_doc.at("version") == SceneSchema::CURRENT_VERSION);
+    assert(!v2_doc.contains("post_process_profile_handle"));
+    assert(!v2_doc.contains("render_layer_effect_assignments"));
+    assert(v2_doc.contains("settings"));
+    assert(v2_doc.at("settings").at("post_process_profile_handle") == "42");
+    assert(v2_doc.at("settings").at("render_layer_effect_assignments").size() == 1);
+    assert(v2_doc.at("settings").at("render_layer_effect_assignments")[0].at("render_layer") == 2);
+    assert(v2_doc.at("custom_metadata").at("author") == "TestUser");
+}
+
 } // namespace
 
 int main() {
     test_v1_scene_migrates_to_current_version();
+    test_v2_scene_migrates_root_fields_to_settings();
     test_component_migration_updates_every_payload();
     test_unsupported_versions_fail_with_actionable_errors();
     std::cout << "Scene migration tests passed\n";

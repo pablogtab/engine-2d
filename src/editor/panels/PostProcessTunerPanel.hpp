@@ -44,7 +44,6 @@ private:
     PostProcessProfile* m_interaction_target{nullptr};
     std::optional<PostProcessProfile> m_interaction_before;
     AssetHandle m_selected_profile_handle{};
-    int m_layer_effect_target_layer{0};
 };
 
 } // namespace Engine

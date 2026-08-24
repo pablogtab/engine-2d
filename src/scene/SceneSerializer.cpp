@@ -40,21 +40,21 @@ std::string SceneSerializer::serialize_to_string() {
     root["scene_name"] = m_scene->get_name();
     root["version"] = SceneSchema::CURRENT_VERSION;
     root["component_versions"] = SceneSchema::component_versions(registry);
-    root["settings"] = {
-        {"physics_enabled", m_scene->settings().physics_enabled},
-        {"gravity", {m_scene->settings().gravity.x, m_scene->settings().gravity.y}}
-    };
-    if (const AssetHandle profile_handle = m_scene->get_post_process_profile_handle(); profile_handle.is_valid()) {
-        root["post_process_profile_handle"] = profile_handle.to_string();
+    json settings_json;
+    settings_json["physics_enabled"] = m_scene->settings().physics_enabled;
+    settings_json["gravity"] = {m_scene->settings().gravity.x, m_scene->settings().gravity.y};
+    if (const AssetHandle profile_handle = m_scene->settings().post_process_profile_handle; profile_handle.is_valid()) {
+        settings_json["post_process_profile_handle"] = profile_handle.to_string();
     }
-    root["render_layer_effect_assignments"] = json::array();
-    for (const auto& assignment : m_scene->get_render_layer_effect_assignments()) {
-        root["render_layer_effect_assignments"].push_back({
+    settings_json["render_layer_effect_assignments"] = json::array();
+    for (const auto& assignment : m_scene->settings().render_layer_effect_assignments) {
+        settings_json["render_layer_effect_assignments"].push_back({
             {"profile_handle", assignment.profile_handle.to_string()},
             {"render_layer", assignment.render_layer},
             {"enabled", assignment.enabled}
         });
     }
+    root["settings"] = std::move(settings_json);
 
     json entities_array = json::array();
     EntityManager& em = m_scene->get_entity_manager();
@@ -152,6 +152,7 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
             ENGINE_LOG_ERROR("[SERIALIZER] Scene schema rejected: {}", schema_error);
             return false;
         }
+        SceneSettings candidate_settings;
         if (root.contains("settings")) {
             const auto& settings = root["settings"];
             if (!settings.is_object() ||
@@ -162,48 +163,49 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
                 ENGINE_LOG_ERROR("[SERIALIZER] Scene settings are invalid");
                 return false;
             }
-            m_scene->settings().physics_enabled = settings.value("physics_enabled", true);
+            candidate_settings.physics_enabled = settings.value("physics_enabled", true);
             if (settings.contains("gravity")) {
-                m_scene->settings().gravity = {
+                candidate_settings.gravity = {
                     settings["gravity"][0].get<float>(), settings["gravity"][1].get<float>()
                 };
             }
-        } else {
-            m_scene->settings().physics_enabled = true;
-            m_scene->settings().gravity = {0.0f, -980.0f};
+            if (settings.contains("post_process_profile_handle")) {
+                if (!settings["post_process_profile_handle"].is_string()) {
+                    ENGINE_LOG_ERROR("[SERIALIZER] Scene post_process_profile_handle must be a string");
+                    return false;
+                }
+                const auto profile_handle = AssetHandle::from_string(settings["post_process_profile_handle"].get<std::string>());
+                if (!profile_handle) {
+                    ENGINE_LOG_ERROR("[SERIALIZER] Scene references an invalid post-process profile asset");
+                    return false;
+                }
+                candidate_settings.post_process_profile_handle = *profile_handle;
+            }
+            if (settings.contains("render_layer_effect_assignments")) {
+                if (!settings["render_layer_effect_assignments"].is_array()) {
+                    ENGINE_LOG_ERROR("[SERIALIZER] Scene render_layer_effect_assignments must be an array");
+                    return false;
+                }
+                for (const auto& value : settings["render_layer_effect_assignments"]) {
+                    if (!value.is_object() || !value.contains("profile_handle") ||
+                        !value["profile_handle"].is_string() || !value.contains("render_layer") ||
+                        !value["render_layer"].is_number_unsigned() ||
+                        (value.contains("enabled") && !value["enabled"].is_boolean())) {
+                        ENGINE_LOG_ERROR("[SERIALIZER] Scene render_layer_effect_assignments entry is invalid");
+                        return false;
+                    }
+                    const auto handle = AssetHandle::from_string(value["profile_handle"].get<std::string>());
+                    const unsigned layer = value["render_layer"].get<unsigned>();
+                    if (!handle || layer > 31) {
+                        ENGINE_LOG_ERROR("[SERIALIZER] Scene render layer effect assignment contains invalid handle or layer > 31");
+                        return false;
+                    }
+                    candidate_settings.render_layer_effect_assignments.push_back({
+                        *handle, static_cast<RenderLayer>(layer), value.value("enabled", true)
+                    });
+                }
+            }
         }
-        if (root.contains("post_process_profile_handle")) {
-            if (!root["post_process_profile_handle"].is_string()) {
-                ENGINE_LOG_ERROR("[SERIALIZER] Scene post_process_profile_handle must be a string");
-                return false;
-            }
-            const auto profile_handle = AssetHandle::from_string(root["post_process_profile_handle"].get<std::string>());
-            if (!profile_handle) {
-                ENGINE_LOG_ERROR("[SERIALIZER] Scene references an invalid post-process profile asset");
-                return false;
-            }
-            m_scene->set_post_process_profile_handle(*profile_handle);
-        } else {
-            m_scene->set_post_process_profile_handle({});
-        }
-        std::vector<RenderLayerEffectAssignment> assignments;
-        if (root.contains("render_layer_effect_assignments")) {
-            if (!root["render_layer_effect_assignments"].is_array()) {
-                ENGINE_LOG_ERROR("[SERIALIZER] Scene render_layer_effect_assignments must be an array");
-                return false;
-            }
-            for (const auto& value : root["render_layer_effect_assignments"]) {
-                if (!value.is_object() || !value.contains("profile_handle") ||
-                    !value["profile_handle"].is_string() || !value.contains("render_layer") ||
-                    !value["render_layer"].is_number_unsigned() ||
-                    (value.contains("enabled") && !value["enabled"].is_boolean())) return false;
-                const auto handle = AssetHandle::from_string(value["profile_handle"].get<std::string>());
-                const unsigned layer = value["render_layer"].get<unsigned>();
-                if (!handle || layer > 31) return false;
-                assignments.push_back({*handle, static_cast<RenderLayer>(layer), value.value("enabled", true)});
-            }
-        }
-        m_scene->set_render_layer_effect_assignments(std::move(assignments));
 
         EntityManager candidate;
         const ComponentSerializationContext component_context{m_renderer, &AssetManager::get(), &AssetDatabase::get()};
@@ -333,6 +335,8 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
         }
 
         EntityManager& live = m_scene->get_entity_manager();
+        SceneSettings previous_settings = m_scene->settings();
+        m_scene->settings() = std::move(candidate_settings);
         m_scene->swap_entity_manager(candidate);
         registry.reconcile_replacement(candidate, live);
 
@@ -343,6 +347,7 @@ bool SceneSerializer::deserialize_from_string(const std::string& json_text) {
         };
         std::string commit_error;
         if (!registry.finalize_entities(live, committed_entities, commit_context, commit_error)) {
+            m_scene->settings() = std::move(previous_settings);
             m_scene->swap_entity_manager(candidate);
             registry.reconcile_replacement(candidate, live);
             const std::vector<EntityID> restored_entities = live.get_living_entities();

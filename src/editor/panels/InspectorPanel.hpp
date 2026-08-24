@@ -14,6 +14,7 @@ struct SDL_Texture;
 
 namespace Engine {
 
+class Scene;
 class SceneManager;
 class AssetManager;
 
@@ -54,6 +55,7 @@ public:
 private:
     void draw_components(EntityManager& em, EntityID entity);
     void draw_multi_components(EntityManager& em, const std::vector<EntityID>& entities);
+    void draw_scene_settings(Scene& active_scene);
     void track_tag_edit(EntityManager& em, EntityID entity, const std::string& before, const char* property, const char* description);
 
     std::string m_name{"Entity Inspector"};
@@ -73,6 +75,7 @@ private:
     std::function<SDL_Texture*(AssetHandle)> m_preview_material;
     char m_multi_tag_buffer[128]{""};
     std::uint32_t m_multi_tag_selection_owner{0};
+    int m_layer_effect_target_layer{0};
 };
 
 

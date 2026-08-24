@@ -12,6 +12,10 @@
 #include "physics/PhysicsSystem.hpp"
 #include "tilemap/Tilemap.hpp"
 #include "tilemap/TilemapColliderSystem.hpp"
+#include "editor/commands/SceneSettingsCommands.hpp"
+#include "scene/SceneManager.hpp"
+#include "scene/Scene.hpp"
+#include "core/AssetDatabase.hpp"
 #include <cassert>
 #include <iostream>
 #include <memory>
@@ -1438,6 +1442,135 @@ void test_ui_component_edits_round_trip() {
     assert(em.get_component<UIButtonComponent>(entity) == button_after);
 }
 
+void test_modify_scene_settings_command_undo_redo() {
+    Scene scene("SettingsCommandTest");
+    scene.settings().physics_enabled = true;
+    scene.settings().gravity = {0.0f, -9.8f};
+    PhysicsSystem::set_gravity({0.0f, -9.8f});
+
+    EditorCommandHistory history;
+    SceneSettings before = scene.settings();
+    SceneSettings after = before;
+    after.physics_enabled = false;
+    after.gravity = {10.0f, -20.0f};
+    after.post_process_profile_handle = AssetHandle{123};
+    after.render_layer_effect_assignments = {{AssetHandle{456}, 5, true}};
+
+    assert(history.execute_command(std::make_unique<ModifySceneSettingsCommand>(
+        &scene, nullptr, nullptr, before, after, "Modify Scene Settings"
+    )));
+    assert(scene.settings() == after);
+    assert(PhysicsSystem::get_gravity() == glm::vec2(10.0f, -20.0f));
+
+    history.undo();
+    assert(scene.settings() == before);
+    assert(PhysicsSystem::get_gravity() == glm::vec2(0.0f, -9.8f));
+
+    history.redo();
+    assert(scene.settings() == after);
+    assert(PhysicsSystem::get_gravity() == glm::vec2(10.0f, -20.0f));
+}
+
+void test_scene_settings_property_transaction_and_cancel() {
+    Scene scene("SettingsTransactionTest");
+    scene.settings().gravity = {0.0f, -9.8f};
+    PhysicsSystem::set_gravity({0.0f, -9.8f});
+
+    EditorPropertyTransaction transactions;
+    EditorCommandHistory history;
+    const auto gravity_key = EditorPropertyTransaction::make_key(SCENE_SETTINGS_OWNER_ID, "Scene.Gravity");
+
+    // 1. Transaction with cancellation (e.g. Esc during drag)
+    transactions.begin<glm::vec2>(
+        gravity_key,
+        scene.settings().gravity,
+        [&scene]() -> std::optional<glm::vec2> { return scene.settings().gravity; },
+        [&scene](const glm::vec2& value) {
+            scene.settings().gravity = value;
+            PhysicsSystem::set_gravity(value);
+        },
+        "Modify Scene Gravity"
+    );
+
+    // Live continuous edits during drag
+    scene.settings().gravity = {15.0f, -50.0f};
+    PhysicsSystem::set_gravity(scene.settings().gravity);
+    assert(scene.settings().gravity == glm::vec2(15.0f, -50.0f));
+    assert(PhysicsSystem::get_gravity() == glm::vec2(15.0f, -50.0f));
+
+    // Cancel transaction -> reverts data and runtime
+    transactions.cancel(gravity_key);
+    assert(scene.settings().gravity == glm::vec2(0.0f, -9.8f));
+    assert(PhysicsSystem::get_gravity() == glm::vec2(0.0f, -9.8f));
+    assert(!history.can_undo());
+
+    // 2. Transaction with commit (mouse release)
+    transactions.begin<glm::vec2>(
+        gravity_key,
+        scene.settings().gravity,
+        [&scene]() -> std::optional<glm::vec2> { return scene.settings().gravity; },
+        [&scene](const glm::vec2& value) {
+            scene.settings().gravity = value;
+            PhysicsSystem::set_gravity(value);
+        },
+        "Modify Scene Gravity"
+    );
+
+    scene.settings().gravity = {25.0f, -100.0f};
+    PhysicsSystem::set_gravity(scene.settings().gravity);
+    transactions.commit(gravity_key, history);
+
+    assert(history.can_undo());
+    assert(scene.settings().gravity == glm::vec2(25.0f, -100.0f));
+    assert(PhysicsSystem::get_gravity() == glm::vec2(25.0f, -100.0f));
+
+    history.undo();
+    assert(scene.settings().gravity == glm::vec2(0.0f, -9.8f));
+    assert(PhysicsSystem::get_gravity() == glm::vec2(0.0f, -9.8f));
+
+    history.redo();
+    assert(scene.settings().gravity == glm::vec2(25.0f, -100.0f));
+    assert(PhysicsSystem::get_gravity() == glm::vec2(25.0f, -100.0f));
+}
+
+void test_inactive_scene_settings_modification_does_not_affect_active_runtime() {
+    SceneManager scene_manager;
+    auto scene_a = std::make_shared<Scene>("SceneA");
+    auto scene_b = std::make_shared<Scene>("SceneB");
+
+    scene_a->settings().gravity = {0.0f, -10.0f};
+    scene_b->settings().gravity = {0.0f, -50.0f};
+
+    scene_manager.add_scene(scene_a);
+    scene_manager.add_scene(scene_b);
+    scene_manager.set_active_scene(0);
+
+    assert(scene_manager.get_active_scene() == scene_a.get());
+    assert(PhysicsSystem::get_gravity() == glm::vec2(0.0f, -10.0f));
+
+    // Modify scene_b (inactive scene)
+    SceneSettings new_settings_b = scene_b->settings();
+    new_settings_b.gravity = {123.0f, 456.0f};
+    new_settings_b.physics_enabled = false;
+    new_settings_b.post_process_profile_handle = AssetHandle{999};
+
+    assert(scene_manager.apply_scene_settings(*scene_b, new_settings_b, AssetDatabase::get()));
+
+    // Verify scene_b data was updated
+    assert(scene_b->settings().gravity == glm::vec2(123.0f, 456.0f));
+    assert(!scene_b->settings().physics_enabled);
+    assert(scene_b->settings().post_process_profile_handle == AssetHandle{999});
+
+    // CRITICAL: active runtime MUST NOT be touched by inactive scene edit!
+    assert(PhysicsSystem::get_gravity() == glm::vec2(0.0f, -10.0f));
+    assert(scene_manager.get_active_scene() == scene_a.get());
+
+    // Switch active scene to scene_b -> now its gravity should become active
+    scene_manager.set_active_scene(1);
+    assert(scene_manager.get_active_scene() == scene_b.get());
+    assert(PhysicsSystem::get_gravity() == glm::vec2(123.0f, 456.0f));
+}
+
 } // namespace
 
 int main() {
@@ -1470,6 +1603,9 @@ int main() {
     test_multiselection_gizmo_scale_preserves_negative_sign();
     test_create_entity_command_with_sprite_round_trips();
     test_ui_component_edits_round_trip();
+    test_modify_scene_settings_command_undo_redo();
+    test_scene_settings_property_transaction_and_cancel();
+    test_inactive_scene_settings_modification_does_not_affect_active_runtime();
     std::cout << "InspectorCommandTests passed\n";
     return 0;
 }

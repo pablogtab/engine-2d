@@ -199,6 +199,11 @@ std::optional<fs::path> ProjectWorkspace::create(
         {"version", SceneSchema::CURRENT_VERSION},
         {"component_versions", SceneSchema::component_versions(default_component_registry())},
         {"scene_name", "Main"},
+        {"settings", {
+            {"physics_enabled", true},
+            {"gravity", {0.0f, -980.0f}},
+            {"render_layer_effect_assignments", nlohmann::json::array()}
+        }},
         {"entities", nlohmann::json::array()}
     };
     const nlohmann::json settings{{"display", {

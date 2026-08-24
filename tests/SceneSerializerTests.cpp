@@ -27,15 +27,18 @@ void test_render_layer_effect_assignments_round_trip() {
     TestScene scene;
     scene.settings().physics_enabled = false;
     scene.settings().gravity = {15.0f, -320.0f};
+    scene.settings().post_process_profile_handle = AssetHandle{777};
     scene.set_render_layer_effect_assignments({{AssetHandle{10}, 2, true}, {AssetHandle{10}, 9, false}});
     SceneSerializer serializer(&scene);
     const std::string snapshot = serializer.serialize_to_string();
     scene.set_render_layer_effect_assignments({});
     scene.settings().physics_enabled = true;
     scene.settings().gravity = {};
+    scene.settings().post_process_profile_handle = {};
     assert(serializer.deserialize_from_string(snapshot));
     assert(!scene.settings().physics_enabled);
     assert(scene.settings().gravity == glm::vec2(15.0f, -320.0f));
+    assert(scene.settings().post_process_profile_handle == AssetHandle{777});
     assert(scene.get_render_layer_effect_assignments() == std::vector<RenderLayerEffectAssignment>(
         {{AssetHandle{10}, 2, true}, {AssetHandle{10}, 9, false}}
     ));
@@ -232,7 +235,7 @@ void test_v1_scene_migrates_to_current_schema() {
     SceneSerializer loaded_serializer(&loaded);
     assert(loaded_serializer.deserialize_from_string(legacy.dump()));
     const nlohmann::json current = nlohmann::json::parse(loaded_serializer.serialize_to_string());
-    assert(current.at("version").get<std::uint32_t>() == 2);
+    assert(current.at("version").get<std::uint32_t>() == 3);
     assert(current.at("component_versions").is_object());
     assert(current.at("component_versions").size() == default_component_registry().descriptors().size());
 }
@@ -465,6 +468,55 @@ void test_component_order_editor_metadata_round_trips_and_is_optional() {
     assert(runtime_only.get_entity_manager().is_alive(entity));
 }
 
+void test_invalid_json_or_entity_after_settings_leaves_scene_and_settings_intact() {
+    TestScene scene;
+    scene.settings().physics_enabled = false;
+    scene.settings().gravity = {12.0f, -34.0f};
+    scene.settings().post_process_profile_handle = AssetHandle{99};
+    scene.settings().render_layer_effect_assignments = {{AssetHandle{88}, 3, true}};
+    const EntityID preserved = add_preserved_entity(scene);
+
+    SceneSerializer serializer(&scene);
+    const std::string valid_snapshot = serializer.serialize_to_string();
+
+    // 1. Invalid / unknown component in entities payload
+    nlohmann::json bad_entity_json = nlohmann::json::parse(valid_snapshot);
+    bad_entity_json["settings"]["physics_enabled"] = true; // Attempt to modify settings in candidate
+    bad_entity_json["settings"]["gravity"] = {999.0f, 999.0f};
+    bad_entity_json["entities"].front()["unknown_comp"] = nlohmann::json::object();
+    assert(!serializer.deserialize_from_string(bad_entity_json.dump()));
+
+    // Verify scene settings and entity remain 100% original
+    assert(!scene.settings().physics_enabled);
+    assert(scene.settings().gravity == glm::vec2(12.0f, -34.0f));
+    assert(scene.settings().post_process_profile_handle == AssetHandle{99});
+    assert((scene.settings().render_layer_effect_assignments == std::vector<RenderLayerEffectAssignment>{{AssetHandle{88}, 3, true}}));
+    assert_preserved(scene, preserved);
+
+    // 2. Invalid hierarchy link in entities payload
+    nlohmann::json bad_hierarchy_json = nlohmann::json::parse(valid_snapshot);
+    bad_hierarchy_json["settings"]["gravity"] = {555.0f, -555.0f};
+    bad_hierarchy_json["entities"].front()["hierarchy"] = {{"parent", 8888}};
+    assert(!serializer.deserialize_from_string(bad_hierarchy_json.dump()));
+
+    assert(!scene.settings().physics_enabled);
+    assert(scene.settings().gravity == glm::vec2(12.0f, -34.0f));
+    assert(scene.settings().post_process_profile_handle == AssetHandle{99});
+    assert((scene.settings().render_layer_effect_assignments == std::vector<RenderLayerEffectAssignment>{{AssetHandle{88}, 3, true}}));
+    assert_preserved(scene, preserved);
+
+    // 3. Malformed settings payload (invalid gravity type)
+    nlohmann::json bad_settings_json = nlohmann::json::parse(valid_snapshot);
+    bad_settings_json["settings"]["gravity"] = "not_an_array";
+    assert(!serializer.deserialize_from_string(bad_settings_json.dump()));
+
+    assert(!scene.settings().physics_enabled);
+    assert(scene.settings().gravity == glm::vec2(12.0f, -34.0f));
+    assert(scene.settings().post_process_profile_handle == AssetHandle{99});
+    assert((scene.settings().render_layer_effect_assignments == std::vector<RenderLayerEffectAssignment>{{AssetHandle{88}, 3, true}}));
+    assert_preserved(scene, preserved);
+}
+
 } // namespace
 
 int main() {
@@ -486,6 +538,7 @@ int main() {
     test_scene_with_group_component_round_trip();
     test_entity_lock_and_editor_visibility_are_not_serialized();
     test_component_order_editor_metadata_round_trips_and_is_optional();
+    test_invalid_json_or_entity_after_settings_leaves_scene_and_settings_intact();
     std::cout << "Scene serializer tests passed\n";
     return 0;
 }

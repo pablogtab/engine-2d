@@ -10,7 +10,7 @@ class ComponentRegistry;
 
 class SceneSchema {
 public:
-    static constexpr std::uint32_t CURRENT_VERSION = 2;
+    static constexpr std::uint32_t CURRENT_VERSION = 3;
 
     [[nodiscard]] static nlohmann::json component_versions(const ComponentRegistry& registry);
     [[nodiscard]] static bool migrate_to_current(

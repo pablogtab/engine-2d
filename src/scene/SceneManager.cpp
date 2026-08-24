@@ -9,6 +9,7 @@
 #include "../ecs/TransformSystem.hpp"
 #include "../ecs/CameraSystem.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
+#include "../physics/PhysicsSystem.hpp"
 #include <algorithm>
 #include <fstream>
 
@@ -587,6 +588,26 @@ PostProcessProfile* SceneManager::get_editable_post_process_profile() {
     return execution_context(*scene).renderer.editable_post_process_profile(
         *scene, m_asset_database ? *m_asset_database : AssetDatabase::get()
     );
+}
+
+bool SceneManager::apply_scene_settings(
+    Scene& scene,
+    const SceneSettings& settings,
+    const AssetDatabase& database
+) {
+    scene.settings() = settings;
+    if (get_active_scene() == &scene) {
+        PhysicsSystem::set_gravity(settings.gravity);
+        if (auto* custom = dynamic_cast<CustomScene*>(&scene)) {
+            static_cast<void>(custom->set_post_process_profile_handle(settings.post_process_profile_handle, database));
+            static_cast<void>(custom->set_render_layer_effect_assignments(settings.render_layer_effect_assignments, database));
+        } else {
+            auto& context = execution_context(scene);
+            static_cast<void>(context.renderer.set_post_process_profile(scene, settings.post_process_profile_handle, database));
+            static_cast<void>(context.renderer.set_render_layer_effects(scene, settings.render_layer_effect_assignments, database));
+        }
+    }
+    return true;
 }
 
 bool SceneManager::set_post_process_profile_handle(AssetHandle handle, const AssetDatabase& database) {

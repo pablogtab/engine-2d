@@ -34,6 +34,23 @@ bool migrate_v1_to_v2(Json& root, const ComponentRegistry& registry, std::string
     return true;
 }
 
+bool migrate_v2_to_v3(Json& root, const ComponentRegistry&, std::string&) {
+    if (!root.contains("settings") || !root["settings"].is_object()) {
+        root["settings"] = Json::object();
+    }
+    Json& settings = root["settings"];
+    if (root.contains("post_process_profile_handle")) {
+        settings["post_process_profile_handle"] = std::move(root["post_process_profile_handle"]);
+        root.erase("post_process_profile_handle");
+    }
+    if (root.contains("render_layer_effect_assignments")) {
+        settings["render_layer_effect_assignments"] = std::move(root["render_layer_effect_assignments"]);
+        root.erase("render_layer_effect_assignments");
+    }
+    root["version"] = static_cast<std::uint32_t>(3);
+    return true;
+}
+
 bool migrate_scene_once(
     std::uint32_t version,
     Json& root,
@@ -42,6 +59,7 @@ bool migrate_scene_once(
 ) {
     switch (version) {
         case 1: return migrate_v1_to_v2(root, registry, error);
+        case 2: return migrate_v2_to_v3(root, registry, error);
         default:
             error = "No scene migration is registered from version " + std::to_string(version);
             return false;
@@ -139,6 +157,44 @@ bool SceneSchema::validate_structure(
     if (!root.contains("component_versions") || !root.at("component_versions").is_object()) {
         error = "Scene is missing the component_versions object";
         return false;
+    }
+    if (root.contains("settings")) {
+        const auto& settings = root.at("settings");
+        if (!settings.is_object()) {
+            error = "Scene settings must be an object";
+            return false;
+        }
+        if (settings.contains("physics_enabled") && !settings.at("physics_enabled").is_boolean()) {
+            error = "Scene settings physics_enabled must be a boolean";
+            return false;
+        }
+        if (settings.contains("gravity")) {
+            const auto& gravity = settings.at("gravity");
+            if (!gravity.is_array() || gravity.size() != 2 || !gravity[0].is_number() || !gravity[1].is_number()) {
+                error = "Scene settings gravity must be a 2-element numeric array";
+                return false;
+            }
+        }
+        if (settings.contains("post_process_profile_handle") && !settings.at("post_process_profile_handle").is_string()) {
+            error = "Scene settings post_process_profile_handle must be a string";
+            return false;
+        }
+        if (settings.contains("render_layer_effect_assignments")) {
+            const auto& assignments = settings.at("render_layer_effect_assignments");
+            if (!assignments.is_array()) {
+                error = "Scene settings render_layer_effect_assignments must be an array";
+                return false;
+            }
+            for (const auto& item : assignments) {
+                if (!item.is_object() || !item.contains("profile_handle") || !item.at("profile_handle").is_string() ||
+                    !item.contains("render_layer") || !item.at("render_layer").is_number_unsigned() ||
+                    item.at("render_layer").get<unsigned>() > 31 ||
+                    (item.contains("enabled") && !item.at("enabled").is_boolean())) {
+                    error = "Scene settings render_layer_effect_assignments entry is invalid";
+                    return false;
+                }
+            }
+        }
     }
     const auto& versions = root.at("component_versions");
     for (const ComponentDescriptor& descriptor : registry.descriptors()) {

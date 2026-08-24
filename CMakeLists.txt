@@ -161,6 +161,7 @@ set(SOURCES
     src/editor/commands/PrefabCommands.cpp
     src/editor/commands/ProjectSettingsCommands.cpp
     src/editor/commands/PostProcessProfileCommands.cpp
+    src/editor/commands/SceneSettingsCommands.cpp
     src/editor/shortcuts/ShortcutManager.cpp
     src/editor/scripting/ScriptAnalyzer.cpp
     src/editor/stage/PrefabStageController.cpp
@@ -761,23 +762,11 @@ add_test(NAME AssetFileCommandTests COMMAND AssetFileCommandTests)
 
 add_executable(InspectorCommandTests
     tests/InspectorCommandTests.cpp
-    src/core/AssetDatabase.cpp
-    src/core/AssetManager.cpp
-    src/core/FileSystem.cpp
-    src/core/Log.cpp
-    src/ecs/EntityManager.cpp
     src/editor/state/EditorEntityStateStore.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
     src/editor/commands/EntityCommands.cpp
-    src/renderer/Texture.cpp
-    src/renderer/material/FragmentShader.cpp
-    src/renderer/material/MaterialAsset.cpp
-    src/renderer/SpriteAnimationSystem.cpp
-    src/scene/BuiltinComponentRegistrations.cpp
-    src/scene/ComponentRegistry.cpp
-    src/tilemap/TilemapColliderSystem.cpp
-    vendor/stb/stb_impl.cpp
+    src/editor/commands/SceneSettingsCommands.cpp
 )
 target_include_directories(InspectorCommandTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -785,7 +774,7 @@ target_include_directories(InspectorCommandTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
 )
-target_link_libraries(InspectorCommandTests PRIVATE SDL3::SDL3 glm::glm box2d)
+target_link_libraries(InspectorCommandTests PRIVATE EngineRuntime SDL3::SDL3 glm::glm box2d)
 add_test(NAME InspectorCommandTests COMMAND InspectorCommandTests)
 
 add_executable(AnimationSystemTests

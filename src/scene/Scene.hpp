@@ -14,6 +14,8 @@ struct SceneSettings {
     glm::vec2 gravity{0.0f, -980.0f};
     AssetHandle post_process_profile_handle{};
     std::vector<RenderLayerEffectAssignment> render_layer_effect_assignments;
+
+    bool operator==(const SceneSettings& other) const = default;
 };
 
 class Scene {
@@ -29,6 +31,7 @@ public:
     EventDispatcher& get_event_dispatcher() { return m_event_dispatcher; }
     [[nodiscard]] SceneSettings& settings() { return m_settings; }
     [[nodiscard]] const SceneSettings& settings() const { return m_settings; }
+    void set_settings(SceneSettings settings) { m_settings = std::move(settings); }
     [[nodiscard]] AssetHandle get_post_process_profile_handle() const { return m_settings.post_process_profile_handle; }
     void set_post_process_profile_handle(AssetHandle handle) { m_settings.post_process_profile_handle = handle; }
     [[nodiscard]] const std::vector<RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const {

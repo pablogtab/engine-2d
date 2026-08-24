@@ -8,6 +8,10 @@
 #include "../state/EditorEntityStateStore.hpp"
 #include "../inspector/InspectorWidgets.hpp"
 #include "../inspector/MultiComponentInspectorTransaction.hpp"
+#include "../commands/SceneSettingsCommands.hpp"
+#include "../../core/AssetDatabase.hpp"
+#include "../../renderer/RenderLayerEffectProfile.hpp"
+#include "../../physics/PhysicsSystem.hpp"
 #include "../inspector/SpriteInspectorDrawer.hpp"
 #include "../inspector/RigidBodyInspectorDrawer.hpp"
 #include "../inspector/ColliderInspectorDrawer.hpp"
@@ -112,9 +116,7 @@ void InspectorPanel::on_gui() {
         EntityManager& em = active_scene->get_entity_manager();
 
         if (selected_set.empty()) {
-            ImGui::TextDisabled("No Entity Selected.");
-            ImGui::Separator();
-            ImGui::TextWrapped("Select an entity from the Scene Hierarchy panel or drag-select in the Viewport to inspect components.");
+            draw_scene_settings(*active_scene);
             ImGui::PopStyleVar(3);
             ImGui::PopFont();
             ImGui::End();
@@ -132,6 +134,7 @@ void InspectorPanel::on_gui() {
             m_selection->set_selection(std::unordered_set<EntityID>(selected_ids.begin(), selected_ids.end()));
         }
         if (selected_ids.empty()) {
+            draw_scene_settings(*active_scene);
             ImGui::PopStyleVar(3);
             ImGui::PopFont();
             ImGui::End();
@@ -807,7 +810,203 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         }
         ImGui::EndPopup();
     }
+}
 
+void InspectorPanel::draw_scene_settings(Scene& active_scene) {
+    ImGui::PushID("SceneSettings");
+
+    ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "SCENE SETTINGS");
+    ImGui::SameLine();
+    ImGui::TextDisabled("(%s)", active_scene.get_name().c_str());
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Physics Section
+    if (ImGui::CollapsingHeader("Physics", ImGuiTreeNodeFlags_DefaultOpen)) {
+        bool physics_enabled = active_scene.settings().physics_enabled;
+        if (property_bool("Simulation Enabled", &physics_enabled) && m_command_history) {
+            SceneSettings before = active_scene.settings();
+            SceneSettings after = before;
+            after.physics_enabled = physics_enabled;
+            m_command_history->execute_command(std::make_unique<ModifySceneSettingsCommand>(
+                &active_scene, m_scene_manager, &AssetDatabase::get(), before, after,
+                physics_enabled ? "Enable Physics Simulation" : "Disable Physics Simulation"
+            ));
+        }
+
+        const auto gravity_key = EditorPropertyTransaction::make_key(SCENE_SETTINGS_OWNER_ID, "Scene.Gravity");
+        float gravity_values[2] = {active_scene.settings().gravity.x, active_scene.settings().gravity.y};
+        const glm::vec2 before_gravity = active_scene.settings().gravity;
+        const bool gravity_changed = property_vec2("Gravity", gravity_values, 1.0f);
+        const auto& interaction = last_property_interaction();
+
+        if (interaction.activated) {
+            m_property_transactions.begin<glm::vec2>(
+                gravity_key,
+                before_gravity,
+                [&active_scene]() -> std::optional<glm::vec2> {
+                    return active_scene.settings().gravity;
+                },
+                [this, &active_scene](const glm::vec2& value) {
+                    SceneSettings settings = active_scene.settings();
+                    settings.gravity = value;
+                    if (m_scene_manager) {
+                        static_cast<void>(m_scene_manager->apply_scene_settings(active_scene, settings, AssetDatabase::get()));
+                    } else {
+                        active_scene.settings().gravity = value;
+                        PhysicsSystem::set_gravity(value);
+                    }
+                },
+                "Modify Scene Gravity"
+            );
+        }
+
+        if (gravity_changed) {
+            active_scene.settings().gravity = {gravity_values[0], gravity_values[1]};
+            if (m_scene_manager && m_scene_manager->get_active_scene() == &active_scene) {
+                PhysicsSystem::set_gravity(active_scene.settings().gravity);
+            }
+        }
+
+        if (interaction.cancelled) {
+            m_property_transactions.cancel(gravity_key);
+        } else if (interaction.deactivated_after_edit && m_command_history) {
+            m_property_transactions.commit(gravity_key, *m_command_history);
+        }
+
+        ImGui::Spacing();
+    }
+
+    // Rendering Section
+    if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
+        AssetDatabase& database = AssetDatabase::get();
+        const AssetHandle current_profile = active_scene.get_post_process_profile_handle();
+        const AssetRecord* selected_asset = current_profile.is_valid() ? database.find(current_profile) : nullptr;
+
+        begin_property_row("Global Profile");
+        ImGui::PushID("GlobalProfileCombo");
+        if (ImGui::BeginCombo("##profile", selected_asset ? selected_asset->source_path.c_str() : "None (No Profile)")) {
+            if (ImGui::Selectable("None (No Profile)", !current_profile.is_valid())) {
+                if (current_profile.is_valid() && m_command_history) {
+                    SceneSettings before = active_scene.settings();
+                    SceneSettings after = before;
+                    after.post_process_profile_handle = {};
+                    m_command_history->execute_command(std::make_unique<ModifySceneSettingsCommand>(
+                        &active_scene, m_scene_manager, &database, before, after, "Clear Global Post-Process Profile"
+                    ));
+                }
+            }
+            for (const AssetRecord& record : database.records()) {
+                if (record.type != AssetType::PostProcessProfile || record.status != AssetStatus::Ready) continue;
+                const bool is_selected = record.handle == current_profile;
+                if (ImGui::Selectable(record.source_path.c_str(), is_selected)) {
+                    if (record.handle != current_profile && m_command_history) {
+                        SceneSettings before = active_scene.settings();
+                        SceneSettings after = before;
+                        after.post_process_profile_handle = record.handle;
+                        m_command_history->execute_command(std::make_unique<ModifySceneSettingsCommand>(
+                            &active_scene, m_scene_manager, &database, before, after, "Set Global Post-Process Profile"
+                        ));
+                    }
+                }
+                if (is_selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PopID();
+
+        ImGui::Spacing();
+        ImGui::TextDisabled("Render Layer Effects");
+        ImGui::Separator();
+
+        const auto assignments = active_scene.get_render_layer_effect_assignments();
+        ImGui::InputInt("Target Layer", &m_layer_effect_target_layer);
+        m_layer_effect_target_layer = std::clamp(m_layer_effect_target_layer, 0, 31);
+        const auto target_layer = static_cast<RenderLayer>(m_layer_effect_target_layer);
+        const bool target_occupied = std::any_of(assignments.begin(), assignments.end(), [target_layer](const auto& assignment) {
+            return assignment.render_layer == target_layer;
+        });
+        if (target_occupied) ImGui::TextDisabled("Layer %d already has an assignment.", m_layer_effect_target_layer);
+
+        ImGui::BeginDisabled(target_occupied);
+        if (ImGui::BeginCombo("Add Profile", "Select .layereffect profile")) {
+            for (const AssetRecord& record : database.records()) {
+                if (record.type != AssetType::RenderLayerEffectProfile || record.status != AssetStatus::Ready ||
+                    !RenderLayerEffectProfile::load_asset(record.handle, database)) continue;
+                if (ImGui::Selectable(record.source_path.c_str(), !target_occupied && false) && m_command_history) {
+                    SceneSettings before = active_scene.settings();
+                    SceneSettings after = before;
+                    after.render_layer_effect_assignments.push_back({record.handle, target_layer, true});
+                    m_command_history->execute_command(std::make_unique<ModifySceneSettingsCommand>(
+                        &active_scene, m_scene_manager, &database, before, after, "Add Layer Effect Assignment"
+                    ));
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::EndDisabled();
+
+        for (std::size_t index = 0; index < assignments.size(); ++index) {
+            const auto assignment = assignments[index];
+            auto loaded = RenderLayerEffectProfile::load_asset_for_authoring(assignment.profile_handle, database);
+            ImGui::PushID(static_cast<int>(index));
+            if (!loaded) {
+                ImGui::TextDisabled("Unavailable profile: %s", assignment.profile_handle.to_string().c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove") && m_command_history) {
+                    SceneSettings before = active_scene.settings();
+                    SceneSettings after = before;
+                    after.render_layer_effect_assignments.erase(after.render_layer_effect_assignments.begin() + static_cast<std::ptrdiff_t>(index));
+                    m_command_history->execute_command(std::make_unique<ModifySceneSettingsCommand>(
+                        &active_scene, m_scene_manager, &database, before, after, "Remove Layer Effect Assignment"
+                    ));
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::PopID();
+                continue;
+            }
+            bool remove_assignment = false;
+            const std::string label = loaded->name + " -> Layer " + std::to_string(assignment.render_layer);
+            if (ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                bool enabled = assignment.enabled;
+                if (ImGui::Checkbox("Enabled", &enabled) && m_command_history) {
+                    SceneSettings before = active_scene.settings();
+                    SceneSettings after = before;
+                    after.render_layer_effect_assignments[index].enabled = enabled;
+                    m_command_history->execute_command(std::make_unique<ModifySceneSettingsCommand>(
+                        &active_scene, m_scene_manager, &database, before, after, "Toggle Layer Effect Enabled"
+                    ));
+                }
+                int layer = assignment.render_layer;
+                if (ImGui::InputInt("Render Layer", &layer, 1, 1, ImGuiInputTextFlags_EnterReturnsTrue) && m_command_history) {
+                    SceneSettings before = active_scene.settings();
+                    SceneSettings after = before;
+                    after.render_layer_effect_assignments[index].render_layer = static_cast<RenderLayer>(std::clamp(layer, 0, 31));
+                    m_command_history->execute_command(std::make_unique<ModifySceneSettingsCommand>(
+                        &active_scene, m_scene_manager, &database, before, after, "Change Effect Render Layer"
+                    ));
+                }
+                if (const AssetRecord* profile_record = database.find(assignment.profile_handle)) {
+                    ImGui::TextDisabled("%s", profile_record->source_path.c_str());
+                }
+                remove_assignment = ImGui::Button("Remove from Scene");
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+            if (remove_assignment && m_command_history) {
+                SceneSettings before = active_scene.settings();
+                SceneSettings after = before;
+                after.render_layer_effect_assignments.erase(after.render_layer_effect_assignments.begin() + static_cast<std::ptrdiff_t>(index));
+                m_command_history->execute_command(std::make_unique<ModifySceneSettingsCommand>(
+                    &active_scene, m_scene_manager, &database, before, after, "Remove Layer Effect Assignment"
+                ));
+                break;
+            }
+        }
+    }
+
+    ImGui::PopID();
 }
 
 } // namespace Engine
