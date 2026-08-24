@@ -53,8 +53,8 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 13;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v13";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 16;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v16";
 
 class Input {
 public:
@@ -202,17 +202,22 @@ public:
     virtual ~Scene() = default;
     virtual bool load(const std::string& path) = 0;
     [[nodiscard]] virtual std::string currentName() const = 0;
+    [[nodiscard]] virtual bool isLoading() const = 0;
+    [[nodiscard]] virtual std::string lastError() const = 0;
 };
 
 class Events {
 public:
     virtual ~Events() = default;
     virtual bool emit(const std::string& name, const std::string& payload = {}) = 0;
+    virtual bool subscribe(const std::string& name) = 0;
 };
 
 struct Asset {
     uint64_t handle{0};
     std::string path;
+    std::string type;
+    std::string status;
     bool ready{false};
 };
 
@@ -221,6 +226,50 @@ public:
     virtual ~Assets() = default;
     [[nodiscard]] virtual Asset* find(const std::string& path) = 0;
     [[nodiscard]] virtual bool exists(const std::string& path) const = 0;
+    virtual bool request(const std::string& path) = 0;
+};
+
+template <typename T, typename E = std::string>
+class Result {
+public:
+    static Result success(T value) {
+        Result result;
+        result.m_value = std::move(value);
+        return result;
+    }
+
+    static Result failure(E error) {
+        Result result;
+        result.m_error = std::move(error);
+        return result;
+    }
+
+    [[nodiscard]] bool isOk() const { return m_value.has_value(); }
+    [[nodiscard]] bool isError() const { return !isOk(); }
+    [[nodiscard]] const T* value() const { return m_value ? &*m_value : nullptr; }
+    [[nodiscard]] const E* error() const { return m_error ? &*m_error : nullptr; }
+
+private:
+    std::optional<T> m_value;
+    std::optional<E> m_error;
+};
+
+template <typename E>
+class Result<void, E> {
+public:
+    static Result success() { return Result{}; }
+    static Result failure(E error) {
+        Result result;
+        result.m_error = std::move(error);
+        return result;
+    }
+
+    [[nodiscard]] bool isOk() const { return !m_error.has_value(); }
+    [[nodiscard]] bool isError() const { return !isOk(); }
+    [[nodiscard]] const E* error() const { return m_error ? &*m_error : nullptr; }
+
+private:
+    std::optional<E> m_error;
 };
 
 class UI {
@@ -246,6 +295,10 @@ public:
     virtual void on_start() {}
     virtual void on_destroy() {}
     virtual void on_collision_enter(const Entity& other) { static_cast<void>(other); }
+    virtual void on_event(const std::string& name, const std::string& payload) {
+        static_cast<void>(name);
+        static_cast<void>(payload);
+    }
     virtual bool set_exposed_property(const std::string& name, const ExposedPropertyValue& value) {
         static_cast<void>(name);
         static_cast<void>(value);
@@ -281,9 +334,53 @@ public:
             : AsyncScheduler::FixedUpdateAwaiter{nullptr, task_scope_id};
     }
 
+    [[nodiscard]] Entity instantiate(const std::string& name) const {
+        return entities ? entities->create(name) : Entity{};
+    }
+
+    [[nodiscard]] std::vector<Entity> findEntities(const std::string& tag) const {
+        return entities ? entities->findAllByTag(tag) : std::vector<Entity>{};
+    }
+
+    template <typename T>
+    void launch(Task<T> task) {
+        if (task.is_valid() && !task.is_done()) {
+            m_owned_tasks.push_back(std::make_unique<OwnedTask<T>>(std::move(task)));
+        }
+    }
+
+    void reap_completed_tasks() {
+        std::erase_if(m_owned_tasks, [](const std::unique_ptr<OwnedTaskBase>& task) {
+            return !task || task->is_done();
+        });
+    }
+
+    void cancel_owned_tasks() {
+        for (const auto& task : m_owned_tasks) if (task) task->cancel();
+        m_owned_tasks.clear();
+    }
+
     uint32_t entity_id = 0;
     uint32_t task_scope_id = 0;
     AsyncScheduler* async_scheduler = nullptr;
+    Entities* entities = nullptr;
+
+private:
+    struct OwnedTaskBase {
+        virtual ~OwnedTaskBase() = default;
+        [[nodiscard]] virtual bool is_done() const = 0;
+        virtual void cancel() = 0;
+    };
+
+    template <typename T>
+    struct OwnedTask final : OwnedTaskBase {
+        explicit OwnedTask(Task<T> task_value) : task(std::move(task_value)) {}
+        [[nodiscard]] bool is_done() const override { return task.is_done(); }
+        void cancel() override { task.cancel(); }
+        Task<T> task;
+    };
+
+    std::vector<std::unique_ptr<OwnedTaskBase>> m_owned_tasks;
 };
 
 using BehaviourFactoryFn = std::function<void*(void** args)>;

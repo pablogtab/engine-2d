@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include "enginescript/EngineScript.hpp"
+#include "enginescript/module/NativeModuleBuilder.hpp"
 
 namespace fs = std::filesystem;
 using namespace EngineScript;
@@ -14,6 +15,7 @@ void print_usage() {
               << "Options:\n"
               << "  -o, --output <dir>    Output directory for generated C++ and metadata (default: <project_dir>/.e2s_build)\n"
               << "  -c, --check           Type-check and verify without generating C++ files\n"
+              << "  --native-module        Build the native gameplay module under Library/EngineScript\n"
               << "  --json-diagnostics    Emit diagnostics as JSON formatted strings\n"
               << "  -v, --version         Print version information\n"
               << "  -h, --help            Show this help message\n";
@@ -29,6 +31,7 @@ int main(int argc, char* argv[]) {
     std::string output_dir;
     bool check_only = false;
     bool json_diagnostics = false;
+    bool native_module = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -42,6 +45,8 @@ int main(int argc, char* argv[]) {
             check_only = true;
         } else if (arg == "--json-diagnostics") {
             json_diagnostics = true;
+        } else if (arg == "--native-module") {
+            native_module = true;
         } else if (arg == "-o" || arg == "--output") {
             if (i + 1 < argc) {
                 output_dir = argv[++i];
@@ -113,6 +118,16 @@ int main(int argc, char* argv[]) {
 
     if (check_only) {
         std::cout << "Verification successful. " << file_count << " files checked with 0 errors.\n";
+        return 0;
+    }
+
+    if (native_module) {
+        const NativeModuleBuildResult native = NativeModuleBuilder::build(workspace, project_dir, 1);
+        if (!native.success) {
+            std::cerr << "Native module build failed: " << native.error << "\n";
+            return 1;
+        }
+        std::cout << "Built native EngineScript module: " << native.library_path << "\n";
         return 0;
     }
 

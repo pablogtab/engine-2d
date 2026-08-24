@@ -92,7 +92,13 @@ connected execution surface includes:
 
 - `Audio`: `playSound`, `playMusic`, music transport, and master/music/SFX
   volume controls;
-- `Scene`: `load(path)` and `currentName()`.
+- `Scene`: `load(path)`, `currentName()`, `isLoading()`, and `lastError()`.
+  A successful request advances through two frame boundaries before the new
+  runtime scene is activated; scripts can subscribe to `SceneLoaded` or
+  `SceneLoadFailed` through `Events`.
+- `Assets`: `find(path)`, `exists(path)`, and `request(path)`. Requests only
+  accept registered ready assets and resolve at the next frame boundary,
+  emitting `AssetLoaded` or `AssetLoadFailed` through `Events`.
 
 These services use the same calls in editor Play Mode and generated native
 modules. Audio and scene requests are routed through the host runtime, so a
@@ -114,7 +120,8 @@ visible to authored scripts yet.
 Exposed properties use a typed bridge shared by the runtime and generated
 behaviours: `Bool`, numbers, `String`, `Vec2`, and `Entity` are pushed from the
 Inspector before each lifecycle callback and pulled back afterwards. Asset
-references remain metadata-only until the asset runtime binding is available.
+queries resolve the project's stable asset records without exposing filesystem
+access to gameplay code.
 
 The catalog excludes editor-only controls, SDL/GPU backend details, arbitrary
 filesystem access, and engine-private state. Every new runtime system or
@@ -131,9 +138,14 @@ It registers every behaviour factory through that export symbol; native build
 targets compile this file together with the generated behaviour sources.
 
 `NativeModuleBuilder` has two explicit outputs: `DynamicLibrary` is used by
-desktop Play Mode, while `StaticSources` writes the same generated sources and
-entrypoint for an export target to compile and link statically. Neither mode
-writes authored project content.
+desktop Play Mode and the current packaged runtime, while `StaticSources`
+writes the same generated sources and entrypoint for future static-link export
+targets. Neither mode writes authored project content.
+
+The runtime staging target invokes `e2sc --native-module` after copying the
+project into the package. The standalone detects that staged module at
+`Library/EngineScript/Generated/1` and loads it directly; it only uses the
+development-time compiler fallback when that packaged artifact is absent.
 
 ## Hot reload
 
@@ -149,7 +161,11 @@ The native backend maps `Task<T>` and `await` to C++20 coroutines scheduled by
 `AsyncScheduler`. Each scheduled suspension holds a checked lifetime token. If
 its `Task` is discarded or its entity scope is cancelled, the scheduler removes
 the entry without touching the destroyed coroutine frame. Authored async method
-execution through the editor's TypedIR adapter is still pending.
+calls returning `Task<T>` are retained by their owning behaviour, advanced at
+the frame boundary, and cancelled when that behaviour is destroyed or reloaded.
+The native SDK supplies `Result<T, String>` with `success`, `failure`, `isOk`,
+`isError`, `value`, and `error`; parser-level result construction remains part
+of the remaining language-expression work.
 
 ## Compiler cache and generated content
 

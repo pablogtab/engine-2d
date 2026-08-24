@@ -43,6 +43,7 @@ struct ScriptRuntimeBinding {
     const AssetDatabase* asset_database{nullptr};
     EntityID entity{0};
     const ScriptRuntimeServices* services{nullptr};
+    EngineScript::AsyncScheduler* async_scheduler{nullptr};
 };
 
 class NativeBehaviourHost {
@@ -117,6 +118,8 @@ public:
     }
 
     void** arguments() { return m_arguments.empty() ? nullptr : m_arguments.data(); }
+    [[nodiscard]] EngineScript::Entities* entities() { return &m_entities; }
+    [[nodiscard]] bool is_subscribed_to(const std::string& name) const { return m_events.is_subscribed_to(name); }
 
 private:
     class Input final : public EngineScript::Input {
@@ -149,6 +152,8 @@ private:
         explicit Scene(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
         bool load(const std::string& path) override { std::string error; return m_binding.services && m_binding.services->request_scene_load && m_binding.services->request_scene_load(path, error); }
         std::string currentName() const override { return m_binding.services && m_binding.services->current_scene_name ? m_binding.services->current_scene_name() : std::string{}; }
+        bool isLoading() const override { return m_binding.services && m_binding.services->is_scene_loading && m_binding.services->is_scene_loading(); }
+        std::string lastError() const override { return m_binding.services && m_binding.services->scene_load_error ? m_binding.services->scene_load_error() : std::string{}; }
     private: const ScriptRuntimeBinding& m_binding; };
     class Events final : public EngineScript::Events {
     public:
@@ -158,7 +163,18 @@ private:
             m_binding.event_dispatcher->queue(ScriptEvent{m_binding.entity, name, payload});
             return true;
         }
-    private: const ScriptRuntimeBinding& m_binding; };
+        bool subscribe(const std::string& name) override {
+            if (name.empty()) return false;
+            m_subscriptions.insert(name);
+            return true;
+        }
+        [[nodiscard]] bool is_subscribed_to(const std::string& name) const {
+            return m_subscriptions.contains(name);
+        }
+    private:
+        const ScriptRuntimeBinding& m_binding;
+        std::unordered_set<std::string> m_subscriptions;
+    };
     class Assets final : public EngineScript::Assets {
     public:
         explicit Assets(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
@@ -171,6 +187,27 @@ private:
             return &m_asset;
         }
         bool exists(const std::string& path) const override { return record_for(path) != nullptr; }
+        bool request(const std::string& path) override {
+            const AssetRecord* record = record_for(path);
+            if (!record || record->status != AssetStatus::Ready || !m_binding.async_scheduler || !m_binding.event_dispatcher) return false;
+            const AssetHandle handle = record->handle;
+            const std::string source_path = record->source_path;
+            const EntityID entity = m_binding.entity;
+            const AssetDatabase* database = m_binding.asset_database;
+            EventDispatcher* dispatcher = m_binding.event_dispatcher;
+            m_binding.async_scheduler->schedule_next_frame([database, dispatcher, entity, handle, source_path]() {
+                std::error_code error;
+                const std::string resolved_path = database ? database->resolve(handle) : std::string{};
+                const bool available = dispatcher && !resolved_path.empty() &&
+                    std::filesystem::is_regular_file(resolved_path, error) && !error;
+                dispatcher->queue(ScriptEvent{
+                    entity,
+                    available ? "AssetLoaded" : "AssetLoadFailed",
+                    source_path
+                });
+            }, entity);
+            return true;
+        }
     private:
         const AssetRecord* record_for(const std::string& path) const {
             if (!m_binding.asset_database) return nullptr;
@@ -1296,19 +1333,27 @@ ScriptRuntimeStartResult ScriptRuntime::start(
 
     std::shared_ptr<EngineScript::GameModule> generated_native_module;
     std::string native_build_error;
-    const EngineScript::NativeModuleBuildResult native_build = EngineScript::NativeModuleBuilder::build(
-        *m_native_workspace,
-        asset_database.project_root().string(),
-        m_next_native_build_number++
-    );
-    if (native_build.success) {
+    if (!m_services.native_module_path.empty()) {
         std::unique_ptr<EngineScript::GameModule> loaded = EngineScript::GameModule::load_dynamic_library(
-            native_build.library_path,
+            m_services.native_module_path,
             &native_build_error
         );
         if (loaded) generated_native_module = std::shared_ptr<EngineScript::GameModule>(std::move(loaded));
     } else {
-        native_build_error = native_build.error;
+        const EngineScript::NativeModuleBuildResult native_build = EngineScript::NativeModuleBuilder::build(
+            *m_native_workspace,
+            asset_database.project_root().string(),
+            m_next_native_build_number++
+        );
+        if (native_build.success) {
+            std::unique_ptr<EngineScript::GameModule> loaded = EngineScript::GameModule::load_dynamic_library(
+                native_build.library_path,
+                &native_build_error
+            );
+            if (loaded) generated_native_module = std::shared_ptr<EngineScript::GameModule>(std::move(loaded));
+        } else {
+            native_build_error = native_build.error;
+        }
     }
     if (!generated_native_module) {
         const std::string error = native_build_error.empty()
@@ -1427,6 +1472,7 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         instance.binding->asset_database = &asset_database;
         instance.binding->entity = entity;
         instance.binding->services = &m_services;
+        instance.binding->async_scheduler = m_native_async_scheduler.get();
         void** factory_arguments = nullptr;
         {
             const auto registration = std::find_if(
@@ -1463,6 +1509,7 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         instance.behaviour->entity_id = entity;
         instance.behaviour->task_scope_id = entity;
         instance.behaviour->async_scheduler = m_native_async_scheduler.get();
+        instance.behaviour->entities = instance.native_host ? instance.native_host->entities() : nullptr;
         push_exposed_properties(*instance.behaviour, mutable_component, entity_manager);
         instance.behaviour->on_start();
         if (instance.native_host) instance.native_host->sync_after();
@@ -1528,6 +1575,16 @@ void ScriptRuntime::subscribe_to_events() {
             m_pending_events.push_back(std::move(pending));
         })
     );
+    m_event_subscriptions.push_back(
+        m_event_dispatcher->subscribe<ScriptEvent>([this](const ScriptEvent& event) {
+            queue_custom_event(event.source, event.name, event.payload);
+        })
+    );
+    m_event_subscriptions.push_back(
+        m_event_dispatcher->subscribe<GameSessionEvent>([this](const GameSessionEvent& event) {
+            queue_custom_event(0, event.name, event.error.empty() ? event.path : event.error);
+        })
+    );
 }
 
 void ScriptRuntime::unsubscribe_from_events() {
@@ -1575,6 +1632,21 @@ void ScriptRuntime::dispatch_events() {
                             m_entity_manager->get_component<ScriptComponent>(instance.entity)
                         );
                     }
+                }
+            }
+        }
+        if (event.type == PendingEventType::Custom) {
+            for (auto& instance : m_instances) {
+                if (!instance.behaviour || !instance.native_host || !instance.native_host->is_subscribed_to(event.name)) continue;
+                instance.native_host->sync_before();
+                instance.behaviour->on_event(event.name, event.payload);
+                instance.native_host->sync_after();
+                if (m_entity_manager->is_alive(instance.entity) &&
+                    m_entity_manager->has_component<ScriptComponent>(instance.entity)) {
+                    pull_exposed_properties(
+                        *instance.behaviour,
+                        m_entity_manager->get_component<ScriptComponent>(instance.entity)
+                    );
                 }
             }
         }
@@ -1678,9 +1750,31 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
 
 void ScriptRuntime::update(float delta_time) {
     if (m_native_async_scheduler) {
-        m_native_async_scheduler->step(delta_time, delta_time);
+        for (auto& inst : m_instances) {
+            const auto status_found = m_statuses.find(inst.entity);
+            if (status_found != m_statuses.end() && status_found->second.state == ScriptExecutionState::Error) continue;
+            if (!m_entity_manager || !m_entity_manager->is_alive(inst.entity) ||
+                !m_entity_manager->has_component<ScriptComponent>(inst.entity) || !inst.behaviour) continue;
+            const auto& component = m_entity_manager->get_component<ScriptComponent>(inst.entity);
+            if (!component.enabled) continue;
+            if (inst.native_host) inst.native_host->sync_before();
+            push_exposed_properties(*inst.behaviour, component, *m_entity_manager);
+        }
+        if (m_native_async_scheduler) {
+            m_native_async_scheduler->step(delta_time, delta_time);
+        }
+        for (auto& inst : m_instances) {
+            if (!m_entity_manager || !m_entity_manager->is_alive(inst.entity) ||
+                !m_entity_manager->has_component<ScriptComponent>(inst.entity) || !inst.behaviour) continue;
+            if (inst.native_host) inst.native_host->sync_after();
+            pull_exposed_properties(
+                *inst.behaviour,
+                m_entity_manager->get_component<ScriptComponent>(inst.entity)
+            );
+        }
     }
     for (auto& inst : m_instances) {
+        if (inst.behaviour) inst.behaviour->reap_completed_tasks();
         const auto status_found = m_statuses.find(inst.entity);
         if (status_found != m_statuses.end() && status_found->second.state == ScriptExecutionState::Error) continue;
         if (!m_entity_manager || !m_entity_manager->is_alive(inst.entity) ||
@@ -1707,6 +1801,7 @@ void ScriptRuntime::shutdown() {
     for (auto& inst : m_instances) {
         if (inst.behaviour) {
             if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(inst.behaviour->task_scope_id);
+            inst.behaviour->cancel_owned_tasks();
             inst.behaviour->on_destroy();
         }
     }

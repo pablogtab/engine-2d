@@ -4,6 +4,7 @@
 #include "core/ProjectContext.hpp"
 #include "scene/GenericScene.hpp"
 #include "scene/SceneSerializer.hpp"
+#include "enginescript/module/GameModule.hpp"
 
 #include <filesystem>
 #include <iostream>
@@ -25,6 +26,17 @@ std::filesystem::path packaged_project_root(const char* executable_argument) {
     const auto resources = executable.parent_path().parent_path() / "Resources";
     return std::filesystem::is_regular_file(resources / "project.engine2d", error)
         ? resources : std::filesystem::path{};
+}
+
+std::filesystem::path packaged_native_module(const Engine::ProjectContext& project) {
+#if defined(_WIN32)
+    constexpr const char* native_module_name = "EngineScript_1.dll";
+#elif defined(__APPLE__)
+    constexpr const char* native_module_name = "libEngineScript_1.dylib";
+#else
+    constexpr const char* native_module_name = "libEngineScript_1.so";
+#endif
+    return project.resolve(std::filesystem::path("Library/EngineScript/Generated/1") / native_module_name);
 }
 
 class StandaloneApplication final : public Engine::Application {
@@ -69,9 +81,18 @@ int run_smoke_test(const Engine::ProjectContext& project) {
         std::cerr << "[RUNTIME SMOKE] Startup scene could not be deserialized\n";
         return 1;
     }
+    const std::filesystem::path native_module_path = packaged_native_module(project);
+    std::string module_error;
+    const std::unique_ptr<EngineScript::GameModule> native_module =
+        EngineScript::GameModule::load_dynamic_library(native_module_path.string(), &module_error);
+    if (!native_module) {
+        std::cerr << "[RUNTIME SMOKE] Native gameplay module is unavailable: " << module_error << '\n';
+        return 1;
+    }
     std::cout << "[RUNTIME SMOKE] Project=" << project.descriptor().name
               << " Assets=" << scan.ready
-              << " Scene=" << project.descriptor().startup_scene.generic_string() << '\n';
+              << " Scene=" << project.descriptor().startup_scene.generic_string()
+              << " NativeModule=" << native_module->descriptor().module_name << '\n';
     return 0;
 }
 

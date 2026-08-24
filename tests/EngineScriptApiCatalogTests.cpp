@@ -17,12 +17,19 @@ int main() {
     assert(catalog.has_available_type("Audio"));
     assert(catalog.has_available_type("Scene"));
     assert(catalog.has_available_function("delay"));
-    assert(!catalog.has_available_function("instantiate"));
+    assert(catalog.has_available_function("instantiate"));
+    assert(catalog.has_available_function("findEntities"));
     const ApiMethodDescriptor* play_sound = catalog.find_available_method("Audio", "playSound");
     assert(play_sound != nullptr);
     assert(play_sound->return_type == "Bool");
     assert(play_sound->min_arguments == 1);
     assert(play_sound->max_arguments == 3);
+    const ApiMethodDescriptor* request_asset = catalog.find_available_method("Assets", "request");
+    assert(request_asset != nullptr);
+    assert(request_asset->return_type == "Bool");
+    const ApiMethodDescriptor* scene_loading = catalog.find_available_method("Scene", "isLoading");
+    assert(scene_loading != nullptr);
+    assert(scene_loading->return_type == "Bool");
 
     std::cout << "[PASS] EngineScriptApiCatalogTests passed!\n";
     return 0;

@@ -328,13 +328,14 @@ add_custom_target(stage_runtime_assets
         "-DENGINE_PROJECT_DIR=${ENGINE_PROJECT_DIR}"
         "-DENGINE_STAGE_DIR=${CMAKE_BINARY_DIR}/runtime"
         "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"
+        "-DENGINE_SCRIPT_COMPILER=$<TARGET_FILE:e2sc>"
         "-DENGINE_SHADER_VARIANT=${ENGINE_RUNTIME_SHADER_VARIANT}"
         "-DENGINE_SHADER_FORMAT=${ENGINE_RUNTIME_SHADER_FORMAT}"
         "-DENGINE_SHADER_ENTRY_POINT=${ENGINE_RUNTIME_SHADER_ENTRY_POINT}"
         "-DENGINE_SHADER_DESCRIPTOR=${ENGINE_RUNTIME_SHADER_DESCRIPTOR}"
         "-DENGINE_SHADER_VARIANT_BASE=${ENGINE_RUNTIME_SHADER_VARIANT_BASE}"
         -P "${CMAKE_SOURCE_DIR}/cmake/StageRuntimeAssets.cmake"
-    DEPENDS Engine2DStandalone compile_shaders
+    DEPENDS Engine2DStandalone e2sc compile_shaders
     COMMENT "Staging runtime assets with the platform shader variant"
     VERBATIM
 )

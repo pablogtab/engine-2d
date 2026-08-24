@@ -2,6 +2,7 @@
 #include <iostream>
 #include "enginescript/async/Task.hpp"
 #include "enginescript/async/AsyncScheduler.hpp"
+#include "enginescript/module/GameModule.hpp"
 
 using namespace EngineScript;
 
@@ -22,6 +23,13 @@ int main() {
     auto t1 = async_add(10, 20);
     assert(t1.is_done());
     assert(t1.get_result() == 30);
+
+    const Result<int, std::string> successful_result = Result<int, std::string>::success(42);
+    assert(successful_result.isOk());
+    assert(successful_result.value() && *successful_result.value() == 42);
+    const Result<int, std::string> failed_result = Result<int, std::string>::failure("not found");
+    assert(failed_result.isError());
+    assert(failed_result.error() && *failed_result.error() == "not found");
 
     // Test 2: Scheduler delay and time stepping
     AsyncScheduler scheduler;

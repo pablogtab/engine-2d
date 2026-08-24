@@ -1,4 +1,4 @@
-foreach(required ENGINE_SOURCE_DIR ENGINE_PROJECT_DIR ENGINE_STAGE_DIR ENGINE_EXECUTABLE)
+foreach(required ENGINE_SOURCE_DIR ENGINE_PROJECT_DIR ENGINE_STAGE_DIR ENGINE_EXECUTABLE ENGINE_SCRIPT_COMPILER)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "${required} is required")
     endif()
@@ -19,6 +19,15 @@ file(MAKE_DIRECTORY "${ENGINE_STAGE_DIR}")
 file(COPY "${ENGINE_PROJECT_DIR}/Assets" DESTINATION "${ENGINE_STAGE_DIR}")
 file(COPY "${ENGINE_PROJECT_DIR}/ProjectSettings" DESTINATION "${ENGINE_STAGE_DIR}")
 file(COPY_FILE "${ENGINE_PROJECT_DIR}/project.engine2d" "${ENGINE_STAGE_DIR}/project.engine2d" ONLY_IF_DIFFERENT)
+execute_process(
+    COMMAND "${ENGINE_SCRIPT_COMPILER}" "${ENGINE_STAGE_DIR}" --native-module
+    RESULT_VARIABLE native_module_result
+    OUTPUT_VARIABLE native_module_output
+    ERROR_VARIABLE native_module_error
+)
+if(NOT native_module_result EQUAL 0)
+    message(FATAL_ERROR "Could not build packaged EngineScript module:\n${native_module_output}${native_module_error}")
+endif()
 get_filename_component(executable_name "${ENGINE_EXECUTABLE}" NAME)
 file(COPY_FILE "${ENGINE_EXECUTABLE}" "${ENGINE_STAGE_DIR}/${executable_name}" ONLY_IF_DIFFERENT)
 

@@ -71,6 +71,17 @@ struct ScriptEvent : public IEvent {
     std::type_index get_type_index() const override { return std::type_index(typeid(ScriptEvent)); }
 };
 
+struct GameSessionEvent : public IEvent {
+    std::string name;
+    std::string path;
+    std::string error;
+
+    GameSessionEvent(std::string event_name, std::string scene_path, std::string failure = {})
+        : name(std::move(event_name)), path(std::move(scene_path)), error(std::move(failure)) {}
+    const char* get_name() const override { return "GameSessionEvent"; }
+    std::type_index get_type_index() const override { return std::type_index(typeid(GameSessionEvent)); }
+};
+
 struct UIButtonClickedEvent : public IEvent {
     EntityID entity;
 

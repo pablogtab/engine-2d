@@ -25,7 +25,7 @@ execute_process(
 if(NOT smoke_result EQUAL 0)
     message(FATAL_ERROR "macOS export smoke test failed:\n${smoke_output}${smoke_error}")
 endif()
-if(NOT smoke_output MATCHES "\\[RUNTIME SMOKE\\] Project=[^ ]+ Assets=[0-9]+ Scene=Assets/")
+if(NOT smoke_output MATCHES "\\[RUNTIME SMOKE\\] Project=[^ ]+ Assets=[0-9]+ Scene=Assets/[^ ]+ NativeModule=[^ ]+")
     message(FATAL_ERROR "macOS export smoke test did not confirm packaged resources:\n${smoke_output}")
 endif()
 

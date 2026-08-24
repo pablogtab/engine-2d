@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Scene.hpp"
+#include "GameSession.hpp"
 #include "../scripting/ScriptRuntime.hpp"
 #include <vector>
 #include <memory>
@@ -61,6 +62,9 @@ public:
     [[nodiscard]] bool is_playing() const { return m_play_state == ScenePlayState::Play; }
     [[nodiscard]] bool is_paused() const { return m_play_state == ScenePlayState::Pause; }
     [[nodiscard]] bool is_editing() const { return m_play_state == ScenePlayState::Edit; }
+    [[nodiscard]] const GameSession& game_session() const { return m_game_session; }
+    [[nodiscard]] bool is_runtime_scene_loading() const { return m_game_session.state() == GameSession::TransitionState::Requested; }
+    [[nodiscard]] const std::string& runtime_scene_load_error() const { return m_game_session.error(); }
     [[nodiscard]] const SceneLoadProgress& play_load_progress() const { return m_play_load_progress; }
     [[nodiscard]] const ScriptRuntime& get_script_runtime() const { return m_script_runtime; }
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
@@ -91,6 +95,7 @@ private:
     void start_scripts(Scene& scene);
     void advance_play_startup();
     [[nodiscard]] bool request_runtime_scene_load(const std::string& path, std::string& error);
+    void advance_runtime_scene_load();
     void activate_pending_runtime_scene();
 
     std::vector<std::shared_ptr<Scene>> m_scenes;
@@ -98,6 +103,8 @@ private:
     std::shared_ptr<Scene> m_transient_scene{nullptr};
     std::shared_ptr<Scene> m_runtime_scene{nullptr};
     std::shared_ptr<Scene> m_pending_runtime_scene{nullptr};
+    std::string m_requested_runtime_scene_path;
+    GameSession m_game_session;
     RenderViewConfiguration m_editor_view;
     RenderViewConfiguration m_game_view;
 

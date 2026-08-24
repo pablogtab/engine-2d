@@ -16,6 +16,7 @@
 #include "events/Event.hpp"
 #include "events/EventDispatcher.hpp"
 #include "scripting/ScriptRuntime.hpp"
+#include "scene/GameSession.hpp"
 #include "enginescript/editor/EngineScriptWorkspace.hpp"
 #include "enginescript/async/AsyncScheduler.hpp"
 
@@ -50,8 +51,21 @@ export class PlayerController extends Behaviour {
     @expose
     tickCount: Float = 0.0;
 
+    @expose
+    asyncCompleted: Bool = false;
+
+    override on_start(): Void {
+        compute_async_value();
+    }
+
     override update(deltaTime: Float): Void {
         tickCount = tickCount + 1.0;
+    }
+
+    async compute_async_value(): Task<Int> {
+        await nextFrame();
+        asyncCompleted = true;
+        return 7;
     }
 }
 )";
@@ -88,6 +102,11 @@ export class PlayerController extends Behaviour {
     });
     assert(tick != updated.public_fields.end());
     assert(std::get<double>(tick->value) == 2.0);
+    const auto async_completed = std::find_if(updated.public_fields.begin(), updated.public_fields.end(), [](const ScriptPublicField& field) {
+        return field.name == "asyncCompleted";
+    });
+    assert(async_completed != updated.public_fields.end());
+    assert(std::get<bool>(async_completed->value));
     
     runtime.shutdown();
     assert(runtime.instance_count() == 0);
@@ -114,6 +133,29 @@ void test_async_scheduler_cancellation() {
 
     assert(!task_completed);
     assert(scheduler.pending_tasks_count() == 0);
+
+    std::cout << "PASSED\n";
+}
+
+void test_game_session_transitions() {
+    std::cout << "[Test] GameSession_TracksTransitions... ";
+
+    GameSession session;
+    std::string error;
+    assert(!session.request_scene("", error));
+    assert(session.state() == GameSession::TransitionState::Idle);
+    assert(session.request_scene("Assets/Scenes/Level2.scene", error));
+    assert(session.state() == GameSession::TransitionState::Requested);
+    assert(session.path() == "Assets/Scenes/Level2.scene");
+    session.complete_loaded();
+    assert(session.state() == GameSession::TransitionState::Loaded);
+    session.reset();
+    assert(session.request_scene("Assets/Scenes/Missing.scene", error));
+    session.complete_failed("missing scene");
+    assert(session.state() == GameSession::TransitionState::Failed);
+    assert(session.error() == "missing scene");
+    session.cancel();
+    assert(session.state() == GameSession::TransitionState::Cancelled);
 
     std::cout << "PASSED\n";
 }
@@ -322,6 +364,9 @@ export class ServiceUser extends Behaviour {
         @inject private ui: UI
     ) {}
 
+    @expose
+    received: String = "";
+
     override on_start(): Void {
         audio.setMasterVolume(0.65);
         audio.playSound("Assets/Audio/start.wav", 0.5, 1.25);
@@ -330,12 +375,20 @@ export class ServiceUser extends Behaviour {
         display.setVsync(display.pixelWidth == 1920);
         display.setFullscreen(false);
         events.emit("PlayerReady", "level-2");
+        events.subscribe("PlayerReady");
+        events.subscribe("AssetLoaded");
         if (assets.exists("Assets/scripts/ServiceUser.e2s")) {
             events.emit("AssetReady", "script");
         }
+        assets.request("Assets/scripts/ServiceUser.e2s");
         let status: Entity = entities.findByName("Status");
         ui.setText(status, "Ready");
         ui.setVisible(status, true);
+        instantiate("Transient");
+    }
+
+    on_event(name: String, payload: String): Void {
+        received = name + ":" + payload;
     }
 }
 )";
@@ -404,9 +457,12 @@ export class ServiceUser extends Behaviour {
     dispatcher.subscribe<ScriptEvent>([&](const ScriptEvent& event) {
         assert(event.source == entity);
         if (event.name == "PlayerReady") assert(event.payload == "level-2");
-        else {
+        else if (event.name == "AssetReady") {
             assert(event.name == "AssetReady");
             assert(event.payload == "script");
+        } else {
+            assert(event.name == "AssetLoaded");
+            assert(event.payload == "Assets/scripts/ServiceUser.e2s");
         }
         ++script_events;
     });
@@ -421,8 +477,21 @@ export class ServiceUser extends Behaviour {
     assert(loaded_scene == "Assets/Scenes/Level2.scene");
     assert(display_changes == 2);
     assert(entity_manager.get_component<UITextComponent>(status).text == "Ready");
+    bool transient_exists = false;
+    entity_manager.for_each<TagComponent>([&](EntityID, const TagComponent& tag) {
+        transient_exists = transient_exists || tag.tag == "Transient";
+    });
+    assert(transient_exists);
+    runtime.update(0.0f);
     dispatcher.dispatch_queued();
-    assert(script_events == 2);
+    runtime.dispatch_events();
+    assert(script_events == 3);
+    const ScriptComponent& updated_component = entity_manager.get_component<ScriptComponent>(entity);
+    const auto received = std::find_if(updated_component.public_fields.begin(), updated_component.public_fields.end(), [](const ScriptPublicField& field) {
+        return field.name == "received";
+    });
+    assert(received != updated_component.public_fields.end());
+    assert(std::get<std::string>(received->value) == "AssetLoaded:Assets/scripts/ServiceUser.e2s");
 
     runtime.shutdown();
     fs::remove_all(root, error);
@@ -436,6 +505,7 @@ int main() {
     test_coin_pickup_speed_boost();
     test_audio_and_scene_services();
     test_async_scheduler_cancellation();
+    test_game_session_transitions();
     test_e2s_script_inspection();
     std::cout << "=== All EngineScript Play Mode Tests Passed! ===\n";
     return 0;

@@ -124,6 +124,21 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_scene_manager.set_asset_database(&AssetDatabase::get());
     ScriptRuntimeServices script_services;
     script_services.hot_reload_enabled = start_with_editor;
+    if (!start_with_editor) {
+#if defined(_WIN32)
+        constexpr const char* native_module_name = "EngineScript_1.dll";
+#elif defined(__APPLE__)
+        constexpr const char* native_module_name = "libEngineScript_1.dylib";
+#else
+        constexpr const char* native_module_name = "libEngineScript_1.so";
+#endif
+        const std::filesystem::path native_module = m_project.resolve(
+            std::filesystem::path("Library/EngineScript/Generated/1") / native_module_name
+        );
+        if (std::filesystem::is_regular_file(native_module)) {
+            script_services.native_module_path = native_module.string();
+        }
+    }
     script_services.play_sound = [](const std::string& path, float volume, float pitch, std::string&) {
         AudioEngine::play_sound(path, volume, pitch);
         return true;

@@ -373,9 +373,10 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Synchronize Inspector public-field edits into running instances for live Play Mode tuning.
 - [x] Keep Play Mode changes isolated and discard them unconditionally on Stop.
 - [x] Keep runtime script state distinct from serialized public fields.
-- [ ] Complete remaining runtime bindings for audio, asset queries, display, scene loading, UI/custom events, and the full language expression surface.
-- [ ] Load the generated native `GameModule` in standalone exports; editor Play Mode currently uses the compiler's TypedIR-backed module adapter.
-- [ ] Execute authored async methods through the runtime scheduler; coroutine generation and lifetime-safe cancellation are already covered at the native backend layer.
+- [x] Bind audio, asset availability requests, display, deferred scene loading, UI, and custom events with Play/export parity.
+- [ ] Complete the remaining language expression surface and typed resource loaders.
+- [x] Stage and load the generated native `GameModule` in standalone exports; editor Play Mode keeps the development-time rebuild path for hot reload.
+- [x] Execute authored async methods through the runtime scheduler; spawned `Task<Void>` calls are behaviour-owned and cancelled with their entity scope.
 
 **Completion criteria:** Gameplay behavior can be authored, inspected, debugged, and reloaded while Edit and Play state remain predictably isolated.
 

@@ -43,6 +43,8 @@ private:
 
     const SourceManager& m_source_manager;
     std::unordered_set<std::string> m_injected_members;
+    std::unordered_set<std::string> m_async_task_methods;
+    bool m_emitting_async_method{false};
 };
 
 } // namespace EngineScript

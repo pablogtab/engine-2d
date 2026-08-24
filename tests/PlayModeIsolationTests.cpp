@@ -71,7 +71,11 @@ export class Move extends Behaviour {
     write_file(root / "Assets/scripts/SwitchScene.e2s", R"(
 @behaviour
 export class SwitchScene extends Behaviour {
-    override update(deltaTime: Float): Void {}
+    constructor(@inject private scene: Scene) {}
+
+    override on_start(): Void {
+        scene.load("Assets/scenes/Runtime.scene");
+    }
 }
 )");
     write_file(root / "Assets/scenes/Runtime.scene", "{}\n");
@@ -125,6 +129,35 @@ export class SwitchScene extends Behaviour {
     assert(restored_body.mass == authored_body.mass);
     assert(restored_body.friction == authored_body.friction);
     assert(restored_body.active_forces.empty());
+
+    auto switching_scene = std::make_shared<TestScene>("DeferredSceneSource");
+    const EntityID switching_entity = switching_scene->get_entity_manager().create_entity();
+    ScriptComponent switching_component;
+    switching_component.script_handle = switch_script->handle;
+    switching_scene->get_entity_manager().add_component<ScriptComponent>(switching_entity, switching_component);
+    SceneManager switching_manager;
+    switching_manager.set_asset_database(&database);
+    switching_manager.set_runtime_scene_loader([](const std::string& path, std::string& error) -> std::shared_ptr<Scene> {
+        if (path != "Assets/scenes/Runtime.scene") {
+            error = "unexpected scene path";
+            return std::shared_ptr<Scene>{};
+        }
+        return std::make_shared<TestScene>("DeferredRuntimeScene");
+    });
+    switching_manager.add_scene(switching_scene);
+    switching_manager.start_play();
+    switching_manager.update(0.0f);
+    switching_manager.update(0.0f);
+    switching_manager.update(0.0f);
+    assert(switching_manager.game_session().state() == GameSession::TransitionState::Requested);
+    assert(switching_manager.is_runtime_scene_loading());
+    switching_manager.update(0.0f);
+    assert(switching_manager.game_session().state() == GameSession::TransitionState::Requested);
+    switching_manager.update(0.0f);
+    assert(switching_manager.game_session().state() == GameSession::TransitionState::Loaded);
+    assert(!switching_manager.is_runtime_scene_loading());
+    assert(switching_manager.get_active_scene()->get_name() == "DeferredRuntimeScene");
+    switching_manager.stop_play();
 
     auto history_scene = std::make_shared<TestScene>("CommandHistoryIsolation");
     EntityManager& history_entities = history_scene->get_entity_manager();

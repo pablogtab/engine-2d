@@ -312,8 +312,14 @@ void CppEmitter::emit_function_header(const IRFunction& fn, std::string& out) {
 void CppEmitter::emit_class_source(const IRClass& cls, const std::string& header_name, std::string& out) {
     static_cast<void>(header_name);
     m_injected_members.clear();
+    m_async_task_methods.clear();
     for (const auto& parameter : cls.constructor_params) {
         m_injected_members.insert(parameter.name);
+    }
+    for (const auto& method : cls.methods) {
+        if (method.is_async && method.return_type && method.return_type->kind == TypeKind::Task) {
+            m_async_task_methods.insert(method.name);
+        }
     }
 
     // Constructor implementation
@@ -450,11 +456,16 @@ void CppEmitter::emit_method_source(const IRClass& cls, const IRMethod& m, std::
     }
     out += ") {\n";
 
+    const bool previous_async_state = m_emitting_async_method;
+    m_emitting_async_method = m.is_async;
+
     for (const auto& block : m.blocks) {
         for (const auto& st : block.statements) {
             emit_statement_cpp(st, out, 1);
         }
     }
+
+    m_emitting_async_method = previous_async_state;
 
     out += "}\n\n";
 }
@@ -514,9 +525,9 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
         out += "\n";
     } else if (auto ret = dynamic_cast<const IRReturn*>(op)) {
         if (ret->value) {
-            out += std::format("{}return {};\n", ind, emit_operation_cpp(ret->value.get()));
+            out += std::format("{}{} {};\n", ind, m_emitting_async_method ? "co_return" : "return", emit_operation_cpp(ret->value.get()));
         } else {
-            out += std::format("{}return;\n", ind);
+            out += std::format("{}{};\n", ind, m_emitting_async_method ? "co_return" : "return");
         }
     } else if (auto opt = dynamic_cast<const IROptionalChain*>(op)) {
         out += std::format("{}if ({}) {{ {}->{}(", ind, emit_operation_cpp(opt->target.get()), emit_operation_cpp(opt->target.get()), opt->member_name);
@@ -526,7 +537,14 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
         }
         out += "); }\n";
     } else {
-        out += std::format("{}{};\n", ind, emit_operation_cpp(op));
+        const bool launches_task = op->result_type && op->result_type->kind == TypeKind::Task;
+        const auto* call = dynamic_cast<const IRCall*>(op);
+        const bool calls_async_task_method = call && m_async_task_methods.contains(call->callee_name);
+        if (launches_task || calls_async_task_method) {
+            out += std::format("{}this->launch({});\n", ind, emit_operation_cpp(op));
+        } else {
+            out += std::format("{}{};\n", ind, emit_operation_cpp(op));
+        }
     }
 }
 
@@ -564,7 +582,8 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
         const bool injected_callable = m_injected_members.contains(call->callee_name);
         std::string s;
         if (call->callee_name == "delay" || call->callee_name == "realDelay" ||
-            call->callee_name == "nextFrame" || call->callee_name == "fixedUpdate") {
+            call->callee_name == "nextFrame" || call->callee_name == "fixedUpdate" ||
+            call->callee_name == "instantiate" || call->callee_name == "findEntities") {
             s = "this->" + identifier_to_cpp(call->callee_name) + "(";
         } else if (injected_callable) {
             s = "(*" + identifier_to_cpp(call->callee_name) + ")(";

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "abiVersion": 13,
-  "sdkHash": "engine2d_abi_v13",
+  "abiVersion": 16,
+  "sdkHash": "engine2d_abi_v16",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",
@@ -29,8 +29,8 @@
     { "name": "realDelay", "returnType": "Task<Void>" },
     { "name": "nextFrame", "returnType": "Task<Void>" },
     { "name": "fixedUpdate", "returnType": "Task<Void>" },
-    { "name": "instantiate", "returnType": "Result<Entity>", "availability": "planned" },
-    { "name": "findEntities", "returnType": "Array<Entity>", "availability": "planned" }
+    { "name": "instantiate", "returnType": "Entity" },
+    { "name": "findEntities", "returnType": "Array<Entity>" }
   ],
   "methods": [
     { "ownerType": "Entities", "name": "create", "returnType": "Entity", "minArguments": 1, "maxArguments": 1 },
@@ -53,8 +53,10 @@
     { "ownerType": "Display", "name": "setVsync", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Display", "name": "setFullscreen", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Events", "name": "emit", "returnType": "Bool", "minArguments": 1, "maxArguments": 2 },
+    { "ownerType": "Events", "name": "subscribe", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Assets", "name": "find", "returnType": "Asset", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Assets", "name": "exists", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },
+    { "ownerType": "Assets", "name": "request", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "UI", "name": "setText", "returnType": "Bool", "minArguments": 2, "maxArguments": 2 },
     { "ownerType": "UI", "name": "setVisible", "returnType": "Bool", "minArguments": 2, "maxArguments": 2 },
     { "ownerType": "Tilemap", "name": "getTile", "returnType": "Int", "minArguments": 3, "maxArguments": 3 },
@@ -71,6 +73,8 @@
     { "ownerType": "Audio", "name": "musicVolume", "returnType": "Float" },
     { "ownerType": "Audio", "name": "sfxVolume", "returnType": "Float" },
     { "ownerType": "Scene", "name": "load", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },
-    { "ownerType": "Scene", "name": "currentName", "returnType": "String" }
+    { "ownerType": "Scene", "name": "currentName", "returnType": "String" },
+    { "ownerType": "Scene", "name": "isLoading", "returnType": "Bool" },
+    { "ownerType": "Scene", "name": "lastError", "returnType": "String" }
   ]
 }

@@ -62,6 +62,9 @@ struct ScriptRuntimeServices {
     std::function<bool(const ScriptDisplayRequest&, std::string&)> apply_display;
     std::function<bool(const std::string&, std::string&)> request_scene_load;
     std::function<std::string()> current_scene_name;
+    std::function<bool()> is_scene_loading;
+    std::function<std::string()> scene_load_error;
+    std::string native_module_path;
 };
 
 enum class ScriptExecutionState {

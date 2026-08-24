@@ -158,6 +158,8 @@ void SceneManager::start_play() {
     if (!get_active_scene() || m_play_startup_phase != PlayStartupPhase::None) return;
     m_runtime_scene.reset();
     m_pending_runtime_scene.reset();
+    m_requested_runtime_scene_path.clear();
+    m_game_session.reset();
     m_play_startup_phase = PlayStartupPhase::Snapshot;
     m_play_load_progress = {true, 0.05f, "Capturing scene state", "Saving the authoring snapshot"};
 }
@@ -217,6 +219,8 @@ void SceneManager::start_scripts(Scene& scene) {
         const Scene* scene = get_active_scene();
         return scene ? scene->get_name() : std::string{};
     };
+    services.is_scene_loading = [this]() { return is_runtime_scene_loading(); };
+    services.scene_load_error = [this]() { return runtime_scene_load_error(); };
 
     const ScriptRuntimeStartResult scripts = m_script_runtime.start(
         scene.get_entity_manager(),
@@ -241,13 +245,26 @@ bool SceneManager::request_runtime_scene_load(const std::string& path, std::stri
         return false;
     }
 
+    if (!m_game_session.request_scene(path, error)) return false;
+    m_requested_runtime_scene_path = path;
+    return true;
+}
+
+void SceneManager::advance_runtime_scene_load() {
+    if (m_requested_runtime_scene_path.empty() || m_play_state == ScenePlayState::Edit) return;
+
+    const std::string path = std::move(m_requested_runtime_scene_path);
+    std::string error;
     std::shared_ptr<Scene> scene = m_runtime_scene_loader(path, error);
     if (!scene) {
         if (error.empty()) error = "Scene could not be loaded";
-        return false;
+        m_game_session.complete_failed(error);
+        if (Scene* active = get_active_scene()) {
+            active->get_event_dispatcher().queue(GameSessionEvent{"SceneLoadFailed", path, error});
+        }
+        return;
     }
     m_pending_runtime_scene = std::move(scene);
-    return true;
 }
 
 void SceneManager::activate_pending_runtime_scene() {
@@ -261,6 +278,8 @@ void SceneManager::activate_pending_runtime_scene() {
     m_runtime_scene->on_attach();
     m_runtime_scene->on_viewport_resize(RenderViewKind::Game, m_game_view);
     start_scripts(*m_runtime_scene);
+    m_game_session.complete_loaded();
+    m_runtime_scene->get_event_dispatcher().queue(GameSessionEvent{"SceneLoaded", m_game_session.path()});
     ENGINE_LOG_INFO("[SCENE PLAY] Loaded runtime scene '{}'.", m_runtime_scene->get_name());
 }
 
@@ -296,6 +315,8 @@ void SceneManager::stop_play() {
 
     m_script_runtime.shutdown();
     m_pending_runtime_scene.reset();
+    m_requested_runtime_scene_path.clear();
+    m_game_session.cancel();
     const bool had_runtime_scene = m_runtime_scene != nullptr;
     if (had_runtime_scene) {
         m_runtime_scene->on_detach();
@@ -339,8 +360,10 @@ void SceneManager::update(float delta_time) {
         }
         active->on_update(delta_time);
         if (m_play_state == ScenePlayState::Play) {
+            active->get_event_dispatcher().dispatch_queued();
             m_script_runtime.dispatch_events();
             activate_pending_runtime_scene();
+            advance_runtime_scene_load();
         }
     }
 }
