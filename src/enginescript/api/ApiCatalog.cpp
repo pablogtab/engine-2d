@@ -124,6 +124,15 @@ bool ApiCatalog::has_available_type(std::string_view name) const {
     return false;
 }
 
+const ApiFunctionDescriptor* ApiCatalog::find_available_function(std::string_view name) const {
+    for (const ApiFunctionDescriptor& function : m_functions) {
+        if (function.name == name && function.availability == ApiAvailability::Available) {
+            return &function;
+        }
+    }
+    return nullptr;
+}
+
 bool ApiCatalog::has_available_function(std::string_view name) const {
     for (const ApiFunctionDescriptor& function : m_functions) {
         if (function.name == name && function.availability == ApiAvailability::Available) return true;

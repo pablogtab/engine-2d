@@ -33,7 +33,9 @@ int main() {
 
             override update(deltaTime: Float): Void {
                 let axis: Float = input.axis("Horizontal");
+                let label: String = "Coins: " + toString(7);
                 body.velocity.x = axis * walkSpeed;
+                body.setIgnoreOneWay(false);
                 if (axis < 0.0) {
                     sprite.flipX = true;
                 } else if (axis > 0.0) {

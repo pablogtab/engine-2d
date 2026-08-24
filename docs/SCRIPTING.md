@@ -37,11 +37,12 @@ export class PlatformerPlayer extends Behaviour {
     jumpSpeed: Float = 520.0;
 
     override update(deltaTime: Float): Void {
-        let direction: Float = input.axis("MoveHorizontal");
+        let direction: Float = input.axis("Horizontal");
         body.velocity.x = direction * walkSpeed;
+        body.setIgnoreOneWay(input.axis("Vertical") < -0.5);
 
         if (input.pressed("Jump") && body.isGrounded) {
-            body.velocity.y = -jumpSpeed;
+            body.velocity.y = jumpSpeed;
         }
 
         animator?.play("Run");
@@ -85,7 +86,8 @@ connected execution surface includes:
   and `if`/`else`;
 - live exposed-property reads and writes;
 - named, remappable Input axes/actions: `axis`, `down`, `pressed`, and `released`;
-- required `RigidBody2D` velocity and grounded access, plus typed Transform,
+- required `RigidBody2D` velocity and grounded access, including temporary
+  one-way-platform passthrough with `setIgnoreOneWay`, plus typed Transform,
   SpriteRenderer, Time, Display, physics hit, asset, particle, and joint properties;
 - optional `Animator2D.play` and runtime entity hierarchy operations through `Entities`.
 
@@ -116,6 +118,16 @@ numbers, String, Vec2, and Vec3 values can be read with fallbacks, written,
 removed, cleared, and saved. It never exposes project paths or arbitrary file
 access. Use the canonical camelCase SDK names; unsupported legacy aliases are
 compiler errors rather than calls that can fail later during native compilation.
+
+Use `toString(Int)` when composing numeric HUD or log text. For example,
+`ui.setText(hud, "Coins: " + toString(coins))` remains statically typed and
+generates a native string conversion.
+
+The external platformer demo keeps gameplay in its `PlatformerPlayer.e2s`
+behaviour: movement, coyote time, jump buffering, double jump, drop-through
+platforms, trampoline bounce, coin destruction, persistent high score, HUD,
+music, and the moving elevator. `GenericScene` only advances engine systems;
+it contains no tag-specific platformer fallback.
 
 The C++ backend emits native `NativeBehaviour` subclasses and factories. Play
 Mode compiles every valid script project to a versioned dynamic module, validates

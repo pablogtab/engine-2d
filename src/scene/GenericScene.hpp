@@ -70,7 +70,6 @@ private:
     bool m_physics_enabled{true};
     bool m_show_debug_colliders{false};
     bool m_is_editing{true};
-    std::vector<EntityID> m_pending_coin_collections;
     PostProcessPipeline m_post_process_pipeline;
     PostProcessProfile m_post_process_profile;
     AssetHandle m_post_process_profile_handle{};

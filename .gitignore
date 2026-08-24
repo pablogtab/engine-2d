@@ -10,7 +10,7 @@ saves/
 Library/
 node_modules/
 /vscode*/
-
+editors/vscode/enginescript-vscode-*.vsix
 # Logs & runtime locks
 *.log
 *.lock

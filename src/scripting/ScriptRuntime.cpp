@@ -83,6 +83,7 @@ public:
         if (entities.has_component<RigidBodyComponent>(m_binding.entity)) {
             m_rigid_body.velocity = entities.get_component<RigidBodyComponent>(m_binding.entity).velocity;
             m_rigid_body.isGrounded = PhysicsSystem::is_grounded(entities, m_binding.entity);
+            bind_rigid_body(m_rigid_body, m_binding.entity);
         }
         if (entities.has_component<SpriteComponent>(m_binding.entity)) {
             m_sprite.flipX = entities.get_component<SpriteComponent>(m_binding.entity).flip_x;
@@ -124,6 +125,17 @@ public:
     [[nodiscard]] bool is_subscribed_to(const std::string& name) const { return m_events.is_subscribed_to(name); }
 
 private:
+    void bind_rigid_body(EngineScript::RigidBody2D& body, EntityID entity) {
+        body.runtime_context = m_binding.entity_manager;
+        body.entity_id = entity;
+        body.ignore_one_way_callback = [](void* context, uint32_t id, bool ignore) {
+            auto* entities = static_cast<EntityManager*>(context);
+            if (!entities || !entities->is_alive(id) ||
+                !entities->has_component<RigidBodyComponent>(id)) return;
+            PhysicsSystem::set_ignore_one_way(id, ignore);
+        };
+    }
+
     class Input final : public EngineScript::Input {
     public:
         explicit Input(const ScriptRuntimeBinding&) {}
@@ -452,6 +464,14 @@ private:
             m_rigid_body.id = entity.id;
             m_rigid_body.value.velocity = source.velocity;
             m_rigid_body.value.isGrounded = PhysicsSystem::is_grounded(*m_binding.entity_manager, entity.id);
+            m_rigid_body.value.runtime_context = m_binding.entity_manager;
+            m_rigid_body.value.entity_id = entity.id;
+            m_rigid_body.value.ignore_one_way_callback = [](void* context, uint32_t id, bool ignore) {
+                auto* entities = static_cast<EntityManager*>(context);
+                if (!entities || !entities->is_alive(id) ||
+                    !entities->has_component<RigidBodyComponent>(id)) return;
+                PhysicsSystem::set_ignore_one_way(id, ignore);
+            };
             return &m_rigid_body.value;
         }
         bool hasSpriteRenderer(const EngineScript::Entity& entity) const override {
@@ -1505,7 +1525,7 @@ ScriptRuntimeStartResult ScriptRuntime::start(
                 dependency.type != "Audio" && dependency.type != "Scene" && dependency.type != "Time" &&
                 dependency.type != "Entities" && dependency.type != "Display" && dependency.type != "Physics" &&
                 dependency.type != "Events" && dependency.type != "Assets" && dependency.type != "UI" &&
-                dependency.type != "Tilemap") {
+                dependency.type != "Tilemap" && dependency.type != "PlayerPrefs") {
                 ++result.failed;
                 set_error(entity, "unsupported injected service: " + dependency.type);
                 return;
@@ -1691,7 +1711,9 @@ void ScriptRuntime::dispatch_events() {
                         auto* entities = static_cast<EntityManager*>(context);
                         if (entities && entities->is_alive(id)) entities->destroy_entity(id);
                     };
+                    if (instance.native_host) instance.native_host->sync_before();
                     instance.behaviour->on_collision_enter(other);
+                    if (instance.native_host) instance.native_host->sync_after();
                     if (m_entity_manager->is_alive(instance.entity) &&
                         m_entity_manager->has_component<ScriptComponent>(instance.entity)) {
                         pull_exposed_properties(
@@ -1872,6 +1894,9 @@ void ScriptRuntime::shutdown() {
             inst.behaviour->on_destroy();
         }
     }
+    // Music started through the gameplay service belongs to the active script
+    // session. Enforce cleanup even when authored behaviours omit on_destroy().
+    if (m_services.stop_music) m_services.stop_music();
     m_instances.clear();
     m_native_module.reset();
     m_native_async_scheduler.reset();

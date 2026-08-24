@@ -76,12 +76,16 @@ int main() {
     assert(j_comp["result"].is_array());
     assert(j_comp["result"].size() > 5);
     bool has_behaviour_template = false;
+    bool has_to_string = false;
     for (const auto& item : j_comp["result"]) {
         if (item["label"] == "behaviour class") {
             has_behaviour_template = item["insertTextFormat"] == 2;
         }
+        has_to_string |= item["label"] == "toString" &&
+            item.value("detail", "").find("value: Int") != std::string::npos;
     }
     assert(has_behaviour_template);
+    assert(has_to_string);
 
     // Definitions resolve to the declaration span instead of a placeholder range.
     std::string definition_req = R"({
@@ -203,11 +207,13 @@ int main() {
     json component_completion = json::parse(server.handle_message(component_completion_req));
     bool has_velocity = false;
     bool has_grounded = false;
+    bool has_ignore_one_way = false;
     for (const auto& item : component_completion["result"]) {
         has_velocity |= item["label"] == "velocity";
         has_grounded |= item["label"] == "isGrounded";
+        has_ignore_one_way |= item["label"] == "setIgnoreOneWay";
     }
-    assert(has_velocity && has_grounded);
+    assert(has_velocity && has_grounded && has_ignore_one_way);
 
     std::string nested_receiver_change = R"({
         "jsonrpc":"2.0",

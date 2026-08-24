@@ -53,8 +53,12 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 19;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v19";
+inline std::string toString(int value) {
+    return std::to_string(value);
+}
+
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 20;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v20";
 
 class Input {
 public:
@@ -78,6 +82,17 @@ public:
 struct RigidBody2D {
     glm::vec2 velocity{0.0f, 0.0f};
     bool isGrounded{false};
+
+    using IgnoreOneWayCallback = void (*)(void*, uint32_t, bool);
+    void* runtime_context{nullptr};
+    uint32_t entity_id{0};
+    IgnoreOneWayCallback ignore_one_way_callback{nullptr};
+
+    void setIgnoreOneWay(bool ignore) const {
+        if (ignore_one_way_callback) {
+            ignore_one_way_callback(runtime_context, entity_id, ignore);
+        }
+    }
 };
 
 struct SpriteRenderer2D {

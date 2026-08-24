@@ -67,6 +67,7 @@ public:
     [[nodiscard]] const std::vector<ApiPropertyDescriptor>& properties() const { return m_properties; }
     [[nodiscard]] bool has_available_type(std::string_view name) const;
     [[nodiscard]] bool has_available_function(std::string_view name) const;
+    [[nodiscard]] const ApiFunctionDescriptor* find_available_function(std::string_view name) const;
     [[nodiscard]] const ApiMethodDescriptor* find_available_method(
         std::string_view owner_type,
         std::string_view name

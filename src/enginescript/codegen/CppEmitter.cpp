@@ -584,6 +584,8 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
         if (call->callee_name == "__array_literal") {
             std::string type = call->result_type ? type_to_cpp(call->result_type.get()) : "std::vector<int>";
             s = type + "{";
+        } else if (call->callee_name == "toString") {
+            s = "EngineScript::toString(";
         } else if (call->callee_name == "delay" || call->callee_name == "realDelay" ||
             call->callee_name == "nextFrame" || call->callee_name == "fixedUpdate" ||
             call->callee_name == "instantiate" || call->callee_name == "findEntities") {

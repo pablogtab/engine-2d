@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "abiVersion": 19,
-  "sdkHash": "engine2d_abi_v19",
+  "abiVersion": 20,
+  "sdkHash": "engine2d_abi_v20",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",
@@ -25,12 +25,13 @@
     { "name": "ParticleEmitter2D" }, { "name": "Joint2D" }
   ],
   "functions": [
-    { "name": "delay", "returnType": "Task<Void>" },
-    { "name": "realDelay", "returnType": "Task<Void>" },
+    { "name": "delay", "returnType": "Task<Void>", "parameters": [{ "name": "duration", "type": "Duration" }] },
+    { "name": "realDelay", "returnType": "Task<Void>", "parameters": [{ "name": "duration", "type": "Duration" }] },
     { "name": "nextFrame", "returnType": "Task<Void>" },
     { "name": "fixedUpdate", "returnType": "Task<Void>" },
-    { "name": "instantiate", "returnType": "Entity" },
-    { "name": "findEntities", "returnType": "Array<Entity>" }
+    { "name": "instantiate", "returnType": "Entity", "parameters": [{ "name": "name", "type": "String" }] },
+    { "name": "findEntities", "returnType": "Array<Entity>", "parameters": [{ "name": "tag", "type": "String" }] },
+    { "name": "toString", "returnType": "String", "parameters": [{ "name": "value", "type": "Int" }], "documentation": "Converts an integer to text for logs and UI." }
   ],
   "properties": [
     { "ownerType": "Vec2", "name": "x", "type": "Float", "writable": true },
@@ -91,6 +92,7 @@
     { "ownerType": "Input", "name": "down", "returnType": "Bool", "parameters": [{ "name": "action", "type": "String" }] },
     { "ownerType": "Input", "name": "pressed", "returnType": "Bool", "parameters": [{ "name": "action", "type": "String" }] },
     { "ownerType": "Input", "name": "released", "returnType": "Bool", "parameters": [{ "name": "action", "type": "String" }] },
+    { "ownerType": "RigidBody2D", "name": "setIgnoreOneWay", "returnType": "Void", "parameters": [{ "name": "ignore", "type": "Bool" }], "documentation": "Temporarily ignores one-way colliders for this body while enabled." },
     { "ownerType": "Animator2D", "name": "play", "returnType": "Void", "parameters": [{ "name": "clip", "type": "String" }] },
     { "ownerType": "PlayerPrefs", "name": "has", "returnType": "Bool", "parameters": [{ "name": "key", "type": "String" }] },
     { "ownerType": "PlayerPrefs", "name": "getInt", "returnType": "Int", "parameters": [{ "name": "key", "type": "String" }, { "name": "fallback", "type": "Int", "optional": true, "default": "0" }] },

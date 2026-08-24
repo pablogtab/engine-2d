@@ -1,7 +1,6 @@
 #include "GenericScene.hpp"
 #include "../core/Log.hpp"
 #include "../core/Input.hpp"
-#include "../audio/AudioPresets.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../ecs/TransformSystem.hpp"
 #include "../ecs/CameraSystem.hpp"
@@ -24,30 +23,6 @@ GenericScene::GenericScene(std::string name, float width, float height)
     m_editor_camera.set_position(glm::vec2(0.0f, 0.0f));
     m_editor_camera.set_zoom(1.0f);
 
-    // GenericScene remains a temporary gameplay helper, but collision geometry
-    // must still come from the engine. Queue collectible destruction until
-    // after Box2D finishes stepping; mutating bodies inside BeginContact is not
-    // safe while the physics world is locked.
-    m_event_dispatcher.subscribe<CollisionEvent>([this](const CollisionEvent& event) {
-        if (!event.is_trigger) return;
-        const auto is_player = [this](EntityID id) {
-            if (!m_entity_manager.is_alive(id) || !m_entity_manager.has_component<TagComponent>(id)) return false;
-            const std::string& tag = m_entity_manager.get_component<TagComponent>(id).tag;
-            return tag == "Player_Knight" || tag == "Player";
-        };
-        const auto is_coin = [this](EntityID id) {
-            if (!m_entity_manager.is_alive(id) || !m_entity_manager.has_component<TagComponent>(id)) return false;
-            const std::string& tag = m_entity_manager.get_component<TagComponent>(id).tag;
-            return tag.rfind("Collectible_Coin", 0) == 0 || tag == "Coin";
-        };
-
-        EntityID coin = 0;
-        if (is_player(event.entity_a) && is_coin(event.entity_b)) coin = event.entity_b;
-        if (is_player(event.entity_b) && is_coin(event.entity_a)) coin = event.entity_a;
-        if (coin != 0 && std::find(m_pending_coin_collections.begin(), m_pending_coin_collections.end(), coin) == m_pending_coin_collections.end()) {
-            m_pending_coin_collections.push_back(coin);
-        }
-    });
 }
 
 void GenericScene::on_attach() {
@@ -144,50 +119,10 @@ void GenericScene::on_update(float delta_time) {
         },
         &m_event_dispatcher
     ));
-    // The authored ScriptComponent owns player input, velocity and animation.
-    // GenericScene keeps only the temporary trampoline interaction until
-    // collision events are exposed to scripts.
-    EntityID player_id = 0;
-    m_entity_manager.for_each<TagComponent>([&](EntityID id, const TagComponent& tag) {
-        if (tag.tag == "Player_Knight" || tag.tag == "Player") {
-            player_id = id;
-        }
-    });
-
-    if (player_id != 0 && m_entity_manager.is_alive(player_id) && m_entity_manager.has_component<RigidBodyComponent>(player_id)) {
-        auto& rb = m_entity_manager.get_component<RigidBodyComponent>(player_id);
-        const auto& tx = m_entity_manager.get_component<TransformComponent>(player_id);
-        if (Input::is_action_just_pressed("Jump") &&
-            PhysicsSystem::is_grounded(m_entity_manager, player_id)) {
-            AudioPresets::play_jump(0.8f);
-        }
-        glm::vec2 p_pos = glm::vec2(tx.world_position.x, tx.world_position.y);
-
-        m_entity_manager.for_each<TagComponent, TransformComponent>([&](EntityID id, const TagComponent& tag, const TransformComponent& other_tx) {
-            if (id == player_id) return;
-            glm::vec2 o_pos = glm::vec2(other_tx.world_position.x, other_tx.world_position.y);
-
-            // Trampoline
-            if (tag.tag == "Trampoline_Spring_Pad" || tag.tag == "Trampoline") {
-                if (std::abs(p_pos.x - o_pos.x) < 40.0f && std::abs(p_pos.y - o_pos.y) < 30.0f && rb.velocity.y <= 0.0f) {
-                    rb.velocity.y = 780.0f;
-                    PhysicsSystem::set_velocity(m_entity_manager, player_id, rb.velocity);
-                    AudioPresets::play_jump(1.0f);
-                }
-            }
-        });
-    }
-
     // --- Physics & Transform Updates ---
     if (m_physics_enabled) {
         Engine::PhysicsSystem::update(m_entity_manager, m_event_dispatcher, delta_time);
     }
-    for (EntityID coin : m_pending_coin_collections) {
-        if (!m_entity_manager.is_alive(coin)) continue;
-        m_entity_manager.destroy_entity(coin);
-        AudioPresets::play_coin(0.9f);
-    }
-    m_pending_coin_collections.clear();
     Engine::SpriteAnimationSystem::update(m_entity_manager, delta_time);
     Engine::TransformSystem::update(m_entity_manager);
     synchronize_game_camera(delta_time, false);

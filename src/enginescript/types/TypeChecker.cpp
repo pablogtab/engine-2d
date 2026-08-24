@@ -371,6 +371,21 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 return t;
             }
 
+            if (sym->kind == SymbolKind::Function) {
+                if (const ApiFunctionDescriptor* function =
+                        ApiCatalog::instance().find_available_function(id->name)) {
+                    auto t = Type::make_custom(TypeKind::Function, function->name);
+                    TypeAnnotation return_annotation{function->return_type};
+                    t->return_type = resolve_type_annotation(return_annotation, scope.get());
+                    for (const ApiParameterDescriptor& parameter : function->parameters) {
+                        TypeAnnotation parameter_annotation{parameter.type};
+                        t->param_types.push_back(resolve_type_annotation(parameter_annotation, scope.get()));
+                    }
+                    m_node_types[id] = t;
+                    return t;
+                }
+            }
+
             if (sym->type_string.starts_with("Result<") && sym->type_string.ends_with('>')) {
                 const std::string inner = sym->type_string.substr(7, sym->type_string.size() - 8);
                 const size_t separator = inner.find(',');
@@ -720,6 +735,39 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 auto task_t = Type::make_generic(TypeKind::Task, "Task", {m_type_void});
                 m_node_types[call] = task_t;
                 return task_t;
+            }
+            if (const ApiFunctionDescriptor* function =
+                    ApiCatalog::instance().find_available_function(id->name)) {
+                if (call->arguments.size() != function->parameters.size()) {
+                    m_diagnostics.report_error(
+                        "E3048",
+                        std::format("{} expects {} arguments, got {}", function->name,
+                            function->parameters.size(), call->arguments.size()),
+                        call->span
+                    );
+                }
+                for (std::size_t index = 0;
+                     index < call->arguments.size() && index < function->parameters.size(); ++index) {
+                    TypeAnnotation parameter_annotation{function->parameters[index].type};
+                    const auto parameter_type = resolve_type_annotation(parameter_annotation, scope.get());
+                    const auto argument_type = get_type_of_node(call->arguments[index].get());
+                    if (argument_type && !argument_type->is_assignable_to(parameter_type)) {
+                        m_diagnostics.report_error(
+                            "E3049",
+                            std::format("{} argument '{}' expects '{}', got '{}'", function->name,
+                                function->parameters[index].name, parameter_type->to_string(),
+                                argument_type->to_string()),
+                            call->arguments[index]->span
+                        );
+                    }
+                }
+                if (id->name != "delay" && id->name != "realDelay" &&
+                    id->name != "nextFrame" && id->name != "fixedUpdate") {
+                    TypeAnnotation return_annotation{function->return_type};
+                    auto return_type = resolve_type_annotation(return_annotation, scope.get());
+                    m_node_types[call] = return_type;
+                    return return_type;
+                }
             }
         }
 

@@ -16,6 +16,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "events/Event.hpp"
 #include "events/EventDispatcher.hpp"
+#include "physics/PhysicsSystem.hpp"
 #include "scripting/ScriptRuntime.hpp"
 #include "scene/GameSession.hpp"
 #include "enginescript/editor/EngineScriptWorkspace.hpp"
@@ -284,6 +285,8 @@ void test_coin_pickup_speed_boost() {
     std::string code = R"(
 @behaviour
 export class BoostPlayer extends Behaviour {
+    constructor(@component private body: RigidBody2D) {}
+
     @expose
     walkSpeed: Float = 280.0;
 
@@ -292,6 +295,8 @@ export class BoostPlayer extends Behaviour {
             return;
         }
         walkSpeed = walkSpeed + 75.0;
+        body.velocity.y = 780.0;
+        body.setIgnoreOneWay(true);
         other.destroy();
     }
 }
@@ -312,6 +317,7 @@ export class BoostPlayer extends Behaviour {
     TagComponent player_tag;
     player_tag.tag = "Player_Knight";
     entity_manager.add_component<TagComponent>(player, player_tag);
+    entity_manager.add_component<RigidBodyComponent>(player, RigidBodyComponent::Dynamic());
 
     ScriptComponent script_comp;
     script_comp.enabled = true;
@@ -341,7 +347,11 @@ export class BoostPlayer extends Behaviour {
     const auto& updated_comp = entity_manager.get_component<ScriptComponent>(player);
     assert(std::holds_alternative<double>(updated_comp.public_fields[0].value));
     assert(std::abs(std::get<double>(updated_comp.public_fields[0].value) - 355.0) < 0.001);
+    assert(std::abs(entity_manager.get_component<RigidBodyComponent>(player).velocity.y - 780.0f) < 0.001f);
+    assert(PhysicsSystem::is_ignoring_one_way(player));
     assert(!entity_manager.is_alive(coin));
+
+    PhysicsSystem::set_ignore_one_way(player, false);
 
     runtime.shutdown();
     fs::remove_all(root, error);
@@ -366,6 +376,7 @@ export class ServiceUser extends Behaviour {
         @inject private events: Events,
         @inject private assets: Assets,
         @inject private entities: Entities,
+        @inject private prefs: PlayerPrefs,
         @inject private ui: UI
     ) {}
 
@@ -394,7 +405,7 @@ export class ServiceUser extends Behaviour {
         }
         loadHudTexture();
         let status: Entity = entities.findByName("Status");
-        ui.setText(status, "Ready");
+        ui.setText(status, "Ready " + toString(points[0]));
         ui.setVisible(status, true);
         instantiate("Transient");
     }
@@ -433,6 +444,7 @@ export class ServiceUser extends Behaviour {
 
     int played_sounds = 0;
     int played_music = 0;
+    int stopped_music = 0;
     float master_volume = 0.0f;
     std::string loaded_scene;
     int display_changes = 0;
@@ -452,6 +464,7 @@ export class ServiceUser extends Behaviour {
         ++played_music;
         return true;
     };
+    services.stop_music = [&]() { ++stopped_music; };
     services.set_master_volume = [&](float volume) { master_volume = volume; };
     services.request_scene_load = [&](const std::string& path, std::string&) {
         loaded_scene = path;
@@ -501,7 +514,7 @@ export class ServiceUser extends Behaviour {
     assert(std::abs(master_volume - 0.65f) < 0.001f);
     assert(loaded_scene == "Assets/Scenes/Level2.scene");
     assert(display_changes == 2);
-    assert(entity_manager.get_component<UITextComponent>(status).text == "Ready");
+    assert(entity_manager.get_component<UITextComponent>(status).text == "Ready 1");
     bool transient_exists = false;
     entity_manager.for_each<TagComponent>([&](EntityID, const TagComponent& tag) {
         transient_exists = transient_exists || tag.tag == "Transient";
@@ -522,6 +535,7 @@ export class ServiceUser extends Behaviour {
     assert(std::get<std::string>(received->value) == "AssetLoaded:Assets/scripts/ServiceUser.e2s");
 
     runtime.shutdown();
+    assert(stopped_music == 1);
     fs::remove_all(root, error);
     std::cout << "PASSED\n";
 }

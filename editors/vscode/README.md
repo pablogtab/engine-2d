@@ -5,6 +5,8 @@ go-to-definition for authored declarations, document symbols, and type-aware
 member completion for typed variables, properties, injections, and services.
 The language server reads the versioned EngineScript API catalog, so available
 types, global functions, and service methods stay aligned with the compiler.
+This includes contextual component methods such as
+`RigidBody2D.setIgnoreOneWay` and typed global helpers such as `toString(Int)`.
 The `EngineScript: Compile Project` command builds `.e2s` files. Its status-bar item
 shows language-server availability and the result of the latest project build;
 click it to compile the active Engine2D project.

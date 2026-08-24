@@ -19,6 +19,14 @@ int main() {
     assert(catalog.has_available_function("delay"));
     assert(catalog.has_available_function("instantiate"));
     assert(catalog.has_available_function("findEntities"));
+    const ApiFunctionDescriptor* to_string = catalog.find_available_function("toString");
+    assert(to_string != nullptr);
+    assert(to_string->return_type == "String");
+    assert(to_string->parameters.size() == 1);
+    const ApiMethodDescriptor* ignore_one_way = catalog.find_available_method("RigidBody2D", "setIgnoreOneWay");
+    assert(ignore_one_way != nullptr);
+    assert(ignore_one_way->parameters.size() == 1);
+    assert(ignore_one_way->parameters[0].type == "Bool");
     const ApiMethodDescriptor* play_sound = catalog.find_available_method("Audio", "playSound");
     assert(play_sound != nullptr);
     assert(play_sound->return_type == "Bool");
