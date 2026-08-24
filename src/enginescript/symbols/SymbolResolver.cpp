@@ -1,4 +1,5 @@
 #include "SymbolResolver.hpp"
+#include "../api/ApiCatalog.hpp"
 #include <format>
 #include <sstream>
 
@@ -22,15 +23,10 @@ void SymbolResolver::register_builtin_types() {
         m_global_scope->define(sym);
     };
 
-    std::vector<std::string> builtins = {
-        "Void", "Bool", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64",
-        "Int", "UInt", "Float", "Float32", "Float64", "String", "Vec2", "Vec3", "Vec4", "Color",
-        "Duration", "Entity", "Array", "FixedArray", "Map", "Set", "Result", "Task", "Weak",
-        "Behaviour", "Input", "Log", "RigidBody2D", "Animator2D", "Transform2D", "SpriteRenderer2D"
-    };
-
-    for (const auto& b : builtins) {
-        add_builtin_type(b);
+    for (const ApiTypeDescriptor& type : ApiCatalog::instance().types()) {
+        if (type.availability == ApiAvailability::Available) {
+            add_builtin_type(type.name);
+        }
     }
 
     // Builtin global functions
@@ -45,10 +41,11 @@ void SymbolResolver::register_builtin_types() {
         m_global_scope->define(sym);
     };
 
-    add_builtin_func("delay", "Task<Void>");
-    add_builtin_func("realDelay", "Task<Void>");
-    add_builtin_func("nextFrame", "Task<Void>");
-    add_builtin_func("fixedUpdate", "Task<Void>");
+    for (const ApiFunctionDescriptor& function : ApiCatalog::instance().functions()) {
+        if (function.availability == ApiAvailability::Available) {
+            add_builtin_func(function.name, function.return_type);
+        }
+    }
 }
 
 std::shared_ptr<Scope> SymbolResolver::get_module_scope(const std::string& module_path) const {

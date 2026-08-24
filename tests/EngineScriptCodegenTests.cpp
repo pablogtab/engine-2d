@@ -60,8 +60,10 @@ int main() {
         @behaviour
         export class PlatformerPlayer extends Behaviour {
             constructor(
-                @inject private input: Input,
-                @inject private log: Log,
+            @inject private input: Input,
+            @inject private log: Log,
+            @inject private audio: Audio,
+            @inject private scene: Scene,
                 @component private body: RigidBody2D,
                 @component private sprite: SpriteRenderer2D
             ) {}
@@ -74,6 +76,8 @@ int main() {
                 body.velocity.x = axis * walkSpeed;
                 sprite.flipX = axis < 0.0;
                 log("Updated");
+                audio.playSound("Assets/Audio/step.wav");
+                scene.load("Assets/Scenes/Next.scene");
             }
 
             override on_collision_enter(other: Entity): Void {
@@ -115,8 +119,12 @@ int main() {
     assert(output.source_content.find("EngineScript::StringOps::to_lower") != std::string::npos);
     assert(output.source_content.find("EngineScript::StringOps::includes") != std::string::npos);
     assert(output.header_content.find("EngineScript::SpriteRenderer2D* sprite") != std::string::npos);
+    assert(output.header_content.find("EngineScript::Audio* audio") != std::string::npos);
+    assert(output.header_content.find("EngineScript::Scene* scene") != std::string::npos);
     assert(output.source_content.find("(*m_log)(\"Updated\")") != std::string::npos);
     assert(output.source_content.find("other.destroy()") != std::string::npos);
+    assert(output.source_content.find("m_audio->playSound(\"Assets/Audio/step.wav\")") != std::string::npos);
+    assert(output.source_content.find("m_scene->load(\"Assets/Scenes/Next.scene\")") != std::string::npos);
     assert(output.source_content.find("co_await delay(0.5f)") != std::string::npos);
     assert(output.source_content.find("#line") != std::string::npos);
     require_generated_cpp_compiles(output);

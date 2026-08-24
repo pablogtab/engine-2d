@@ -517,6 +517,8 @@ reload.
 - [x] Provide compiler-backed VSCode/LSP authoring before considering the
   language usable.
 - [x] Complete the local platformer behaviour spike and compile generated C++ in tests.
+- [x] Add a versioned EngineScript gameplay API catalog and use it as the compiler builtin contract.
+- [x] Expose Audio and Scene gameplay services with compiler, generated C++, and Play Mode parity.
 - [ ] Record reproducible cold/incremental build, reload, size, memory, diagnostic,
   Windows, Linux, macOS, and iOS results before claiming cross-platform completion.
 - [x] Make an explicit continue, reduce, change-language, or abandon decision.

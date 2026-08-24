@@ -185,6 +185,7 @@ add_subdirectory(vendor/box2d)
 # EngineScript Compiler, Tooling, and Runtime Library Targets (Phase 11)
 # -----------------------------------------------------------------------------
 set(ENGINESCRIPT_SOURCES
+    src/enginescript/api/ApiCatalog.cpp
     src/enginescript/core/SourceManager.cpp
     src/enginescript/core/DiagnosticEngine.cpp
     src/enginescript/lexer/Lexer.cpp
@@ -213,6 +214,9 @@ target_include_directories(EngineScriptLib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
 )
 target_link_libraries(EngineScriptLib PUBLIC glm::glm)
+target_compile_definitions(EngineScriptLib PRIVATE
+    ENGINE_SCRIPT_API_CATALOG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/enginescript/api/engine_api.json"
+)
 
 add_executable(e2sc src/enginescript/cli/Main.cpp)
 target_include_directories(e2sc PRIVATE
@@ -1137,6 +1141,7 @@ macro(add_enginescript_test test_name test_source)
 endmacro()
 
 add_enginescript_test(EngineScriptSourceTests tests/EngineScriptSourceTests.cpp)
+add_enginescript_test(EngineScriptApiCatalogTests tests/EngineScriptApiCatalogTests.cpp)
 add_enginescript_test(EngineScriptLexerTests tests/EngineScriptLexerTests.cpp)
 add_enginescript_test(EngineScriptParserTests tests/EngineScriptParserTests.cpp)
 add_enginescript_test(EngineScriptResolverTests tests/EngineScriptResolverTests.cpp)

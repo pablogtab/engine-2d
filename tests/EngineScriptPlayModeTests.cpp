@@ -294,11 +294,89 @@ export class BoostPlayer extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_audio_and_scene_services() {
+    std::cout << "[Test] AudioAndSceneServices... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_enginescript_services_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    const std::string code = R"(
+@behaviour
+export class ServiceUser extends Behaviour {
+    constructor(
+        @inject private audio: Audio,
+        @inject private scene: Scene
+    ) {}
+
+    override on_start(): Void {
+        audio.setMasterVolume(0.65);
+        audio.playSound("Assets/Audio/start.wav", 0.5, 1.25);
+        audio.playMusic("Assets/Audio/theme.ogg", 0.8, true);
+        scene.load("Assets/Scenes/Level2.scene");
+    }
+}
+)";
+    write_test_file(root / "Assets/scripts/ServiceUser.e2s", code);
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* record = asset_database.find_by_path(root / "Assets/scripts/ServiceUser.e2s");
+    assert(record != nullptr);
+
+    EntityManager entity_manager;
+    const EntityID entity = entity_manager.create_entity();
+    ScriptComponent component;
+    component.enabled = true;
+    component.script_handle = record->handle;
+    entity_manager.add_component<ScriptComponent>(entity, component);
+
+    int played_sounds = 0;
+    int played_music = 0;
+    float master_volume = 0.0f;
+    std::string loaded_scene;
+    ScriptRuntimeServices services;
+    services.play_sound = [&](const std::string& path, float volume, float pitch, std::string&) {
+        assert(path == "Assets/Audio/start.wav");
+        assert(std::abs(volume - 0.5f) < 0.001f);
+        assert(std::abs(pitch - 1.25f) < 0.001f);
+        ++played_sounds;
+        return true;
+    };
+    services.play_music = [&](const std::string& path, float volume, bool loop, std::string&) {
+        assert(path == "Assets/Audio/theme.ogg");
+        assert(std::abs(volume - 0.8f) < 0.001f);
+        assert(loop);
+        ++played_music;
+        return true;
+    };
+    services.set_master_volume = [&](float volume) { master_volume = volume; };
+    services.request_scene_load = [&](const std::string& path, std::string&) {
+        loaded_scene = path;
+        return true;
+    };
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, nullptr, services);
+    assert(started.started == 1);
+    assert(started.failed == 0);
+    assert(played_sounds == 1);
+    assert(played_music == 1);
+    assert(std::abs(master_volume - 0.65f) < 0.001f);
+    assert(loaded_scene == "Assets/Scenes/Level2.scene");
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
     test_dynamic_inspector_field_modifications();
     test_coin_pickup_speed_boost();
+    test_audio_and_scene_services();
     test_async_scheduler_cancellation();
     test_e2s_script_inspection();
     std::cout << "=== All EngineScript Play Mode Tests Passed! ===\n";

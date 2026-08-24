@@ -88,9 +88,32 @@ connected execution surface includes:
 - required `RigidBody2D` velocity and grounded access;
 - optional `Animator2D.play`.
 
+`@inject` can also request the following gameplay services:
+
+- `Audio`: `playSound`, `playMusic`, music transport, and master/music/SFX
+  volume controls;
+- `Scene`: `load(path)` and `currentName()`.
+
+These services use the same calls in editor Play Mode and generated native
+modules. Audio and scene requests are routed through the host runtime, so a
+headless host may deliberately leave a service unavailable.
+
 The C++ backend emits native `NativeBehaviour` subclasses and factories. Tests
 compile generated fixtures with the configured Clang, GCC, or MSVC toolchain;
 native standalone module loading remains an explicit roadmap item.
+
+## API contract and coverage
+
+`src/enginescript/api/engine_api.json` is the versioned source of truth for
+the gameplay SDK surface. The compiler resolves its builtin types and functions
+from this catalog, and its ABI version and SDK hash are checked against the
+native `GameModule` contract. Entries marked `planned` are intentionally not
+visible to authored scripts yet.
+
+The catalog excludes editor-only controls, SDL/GPU backend details, arbitrary
+filesystem access, and engine-private state. Every new runtime system or
+component must either add a documented, tested EngineScript binding with editor
+Play/export parity or be explicitly recorded as non-scriptable.
 
 ## Hot reload
 

@@ -1,4 +1,5 @@
 #include "TypeChecker.hpp"
+#include "../api/ApiCatalog.hpp"
 #include <format>
 
 namespace EngineScript {
@@ -444,6 +445,31 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         // Handle known engine builtin calls & methods
         if (auto mem = dynamic_cast<MemberAccessExpr*>(call->callee.get())) {
             auto target_t = get_type_of_node(mem->object.get());
+            if (target_t) {
+                if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(
+                        target_t->name, mem->member_name)) {
+                    if (call->arguments.size() < method->min_arguments ||
+                        call->arguments.size() > method->max_arguments) {
+                        m_diagnostics.report_error(
+                            "E3035",
+                            std::format(
+                                "{}.{} expects {} to {} arguments, got {}",
+                                target_t->name,
+                                mem->member_name,
+                                method->min_arguments,
+                                method->max_arguments,
+                                call->arguments.size()
+                            ),
+                            call->span
+                        );
+                    }
+                    TypeAnnotation return_annotation;
+                    return_annotation.name = method->return_type;
+                    auto return_type = resolve_type_annotation(return_annotation, scope.get());
+                    m_node_types[call] = return_type;
+                    return return_type;
+                }
+            }
             if (target_t && target_t->kind == TypeKind::String) {
                 const auto validate_argument_count = [&](std::size_t expected) {
                     if (call->arguments.size() != expected) {

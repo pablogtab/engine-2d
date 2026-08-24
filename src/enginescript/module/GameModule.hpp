@@ -100,6 +100,29 @@ public:
     virtual void play(const std::string& clip_name) = 0;
 };
 
+class Audio {
+public:
+    virtual ~Audio() = default;
+    virtual bool playSound(const std::string& path, float volume = 1.0f, float pitch = 1.0f) = 0;
+    virtual bool playMusic(const std::string& path, float volume = 1.0f, bool loop = true) = 0;
+    virtual void stopMusic() = 0;
+    virtual void pauseMusic() = 0;
+    virtual void resumeMusic() = 0;
+    virtual void setMasterVolume(float volume) = 0;
+    virtual void setMusicVolume(float volume) = 0;
+    virtual void setSfxVolume(float volume) = 0;
+    [[nodiscard]] virtual float masterVolume() const = 0;
+    [[nodiscard]] virtual float musicVolume() const = 0;
+    [[nodiscard]] virtual float sfxVolume() const = 0;
+};
+
+class Scene {
+public:
+    virtual ~Scene() = default;
+    virtual bool load(const std::string& path) = 0;
+    [[nodiscard]] virtual std::string currentName() const = 0;
+};
+
 class NativeBehaviour {
 public:
     virtual ~NativeBehaviour() = default;

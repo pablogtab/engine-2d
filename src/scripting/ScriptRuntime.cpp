@@ -34,6 +34,7 @@ namespace Engine {
 struct ScriptRuntimeBinding {
     EntityManager* entity_manager{nullptr};
     EntityID entity{0};
+    const ScriptRuntimeServices* services{nullptr};
 };
 
 namespace {
@@ -45,7 +46,9 @@ struct RuntimeObjectRef {
         RigidBody,
         BodyVelocity,
         Animator,
-        SpriteRenderer
+        SpriteRenderer,
+        Audio,
+        Scene
     };
 
     Kind kind{Kind::Input};
@@ -163,6 +166,16 @@ private:
                 const bool available = m_binding && m_binding->entity_manager &&
                     m_binding->entity_manager->has_component<SpriteComponent>(m_binding->entity);
                 return RuntimeObjectRef{RuntimeObjectRef::Kind::SpriteRenderer, available};
+            }
+            if (type == "Audio") {
+                const bool available = m_binding && m_binding->services &&
+                    (m_binding->services->play_sound || m_binding->services->play_music);
+                return RuntimeObjectRef{RuntimeObjectRef::Kind::Audio, available};
+            }
+            if (type == "Scene") {
+                const bool available = m_binding && m_binding->services &&
+                    (m_binding->services->request_scene_load || m_binding->services->current_scene_name);
+                return RuntimeObjectRef{RuntimeObjectRef::Kind::Scene, available};
             }
         }
 
@@ -353,6 +366,52 @@ private:
                     m_binding->entity,
                     runtime_string(evaluate(method->args.front().get(), environment))
                 );
+            }
+            if (object->kind == RuntimeObjectRef::Kind::Audio && m_binding && m_binding->services) {
+                const ScriptRuntimeServices& services = *m_binding->services;
+                std::string error;
+                if (method->method_name == "playSound" && services.play_sound && !method->args.empty()) {
+                    const float volume = method->args.size() >= 2
+                        ? static_cast<float>(runtime_number(evaluate(method->args[1].get(), environment))) : 1.0f;
+                    const float pitch = method->args.size() >= 3
+                        ? static_cast<float>(runtime_number(evaluate(method->args[2].get(), environment))) : 1.0f;
+                    return services.play_sound(
+                        runtime_string(evaluate(method->args[0].get(), environment)), volume, pitch, error);
+                }
+                if (method->method_name == "playMusic" && services.play_music && !method->args.empty()) {
+                    const float volume = method->args.size() >= 2
+                        ? static_cast<float>(runtime_number(evaluate(method->args[1].get(), environment))) : 1.0f;
+                    const bool loop = method->args.size() >= 3
+                        ? runtime_boolean(evaluate(method->args[2].get(), environment)) : true;
+                    return services.play_music(
+                        runtime_string(evaluate(method->args[0].get(), environment)), volume, loop, error);
+                }
+                if (method->method_name == "stopMusic" && services.stop_music) services.stop_music();
+                if (method->method_name == "pauseMusic" && services.pause_music) services.pause_music();
+                if (method->method_name == "resumeMusic" && services.resume_music) services.resume_music();
+                if (method->method_name == "setMasterVolume" && services.set_master_volume && !method->args.empty()) {
+                    services.set_master_volume(static_cast<float>(runtime_number(evaluate(method->args[0].get(), environment))));
+                }
+                if (method->method_name == "setMusicVolume" && services.set_music_volume && !method->args.empty()) {
+                    services.set_music_volume(static_cast<float>(runtime_number(evaluate(method->args[0].get(), environment))));
+                }
+                if (method->method_name == "setSfxVolume" && services.set_sfx_volume && !method->args.empty()) {
+                    services.set_sfx_volume(static_cast<float>(runtime_number(evaluate(method->args[0].get(), environment))));
+                }
+                if (method->method_name == "masterVolume" && services.get_master_volume) return services.get_master_volume();
+                if (method->method_name == "musicVolume" && services.get_music_volume) return services.get_music_volume();
+                if (method->method_name == "sfxVolume" && services.get_sfx_volume) return services.get_sfx_volume();
+            }
+            if (object->kind == RuntimeObjectRef::Kind::Scene && m_binding && m_binding->services) {
+                const ScriptRuntimeServices& services = *m_binding->services;
+                std::string error;
+                if (method->method_name == "load" && services.request_scene_load && !method->args.empty()) {
+                    return services.request_scene_load(
+                        runtime_string(evaluate(method->args[0].get(), environment)), error);
+                }
+                if (method->method_name == "currentName" && services.current_scene_name) {
+                    return services.current_scene_name();
+                }
             }
             return {};
         }
@@ -729,7 +788,8 @@ ScriptRuntimeStartResult ScriptRuntime::start(
                 set_error(entity, "missing required SpriteRenderer2D component");
                 return;
             }
-            if (dependency.is_service && dependency.type != "Input" && dependency.type != "Log") {
+            if (dependency.is_service && dependency.type != "Input" && dependency.type != "Log" &&
+                dependency.type != "Audio" && dependency.type != "Scene") {
                 ++result.failed;
                 set_error(entity, "unsupported injected service: " + dependency.type);
                 return;
@@ -760,6 +820,7 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         instance.binding = std::make_unique<ScriptRuntimeBinding>();
         instance.binding->entity_manager = &entity_manager;
         instance.binding->entity = entity;
+        instance.binding->services = &m_services;
         void* arguments[] = {instance.binding.get()};
         instance.behaviour.reset(m_native_module->create_behaviour(instance.class_name, arguments));
         if (!instance.behaviour) {

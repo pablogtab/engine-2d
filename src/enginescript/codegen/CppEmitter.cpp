@@ -1,4 +1,5 @@
 #include "CppEmitter.hpp"
+#include "../api/ApiCatalog.hpp"
 #include <format>
 #include <iomanip>
 #include <sstream>
@@ -63,9 +64,7 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
             }
             break;
         default:
-            if (type->name == "Input" || type->name == "Log" ||
-                type->name == "RigidBody2D" || type->name == "Animator2D" ||
-                type->name == "SpriteRenderer2D") {
+            if (ApiCatalog::instance().has_available_type(type->name)) {
                 s = "EngineScript::" + type->name;
             } else {
                 s = type->name;
