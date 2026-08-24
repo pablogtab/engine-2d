@@ -25,7 +25,7 @@ Cross-Platform 2D/2.5D Game Engine built with **C++20**, **SDL3**, and **GLM**. 
    - Las librerías de terceros residen en `vendor/` (ej. `vendor/stb/stb_image.h` y `stb_impl.cpp`).
    - El repositorio del motor no contiene gameplay ni assets de un juego.
    - Cada juego vive en una raíz independiente con `project.engine2d`, `Assets/`, `ProjectSettings/` y `Library/`; seguir `docs/PROJECTS.md`.
-   - Los scripts Luau se editan externamente; no agregar un editor de código embebido.
+   - Los scripts EngineScript (`.e2s`) se editan externamente con la extensión de VSCode; no agregar un editor de código embebido.
 
 5. **Sin Código Legacy ni Retrocompatibilidad en Desarrollo Activo:**
    - **NO mantener capas de compatibilidad hacia atrás o soporte legacy** mientras el motor esté en desarrollo activo.

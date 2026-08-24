@@ -2,8 +2,10 @@
 
 ## 1. Executive Summary
 
-The mandatory Platformer Spike for EngineScript has been fully implemented, executed, and verified.
-All exit gates defined in `docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md` Section 10 R17 have been met.
+The local Platformer Spike validates the core EngineScript architecture. Native
+generated-code compilation and Play Mode execution of authored TypedIR are
+covered automatically. Cross-platform packaging and performance measurements
+remain open and are not claimed by this document.
 
 ---
 
@@ -19,24 +21,26 @@ All exit gates defined in `docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md` Section 10 R1
 | **Collections & Generics** | Deterministic `Array<T>`, `Map<K, V>`, `Result<T, E>` | Fully typed, monomorphized without template leakage | **PASS** |
 | **Structured Async** | `Task<Void>`, `delay(500.ms)`, `TaskScope` cancellation | Verified cancellation on entity destruction | **PASS** |
 | **Dynamic Hot Reload** | Snapshot properties -> destroy -> reload -> recreate -> restore | Fully preserved authored state across reload | **PASS** |
-| **Hot Reload Rollback** | Automatic rollback to Last-Known-Good on any failure | Verified zero data loss or crash on broken module | **PASS** |
+| **Hot Reload Failure** | Invalid new code stops script execution and reports the failure | Verified no fallback to stale gameplay code | **PASS** |
 | **Scene Serialization** | Save/load behaviour state with stable type identities | Verified JSON roundtrip without C++ pointers | **PASS** |
 | **VSCode / LSP Tooling** | Live diagnostics, document symbols, completion, hover | Verified JSON-RPC protocol implementation | **PASS** |
 
 ---
 
-## 3. Measured Performance Benchmarks
+## 3. Validation Still Required
 
-- **Cold Compilation Time:** < 5 ms per behaviour module
-- **Hot Reload Latency:** < 0.5 ms
-- **Generated C++ Header Size:** ~1.4 KB
-- **Generated C++ Source Size:** ~1.2 KB
-- **Memory Overhead:** 0 dynamic allocations during tick execution
-- **Platform Compatibility:** Standard C++20 (compatible with Clang, MSVC, Apple Clang, and GCC).
+- Reproducible cold and incremental compilation timings.
+- Hot reload latency and runtime allocation captures.
+- Generated module and packaged extension sizes.
+- Native builds and VSIX validation on macOS, Windows, and Linux.
+- Mobile static-module/export validation before iOS or Android claims.
 
 ---
 
 ## 4. Exit Gate Decision
 
-**Decision:** **PROCEED / CONTINUE**.  
-The architecture demonstrates superior safety, clean DI authoring, robust hot reload rollback, structured async task scopes, and complete decoupling from engine internals compared to raw dynamic scripting.
+**Decision:** **PROCEED / CONTINUE**.
+EngineScript is the selected gameplay scripting architecture. The local spike
+validates typed authoring, DI metadata, compiled C++ syntax, lifetime-safe async
+cancellation, and fail-stop reload. The remaining platform/export gates stay
+visible in the active roadmap.

@@ -1,5 +1,9 @@
 #pragma once
 
+#include "../async/AsyncScheduler.hpp"
+
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,18 +16,44 @@ namespace EngineScript {
 constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 1;
 constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v1";
 
+class Input {
+public:
+    virtual ~Input() = default;
+    [[nodiscard]] virtual float axis(const std::string& name) const = 0;
+    [[nodiscard]] virtual bool pressed(const std::string& action) const = 0;
+};
+
+struct RigidBody2D {
+    glm::vec2 velocity{0.0f, 0.0f};
+    bool isGrounded{false};
+};
+
+class Animator2D {
+public:
+    virtual ~Animator2D() = default;
+    virtual void play(const std::string& clip_name) = 0;
+};
+
 class NativeBehaviour {
 public:
     virtual ~NativeBehaviour() = default;
     virtual void update(float delta_time) {}
     virtual void on_start() {}
     virtual void on_destroy() {}
+    virtual void on_collision_enter(uint32_t other_entity) { static_cast<void>(other_entity); }
+
+    [[nodiscard]] AsyncScheduler::DelayAwaiter delay(float seconds) const {
+        return async_scheduler
+            ? async_scheduler->delay(seconds, task_scope_id)
+            : AsyncScheduler::DelayAwaiter{nullptr, seconds, task_scope_id, false};
+    }
 
     uint32_t entity_id = 0;
     uint32_t task_scope_id = 0;
+    AsyncScheduler* async_scheduler = nullptr;
 };
 
-using BehaviourFactoryFn = void* (*)(void** args);
+using BehaviourFactoryFn = std::function<void*(void** args)>;
 
 struct BehaviourTypeRegistration {
     std::string type_name;

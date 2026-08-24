@@ -54,6 +54,24 @@ int main() {
     // Advance time past delay
     scheduler.step(1.0f, 1.0f);
     assert(!cancelled_flag); // Cancelled task did not run!
+    assert(t3.state() == TaskState::Cancelled);
+
+    // Test 4: Destroying a suspended task invalidates the scheduler entry.
+    bool discarded_flag = false;
+    {
+        auto discarded = delayed_action(scheduler, discarded_flag, 303);
+        assert(scheduler.pending_tasks_count() == 1);
+    }
+    assert(scheduler.pending_tasks_count() == 0);
+    scheduler.step(1.0f, 1.0f);
+    assert(!discarded_flag);
+
+    bool reset_flag = false;
+    auto reset_task = delayed_action(scheduler, reset_flag, 404);
+    scheduler.reset();
+    assert(reset_task.state() == TaskState::Cancelled);
+    scheduler.step(1.0f, 1.0f);
+    assert(!reset_flag);
 
     std::cout << "[PASS] EngineScriptAsyncTests passed!\n";
     return 0;

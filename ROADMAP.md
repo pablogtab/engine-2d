@@ -75,7 +75,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Resolve editor and runtime assets through one project-root-aware filesystem and Asset Database.
 - [x] Load only the project's configured startup scene; sandbox helpers are no longer implicit editor content.
 - [x] Stage and package the selected external project while excluding `Library/` and editor resources.
-- [x] Keep Luau authoring external to the editor and document the VSCode workflow.
+- [x] Keep EngineScript authoring external to the editor and document the VSCode workflow.
 
 ---
 
@@ -225,7 +225,7 @@ These systems form the current baseline and should be extended rather than rewri
 - [x] Add material dependency tracking and dependency-safe reload.
   - [x] Track material-to-shader-to-source dependencies and propagate missing-source state safely.
 - [x] Add drag-and-drop from Asset Browser to Viewport and Hierarchy.
-- [x] Add typed drag-and-drop from Asset Browser into compatible Entity Inspector fields (Sprite/UI textures, fonts, materials, scripts, Luau asset fields, render-effect profiles, and Tilemap tilesets) with ready-state validation and Undo/Redo through existing component commands.
+- [x] Add typed drag-and-drop from Asset Browser into compatible Entity Inspector fields (Sprite/UI textures, fonts, materials, scripts, EngineScript asset fields, render-effect profiles, and Tilemap tilesets) with ready-state validation and Undo/Redo through existing component commands.
 - [x] Add project-wide Asset Browser search with query tokens, type/status filters, sorting, switchable Grid/List/Details views, clickable breadcrumbs, issue visibility, dependency details, reveal/copy actions, and reversible rename.
 - [x] Complete the Asset Browser workspace with real texture/material/scene previews, a navigable folder tree, Favorites and Recent collections, persistent view/filter/sort settings, multi-selection, bulk favorite/copy/delete actions, and atomic drag-to-folder moves with Undo/Redo.
 
@@ -360,30 +360,29 @@ This is intentionally independent from the material workflow above. Materials re
 
 ---
 
-## Phase 7 — Luau Scripting and Play Mode
+## Phase 7 — EngineScript Scripting and Play Mode
 
 **Goal:** Enable rapid gameplay iteration without recompiling C++ or compromising authoring state.
 
-- [x] Add embedded Luau runtime integration and a registered, serializable `ScriptComponent`.
-- [x] Bind engine APIs.
-  - [x] Entity identity and local Transform position.
-  - [x] Named Input actions/axes, RigidBody velocity/grounded state, Sprite facing, and Animation clip playback.
-  - [x] Audio, collision/events, assets, display, and scene loading.
-- [x] Add script creation, attachment, typed public-field inspection, editing, and strict error reporting.
-- [x] Add hot reload with explicit lifecycle and failure behavior.
+- [x] Register `.e2s` assets and a serializable `ScriptComponent` with typed public values.
+- [x] Execute authored TypedIR through `GameModule` behaviour instances in Play Mode; no gameplay controller is hardcoded in `ScriptRuntime`.
+- [x] Bind constructor-declared Input, required `RigidBody2D`, optional `Animator2D`, lifecycle update, and collision entry.
+- [x] Add script creation, attachment, typed public-field inspection, live editing, and compiler diagnostics.
+- [x] Add fail-stop hot reload: invalid new code stops affected gameplay and exposes an error; it never silently resumes the previous implementation.
 - [x] Preserve the current safe default: Stop tears down scripts and restores the authoring snapshot.
 - [x] Synchronize Inspector public-field edits into running instances for live Play Mode tuning.
 - [x] Add opt-in Play Mode apply-back for explicitly selected properties.
 - [x] Keep runtime script state distinct from serialized public fields.
+- [ ] Complete remaining runtime bindings for audio, asset queries, display, scene loading, UI/custom events, and the full language expression surface.
+- [ ] Load the generated native `GameModule` in standalone exports; editor Play Mode currently uses the compiler's TypedIR-backed module adapter.
+- [ ] Execute authored async methods through the runtime scheduler; coroutine generation and lifetime-safe cancellation are already covered at the native backend layer.
 
 **Completion criteria:** Gameplay behavior can be authored, inspected, debugged, and reloaded while Edit and Play state remain predictably isolated.
 
-**Planned replacement research:** Luau remains the active validated runtime. A
-custom statically typed gameplay language that transpiles to C++20 is documented
-separately in [`docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md`](docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md).
-That roadmap is design-only and may be abandoned at its specification, native
-backend, or platformer-spike gates. Luau must not be removed or weakened before
-the spike is explicitly approved.
+EngineScript is the only active gameplay scripting architecture. Luau has been
+removed from build targets and is not a supported authoring or runtime path.
+Remaining language/backend work is tracked in
+[`docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md`](docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md).
 
 ---
 
@@ -495,39 +494,37 @@ the spike is explicitly approved.
 
 ---
 
-## Phase 11 — EngineScript Language Research
+## Phase 11 — EngineScript Language and Native Backend
 
 **Detailed design roadmap:**
 [`docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md`](docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md).
 
-**Architecture gate:** This phase is research and specification until its
-mandatory platformer spike succeeds. It must not introduce a permanent second
-runtime, generated files into authored project content, or a compatibility layer
-for the unreleased Luau format.
+**Architecture gate:** EngineScript is the selected gameplay language. There is
+no second scripting runtime and no legacy compatibility layer. Generated output
+belongs under `Library/` or build directories, never authored project content.
 
-**Goal:** Evaluate a statically typed, object-oriented gameplay language with
+**Goal:** Complete a statically typed, object-oriented gameplay language with
 decorators, dependency injection, deterministic generic collections, structured
 async/await, C++20 generation, external VSCode tooling, and safe module hot
 reload.
 
 - [x] Approve the language constitution, non-goals, ownership rules, grammar,
   type system, decorator semantics, DI scopes, and async contract.
-- [x] Build the compiler frontend and native backend behind isolated tooling;
-  keep Luau unchanged while the experiment is incomplete.
+- [x] Build the compiler frontend, TypedIR runtime adapter, and native C++20 backend.
 - [x] Generate deterministic editor metadata and a versioned GameModule ABI.
-- [x] Validate compiler cache, dependency invalidation, hot reload rollback,
-  serialization, Undo/Redo, and last-known-good behavior.
+- [x] Integrate compiler cache use, force rebuild, dependency-graph reset,
+  serialization, Undo/Redo, and fail-stop hot reload.
 - [x] Provide compiler-backed VSCode/LSP authoring before considering the
   language usable.
-- [x] Complete the mandatory platformer spike and record cold/incremental build,
-  reload, size, memory, diagnostic, macOS, Windows, and iOS results.
+- [x] Complete the local platformer behaviour spike and compile generated C++ in tests.
+- [ ] Record reproducible cold/incremental build, reload, size, memory, diagnostic,
+  Windows, Linux, macOS, and iOS results before claiming cross-platform completion.
 - [x] Make an explicit continue, reduce, change-language, or abandon decision.
-- [ ] Remove Luau only after approval of a complete clean migration.
+- [x] Remove Luau from active build, runtime, and authoring contracts.
 
-**Completion criteria:** EngineScript may replace Luau only when the platformer
-spike demonstrates a better authoring workflow, stable DI/reflection/async
-contracts, reliable rollback, usable VSCode tooling, and a verified export
-strategy without retaining two gameplay runtimes.
+**Completion criteria:** EngineScript has stable DI/reflection/async contracts,
+fail-stop reload, usable portable VSCode tooling, complete runtime bindings, and
+a verified native export strategy on every supported platform.
 
 ---
 
@@ -611,10 +608,10 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [x] `MobileSurfaceTests` — orientation, safe-area updates, surface recreation, suspend/resume, split-screen resize, and capability restrictions using a fake backend.
 - [ ] Real-device iOS and Android smoke tests before mobile support is declared complete.
 
-### Phase 7 — Luau Scripting and Play Mode Suites
+### Phase 7 — EngineScript Scripting and Play Mode Suites
 
-- [x] `LuauRuntimeTests` — VM lifecycle, strict errors, live public fields, gameplay bindings, asset validation, audio/display/scene services, deferred event delivery, and deterministic teardown.
-- [x] `ScriptHotReloadTests` — successful reload, syntax/runtime initialization failure, retained-state policy, removed fields, and recovery without corrupting the scene.
+- [x] `EngineScriptPlayModeTests` — authored lifecycle execution, live public fields, DI/component validation, collision handling, and deterministic teardown.
+- [x] `ScriptHotReloadTests` — changed implementation execution, syntax failure, fail-stop behavior, serialized-value preservation, and valid-save recovery.
 - [x] `ScriptSerializationTests` — public fields, defaults, type changes, missing scripts, asset/entity references, schema evolution, and transactional rejection.
 - [x] `PlayModeIsolationTests` — authoring and physics-state restoration, command-history preservation, atomic selected-property apply-back, and isolated runtime scene switching.
 
@@ -636,7 +633,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [ ] Add command/build API tests for named-command allowlists, cancellation, output bounds, artifact detection, and audit receipts.
 - [ ] Add generated-audio analysis and variation tests for WAV validity, reproducibility, loop boundaries, asset identity, and rollback.
 
-### Phase 11 — EngineScript Research Suites
+### Phase 11 — EngineScript Suites
 
 - [x] Add isolated source, lexer, parser, resolver, type-checker, TypedIR,
   codegen, metadata, dependency-graph, and compiler-cache suites.
@@ -644,10 +641,9 @@ These suites protect systems that already exist but do not yet have dedicated au
   relying only on textual snapshots.
 - [x] Add DI scope/cycle/component validation, deterministic collection, generic
   constraint/monomorphization, async scheduling/cancellation, module ABI, and hot
-  reload rollback suites.
+  reload fail-stop suites.
 - [x] Add project/editor integration and compiler-backed LSP protocol suites.
-- [x] Keep all EngineScript tests isolated from the active Luau runtime until the
-  replacement gate is approved.
+- [x] Keep EngineScript tests independent from removed scripting implementations.
 
 ### Continuous Test Gates
 
@@ -729,7 +725,7 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Cover reasoning configuration, invalid-tool retry limits, 2D/3D Transform positions, and real Codex App Server transport with deterministic tests plus an opt-in live smoke.
    - [x] Add reversible import of locally generated WAV assets.
    - [ ] Add named command/build tools and audio analysis before expanding into material, prefab, scene, Tilemap, and animation authoring APIs.
-9. **EngineScript Specification Gate (Phase 11)**:
+9. **EngineScript Language Gate (Phase 11)**:
    - [x] Approve the language constitution and non-goals before implementing a compiler.
    - [x] Specify grammar, ownership, types, generics, decorators, DI, async, module ABI, and editor metadata.
-   - [x] Keep Luau as the active runtime until the mandatory platformer spike and explicit replacement decision.
+   - [x] Adopt EngineScript as the sole gameplay scripting architecture after the replacement decision.

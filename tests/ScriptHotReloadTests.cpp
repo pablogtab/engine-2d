@@ -1,10 +1,13 @@
 #include "core/AssetDatabase.hpp"
 #include "ecs/EntityManager.hpp"
 #include "ecs/components/CoreComponents.hpp"
+#include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/ScriptingComponents.hpp"
 #include "scripting/ScriptRuntime.hpp"
 
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -30,13 +33,17 @@ int main() {
     write_script(script_path, R"(
 @behaviour
 export class ReloadBehaviour extends Behaviour {
+    constructor(@component private body: RigidBody2D) {}
+
     @expose
     boost: Float = 1.0;
 
     @expose
     obsolete: Float = 5.0;
 
-    override update(deltaTime: Float): Void {}
+    override update(deltaTime: Float): Void {
+        body.velocity.x = boost;
+    }
 }
 )");
 
@@ -49,6 +56,7 @@ export class ReloadBehaviour extends Behaviour {
     EntityManager entities;
     const EntityID entity = entities.create_entity();
     entities.add_component<TransformComponent>(entity, TransformComponent{});
+    entities.add_component<RigidBodyComponent>(entity, RigidBodyComponent::Dynamic());
     ScriptComponent component;
     component.script_handle = asset->handle;
     entities.add_component<ScriptComponent>(entity, component);
@@ -61,26 +69,41 @@ export class ReloadBehaviour extends Behaviour {
     );
     assert(started.started == 1 && started.failed == 0);
     assert(runtime.instance_count() == 1);
+    auto& live_script = entities.get_component<ScriptComponent>(entity);
+    const auto boost = std::find_if(live_script.public_fields.begin(), live_script.public_fields.end(), [](const ScriptPublicField& field) {
+        return field.name == "boost";
+    });
+    assert(boost != live_script.public_fields.end());
+    boost->value = 7.0;
+    runtime.update(0.016f);
+    assert(std::abs(entities.get_component<RigidBodyComponent>(entity).velocity.x - 7.0f) < 0.001f);
 
     // Syntax failure hot reload
     write_script(script_path, "@behaviour\nexport class Broken { let x: =\n");
     const ScriptHotReloadResult syntax_failure = runtime.reload_changed_scripts(true);
     assert(syntax_failure.reloaded == 0 && syntax_failure.failed == 1);
-    assert(!runtime.status(entity) || runtime.status(entity)->state == ScriptExecutionState::Running);
+    assert(runtime.instance_count() == 0);
+    assert(runtime.status(entity) && runtime.status(entity)->state == ScriptExecutionState::Error);
 
     // Recovery hot reload
     write_script(script_path, R"(
 @behaviour
 export class ReloadBehaviour extends Behaviour {
+    constructor(@component private body: RigidBody2D) {}
+
     @expose
     boost: Float = 10.0;
 
-    override update(deltaTime: Float): Void {}
+    override update(deltaTime: Float): Void {
+        body.velocity.x = boost * 2.0;
+    }
 }
 )");
     const ScriptHotReloadResult recovered = runtime.reload_changed_scripts(true);
     assert(recovered.reloaded == 1 && recovered.failed == 0);
     assert(!runtime.reload_error(asset->handle));
+    runtime.update(0.016f);
+    assert(std::abs(entities.get_component<RigidBodyComponent>(entity).velocity.x - 14.0f) < 0.001f);
 
     runtime.shutdown();
     fs::remove_all(root, error);

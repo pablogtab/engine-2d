@@ -23,13 +23,20 @@ public:
 };
 
 void* create_v1(void**) { return new MockPlayerV1(); }
-void* create_v2(void**) { return new MockPlayerV2(); }
+void* expected_input_service = nullptr;
+void* create_v2(void** args) {
+    if (!args || args[0] != expected_input_service) return nullptr;
+    return new MockPlayerV2();
+}
 
 int main() {
     std::cout << "[TEST] Running EngineScriptHotReloadTests...\n";
 
     AsyncScheduler scheduler;
     DIContainer di;
+    int input_service = 42;
+    expected_input_service = &input_service;
+    di.register_instance("Input", expected_input_service);
     HotReloadManager hrm;
 
     // Snapshot hooks
@@ -71,7 +78,11 @@ int main() {
     // 2. Successful Hot Reload to Module V2
     ModuleDescriptor d2;
     d2.module_name = "GameplayV2";
-    d2.behaviour_types.push_back({"PlatformerPlayer", create_v2});
+    BehaviourTypeRegistration v2_registration;
+    v2_registration.type_name = "PlatformerPlayer";
+    v2_registration.factory = create_v2;
+    v2_registration.injected_services = {"Input"};
+    d2.behaviour_types.push_back(std::move(v2_registration));
     auto mod_v2 = std::make_shared<GameModule>(d2);
 
     bool reloaded = hrm.hot_reload(mod_v2, scheduler, di);
@@ -84,18 +95,17 @@ int main() {
     assert(p2->speed == 350.0f);
     assert(p2->started);
 
-    // 3. Failed Hot Reload with automatic rollback
+    // 3. Failed Hot Reload stops execution instead of hiding the failure by rollback.
     ModuleDescriptor d_broken;
     d_broken.module_name = "GameplayBroken";
     d_broken.behaviour_types.push_back({"PlatformerPlayer", nullptr}); // Broken factory!
     auto mod_broken = std::make_shared<GameModule>(d_broken);
 
     bool reload_failed = hrm.hot_reload(mod_broken, scheduler, di);
-    assert(!reload_failed); // Failed and rolled back!
+    assert(!reload_failed);
 
-    // Verify we rolled back to V2 safely
-    assert(hrm.active_module() == mod_v2);
-    assert(hrm.active_instances_count() == 1);
+    assert(hrm.active_module() == nullptr);
+    assert(hrm.active_instances_count() == 0);
 
     std::cout << "[PASS] EngineScriptHotReloadTests passed!\n";
     return 0;

@@ -1,5 +1,6 @@
 #include "CppEmitter.hpp"
 #include <format>
+#include <iomanip>
 #include <sstream>
 #include <filesystem>
 
@@ -62,7 +63,11 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
             }
             break;
         default:
-            s = type->name;
+            if (type->name == "Input" || type->name == "RigidBody2D" || type->name == "Animator2D") {
+                s = "EngineScript::" + type->name;
+            } else {
+                s = type->name;
+            }
             break;
     }
 
@@ -101,7 +106,6 @@ CppOutput CppEmitter::emit_module(const IRModule& module) {
     h_ss << "#include <map>\n";
     h_ss << "#include <optional>\n";
     h_ss << "#include <glm/glm.hpp>\n";
-    h_ss << "#include \"enginescript/async/Task.hpp\"\n";
     h_ss << "#include \"enginescript/module/GameModule.hpp\"\n\n";
 
     for (const auto& imp : module.imports) {
@@ -153,7 +157,9 @@ void CppEmitter::emit_struct_header(const IRStruct& st, std::string& out) {
 }
 
 void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
-    std::string base = cls.base_class.empty() ? "public EngineScript::NativeBehaviour" : ("public " + cls.base_class);
+    const std::string base = cls.is_behaviour || cls.base_class == "Behaviour"
+        ? "public EngineScript::NativeBehaviour"
+        : (cls.base_class.empty() ? "public EngineScript::NativeBehaviour" : "public " + cls.base_class);
     out += std::format("class {} : {} {{\n", cls.name, base);
     out += "public:\n";
 
@@ -204,6 +210,12 @@ void CppEmitter::emit_function_header(const IRFunction& fn, std::string& out) {
 }
 
 void CppEmitter::emit_class_source(const IRClass& cls, const std::string& header_name, std::string& out) {
+    static_cast<void>(header_name);
+    m_injected_members.clear();
+    for (const auto& parameter : cls.constructor_params) {
+        m_injected_members.insert(parameter.name);
+    }
+
     // Constructor implementation
     out += std::format("{}::{}(", cls.name, cls.name);
     for (size_t i = 0; i < cls.constructor_params.size(); ++i) {
@@ -239,7 +251,17 @@ void CppEmitter::emit_class_source(const IRClass& cls, const std::string& header
 
     // Factory export
     out += std::format("extern \"C\" void* create_{}(void** args) {{\n", cls.name);
-    out += std::format("    return new {}();\n", cls.name);
+    out += std::format("    return new {}(", cls.name);
+    for (std::size_t index = 0; index < cls.constructor_params.size(); ++index) {
+        const auto& parameter = cls.constructor_params[index];
+        out += std::format(
+            "static_cast<{}>(args ? args[{}] : nullptr)",
+            type_to_cpp(parameter.type.get()),
+            index
+        );
+        if (index + 1 < cls.constructor_params.size()) out += ", ";
+    }
+    out += ");\n";
     out += "}\n\n";
 }
 
@@ -271,19 +293,57 @@ void CppEmitter::emit_statement_cpp(const IRStatement& st, std::string& out, int
         }
     }
 
-    if (!st.op) return;
+    emit_operation_statement_cpp(st.op.get(), out, indent);
+}
 
-    if (auto assign = dynamic_cast<const IRAssign*>(st.op.get())) {
-        out += std::format("{}{} = {};\n", ind, assign->target_name, emit_operation_cpp(assign->value.get()));
-    } else if (auto m_set = dynamic_cast<const IRMemberSet*>(st.op.get())) {
-        out += std::format("{}{}.{} = {};\n", ind, emit_operation_cpp(m_set->target.get()), m_set->member_name, emit_operation_cpp(m_set->value.get()));
-    } else if (auto ret = dynamic_cast<const IRReturn*>(st.op.get())) {
+void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string& out, int indent) {
+    if (!op) return;
+    const std::string ind(indent * 4, ' ');
+
+    if (auto declaration = dynamic_cast<const IRVarDecl*>(op)) {
+        const std::string qualifier = declaration->is_const ? "const " : "";
+        out += std::format("{}{}{} {}", ind, qualifier, type_to_cpp(declaration->declared_type.get()), declaration->name);
+        if (declaration->initializer) out += " = " + emit_operation_cpp(declaration->initializer.get());
+        out += ";\n";
+    } else if (auto assign = dynamic_cast<const IRAssign*>(op)) {
+        out += std::format(
+            "{}{} {} {};\n",
+            ind,
+            identifier_to_cpp(assign->target_name),
+            token_type_to_string(assign->assignment_op),
+            emit_operation_cpp(assign->value.get())
+        );
+    } else if (auto m_set = dynamic_cast<const IRMemberSet*>(op)) {
+        out += std::format(
+            "{}{}{}{} {} {};\n",
+            ind,
+            emit_operation_cpp(m_set->target.get()),
+            member_access_operator(m_set->target.get()),
+            m_set->member_name,
+            token_type_to_string(m_set->assignment_op),
+            emit_operation_cpp(m_set->value.get())
+        );
+    } else if (auto branch = dynamic_cast<const IRIf*>(op)) {
+        out += std::format("{}if ({}) {{\n", ind, emit_operation_cpp(branch->condition.get()));
+        for (const auto& nested : branch->then_operations) {
+            emit_operation_statement_cpp(nested.get(), out, indent + 1);
+        }
+        out += ind + "}";
+        if (!branch->else_operations.empty()) {
+            out += " else {\n";
+            for (const auto& nested : branch->else_operations) {
+                emit_operation_statement_cpp(nested.get(), out, indent + 1);
+            }
+            out += ind + "}";
+        }
+        out += "\n";
+    } else if (auto ret = dynamic_cast<const IRReturn*>(op)) {
         if (ret->value) {
             out += std::format("{}return {};\n", ind, emit_operation_cpp(ret->value.get()));
         } else {
             out += std::format("{}return;\n", ind);
         }
-    } else if (auto opt = dynamic_cast<const IROptionalChain*>(st.op.get())) {
+    } else if (auto opt = dynamic_cast<const IROptionalChain*>(op)) {
         out += std::format("{}if ({}) {{ {}->{}(", ind, emit_operation_cpp(opt->target.get()), emit_operation_cpp(opt->target.get()), opt->member_name);
         for (size_t i = 0; i < opt->method_args.size(); ++i) {
             out += emit_operation_cpp(opt->method_args[i].get());
@@ -291,7 +351,7 @@ void CppEmitter::emit_statement_cpp(const IRStatement& st, std::string& out, int
         }
         out += "); }\n";
     } else {
-        out += std::format("{}{};\n", ind, emit_operation_cpp(st.op.get()));
+        out += std::format("{}{};\n", ind, emit_operation_cpp(op));
     }
 }
 
@@ -302,13 +362,19 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
         if (c->is_null) return "nullptr";
         if (c->result_type && c->result_type->is_bool()) return c->bool_val ? "true" : "false";
         if (c->result_type && c->result_type->is_string()) return std::format("\"{}\"", c->string_val);
-        if (c->result_type && c->result_type->is_float()) return std::format("{}f", c->float_val);
+        if (c->result_type && c->result_type->is_float()) {
+            std::ostringstream number;
+            number << std::setprecision(9) << c->float_val;
+            std::string literal = number.str();
+            if (literal.find_first_of(".eE") == std::string::npos) literal += ".0";
+            return literal + "f";
+        }
         if (c->result_type && c->result_type->is_integer()) return std::to_string(c->int_val);
         return "0";
     }
 
     if (auto v = dynamic_cast<const IRVarRef*>(op)) {
-        return v->name;
+        return identifier_to_cpp(v->name);
     }
 
     if (auto bin = dynamic_cast<const IRBinary*>(op)) {
@@ -330,7 +396,7 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     if (auto mc = dynamic_cast<const IRMethodCall*>(op)) {
-        std::string s = emit_operation_cpp(mc->target.get()) + "." + mc->method_name + "(";
+        std::string s = emit_operation_cpp(mc->target.get()) + member_access_operator(mc->target.get()) + mc->method_name + "(";
         for (size_t i = 0; i < mc->args.size(); ++i) {
             s += emit_operation_cpp(mc->args[i].get());
             if (i + 1 < mc->args.size()) s += ", ";
@@ -340,7 +406,7 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     if (auto mg = dynamic_cast<const IRMemberGet*>(op)) {
-        return emit_operation_cpp(mg->target.get()) + "." + mg->member_name;
+        return emit_operation_cpp(mg->target.get()) + member_access_operator(mg->target.get()) + mg->member_name;
     }
 
     if (auto aw = dynamic_cast<const IRAwait*>(op)) {
@@ -348,6 +414,15 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     return "";
+}
+
+std::string CppEmitter::member_access_operator(const IROperation* target) const {
+    if (target && target->result_type && target->result_type->kind == TypeKind::Class) return "->";
+    return ".";
+}
+
+std::string CppEmitter::identifier_to_cpp(const std::string& identifier) const {
+    return m_injected_members.contains(identifier) ? "m_" + identifier : identifier;
 }
 
 } // namespace EngineScript

@@ -6,6 +6,13 @@
 
 using namespace EngineScript;
 
+namespace {
+void write_message(const std::string& message) {
+    if (message.empty()) return;
+    std::cout << "Content-Length: " << message.size() << "\r\n\r\n" << message;
+}
+}
+
 int main(int argc, char* argv[]) {
     std::string root_dir = ".";
     if (argc > 1) {
@@ -54,10 +61,9 @@ int main(int argc, char* argv[]) {
         }
 
         std::string response = server.handle_message(body);
-        if (!response.empty()) {
-            std::cout << "Content-Length: " << response.size() << "\r\n\r\n" << response;
-            std::cout.flush();
-        }
+        write_message(response);
+        for (const auto& notification : server.take_pending_notifications()) write_message(notification);
+        std::cout.flush();
     }
 
     return 0;

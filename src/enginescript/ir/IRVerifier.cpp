@@ -94,6 +94,27 @@ bool IRVerifier::verify_operation(const IROperation* op) {
         return verify_operation(assign->value.get());
     }
 
+    if (auto declaration = dynamic_cast<const IRVarDecl*>(op)) {
+        if (declaration->name.empty() || !declaration->declared_type) {
+            m_diagnostics.report_error("E4023", "IRVarDecl is missing its name or type", declaration->span);
+            return false;
+        }
+        return !declaration->initializer || verify_operation(declaration->initializer.get());
+    }
+
+    if (auto branch = dynamic_cast<const IRIf*>(op)) {
+        if (!branch->condition || !verify_operation(branch->condition.get())) {
+            m_diagnostics.report_error("E4024", "IRIf is missing a valid condition", branch->span);
+            return false;
+        }
+        for (const auto& nested : branch->then_operations) {
+            if (!verify_operation(nested.get())) return false;
+        }
+        for (const auto& nested : branch->else_operations) {
+            if (!verify_operation(nested.get())) return false;
+        }
+    }
+
     return true;
 }
 

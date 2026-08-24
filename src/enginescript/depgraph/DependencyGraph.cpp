@@ -4,6 +4,14 @@
 
 namespace EngineScript {
 
+void DependencyGraph::clear() {
+    m_nodes.clear();
+    m_node_set.clear();
+    m_edges.clear();
+    m_adj.clear();
+    m_rev_adj.clear();
+}
+
 void DependencyGraph::add_node(const std::string& module_path) {
     if (m_node_set.find(module_path) == m_node_set.end()) {
         m_node_set.insert(module_path);

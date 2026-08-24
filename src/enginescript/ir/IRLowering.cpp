@@ -161,18 +161,20 @@ void IRLowering::lower_statement(const std::shared_ptr<Statement>& stmt, IRBlock
             lower_statement(s, current_block);
         }
     } else if (auto v = dynamic_cast<const VarDeclStmt*>(stmt.get())) {
-        if (v->initializer) {
-            auto assign = std::make_shared<IRAssign>();
-            assign->target_name = v->name;
-            assign->value = lower_expression(v->initializer);
-            assign->result_type = assign->value ? assign->value->result_type : nullptr;
-            assign->span = v->span;
+        auto declaration = std::make_shared<IRVarDecl>();
+        declaration->name = v->name;
+        declaration->is_const = v->is_const;
+        declaration->declared_type = v->type_annotation
+            ? m_type_checker.resolve_type_annotation(*v->type_annotation)
+            : m_type_checker.get_type_of_node(v);
+        declaration->initializer = lower_expression(v->initializer);
+        declaration->result_type = declaration->declared_type;
+        declaration->span = v->span;
 
-            IRStatement st;
-            st.op = assign;
-            st.span = v->span;
-            current_block.statements.push_back(st);
-        }
+        IRStatement st;
+        st.op = declaration;
+        st.span = v->span;
+        current_block.statements.push_back(std::move(st));
     } else if (auto e = dynamic_cast<const ExprStmt*>(stmt.get())) {
         auto op = lower_expression(e->expr);
         if (op) {
@@ -194,11 +196,27 @@ void IRLowering::lower_statement(const std::shared_ptr<Statement>& stmt, IRBlock
         st.span = ret->span;
         current_block.statements.push_back(st);
     } else if (auto if_s = dynamic_cast<const IfStmt*>(stmt.get())) {
-        // Lower nested statements directly into block
-        lower_statement(if_s->then_branch, current_block);
-        if (if_s->else_branch) {
-            lower_statement(if_s->else_branch, current_block);
+        auto branch = std::make_shared<IRIf>();
+        branch->condition = lower_expression(if_s->condition);
+        branch->span = if_s->span;
+
+        IRBlock then_block;
+        lower_statement(if_s->then_branch, then_block);
+        for (auto& nested : then_block.statements) {
+            branch->then_operations.push_back(std::move(nested.op));
         }
+        if (if_s->else_branch) {
+            IRBlock else_block;
+            lower_statement(if_s->else_branch, else_block);
+            for (auto& nested : else_block.statements) {
+                branch->else_operations.push_back(std::move(nested.op));
+            }
+        }
+
+        IRStatement st;
+        st.op = std::move(branch);
+        st.span = if_s->span;
+        current_block.statements.push_back(std::move(st));
     }
 }
 
@@ -270,6 +288,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
             auto m_set = std::make_shared<IRMemberSet>();
             m_set->target = lower_expression(mem->object);
             m_set->member_name = mem->member_name;
+            m_set->assignment_op = assign->op;
             m_set->value = lower_expression(assign->value);
             m_set->result_type = m_set->value ? m_set->value->result_type : nullptr;
             m_set->span = assign->span;
@@ -278,6 +297,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
         if (auto id = dynamic_cast<const IdentifierExpr*>(assign->target.get())) {
             auto a = std::make_shared<IRAssign>();
             a->target_name = id->name;
+            a->assignment_op = assign->op;
             a->value = lower_expression(assign->value);
             a->result_type = a->value ? a->value->result_type : nullptr;
             a->span = assign->span;

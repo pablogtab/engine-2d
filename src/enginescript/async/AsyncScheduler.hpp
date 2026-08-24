@@ -5,6 +5,7 @@
 #include <functional>
 #include <cstdint>
 #include <memory>
+#include <type_traits>
 
 namespace EngineScript {
 
@@ -18,6 +19,7 @@ struct ScheduledAction {
     bool is_cancelled = false;
     std::function<void()> callback;
     std::coroutine_handle<> coroutine_handle;
+    std::weak_ptr<detail::CoroutineControlBlock> coroutine_control;
 };
 
 class AsyncScheduler {
@@ -46,7 +48,19 @@ public:
         bool is_real_time = false;
 
         bool await_ready() const noexcept { return seconds <= 0.0f; }
-        void await_suspend(std::coroutine_handle<> h) noexcept;
+        template <typename Promise>
+        void await_suspend(std::coroutine_handle<Promise> h) noexcept {
+            static_assert(std::is_base_of_v<detail::TaskPromiseBase, Promise>);
+            if (!scheduler) return;
+            ScheduledAction action;
+            action.id = scheduler->next_action_id();
+            action.scope_id = scope_id;
+            action.time_remaining = seconds;
+            action.is_real_time = is_real_time;
+            action.coroutine_handle = h;
+            action.coroutine_control = h.promise().control;
+            scheduler->m_actions.push_back(std::move(action));
+        }
         void await_resume() const noexcept {}
     };
 
@@ -55,7 +69,18 @@ public:
         uint32_t scope_id;
 
         bool await_ready() const noexcept { return false; }
-        void await_suspend(std::coroutine_handle<> h) noexcept;
+        template <typename Promise>
+        void await_suspend(std::coroutine_handle<Promise> h) noexcept {
+            static_assert(std::is_base_of_v<detail::TaskPromiseBase, Promise>);
+            if (!scheduler) return;
+            ScheduledAction action;
+            action.id = scheduler->next_action_id();
+            action.scope_id = scope_id;
+            action.is_next_frame = true;
+            action.coroutine_handle = h;
+            action.coroutine_control = h.promise().control;
+            scheduler->m_actions.push_back(std::move(action));
+        }
         void await_resume() const noexcept {}
     };
 

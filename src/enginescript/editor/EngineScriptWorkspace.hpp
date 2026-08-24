@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <optional>
 
 namespace EngineScript {
 
@@ -42,6 +43,7 @@ public:
     const DependencyGraph& dependency_graph() const { return m_dep_graph; }
     const CompilerCache& compiler_cache() const { return m_cache; }
     const ProjectMetadataManifest& metadata_manifest() const { return m_manifest; }
+    const std::vector<IRModule>& ir_modules() const { return m_ir_modules; }
 
     // Serialization helper for scene files
     std::string serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const;
@@ -53,7 +55,10 @@ private:
     DependencyGraph m_dep_graph;
     CompilerCache m_cache;
     ProjectMetadataManifest m_manifest;
+    std::vector<IRModule> m_ir_modules;
     std::vector<std::string> m_registered_files;
+    std::string m_last_workspace_hash;
+    std::optional<CompilationResult> m_last_result;
 };
 
 } // namespace EngineScript

@@ -1,12 +1,11 @@
 # EngineScript Language and Compiler Roadmap
 
-> **Status:** design only. No compiler, runtime, file format, or migration has
-> started. Luau remains the active and supported gameplay runtime until the
-> mandatory spike and replacement gate in this document are explicitly
-> approved.
+> **Status:** active implementation. EngineScript is the selected gameplay
+> architecture. The compiler frontend, TypedIR, C++ emitter, Play Mode adapter,
+> metadata, cache, LSP, and local platformer gates are implemented. Native
+> export and cross-platform validation remain open.
 
-`EngineScript` and the `.e2s` extension are working names, not final product
-decisions.
+`EngineScript` and the `.e2s` extension are the current product contract.
 
 ## 1. Product Intent
 
@@ -77,7 +76,7 @@ export class PlatformerPlayer extends Behaviour {
   values, never C++ pointers, offsets, or generated file paths.
 - The generated module exposes a versioned ABI and must be rejected safely when
   incompatible.
-- No Luau compatibility layer or dual permanent scripting architecture is added.
+- No legacy scripting compatibility layer or dual permanent scripting architecture is added.
 
 ## 3. Compiler Pipeline
 
@@ -403,10 +402,7 @@ Proposed project layout:
 GameProject/
   project.engine2d
   Assets/
-  Source/
-    Behaviours/
-    Systems/
-    Data/
+    Scripts/
   ProjectSettings/
   Library/
     EngineScript/
@@ -418,13 +414,13 @@ GameProject/
 
 Required editor capabilities include behaviour creation/attachment, manifest-
 driven property controls, dependency display and fixes, behaviour ordering,
-Undo/Redo, stable scene serialization, build diagnostics, hot reload status,
-last-known-good status, and an Open in VSCode action.
+Undo/Redo, stable scene serialization, build diagnostics, fail-stop hot reload
+status, and an Open in VSCode action.
 
-EngineScript source is not edited inside Engine2D. `Source/` is a project source
-root, not an `Assets/` runtime resource directory. Scene data stores stable
-behaviour type IDs and exposed values rather than source paths or generated C++
-details.
+EngineScript source is not edited inside Engine2D. Runtime-attached `.e2s` files
+are Script assets under `Assets/`; generated C++ and caches remain in `Library/`
+or build output. Scene data stores stable asset handles and exposed values rather
+than generated C++ details.
 
 ## 9. VSCode and Language Server Contract
 
@@ -440,8 +436,9 @@ Planned tooling stages:
 5. source-mapped stack navigation;
 6. a debug adapter only after the compiler/runtime contracts are stable.
 
-The initial compiler is not accepted as a Luau replacement without usable
-external authoring tooling.
+The current extension covers diagnostics, symbols, completion, hover, and build
+commands. References, rename, formatting, code actions, and source-mapped runtime
+navigation remain planned.
 
 ## 10. Implementation Roadmap
 
@@ -574,11 +571,12 @@ scheduler tests are deterministic.
 ### R14 - GameModule and Hot Reload
 
 - Implement versioned ABI, SDK hash, dynamic/static module variants, shadow copy,
-  property snapshots, instance recreation, reinjection, last-known-good retention,
-  rollback, and clean teardown.
+  property snapshots, instance recreation, reinjection, fail-stop errors, and
+  clean teardown.
 
-**Exit gate:** a failed build or incompatible module cannot interrupt the last
-valid gameplay version or lose authored properties.
+**Exit gate:** a failed build or incompatible module stops gameplay explicitly,
+preserves serialized authored properties, and reports the failure without
+silently running stale code.
 
 ### R15 - Engine2D Editor Integration
 
@@ -602,22 +600,21 @@ scene state without manual JSON editing.
 The spike must cover behaviour lifecycle, Input DI, required Rigidbody2D,
 optional Animator2D, exposed values, Array/Map/Set, one generic helper, one event,
 one async operation, cancellation, asset identity, Undo/Redo, scene reload, hot
-reload, intentional compiler failure, dependency failure, and rollback.
+reload, intentional compiler failure, dependency failure, and fail-stop behavior.
 
 Measure cold/incremental build, reload latency, module size, compiler/runtime
 memory, generated code, diagnostic quality, and macOS/Windows/iOS build strategy.
 
-**Exit gate:** an explicit continue/reduce/change-language/abandon decision. Luau
-remains untouched until this gate passes.
+**Exit gate:** an explicit continue/reduce/change-language/abandon decision.
 
-### R18 - Migration and Luau Removal
+### R18 - EngineScript Adoption and Legacy Removal
 
 Only after R17 approval:
 
 - migrate authored gameplay, runtime services, serialization, Inspector, tests,
   project templates, documentation, and external project source;
-- remove Luau bindings, runtime, analyzer, CMake targets, templates, tests, and
-  `vendor/luau`;
+- remove legacy scripting bindings, runtime, analyzer, CMake targets, templates,
+  tests, and unused vendored sources;
 - run all engine tests plus standalone and supported-platform validation;
 - update the active roadmap and scripting contract.
 
@@ -654,9 +651,8 @@ platform checks remain opt-in and separately labeled.
 
 ## 12. Decision Gates and Non-Goals
 
-The project may stop after R1, R8, or R17 without altering the active Luau
-runtime. Those gates exist to avoid continuing only because compiler work has
-already begun.
+The project could have stopped after R1, R8, or R17. Those historical gates
+existed to avoid continuing only because compiler work had already begun.
 
 Initial non-goals:
 
@@ -669,5 +665,4 @@ Initial non-goals:
 - dynamic code loading on mobile exports;
 - coroutine frame migration across hot reload;
 - untrusted mod sandboxing;
-- compatibility with unreleased Luau-authored content after final migration.
-
+- compatibility with unreleased legacy script content after final migration.

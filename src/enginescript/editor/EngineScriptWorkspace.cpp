@@ -2,6 +2,7 @@
 #include "../lexer/Lexer.hpp"
 #include "../parser/Parser.hpp"
 #include "../ir/IRVerifier.hpp"
+#include "../module/GameModule.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 
@@ -15,6 +16,10 @@ EngineScriptWorkspace::EngineScriptWorkspace(std::string project_root)
 
 void EngineScriptWorkspace::set_project_root(std::string project_root) {
     m_source_manager.set_project_root(project_root);
+    m_cache = CompilerCache(m_source_manager.project_root() + "/Library/EngineScript/Cache");
+    m_dep_graph.clear();
+    m_last_workspace_hash.clear();
+    m_last_result.reset();
 }
 
 void EngineScriptWorkspace::add_source_file(const std::string& relative_path, const std::string& content) {
@@ -38,8 +43,38 @@ void EngineScriptWorkspace::remove_source_file(const std::string& relative_path)
 }
 
 CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
+    std::string workspace_fingerprint = m_source_manager.project_root();
+    for (const auto& path : m_registered_files) {
+        const SourceFile* source = m_source_manager.get_file(path);
+        if (!source) continue;
+        workspace_fingerprint += '\n' + path + ':' + CompilerCache::hash_content(source->content);
+    }
+    const std::string workspace_hash = CompilerCache::hash_content(workspace_fingerprint);
+    if (!force_rebuild && m_last_result && workspace_hash == m_last_workspace_hash) {
+        for (const auto& path : m_registered_files) {
+            const SourceFile* source = m_source_manager.get_file(path);
+            if (source) {
+                m_cache.lookup(path, CompilerCache::hash_content(source->content), ENGINE_SCRIPT_SDK_HASH);
+            }
+        }
+        return *m_last_result;
+    }
+
     m_diagnostics.clear();
+    m_ir_modules.clear();
+    m_manifest = {};
+    m_dep_graph.clear();
     CompilationResult result;
+
+    const auto finish = [&](CompilationResult value) {
+        m_last_workspace_hash = workspace_hash;
+        m_last_result = value;
+        return value;
+    };
+
+    for (const auto& path : m_registered_files) {
+        m_dep_graph.add_node(path);
+    }
 
     std::vector<std::shared_ptr<ModuleNode>> ast_modules;
 
@@ -74,7 +109,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         result.error_count = m_diagnostics.error_count();
         result.warning_count = m_diagnostics.warning_count();
         result.diagnostics = m_diagnostics.get_diagnostics();
-        return result;
+        return finish(std::move(result));
     }
 
     // 2. Check for dependency cycles
@@ -89,7 +124,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         result.success = false;
         result.error_count = m_diagnostics.error_count();
         result.diagnostics = m_diagnostics.get_diagnostics();
-        return result;
+        return finish(std::move(result));
     }
 
     // 3. Symbol Resolution
@@ -101,7 +136,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         result.error_count = m_diagnostics.error_count();
         result.warning_count = m_diagnostics.warning_count();
         result.diagnostics = m_diagnostics.get_diagnostics();
-        return result;
+        return finish(std::move(result));
     }
 
     // 4. Type Checking
@@ -113,7 +148,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         result.error_count = m_diagnostics.error_count();
         result.warning_count = m_diagnostics.warning_count();
         result.diagnostics = m_diagnostics.get_diagnostics();
-        return result;
+        return finish(std::move(result));
     }
 
     // 5. Lower to TypedIR
@@ -127,11 +162,13 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         ir_modules.push_back(std::move(ir_mod));
     }
 
+    m_ir_modules = ir_modules;
+
     if (m_diagnostics.has_errors()) {
         result.success = false;
         result.error_count = m_diagnostics.error_count();
         result.diagnostics = m_diagnostics.get_diagnostics();
-        return result;
+        return finish(std::move(result));
     }
 
     // 6. Generate Metadata
@@ -141,7 +178,32 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     // 7. Generate C++
     CppEmitter cpp_emitter(m_source_manager);
     for (const auto& ir_mod : ir_modules) {
-        CppOutput cpp_out = cpp_emitter.emit_module(ir_mod);
+        const SourceFile* source = m_source_manager.get_file(ir_mod.module_path);
+        const std::string content_hash = source ? CompilerCache::hash_content(source->content) : std::string{};
+        const CacheEntry* cached = force_rebuild
+            ? nullptr
+            : m_cache.lookup(ir_mod.module_path, content_hash, ENGINE_SCRIPT_SDK_HASH);
+
+        CppOutput cpp_out;
+        if (cached) {
+            cpp_out.header_content = cached->generated_header;
+            cpp_out.source_content = cached->generated_source;
+            cpp_out.header_filename = cached->generated_header_filename;
+            cpp_out.source_filename = cached->generated_source_filename;
+        } else {
+            cpp_out = cpp_emitter.emit_module(ir_mod);
+            CacheEntry entry;
+            entry.module_path = ir_mod.module_path;
+            entry.content_hash = content_hash;
+            entry.public_signature_hash = content_hash;
+            entry.sdk_hash = ENGINE_SCRIPT_SDK_HASH;
+            entry.generated_header = cpp_out.header_content;
+            entry.generated_source = cpp_out.source_content;
+            entry.generated_header_filename = cpp_out.header_filename;
+            entry.generated_source_filename = cpp_out.source_filename;
+            entry.metadata_json = result.metadata_json;
+            m_cache.store(entry);
+        }
         result.generated_cpp.push_back(std::move(cpp_out));
     }
 
@@ -149,7 +211,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     result.error_count = 0;
     result.warning_count = m_diagnostics.warning_count();
     result.diagnostics = m_diagnostics.get_diagnostics();
-    return result;
+    return finish(std::move(result));
 }
 
 std::string EngineScriptWorkspace::serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const {

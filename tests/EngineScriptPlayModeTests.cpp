@@ -1,12 +1,17 @@
+#include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <string>
 
 #include "core/AssetDatabase.hpp"
 #include "ecs/EntityManager.hpp"
+#include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/ScriptingComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
+#include "events/Event.hpp"
+#include "events/EventDispatcher.hpp"
 #include "scripting/ScriptRuntime.hpp"
 #include "enginescript/editor/EngineScriptWorkspace.hpp"
 #include "enginescript/async/AsyncScheduler.hpp"
@@ -39,7 +44,12 @@ export class PlayerController extends Behaviour {
     @expose({ min: 0.0, max: 500.0 })
     speed: Float = 220.0;
 
-    override update(deltaTime: Float): Void {}
+    @expose
+    tickCount: Float = 0.0;
+
+    override update(deltaTime: Float): Void {
+        tickCount = tickCount + 1.0;
+    }
 }
 )";
     write_test_file(root / "Assets/scripts/PlayerController.e2s", code);
@@ -69,6 +79,12 @@ export class PlayerController extends Behaviour {
     // Advance frames
     runtime.update(0.016f);
     runtime.update(0.016f);
+    const auto& updated = entity_manager.get_component<ScriptComponent>(entity);
+    const auto tick = std::find_if(updated.public_fields.begin(), updated.public_fields.end(), [](const ScriptPublicField& field) {
+        return field.name == "tickCount";
+    });
+    assert(tick != updated.public_fields.end());
+    assert(std::get<double>(tick->value) == 2.0);
     
     runtime.shutdown();
     assert(runtime.instance_count() == 0);
@@ -138,13 +154,17 @@ void test_dynamic_inspector_field_modifications() {
     std::string code = R"(
 @behaviour
 export class DynamicPlayer extends Behaviour {
+    constructor(@component private body: RigidBody2D) {}
+
     @expose
     walkSpeed: Float = 280.0;
 
     @expose
     jumpSpeed: Float = 520.0;
 
-    override update(deltaTime: Float): Void {}
+    override update(deltaTime: Float): Void {
+        body.velocity.x = walkSpeed;
+    }
 }
 )";
     write_test_file(root / "Assets/scripts/DynamicPlayer.e2s", code);
@@ -177,6 +197,7 @@ export class DynamicPlayer extends Behaviour {
 
     // Initial update
     runtime.update(0.016f);
+    assert(std::abs(entity_manager.get_component<RigidBodyComponent>(entity).velocity.x - 280.0f) < 0.001f);
 
     // Modify speed dynamically in-game (as done via Inspector)
     auto& live_comp = entity_manager.get_component<ScriptComponent>(entity);
@@ -184,6 +205,77 @@ export class DynamicPlayer extends Behaviour {
 
     // Advance frame and verify update executes with modified live component
     runtime.update(0.016f);
+    assert(std::abs(entity_manager.get_component<RigidBodyComponent>(entity).velocity.x - 750.0f) < 0.001f);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
+void test_coin_pickup_speed_boost() {
+    std::cout << "[Test] CoinPickup_BoostsSpeed... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_coin_boost_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    std::string code = R"(
+@behaviour
+export class BoostPlayer extends Behaviour {
+    @expose
+    walkSpeed: Float = 280.0;
+
+    on_collision_enter(other: Entity): Void {
+        walkSpeed = walkSpeed + 75.0;
+    }
+}
+)";
+    write_test_file(root / "Assets/scripts/BoostPlayer.e2s", code);
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+
+    const AssetRecord* record = asset_database.find_by_path(root / "Assets/scripts/BoostPlayer.e2s");
+    assert(record != nullptr);
+
+    EntityManager entity_manager;
+    EventDispatcher dispatcher;
+    ScriptRuntime runtime;
+
+    EntityID player = entity_manager.create_entity();
+    TagComponent player_tag;
+    player_tag.tag = "Player_Knight";
+    entity_manager.add_component<TagComponent>(player, player_tag);
+
+    ScriptComponent script_comp;
+    script_comp.enabled = true;
+    script_comp.script_handle = record->handle;
+    script_comp.public_fields = {
+        {"walkSpeed", ScriptFieldType::Number, 280.0}
+    };
+    entity_manager.add_component<ScriptComponent>(player, script_comp);
+
+    EntityID coin = entity_manager.create_entity();
+    TagComponent coin_tag;
+    coin_tag.tag = "Collectible_Coin_Gold";
+    entity_manager.add_component<TagComponent>(coin, coin_tag);
+
+    ScriptRuntimeServices services;
+    auto start_res = runtime.start(entity_manager, asset_database, &dispatcher, services);
+    assert(start_res.started == 1);
+
+    // Simulate collision event between player and coin
+    CollisionEvent collision(player, coin, glm::vec2(0.0f, 0.0f), true);
+    dispatcher.publish(collision);
+
+    // Dispatch events in runtime
+    runtime.dispatch_events();
+
+    // Verify speed was boosted by +75.0 (280 + 75 = 355)
+    const auto& updated_comp = entity_manager.get_component<ScriptComponent>(player);
+    assert(std::holds_alternative<double>(updated_comp.public_fields[0].value));
+    assert(std::abs(std::get<double>(updated_comp.public_fields[0].value) - 355.0) < 0.001);
 
     runtime.shutdown();
     fs::remove_all(root, error);
@@ -194,9 +286,9 @@ int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
     test_dynamic_inspector_field_modifications();
+    test_coin_pickup_speed_boost();
     test_async_scheduler_cancellation();
     test_e2s_script_inspection();
     std::cout << "=== All EngineScript Play Mode Tests Passed! ===\n";
     return 0;
 }
-

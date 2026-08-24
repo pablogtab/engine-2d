@@ -1,0 +1,7 @@
+**/.DS_Store
+**/*.vsix
+package-lock.json
+bin/e2sc
+bin/e2sc.exe
+bin/e2s-lsp
+bin/e2s-lsp.exe

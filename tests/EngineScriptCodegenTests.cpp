@@ -1,4 +1,7 @@
 #include <cassert>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include "enginescript/core/SourceManager.hpp"
 #include "enginescript/lexer/Lexer.hpp"
@@ -9,6 +12,43 @@
 #include "enginescript/codegen/CppEmitter.hpp"
 
 using namespace EngineScript;
+
+namespace {
+
+std::string quote_argument(const std::filesystem::path& path) {
+    return "\"" + path.string() + "\"";
+}
+
+void require_generated_cpp_compiles(const CppOutput& output) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_codegen_native_compile";
+    std::error_code error;
+    fs::remove_all(root, error);
+    fs::create_directories(root);
+
+    const fs::path header = root / output.header_filename;
+    const fs::path source = root / output.source_filename;
+    std::ofstream(header) << output.header_content;
+    std::ofstream(source) << output.source_content;
+
+#if defined(_MSC_VER)
+    const std::string command = quote_argument(ENGINE_TEST_CXX_COMPILER) +
+        " /nologo /std:c++20 /Zs /I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "src") +
+        " /I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "vendor") +
+        " /I" + quote_argument(root) + " " + quote_argument(source);
+#else
+    const std::string command = quote_argument(ENGINE_TEST_CXX_COMPILER) +
+        " -std=c++20 -fsyntax-only -I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "src") +
+        " -I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "vendor") +
+        " -I" + quote_argument(ENGINE_TEST_GLM_INCLUDE_DIR) +
+        " -I" + quote_argument(root) + " " + quote_argument(source);
+#endif
+
+    assert(std::system(command.c_str()) == 0);
+    fs::remove_all(root, error);
+}
+
+} // namespace
 
 int main() {
     std::cout << "[TEST] Running EngineScriptCodegenTests...\n";
@@ -57,6 +97,7 @@ int main() {
     assert(output.header_content.find("float walkSpeed") != std::string::npos);
     assert(output.source_content.find("create_PlatformerPlayer") != std::string::npos);
     assert(output.source_content.find("#line") != std::string::npos);
+    require_generated_cpp_compiles(output);
 
     std::cout << "[PASS] EngineScriptCodegenTests passed!\n";
     return 0;

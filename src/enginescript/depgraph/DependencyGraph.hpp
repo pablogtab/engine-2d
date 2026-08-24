@@ -40,6 +40,7 @@ struct DependencyEdge {
 
 class DependencyGraph {
 public:
+    void clear();
     void add_node(const std::string& module_path);
     void add_edge(const std::string& from_module, const std::string& to_module, EdgeKind kind);
 

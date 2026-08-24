@@ -11,6 +11,11 @@
     "Programming Languages"
   ],
   "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:enginescript",
+    "onCommand:enginescript.restartServer",
+    "onCommand:enginescript.compileProject"
+  ],
   "contributes": {
     "languages": [
       {
@@ -42,7 +47,22 @@
         "command": "enginescript.compileProject",
         "title": "EngineScript: Compile Project"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "EngineScript",
+      "properties": {
+        "enginescript.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the EngineScript language server."
+        },
+        "enginescript.compilerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to the EngineScript compiler."
+        }
+      }
+    }
   },
   "dependencies": {
     "vscode-languageclient": "^8.1.0"

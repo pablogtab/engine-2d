@@ -41,6 +41,25 @@ int main() {
     assert(manifest.structs.size() == 1);
     assert(manifest.structs[0] == "ItemSlot");
 
+    // An unchanged workspace is served from the integrated compiler cache.
+    const auto misses_after_first_compile = workspace.compiler_cache().stats().misses;
+    CompilationResult cached = workspace.compile();
+    assert(cached.success);
+    assert(cached.generated_cpp.size() == 2);
+    assert(workspace.compiler_cache().stats().hits >= 2);
+    assert(workspace.compiler_cache().stats().misses == misses_after_first_compile);
+
+    // Rebuilding the graph after an edit must not retain duplicate import edges.
+    workspace.update_source_file("Source/Behaviours/Inventory.e2s", inv_code + "\n// implementation edit\n");
+    CompilationResult rebuilt = workspace.compile();
+    assert(rebuilt.success);
+    assert(workspace.dependency_graph().edges().size() == 1);
+
+    const auto hits_before_force = workspace.compiler_cache().stats().hits;
+    CompilationResult forced = workspace.compile(true);
+    assert(forced.success);
+    assert(workspace.compiler_cache().stats().hits == hits_before_force);
+
     std::cout << "[PASS] EngineScriptProjectTests passed!\n";
     return 0;
 }

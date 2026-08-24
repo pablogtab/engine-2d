@@ -1,6 +1,7 @@
 #pragma once
 
 #include <coroutine>
+#include <cstdint>
 #include <exception>
 #include <optional>
 #include <functional>
@@ -21,12 +22,18 @@ class Task;
 
 namespace detail {
 
+struct CoroutineControlBlock {
+    bool cancelled = false;
+    TaskState* state = nullptr;
+};
+
 struct TaskPromiseBase {
     TaskState state = TaskState::Pending;
     std::exception_ptr exception;
     std::coroutine_handle<> continuation;
     uint32_t task_id = 0;
     uint32_t scope_id = 0;
+    std::shared_ptr<CoroutineControlBlock> control = std::make_shared<CoroutineControlBlock>();
 
     std::suspend_never initial_suspend() noexcept { return {}; }
     
@@ -87,7 +94,7 @@ public:
 
     Task& operator=(Task&& other) noexcept {
         if (this != &other) {
-            if (m_handle) m_handle.destroy();
+            release();
             m_handle = other.m_handle;
             other.m_handle = nullptr;
         }
@@ -95,9 +102,7 @@ public:
     }
 
     ~Task() {
-        if (m_handle) {
-            m_handle.destroy();
-        }
+        release();
     }
 
     bool is_valid() const { return m_handle != nullptr; }
@@ -114,6 +119,7 @@ public:
     void cancel() {
         if (m_handle && m_handle.promise().state == TaskState::Pending) {
             m_handle.promise().state = TaskState::Cancelled;
+            m_handle.promise().control->cancelled = true;
         }
     }
 
@@ -135,6 +141,18 @@ public:
     }
 
 private:
+    void release() {
+        if (!m_handle) return;
+        auto control = m_handle.promise().control;
+        control->cancelled = true;
+        if (m_handle.promise().state == TaskState::Pending) {
+            m_handle.promise().state = TaskState::Cancelled;
+        }
+        control->state = nullptr;
+        m_handle.destroy();
+        m_handle = nullptr;
+    }
+
     std::coroutine_handle<promise_type> m_handle = nullptr;
 };
 
@@ -152,7 +170,7 @@ public:
 
     Task& operator=(Task&& other) noexcept {
         if (this != &other) {
-            if (m_handle) m_handle.destroy();
+            release();
             m_handle = other.m_handle;
             other.m_handle = nullptr;
         }
@@ -160,9 +178,7 @@ public:
     }
 
     ~Task() {
-        if (m_handle) {
-            m_handle.destroy();
-        }
+        release();
     }
 
     bool is_valid() const { return m_handle != nullptr; }
@@ -172,6 +188,7 @@ public:
     void cancel() {
         if (m_handle && m_handle.promise().state == TaskState::Pending) {
             m_handle.promise().state = TaskState::Cancelled;
+            m_handle.promise().control->cancelled = true;
         }
     }
 
@@ -192,16 +209,30 @@ public:
     }
 
 private:
+    void release() {
+        if (!m_handle) return;
+        auto control = m_handle.promise().control;
+        control->cancelled = true;
+        if (m_handle.promise().state == TaskState::Pending) {
+            m_handle.promise().state = TaskState::Cancelled;
+        }
+        control->state = nullptr;
+        m_handle.destroy();
+        m_handle = nullptr;
+    }
+
     std::coroutine_handle<promise_type> m_handle = nullptr;
 };
 
 namespace detail {
 template <typename T>
 inline Task<T> TaskPromise<T>::get_return_object() {
+    control->state = &state;
     return Task<T>(std::coroutine_handle<TaskPromise<T>>::from_promise(*this));
 }
 
 inline Task<void> TaskPromise<void>::get_return_object() {
+    control->state = &state;
     return Task<void>(std::coroutine_handle<TaskPromise<void>>::from_promise(*this));
 }
 } // namespace detail

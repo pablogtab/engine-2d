@@ -1,5 +1,7 @@
 #include "LanguageServer.hpp"
 #include <nlohmann/json.hpp>
+#include <cctype>
+#include <filesystem>
 #include <sstream>
 
 namespace EngineScript {
@@ -15,6 +17,30 @@ json parse_id(const std::string& id) {
         return id;
     }
 }
+
+std::string decode_uri_path(std::string_view encoded) {
+    std::string decoded;
+    decoded.reserve(encoded.size());
+    for (std::size_t index = 0; index < encoded.size(); ++index) {
+        if (encoded[index] == '%' && index + 2 < encoded.size()) {
+            const auto hex_value = [](char value) -> int {
+                if (value >= '0' && value <= '9') return value - '0';
+                if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+                if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+                return -1;
+            };
+            const int high = hex_value(encoded[index + 1]);
+            const int low = hex_value(encoded[index + 2]);
+            if (high >= 0 && low >= 0) {
+                decoded.push_back(static_cast<char>((high << 4) | low));
+                index += 2;
+                continue;
+            }
+        }
+        decoded.push_back(encoded[index]);
+    }
+    return decoded;
+}
 }
 
 LanguageServer::LanguageServer(std::string project_root)
@@ -22,6 +48,7 @@ LanguageServer::LanguageServer(std::string project_root)
 }
 
 std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
+    m_pending_notifications.clear();
     try {
         json j = json::parse(json_rpc_msg);
         std::string method = j.value("method", "");
@@ -44,6 +71,14 @@ std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
             std::string text = j["params"]["contentChanges"][0].value("text", "");
             return on_did_change(uri, text, version);
         }
+        if (method == "textDocument/didClose") {
+            return on_did_close(j["params"]["textDocument"].value("uri", ""));
+        }
+        if (method == "shutdown") {
+            json response = {{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", nullptr}};
+            return response.dump();
+        }
+        if (method == "exit") return "";
         if (method == "textDocument/documentSymbol") {
             std::string uri = j["params"]["textDocument"].value("uri", "");
             return on_document_symbol(id, uri);
@@ -67,7 +102,13 @@ std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
             return on_definition(id, uri, line, char_pos);
         }
     } catch (...) {}
-    return "{}";
+    return "";
+}
+
+std::vector<std::string> LanguageServer::take_pending_notifications() {
+    std::vector<std::string> notifications = std::move(m_pending_notifications);
+    m_pending_notifications.clear();
+    return notifications;
 }
 
 std::string LanguageServer::on_initialize(const std::string& id) {
@@ -90,45 +131,101 @@ std::string LanguageServer::on_initialize(const std::string& id) {
 }
 
 std::string LanguageServer::on_did_open(const std::string& uri, const std::string& text, uint32_t version) {
+    const std::string source_path = source_path_for_uri(uri);
     m_open_document_versions[uri] = version;
-    m_workspace.add_source_file(uri, text);
+    m_uri_to_source_path[uri] = source_path;
+    m_workspace.add_source_file(source_path, text);
     return publish_diagnostics(uri);
 }
 
 std::string LanguageServer::on_did_change(const std::string& uri, const std::string& text, uint32_t version) {
+    const std::string source_path = source_path_for_uri(uri);
     m_open_document_versions[uri] = version;
-    m_workspace.update_source_file(uri, text);
+    m_uri_to_source_path[uri] = source_path;
+    m_workspace.update_source_file(source_path, text);
     return publish_diagnostics(uri);
+}
+
+std::string LanguageServer::on_did_close(const std::string& uri) {
+    const std::string source_path = source_path_for_uri(uri);
+    m_workspace.remove_source_file(source_path);
+    m_open_document_versions.erase(uri);
+    m_uri_to_source_path.erase(uri);
+
+    json notification;
+    notification["jsonrpc"] = "2.0";
+    notification["method"] = "textDocument/publishDiagnostics";
+    notification["params"] = {{"uri", uri}, {"diagnostics", json::array()}};
+
+    if (!m_open_document_versions.empty()) {
+        const std::string remaining_uri = m_open_document_versions.begin()->first;
+        m_pending_notifications.push_back(publish_diagnostics(remaining_uri));
+    }
+    return notification.dump();
+}
+
+std::string LanguageServer::source_path_for_uri(const std::string& uri) const {
+    if (const auto known = m_uri_to_source_path.find(uri); known != m_uri_to_source_path.end()) {
+        return known->second;
+    }
+
+    constexpr std::string_view file_scheme = "file://";
+    if (!uri.starts_with(file_scheme)) {
+        return m_workspace.source_manager().normalize_path(uri);
+    }
+
+    std::string path = decode_uri_path(std::string_view(uri).substr(file_scheme.size()));
+#if defined(_WIN32)
+    if (path.size() >= 3 && path[0] == '/' && std::isalpha(static_cast<unsigned char>(path[1])) && path[2] == ':') {
+        path.erase(path.begin());
+    }
+#endif
+    return m_workspace.source_manager().normalize_path(std::filesystem::path(path).lexically_normal().string());
 }
 
 std::string LanguageServer::publish_diagnostics(const std::string& uri) {
     auto res = m_workspace.compile();
 
-    json notif;
-    notif["jsonrpc"] = "2.0";
-    notif["method"] = "textDocument/publishDiagnostics";
+    const auto make_notification = [&](const std::string& target_uri) {
+        const FileId document_file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(target_uri));
+        json diagnostics = json::array();
+        for (const auto& diagnostic : res.diagnostics) {
+            if (diagnostic.span.file_id == INVALID_FILE_ID && target_uri != uri) continue;
+            if (diagnostic.span.file_id != INVALID_FILE_ID && diagnostic.span.file_id != document_file_id) continue;
 
-    json diags_arr = json::array();
-    for (const auto& d : res.diagnostics) {
-        json d_obj;
-        d_obj["code"] = d.code;
-        d_obj["message"] = d.message;
-        d_obj["severity"] = (d.severity == DiagnosticSeverity::Error) ? 1 : 2;
+            json item;
+            item["code"] = diagnostic.code;
+            item["message"] = diagnostic.message;
+            item["severity"] = diagnostic.severity == DiagnosticSeverity::Error ? 1 : 2;
+            item["range"] = {
+                {"start", {
+                    {"line", diagnostic.span.start_line > 0 ? diagnostic.span.start_line - 1 : 0},
+                    {"character", diagnostic.span.start_column > 0 ? diagnostic.span.start_column - 1 : 0}
+                }},
+                {"end", {
+                    {"line", diagnostic.span.end_line > 0 ? diagnostic.span.end_line - 1 : 0},
+                    {"character", diagnostic.span.end_column > 0 ? diagnostic.span.end_column - 1 : 0}
+                }}
+            };
+            diagnostics.push_back(std::move(item));
+        }
 
-        json range;
-        range["start"] = {{"line", d.span.start_line > 0 ? d.span.start_line - 1 : 0}, {"character", d.span.start_column > 0 ? d.span.start_column - 1 : 0}};
-        range["end"] = {{"line", d.span.end_line > 0 ? d.span.end_line - 1 : 0}, {"character", d.span.end_column > 0 ? d.span.end_column - 1 : 0}};
-        d_obj["range"] = range;
-
-        diags_arr.push_back(d_obj);
-    }
-
-    notif["params"] = {
-        {"uri", uri},
-        {"version", m_open_document_versions[uri]},
-        {"diagnostics", diags_arr}
+        json notification;
+        notification["jsonrpc"] = "2.0";
+        notification["method"] = "textDocument/publishDiagnostics";
+        notification["params"] = {
+            {"uri", target_uri},
+            {"version", m_open_document_versions.contains(target_uri) ? m_open_document_versions.at(target_uri) : 0},
+            {"diagnostics", std::move(diagnostics)}
+        };
+        return notification.dump();
     };
-    return notif.dump();
+
+    for (const auto& [open_uri, version] : m_open_document_versions) {
+        static_cast<void>(version);
+        if (open_uri != uri) m_pending_notifications.push_back(make_notification(open_uri));
+    }
+    return make_notification(uri);
 }
 
 std::string LanguageServer::on_document_symbol(const std::string& id, const std::string& uri) {
@@ -137,7 +234,9 @@ std::string LanguageServer::on_document_symbol(const std::string& id, const std:
     resp["id"] = parse_id(id);
 
     json syms = json::array();
+    const std::string source_path = source_path_for_uri(uri);
     for (const auto& b : m_workspace.metadata_manifest().behaviours) {
+        if (m_workspace.source_manager().normalize_path(b.module_path) != source_path) continue;
         json sym;
         sym["name"] = b.name;
         sym["kind"] = 5; // Class
@@ -233,7 +332,7 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
     resp["id"] = parse_id(id);
 
     std::string line_content = m_workspace.source_manager().get_line_content(
-        m_workspace.source_manager().find_file_id(uri), line + 1
+        m_workspace.source_manager().find_file_id(source_path_for_uri(uri)), line + 1
     );
     std::string word = extract_word_at(line_content, character);
 

@@ -16,6 +16,7 @@
 
 #include "../enginescript/editor/EngineScriptWorkspace.hpp"
 #include "../enginescript/async/AsyncScheduler.hpp"
+#include "../enginescript/module/GameModule.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -23,12 +24,294 @@
 #include <exception>
 #include <filesystem>
 #include <optional>
+#include <unordered_map>
 #include <string_view>
 #include <unordered_set>
+#include <variant>
 
 namespace Engine {
 
+struct ScriptRuntimeBinding {
+    EntityManager* entity_manager{nullptr};
+    EntityID entity{0};
+};
+
 namespace {
+
+struct RuntimeObjectRef {
+    enum class Kind {
+        Input,
+        RigidBody,
+        BodyVelocity,
+        Animator
+    };
+
+    Kind kind{Kind::Input};
+    bool available{true};
+};
+
+using RuntimeValue = std::variant<std::monostate, double, bool, std::string, EntityID, RuntimeObjectRef>;
+using RuntimeEnvironment = std::unordered_map<std::string, RuntimeValue>;
+
+double runtime_number(const RuntimeValue& value) {
+    if (const auto* number = std::get_if<double>(&value)) return *number;
+    if (const auto* boolean = std::get_if<bool>(&value)) return *boolean ? 1.0 : 0.0;
+    return 0.0;
+}
+
+bool runtime_boolean(const RuntimeValue& value) {
+    if (const auto* boolean = std::get_if<bool>(&value)) return *boolean;
+    if (const auto* number = std::get_if<double>(&value)) return *number != 0.0;
+    if (const auto* object = std::get_if<RuntimeObjectRef>(&value)) return object->available;
+    return !std::holds_alternative<std::monostate>(value);
+}
+
+std::string runtime_string(const RuntimeValue& value) {
+    if (const auto* text = std::get_if<std::string>(&value)) return *text;
+    return {};
+}
+
+class InterpretedBehaviour final : public EngineScript::NativeBehaviour {
+public:
+    InterpretedBehaviour(std::shared_ptr<const EngineScript::IRClass> definition, ScriptRuntimeBinding* binding)
+        : m_definition(std::move(definition)), m_binding(binding) {}
+
+    void update(float delta_time) override {
+        execute_method("update", {static_cast<double>(delta_time)});
+    }
+
+    void on_start() override {
+        execute_method("on_start", {});
+    }
+
+    void on_destroy() override {
+        execute_method("on_destroy", {});
+    }
+
+    void on_collision_enter(std::uint32_t other_entity) override {
+        execute_method("on_collision_enter", {static_cast<EntityID>(other_entity)});
+    }
+
+private:
+    ScriptComponent* script_component() const {
+        if (!m_binding || !m_binding->entity_manager ||
+            !m_binding->entity_manager->is_alive(m_binding->entity) ||
+            !m_binding->entity_manager->has_component<ScriptComponent>(m_binding->entity)) {
+            return nullptr;
+        }
+        return &m_binding->entity_manager->get_component<ScriptComponent>(m_binding->entity);
+    }
+
+    RuntimeValue read_property(const std::string& name) const {
+        const ScriptComponent* component = script_component();
+        if (!component) return {};
+        for (const auto& field : component->public_fields) {
+            if (field.name != name) continue;
+            if (const auto* value = std::get_if<double>(&field.value)) return *value;
+            if (const auto* value = std::get_if<bool>(&field.value)) return *value;
+            if (const auto* value = std::get_if<std::string>(&field.value)) return *value;
+            if (const auto* value = std::get_if<EntityID>(&field.value)) return *value;
+        }
+        return {};
+    }
+
+    void write_property(const std::string& name, const RuntimeValue& value) const {
+        ScriptComponent* component = script_component();
+        if (!component) return;
+        for (auto& field : component->public_fields) {
+            if (field.name != name) continue;
+            if (field.type == ScriptFieldType::Number) field.value = runtime_number(value);
+            else if (field.type == ScriptFieldType::Boolean) field.value = runtime_boolean(value);
+            else if (field.type == ScriptFieldType::String) field.value = runtime_string(value);
+            else if (field.type == ScriptFieldType::Entity) {
+                if (const auto* entity = std::get_if<EntityID>(&value)) field.value = *entity;
+            }
+            return;
+        }
+    }
+
+    RuntimeValue read_identifier(const std::string& name, const RuntimeEnvironment& environment) const {
+        const auto local = environment.find(name);
+        if (local != environment.end()) return local->second;
+
+        for (const auto& parameter : m_definition->constructor_params) {
+            if (parameter.name != name || !parameter.type) continue;
+            const std::string& type = parameter.type->name;
+            if (type == "Input") return RuntimeObjectRef{RuntimeObjectRef::Kind::Input, true};
+            if (type == "RigidBody2D") {
+                const bool available = m_binding && m_binding->entity_manager &&
+                    m_binding->entity_manager->has_component<RigidBodyComponent>(m_binding->entity);
+                return RuntimeObjectRef{RuntimeObjectRef::Kind::RigidBody, available};
+            }
+            if (type == "Animator2D") {
+                const bool available = m_binding && m_binding->entity_manager &&
+                    m_binding->entity_manager->has_component<AnimationComponent>(m_binding->entity);
+                return RuntimeObjectRef{RuntimeObjectRef::Kind::Animator, available};
+            }
+        }
+
+        return read_property(name);
+    }
+
+    RuntimeValue evaluate(const EngineScript::IROperation* operation, RuntimeEnvironment& environment) const {
+        using namespace EngineScript;
+        if (!operation) return {};
+
+        if (const auto* constant = dynamic_cast<const IRConstant*>(operation)) {
+            if (constant->is_null) return {};
+            if (constant->result_type && constant->result_type->is_bool()) return constant->bool_val;
+            if (constant->result_type && constant->result_type->is_string()) return constant->string_val;
+            if (constant->result_type && constant->result_type->is_integer()) return static_cast<double>(constant->int_val);
+            return constant->float_val;
+        }
+        if (const auto* variable = dynamic_cast<const IRVarRef*>(operation)) {
+            return read_identifier(variable->name, environment);
+        }
+        if (const auto* unary = dynamic_cast<const IRUnary*>(operation)) {
+            const RuntimeValue operand = evaluate(unary->operand.get(), environment);
+            if (unary->op == TokenType::Exclamation) return !runtime_boolean(operand);
+            if (unary->op == TokenType::Minus) return -runtime_number(operand);
+            return runtime_number(operand);
+        }
+        if (const auto* binary = dynamic_cast<const IRBinary*>(operation)) {
+            const RuntimeValue left = evaluate(binary->left.get(), environment);
+            if (binary->op == TokenType::AmpAmp && !runtime_boolean(left)) return false;
+            if (binary->op == TokenType::PipePipe && runtime_boolean(left)) return true;
+            const RuntimeValue right = evaluate(binary->right.get(), environment);
+            switch (binary->op) {
+                case TokenType::Plus: return runtime_number(left) + runtime_number(right);
+                case TokenType::Minus: return runtime_number(left) - runtime_number(right);
+                case TokenType::Star: return runtime_number(left) * runtime_number(right);
+                case TokenType::Slash: return runtime_number(right) == 0.0 ? 0.0 : runtime_number(left) / runtime_number(right);
+                case TokenType::Less: return runtime_number(left) < runtime_number(right);
+                case TokenType::LessEquals: return runtime_number(left) <= runtime_number(right);
+                case TokenType::Greater: return runtime_number(left) > runtime_number(right);
+                case TokenType::GreaterEquals: return runtime_number(left) >= runtime_number(right);
+                case TokenType::EqualsEquals: return runtime_number(left) == runtime_number(right);
+                case TokenType::ExclamationEquals: return runtime_number(left) != runtime_number(right);
+                case TokenType::AmpAmp: return runtime_boolean(left) && runtime_boolean(right);
+                case TokenType::PipePipe: return runtime_boolean(left) || runtime_boolean(right);
+                default: return {};
+            }
+        }
+        if (const auto* member = dynamic_cast<const IRMemberGet*>(operation)) {
+            const RuntimeValue target = evaluate(member->target.get(), environment);
+            const auto* object = std::get_if<RuntimeObjectRef>(&target);
+            if (!object || !object->available || !m_binding || !m_binding->entity_manager) return {};
+            if (object->kind == RuntimeObjectRef::Kind::RigidBody) {
+                if (member->member_name == "velocity") {
+                    return RuntimeObjectRef{RuntimeObjectRef::Kind::BodyVelocity, true};
+                }
+                if (member->member_name == "isGrounded") {
+                    return PhysicsSystem::is_grounded(*m_binding->entity_manager, m_binding->entity);
+                }
+            }
+            if (object->kind == RuntimeObjectRef::Kind::BodyVelocity) {
+                const auto& body = m_binding->entity_manager->get_component<RigidBodyComponent>(m_binding->entity);
+                if (member->member_name == "x") return static_cast<double>(body.velocity.x);
+                if (member->member_name == "y") return static_cast<double>(body.velocity.y);
+            }
+            return {};
+        }
+        if (const auto* method = dynamic_cast<const IRMethodCall*>(operation)) {
+            const RuntimeValue target = evaluate(method->target.get(), environment);
+            const auto* object = std::get_if<RuntimeObjectRef>(&target);
+            if (!object || !object->available) return {};
+            if (object->kind == RuntimeObjectRef::Kind::Input && !method->args.empty()) {
+                const std::string argument = runtime_string(evaluate(method->args.front().get(), environment));
+                if (method->method_name == "axis") return static_cast<double>(Input::get_axis(argument));
+                if (method->method_name == "pressed") return Input::is_action_just_pressed(argument);
+            }
+            if (object->kind == RuntimeObjectRef::Kind::Animator && method->method_name == "play" &&
+                !method->args.empty() && m_binding && m_binding->entity_manager) {
+                SpriteAnimationSystem::play_clip(
+                    *m_binding->entity_manager,
+                    m_binding->entity,
+                    runtime_string(evaluate(method->args.front().get(), environment))
+                );
+            }
+            return {};
+        }
+        if (const auto* optional = dynamic_cast<const IROptionalChain*>(operation)) {
+            const RuntimeValue target = evaluate(optional->target.get(), environment);
+            const auto* object = std::get_if<RuntimeObjectRef>(&target);
+            if (!object || !object->available) return {};
+            if (optional->is_method_call && object->kind == RuntimeObjectRef::Kind::Animator &&
+                optional->member_name == "play" && !optional->method_args.empty() &&
+                m_binding && m_binding->entity_manager) {
+                SpriteAnimationSystem::play_clip(
+                    *m_binding->entity_manager,
+                    m_binding->entity,
+                    runtime_string(evaluate(optional->method_args.front().get(), environment))
+                );
+            }
+            return {};
+        }
+        return {};
+    }
+
+    void execute(const EngineScript::IROperation* operation, RuntimeEnvironment& environment) const {
+        using namespace EngineScript;
+        if (!operation) return;
+        if (const auto* declaration = dynamic_cast<const IRVarDecl*>(operation)) {
+            environment[declaration->name] = evaluate(declaration->initializer.get(), environment);
+            return;
+        }
+        if (const auto* assignment = dynamic_cast<const IRAssign*>(operation)) {
+            RuntimeValue value = evaluate(assignment->value.get(), environment);
+            auto local = environment.find(assignment->target_name);
+            RuntimeValue current = local != environment.end() ? local->second : read_property(assignment->target_name);
+            if (assignment->assignment_op == TokenType::PlusEquals) value = runtime_number(current) + runtime_number(value);
+            else if (assignment->assignment_op == TokenType::MinusEquals) value = runtime_number(current) - runtime_number(value);
+            if (local != environment.end()) local->second = value;
+            else write_property(assignment->target_name, value);
+            return;
+        }
+        if (const auto* member_set = dynamic_cast<const IRMemberSet*>(operation)) {
+            const RuntimeValue target = evaluate(member_set->target.get(), environment);
+            const auto* object = std::get_if<RuntimeObjectRef>(&target);
+            if (object && object->available && object->kind == RuntimeObjectRef::Kind::BodyVelocity &&
+                m_binding && m_binding->entity_manager &&
+                m_binding->entity_manager->has_component<RigidBodyComponent>(m_binding->entity)) {
+                glm::vec2 velocity = m_binding->entity_manager->get_component<RigidBodyComponent>(m_binding->entity).velocity;
+                const float value = static_cast<float>(runtime_number(evaluate(member_set->value.get(), environment)));
+                if (member_set->member_name == "x") velocity.x = value;
+                if (member_set->member_name == "y") velocity.y = value;
+                PhysicsSystem::set_velocity(*m_binding->entity_manager, m_binding->entity, velocity);
+            }
+            return;
+        }
+        if (const auto* branch = dynamic_cast<const IRIf*>(operation)) {
+            const auto& selected = runtime_boolean(evaluate(branch->condition.get(), environment))
+                ? branch->then_operations
+                : branch->else_operations;
+            for (const auto& nested : selected) execute(nested.get(), environment);
+            return;
+        }
+        static_cast<void>(evaluate(operation, environment));
+    }
+
+    void execute_method(const std::string& name, std::vector<RuntimeValue> arguments) const {
+        if (!m_definition) return;
+        const auto found = std::find_if(
+            m_definition->methods.begin(),
+            m_definition->methods.end(),
+            [&name](const EngineScript::IRMethod& method) { return method.name == name; }
+        );
+        if (found == m_definition->methods.end()) return;
+
+        RuntimeEnvironment environment;
+        for (std::size_t index = 0; index < found->params.size() && index < arguments.size(); ++index) {
+            environment.emplace(found->params[index].name, std::move(arguments[index]));
+        }
+        for (const auto& block : found->blocks) {
+            for (const auto& statement : block.statements) execute(statement.op.get(), environment);
+        }
+    }
+
+    std::shared_ptr<const EngineScript::IRClass> m_definition;
+    ScriptRuntimeBinding* m_binding{nullptr};
+};
 
 struct CompiledAsset {
     bool success{false};
@@ -38,6 +321,35 @@ struct CompiledAsset {
     std::vector<EngineScript::BehaviourManifest> behaviours;
 };
 
+std::vector<ScriptPublicField> public_fields_from_behaviour(const EngineScript::BehaviourManifest& behaviour) {
+    std::vector<ScriptPublicField> fields;
+    for (const auto& property : behaviour.properties) {
+        ScriptPublicField field;
+        field.name = property.name;
+        if (property.type == "Float" || property.type == "Int") {
+            field.type = ScriptFieldType::Number;
+            try {
+                field.value = std::stod(property.default_value_str.empty() ? "0.0" : property.default_value_str);
+            } catch (...) {
+                field.value = 0.0;
+            }
+        } else if (property.type == "Bool") {
+            field.type = ScriptFieldType::Boolean;
+            field.value = property.default_value_str == "true";
+        } else if (property.type == "String") {
+            field.type = ScriptFieldType::String;
+            field.value = property.default_value_str;
+        } else if (property.type == "Vec2") {
+            field.type = ScriptFieldType::Vector2;
+            field.value = ScriptVector2{0.0f, 0.0f};
+        } else {
+            continue;
+        }
+        fields.push_back(std::move(field));
+    }
+    return fields;
+}
+
 CompiledAsset compile_asset(AssetHandle handle, const AssetDatabase& database) {
     CompiledAsset result;
     const AssetRecord* record = database.find(handle);
@@ -45,15 +357,12 @@ CompiledAsset compile_asset(AssetHandle handle, const AssetDatabase& database) {
         result.error = "script asset is missing or unavailable";
         return result;
     }
-    const std::string path = database.resolve(handle);
-    const std::string source = FileSystem::read_text(path);
-    if (source.empty()) {
-        result.error = "script source is empty or unreadable";
-        return result;
+    EngineScript::EngineScriptWorkspace ws(database.project_root().string());
+    for (const AssetRecord& script_record : database.records()) {
+        if (script_record.type != AssetType::Script || script_record.status != AssetStatus::Ready) continue;
+        const std::string source = FileSystem::read_text(database.resolve(script_record.handle));
+        if (!source.empty()) ws.add_source_file(script_record.source_path, source);
     }
-
-    EngineScript::EngineScriptWorkspace ws("");
-    ws.add_source_file(record->source_path, source);
     const auto res = ws.compile();
     if (!res.success) {
         result.error = res.diagnostics.empty() ? "EngineScript compilation failed" : res.diagnostics.front().message;
@@ -61,35 +370,15 @@ CompiledAsset compile_asset(AssetHandle handle, const AssetDatabase& database) {
     }
     result.chunk_name = "@" + record->source_path;
     result.success = true;
-    result.behaviours = ws.metadata_manifest().behaviours;
-
-    for (const auto& b : result.behaviours) {
-        for (const auto& p : b.properties) {
-            ScriptPublicField f;
-            f.name = p.name;
-            if (p.type == "Float" || p.type == "Int") {
-                f.type = ScriptFieldType::Number;
-                try {
-                    f.value = std::stod(p.default_value_str.empty() ? "0.0" : p.default_value_str);
-                } catch (...) {
-                    f.value = 0.0;
-                }
-            } else if (p.type == "Bool") {
-                f.type = ScriptFieldType::Boolean;
-                f.value = (p.default_value_str == "true");
-            } else if (p.type == "String") {
-                f.type = ScriptFieldType::String;
-                std::string str = p.default_value_str;
-                if (str.size() >= 2 && str.front() == '"' && str.back() == '"') {
-                    str = str.substr(1, str.size() - 2);
-                }
-                f.value = str;
-            } else if (p.type == "Vec2") {
-                f.type = ScriptFieldType::Vector2;
-                f.value = ScriptVector2{0.0f, 0.0f};
-            }
-            result.fields.push_back(f);
-        }
+    for (const auto& behaviour : ws.metadata_manifest().behaviours) {
+        if (behaviour.module_path != record->source_path) continue;
+        result.behaviours.push_back(behaviour);
+        auto fields = public_fields_from_behaviour(behaviour);
+        result.fields.insert(result.fields.end(), fields.begin(), fields.end());
+    }
+    if (result.behaviours.size() != 1) {
+        result.success = false;
+        result.error = "script asset must export exactly one @behaviour class";
     }
     return result;
 }
@@ -134,6 +423,7 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     m_instances = std::move(other.m_instances);
     m_native_workspace = std::move(other.m_native_workspace);
     m_native_async_scheduler = std::move(other.m_native_async_scheduler);
+    m_native_module = std::move(other.m_native_module);
     m_statuses = std::move(other.m_statuses);
     m_source_signatures = std::move(other.m_source_signatures);
     m_reload_errors = std::move(other.m_reload_errors);
@@ -146,6 +436,7 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     other.m_instances.clear();
     other.m_native_workspace.reset();
     other.m_native_async_scheduler.reset();
+    other.m_native_module.reset();
     other.m_statuses.clear();
     other.m_source_signatures.clear();
     other.m_reload_errors.clear();
@@ -176,100 +467,157 @@ ScriptRuntimeStartResult ScriptRuntime::start(
     m_asset_database = &asset_database;
     m_event_dispatcher = event_dispatcher;
     m_services = std::move(services);
-    m_native_workspace = std::make_unique<EngineScript::EngineScriptWorkspace>("");
+    m_native_workspace = std::make_unique<EngineScript::EngineScriptWorkspace>(asset_database.project_root().string());
     m_native_async_scheduler = std::make_unique<EngineScript::AsyncScheduler>();
     subscribe_to_events();
 
     ScriptRuntimeStartResult result;
-    std::unordered_map<AssetHandle, CompiledAsset> compiled_assets;
+    for (const AssetRecord& record : asset_database.records()) {
+        if (record.type != AssetType::Script || record.status != AssetStatus::Ready) continue;
+        const std::string source = FileSystem::read_text(asset_database.resolve(record.handle));
+        if (source.empty()) continue;
+        m_native_workspace->add_source_file(record.source_path, source);
+        m_source_signatures[record.handle] = file_signature(asset_database.resolve(record.handle));
+    }
+
+    const EngineScript::CompilationResult compilation = m_native_workspace->compile(true);
+    if (!compilation.success) {
+        const std::string error = compilation.diagnostics.empty()
+            ? "EngineScript project compilation failed"
+            : compilation.diagnostics.front().message;
+        entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
+            if (!component.enabled) return;
+            ++result.failed;
+            set_error(entity, error);
+        });
+        return result;
+    }
+
+    struct RuntimeDefinition {
+        std::shared_ptr<const EngineScript::IRClass> ir_class;
+        std::string registered_type;
+    };
+    std::unordered_map<std::string, RuntimeDefinition> definitions_by_path;
+    std::unordered_set<std::string> invalid_behaviour_modules;
+    EngineScript::ModuleDescriptor module_descriptor;
+    module_descriptor.module_name = "Engine2DPlayMode";
+    for (const auto& module : m_native_workspace->ir_modules()) {
+        for (const auto& definition : module.classes) {
+            if (!definition.is_behaviour) continue;
+            auto shared_definition = std::make_shared<EngineScript::IRClass>(definition);
+            const std::string registered_type = module.module_path + "::" + definition.name;
+            if (!definitions_by_path.emplace(
+                    module.module_path,
+                    RuntimeDefinition{shared_definition, registered_type}
+                ).second) {
+                invalid_behaviour_modules.insert(module.module_path);
+            }
+
+            EngineScript::BehaviourTypeRegistration registration;
+            registration.type_name = registered_type;
+            for (const auto& parameter : definition.constructor_params) {
+                if (!parameter.type) continue;
+                const bool is_service = std::find(
+                    parameter.decorators.begin(), parameter.decorators.end(), "inject"
+                ) != parameter.decorators.end();
+                const bool is_component = std::find(
+                    parameter.decorators.begin(), parameter.decorators.end(), "component"
+                ) != parameter.decorators.end();
+                if (is_service) registration.injected_services.push_back(parameter.type->name);
+                if (is_component) registration.required_components.push_back(parameter.type->name);
+            }
+            registration.factory = [shared_definition](void** args) -> void* {
+                auto* binding = args ? static_cast<ScriptRuntimeBinding*>(args[0]) : nullptr;
+                return new InterpretedBehaviour(shared_definition, binding);
+            };
+            module_descriptor.behaviour_types.push_back(std::move(registration));
+        }
+    }
+    m_native_module = std::make_shared<EngineScript::GameModule>(std::move(module_descriptor));
+
     entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
         if (!component.enabled) return;
-        std::string error;
-        auto compiled = compiled_assets.find(component.script_handle);
-        if (compiled == compiled_assets.end()) {
-            compiled = compiled_assets.emplace(
-                component.script_handle,
-                compile_asset(component.script_handle, asset_database)
-            ).first;
-        }
-        if (!compiled->second.success) {
-            error = compiled->second.error;
-        }
-
         const AssetRecord* record = asset_database.find(component.script_handle);
-        if (compiled->second.success && record) {
-            Instance inst;
-            inst.entity = entity;
-            inst.script_handle = component.script_handle;
-            inst.script_path = record->source_path;
-            inst.class_name = compiled->second.behaviours.empty() ? "Behaviour" : compiled->second.behaviours.front().name;
-            inst.field_definitions = compiled->second.fields;
-            inst.on_start_fn = []() {};
-            inst.update_fn = [this, entity, f_defs = compiled->second.fields](float dt) {
-                static_cast<void>(dt);
-                if (!m_entity_manager || !m_entity_manager->is_alive(entity)) return;
-                if (!m_entity_manager->has_component<ScriptComponent>(entity)) return;
-
-                const auto& current_comp = m_entity_manager->get_component<ScriptComponent>(entity);
-
-                auto get_num = [&](const std::string& name, float def) -> float {
-                    for (const auto& f : current_comp.public_fields) {
-                        if (f.name == name && std::holds_alternative<double>(f.value)) {
-                            return static_cast<float>(std::get<double>(f.value));
-                        }
-                    }
-                    for (const auto& f : f_defs) {
-                        if (f.name == name && std::holds_alternative<double>(f.value)) {
-                            return static_cast<float>(std::get<double>(f.value));
-                        }
-                    }
-                    return def;
-                };
-
-                float walk_speed = get_num("walkSpeed", get_num("walk_speed", get_num("speed", 280.0f)));
-                float jump_speed = get_num("jumpSpeed", get_num("jump_speed", 520.0f));
-
-                float movement = Input::get_axis("Horizontal");
-                bool jump_pressed = Input::is_action_just_pressed("Jump");
-
-                if (m_entity_manager->has_component<SpriteComponent>(entity)) {
-                    auto& sprite = m_entity_manager->get_component<SpriteComponent>(entity);
-                    if (movement < 0.0f) sprite.flip_x = true;
-                    else if (movement > 0.0f) sprite.flip_x = false;
-                }
-
-                if (m_entity_manager->has_component<RigidBodyComponent>(entity)) {
-                    auto& rb = m_entity_manager->get_component<RigidBodyComponent>(entity);
-                    float vel_y = rb.velocity.y;
-                    bool grounded = PhysicsSystem::is_grounded(*m_entity_manager, entity);
-
-                    if (grounded && jump_pressed) {
-                        vel_y = jump_speed;
-                        grounded = false;
-                    }
-
-                    float vel_x = movement * walk_speed;
-                    PhysicsSystem::set_velocity(*m_entity_manager, entity, glm::vec2(vel_x, vel_y));
-
-                    if (m_entity_manager->has_component<AnimationComponent>(entity)) {
-                        if (!grounded) {
-                            if (vel_y > 20.0f) SpriteAnimationSystem::play_clip(*m_entity_manager, entity, "Jump");
-                            else if (vel_y < -20.0f) SpriteAnimationSystem::play_clip(*m_entity_manager, entity, "Fall");
-                        } else if (std::abs(vel_x) > 10.0f) {
-                            SpriteAnimationSystem::play_clip(*m_entity_manager, entity, "Run");
-                        } else {
-                            SpriteAnimationSystem::play_clip(*m_entity_manager, entity, "Idle");
-                        }
-                    }
-                }
-            };
-            inst.on_start_fn();
-            m_instances.push_back(std::move(inst));
-            ++result.started;
-        } else {
+        if (!record || record->type != AssetType::Script || record->status != AssetStatus::Ready) {
             ++result.failed;
-            set_error(entity, std::move(error));
+            set_error(entity, "script asset is missing or unavailable");
+            return;
         }
+
+        const auto definition = definitions_by_path.find(record->source_path);
+        const auto manifest = std::find_if(
+            m_native_workspace->metadata_manifest().behaviours.begin(),
+            m_native_workspace->metadata_manifest().behaviours.end(),
+            [record](const EngineScript::BehaviourManifest& behaviour) {
+                return behaviour.module_path == record->source_path;
+            }
+        );
+        if (definition == definitions_by_path.end() ||
+            manifest == m_native_workspace->metadata_manifest().behaviours.end() ||
+            invalid_behaviour_modules.contains(record->source_path)) {
+            ++result.failed;
+            set_error(entity, "script asset must export exactly one @behaviour class");
+            return;
+        }
+
+        for (const auto& dependency : manifest->dependencies) {
+            if (dependency.is_optional) continue;
+            if (dependency.is_component && dependency.type == "RigidBody2D" &&
+                !entity_manager.has_component<RigidBodyComponent>(entity)) {
+                ++result.failed;
+                set_error(entity, "missing required RigidBody2D component");
+                return;
+            }
+            if (dependency.is_component && dependency.type == "Animator2D" &&
+                !entity_manager.has_component<AnimationComponent>(entity)) {
+                ++result.failed;
+                set_error(entity, "missing required Animator2D component");
+                return;
+            }
+            if (dependency.is_service && dependency.type != "Input") {
+                ++result.failed;
+                set_error(entity, "unsupported injected service: " + dependency.type);
+                return;
+            }
+        }
+
+        std::vector<ScriptPublicField> compiled_fields = public_fields_from_behaviour(*manifest);
+        auto& mutable_component = entity_manager.get_component<ScriptComponent>(entity);
+        for (const ScriptPublicField& default_field : compiled_fields) {
+            const auto existing = std::find_if(
+                mutable_component.public_fields.begin(),
+                mutable_component.public_fields.end(),
+                [&default_field](const ScriptPublicField& field) {
+                    return field.name == default_field.name && field.type == default_field.type;
+                }
+            );
+            if (existing == mutable_component.public_fields.end()) {
+                mutable_component.public_fields.push_back(default_field);
+            }
+        }
+
+        Instance instance;
+        instance.entity = entity;
+        instance.script_handle = component.script_handle;
+        instance.script_path = record->source_path;
+        instance.class_name = definition->second.registered_type;
+        instance.field_definitions = std::move(compiled_fields);
+        instance.binding = std::make_unique<ScriptRuntimeBinding>();
+        instance.binding->entity_manager = &entity_manager;
+        instance.binding->entity = entity;
+        void* arguments[] = {instance.binding.get()};
+        instance.behaviour.reset(m_native_module->create_behaviour(instance.class_name, arguments));
+        if (!instance.behaviour) {
+            ++result.failed;
+            set_error(entity, "could not instantiate EngineScript behaviour " + instance.class_name);
+            return;
+        }
+        instance.behaviour->entity_id = entity;
+        instance.behaviour->task_scope_id = entity;
+        instance.behaviour->async_scheduler = m_native_async_scheduler.get();
+        instance.behaviour->on_start();
+        m_instances.push_back(std::move(instance));
+        ++result.started;
     });
 
     return result;
@@ -343,6 +691,24 @@ void ScriptRuntime::unsubscribe_from_events() {
 }
 
 void ScriptRuntime::dispatch_events() {
+    if (!m_entity_manager) {
+        m_pending_events.clear();
+        return;
+    }
+
+    for (const auto& event : m_pending_events) {
+        if (event.type == PendingEventType::CollisionEnter) {
+            for (auto& instance : m_instances) {
+                if (!instance.behaviour) continue;
+                if (instance.entity == event.entity_a) {
+                    instance.behaviour->on_collision_enter(event.entity_b);
+                } else if (instance.entity == event.entity_b) {
+                    instance.behaviour->on_collision_enter(event.entity_a);
+                }
+            }
+        }
+    }
+
     m_pending_events.clear();
 }
 
@@ -356,9 +722,11 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
 
     ScriptHotReloadResult result;
     std::unordered_set<AssetHandle> checked_assets;
-    for (const auto& instance : m_instances) {
-        checked_assets.insert(instance.script_handle);
-    }
+    m_entity_manager->for_each<ScriptComponent>([&](EntityID, const ScriptComponent& component) {
+        if (component.enabled && component.script_handle.is_valid()) checked_assets.insert(component.script_handle);
+    });
+
+    std::vector<AssetHandle> changed_assets;
 
     for (const AssetHandle handle : checked_assets) {
         const AssetRecord* record = m_asset_database->find(handle);
@@ -373,23 +741,30 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
         const bool changed = !signature_known || (current_signature && current_signature != previous_signature_it->second);
 
         if (!changed && !force) continue;
-        m_source_signatures[handle] = current_signature;
+        changed_assets.push_back(handle);
+    }
 
-        const CompiledAsset compiled = compile_asset(handle, *m_asset_database);
-        if (!compiled.success) {
-            m_reload_errors[handle] = compiled.error;
-            ++result.failed;
-            ENGINE_LOG_ERROR("[SCRIPT RELOAD] Failed to compile {}: {}", handle.to_string(), compiled.error);
-            continue;
-        }
+    if (changed_assets.empty()) return result;
 
-        m_reload_errors.erase(handle);
-        for (auto& inst : m_instances) {
-            if (inst.script_handle == handle) {
-                inst.field_definitions = compiled.fields;
-                ++result.reloaded;
-            }
-        }
+    EntityManager* entity_manager = m_entity_manager;
+    const AssetDatabase* asset_database = m_asset_database;
+    EventDispatcher* event_dispatcher = m_event_dispatcher;
+    ScriptRuntimeServices services = m_services;
+    const ScriptRuntimeStartResult restarted = start(
+        *entity_manager,
+        *asset_database,
+        event_dispatcher,
+        std::move(services)
+    );
+    result.reloaded = restarted.started;
+    result.failed = restarted.failed;
+
+    if (restarted.failed > 0) {
+        std::string error = "EngineScript hot reload failed; affected behaviours were stopped";
+        for (const AssetHandle handle : changed_assets) m_reload_errors[handle] = error;
+        ENGINE_LOG_ERROR("[SCRIPT RELOAD] {}", error);
+    } else {
+        for (const AssetHandle handle : changed_assets) m_reload_errors.erase(handle);
     }
 
     return result;
@@ -405,8 +780,8 @@ void ScriptRuntime::update(float delta_time) {
         if (!m_entity_manager || !m_entity_manager->is_alive(inst.entity) ||
             !m_entity_manager->has_component<ScriptComponent>(inst.entity)) continue;
         const auto& component = m_entity_manager->get_component<ScriptComponent>(inst.entity);
-        if (component.enabled && inst.update_fn) {
-            inst.update_fn(delta_time);
+        if (component.enabled && inst.behaviour) {
+            inst.behaviour->update(delta_time);
         }
     }
 }
@@ -414,9 +789,13 @@ void ScriptRuntime::update(float delta_time) {
 void ScriptRuntime::shutdown() {
     unsubscribe_from_events();
     for (auto& inst : m_instances) {
-        if (inst.on_destroy_fn) inst.on_destroy_fn();
+        if (inst.behaviour) {
+            if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(inst.behaviour->task_scope_id);
+            inst.behaviour->on_destroy();
+        }
     }
     m_instances.clear();
+    m_native_module.reset();
     m_native_workspace.reset();
     m_native_async_scheduler.reset();
 

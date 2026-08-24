@@ -3,6 +3,7 @@
 #include "../ir/TypedIR.hpp"
 #include "../core/SourceManager.hpp"
 #include <string>
+#include <unordered_set>
 
 namespace EngineScript {
 
@@ -28,9 +29,13 @@ private:
     void emit_class_source(const IRClass& cls, const std::string& header_name, std::string& out);
     void emit_method_source(const IRClass& cls, const IRMethod& m, std::string& out);
     void emit_statement_cpp(const IRStatement& st, std::string& out, int indent);
+    void emit_operation_statement_cpp(const IROperation* op, std::string& out, int indent);
     std::string emit_operation_cpp(const IROperation* op);
+    [[nodiscard]] std::string member_access_operator(const IROperation* target) const;
+    [[nodiscard]] std::string identifier_to_cpp(const std::string& identifier) const;
 
     const SourceManager& m_source_manager;
+    std::unordered_set<std::string> m_injected_members;
 };
 
 } // namespace EngineScript

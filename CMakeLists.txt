@@ -183,7 +183,7 @@ set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/box2d)
 
 # -----------------------------------------------------------------------------
-# EngineScript Research & Compiler Library Targets (Phase 11)
+# EngineScript Compiler, Tooling, and Runtime Library Targets (Phase 11)
 # -----------------------------------------------------------------------------
 set(ENGINESCRIPT_SOURCES
     src/enginescript/core/SourceManager.cpp
@@ -229,14 +229,35 @@ target_include_directories(e2s-lsp PRIVATE
 )
 target_link_libraries(e2s-lsp PRIVATE EngineScriptLib glm::glm)
 
+if(APPLE)
+    set(ENGINE_SCRIPT_VSCODE_PLATFORM "darwin")
+elseif(WIN32)
+    set(ENGINE_SCRIPT_VSCODE_PLATFORM "win32")
+else()
+    set(ENGINE_SCRIPT_VSCODE_PLATFORM "linux")
+endif()
+
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ENGINE_SCRIPT_PROCESSOR)
+if(ENGINE_SCRIPT_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    set(ENGINE_SCRIPT_VSCODE_ARCH "arm64")
+elseif(ENGINE_SCRIPT_PROCESSOR MATCHES "^(x86_64|amd64)$")
+    set(ENGINE_SCRIPT_VSCODE_ARCH "x64")
+else()
+    set(ENGINE_SCRIPT_VSCODE_ARCH "${ENGINE_SCRIPT_PROCESSOR}")
+endif()
+
+set(ENGINE_SCRIPT_VSCODE_BIN_DIR
+    "${CMAKE_SOURCE_DIR}/editors/vscode/bin/${ENGINE_SCRIPT_VSCODE_PLATFORM}-${ENGINE_SCRIPT_VSCODE_ARCH}"
+)
+
 add_custom_command(TARGET e2sc POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/editors/vscode/bin"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:e2sc>" "${CMAKE_SOURCE_DIR}/editors/vscode/bin/"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ENGINE_SCRIPT_VSCODE_BIN_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:e2sc>" "${ENGINE_SCRIPT_VSCODE_BIN_DIR}/"
     VERBATIM
 )
 add_custom_command(TARGET e2s-lsp POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/editors/vscode/bin"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:e2s-lsp>" "${CMAKE_SOURCE_DIR}/editors/vscode/bin/"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ENGINE_SCRIPT_VSCODE_BIN_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:e2s-lsp>" "${ENGINE_SCRIPT_VSCODE_BIN_DIR}/"
     VERBATIM
 )
 
@@ -1125,6 +1146,13 @@ add_enginescript_test(EngineScriptDependencyTests tests/EngineScriptDependencyTe
 add_enginescript_test(EngineScriptTypeCheckerTests tests/EngineScriptTypeCheckerTests.cpp)
 add_enginescript_test(EngineScriptIRTests tests/EngineScriptIRTests.cpp)
 add_enginescript_test(EngineScriptCodegenTests tests/EngineScriptCodegenTests.cpp)
+get_target_property(_engine_glm_include_dirs glm::glm INTERFACE_INCLUDE_DIRECTORIES)
+list(GET _engine_glm_include_dirs 0 _engine_glm_include_dir)
+target_compile_definitions(EngineScriptCodegenTests PRIVATE
+    ENGINE_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    ENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    ENGINE_TEST_GLM_INCLUDE_DIR="${_engine_glm_include_dir}"
+)
 add_enginescript_test(EngineScriptMetadataTests tests/EngineScriptMetadataTests.cpp)
 add_enginescript_test(EngineScriptDITests tests/EngineScriptDITests.cpp)
 add_enginescript_test(EngineScriptGenericTests tests/EngineScriptGenericTests.cpp)

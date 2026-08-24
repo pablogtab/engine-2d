@@ -27,7 +27,7 @@ struct AssetDropResolution {
 };
 
 // An empty accepted_types span accepts every ready, known asset type. This is
-// used by generic Luau Asset fields while typed component fields pass one or
+// used by generic EngineScript Asset fields while typed component fields pass one or
 // more explicit types.
 [[nodiscard]] AssetDropResolution resolve_asset_drop(
     const AssetDatabase& database,

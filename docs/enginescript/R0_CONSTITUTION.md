@@ -13,7 +13,7 @@
 1. **Safety & Clarity:** Statically typed, object-oriented gameplay language transpiling directly to clean C++20.
 2. **First-Class Engine Concepts:** Built-in decorators for Dependency Injection (`@inject`), ECS component binding (`@component`, `@optional`), and Editor Inspector reflection (`@expose`, `@range`).
 3. **Structured Concurrency:** Native `async`/`await` powered by C++20 coroutines, bound to `TaskScope` tied to Entity and Scene lifecycles.
-4. **Deterministic Hot Reload:** Dynamic `GameModule` hot reload with property snapshots, DI reinjection, and automatic rollback on failure without migrating raw pointers.
+4. **Deterministic Hot Reload:** Dynamic `GameModule` hot reload with property snapshots, DI reinjection, and explicit fail-stop behavior without migrating raw pointers.
 5. **Tooling First:** VSCode LSP server using the exact same frontend (lexer, parser, typechecker, diagnostics) as the build compiler.
 
 ### Non-Goals

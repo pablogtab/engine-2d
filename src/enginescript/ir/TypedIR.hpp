@@ -13,6 +13,7 @@ namespace EngineScript {
 enum class IROpKind {
     Constant,
     VarRef,
+    VarDecl,
     Assign,
     Binary,
     Unary,
@@ -24,6 +25,7 @@ enum class IROpKind {
     IndexGet,
     IndexSet,
     Return,
+    If,
     Branch,
     Jump,
     Await
@@ -50,7 +52,15 @@ struct IRVarRef : public IROperation {
 
 struct IRAssign : public IROperation {
     std::string target_name;
+    TokenType assignment_op = TokenType::Equals;
     std::shared_ptr<IROperation> value;
+};
+
+struct IRVarDecl : public IROperation {
+    std::string name;
+    std::shared_ptr<Type> declared_type;
+    bool is_const = false;
+    std::shared_ptr<IROperation> initializer;
 };
 
 struct IRBinary : public IROperation {
@@ -83,6 +93,7 @@ struct IRMemberGet : public IROperation {
 struct IRMemberSet : public IROperation {
     std::shared_ptr<IROperation> target;
     std::string member_name;
+    TokenType assignment_op = TokenType::Equals;
     std::shared_ptr<IROperation> value;
 };
 
@@ -106,6 +117,12 @@ struct IRIndexSet : public IROperation {
 
 struct IRReturn : public IROperation {
     std::shared_ptr<IROperation> value;
+};
+
+struct IRIf : public IROperation {
+    std::shared_ptr<IROperation> condition;
+    std::vector<std::shared_ptr<IROperation>> then_operations;
+    std::vector<std::shared_ptr<IROperation>> else_operations;
 };
 
 struct IRAwait : public IROperation {

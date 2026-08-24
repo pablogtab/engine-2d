@@ -79,9 +79,9 @@ cmake --build build
 `ENGINE2D_PROJECT` to use another project. The engine never searches its own
 source tree for gameplay assets.
 
-Luau scripts are external source files. Open the game project in a separate
-VSCode window and use the Luau Language Server; Engine2D intentionally has no
-embedded script editor.
+EngineScript `.e2s` files are external project assets. Open the game project in
+a separate VSCode window and use the EngineScript extension; Engine2D
+intentionally has no embedded script editor.
 
 ## Export
 

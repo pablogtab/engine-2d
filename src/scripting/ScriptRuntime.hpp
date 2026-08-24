@@ -17,6 +17,8 @@
 namespace EngineScript {
 class EngineScriptWorkspace;
 class AsyncScheduler;
+class GameModule;
+class NativeBehaviour;
 }
 
 namespace Engine {
@@ -24,6 +26,7 @@ namespace Engine {
 class AssetDatabase;
 class EntityManager;
 class EventDispatcher;
+struct ScriptRuntimeBinding;
 
 struct ScriptDisplayInfo {
     int pixel_width{0};
@@ -123,9 +126,8 @@ private:
         AssetHandle script_handle{};
         std::string script_path;
         std::string class_name;
-        std::function<void(float)> update_fn;
-        std::function<void()> on_start_fn;
-        std::function<void()> on_destroy_fn;
+        std::unique_ptr<ScriptRuntimeBinding> binding;
+        std::unique_ptr<EngineScript::NativeBehaviour> behaviour;
         std::vector<ScriptPublicField> field_definitions;
     };
 
@@ -160,6 +162,7 @@ private:
     std::vector<Instance> m_instances;
     std::unique_ptr<EngineScript::EngineScriptWorkspace> m_native_workspace;
     std::unique_ptr<EngineScript::AsyncScheduler> m_native_async_scheduler;
+    std::shared_ptr<EngineScript::GameModule> m_native_module;
     std::unordered_map<EntityID, ScriptExecutionStatus> m_statuses;
     std::unordered_map<AssetHandle, std::optional<std::uint64_t>> m_source_signatures;
     std::unordered_map<AssetHandle, std::string> m_reload_errors;

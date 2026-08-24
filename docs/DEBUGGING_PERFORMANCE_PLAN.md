@@ -28,7 +28,7 @@ already implemented.
 ## Architecture rules
 
 1. Runtime systems expose immutable frame snapshots or event records. Editor
-   panels must not reach into Box2D, renderer internals, or Luau VM state.
+   panels must not reach into Box2D, renderer internals, or EngineScript runtime state.
 2. Entity IDs, asset handles, component keys, render-pass names, and project-
    relative source paths are the stable attribution keys.
 3. Pause, step, timescale, filters, overlay visibility, and profiler capture are
@@ -51,14 +51,14 @@ The existing logger remains the single output path. `ConsolePanel` gains filters
 for severity, category, entity, asset, and free text without parsing formatted
 strings. Its retained record buffer must be bounded.
 
-Luau compilation and runtime errors should preserve the project-relative chunk
-name and exact line/column when the VM provides them. `ScriptInspectorDrawer`
+EngineScript compilation and runtime errors should preserve the project-relative
+source name and exact line/column. `ScriptInspectorDrawer`
 links the diagnostic to the owning entity and script asset; opening the source
 delegates to the operating system or configured external editor.
 
 Validation:
 
-- Exact Luau source attribution for compile, module-load, lifecycle, update, and
+- Exact EngineScript source attribution for compile, module-load, lifecycle, update, and
   event callback failures.
 - Stable filtering when messages contain similar text.
 - Bounded retention and deterministic ordering.
@@ -165,7 +165,7 @@ Only after profiler and stress captures identify a measurable bottleneck:
 
 | Order | Deliverable | Gate to continue |
 | --- | --- | --- |
-| 1 | Structured diagnostics and Luau locations | Errors are filterable and attributable without string parsing |
+| 1 | Structured diagnostics and EngineScript locations | Errors are filterable and attributable without string parsing |
 | 2 | Physics debug frame and viewport overlay | Overlay is camera-correct, read-only, and zero-cost when disabled |
 | 3 | Pause, step, timescale, runtime inspection | Deterministic stepping preserves Play Mode isolation |
 | 4 | CPU/counter profiler and Stats UI | Frame scopes and counters pass instrumentation tests |

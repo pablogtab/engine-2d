@@ -8,7 +8,6 @@ bool HotReloadManager::load_initial_module(std::shared_ptr<GameModule> module) {
         return false;
     }
     m_active_module = module;
-    m_last_known_good_module = module;
     return true;
 }
 
@@ -61,73 +60,77 @@ void HotReloadManager::restore_all_instances(const std::vector<PropertySnapshot>
 }
 
 bool HotReloadManager::hot_reload(std::shared_ptr<GameModule> new_module, AsyncScheduler& scheduler, const DIContainer& di) {
-    // 1. Validate new module ABI & compatibility
+    // Reload is deliberately fail-stop: broken new code never leaves the old
+    // behaviour running, because that would hide the failure from the author.
     if (!new_module || !new_module->is_compatible()) {
-        return false; // Incompatible module rejected safely!
-    }
-
-    // 2. Snapshot compatible exposed properties
-    auto snapshots = snapshot_all_instances();
-
-    // 3. Cancel owned async tasks for all instances
-    for (const auto& slot : m_active_instances) {
-        if (slot.instance) {
-            scheduler.cancel_scope(slot.instance->task_scope_id);
-            slot.instance->on_destroy();
-        }
-    }
-
-    // 4. Destroy old instances
-    m_active_instances.clear();
-
-    // 5. Switch active module
-    m_active_module = new_module;
-
-    // 6. Recreate instances with DI injection
-    bool recreation_success = true;
-    for (const auto& [entity_id, type_name] : m_active_descriptors) {
-        if (!new_module->has_behaviour_type(type_name)) {
-            recreation_success = false;
-            break;
-        }
-
-        NativeBehaviour* raw_inst = new_module->create_behaviour(type_name);
-        if (!raw_inst) {
-            recreation_success = false;
-            break;
-        }
-
-        raw_inst->entity_id = entity_id;
-        raw_inst->task_scope_id = entity_id; // Scope tied to entity
-        m_active_instances.push_back({entity_id, type_name, std::unique_ptr<NativeBehaviour>(raw_inst)});
-    }
-
-    if (!recreation_success) {
-        // Rollback to last known good!
-        rollback(scheduler, di);
+        stop_active_instances(scheduler);
+        m_active_module.reset();
         return false;
     }
 
-    // 7. Restore properties
+    auto snapshots = snapshot_all_instances();
+    std::vector<ActiveBehaviourSlot> candidate_instances;
+
+    for (const auto& [entity_id, type_name] : m_active_descriptors) {
+        if (!new_module->has_behaviour_type(type_name)) {
+            stop_active_instances(scheduler);
+            m_active_module.reset();
+            return false;
+        }
+
+        const auto& registrations = new_module->descriptor().behaviour_types;
+        const auto registration = std::find_if(registrations.begin(), registrations.end(), [&](const BehaviourTypeRegistration& item) {
+            return item.type_name == type_name;
+        });
+        if (registration == registrations.end()) {
+            stop_active_instances(scheduler);
+            m_active_module.reset();
+            return false;
+        }
+
+        std::vector<void*> constructor_args;
+        constructor_args.reserve(registration->injected_services.size());
+        for (const auto& service_type : registration->injected_services) {
+            void* service = di.resolve_service(service_type);
+            if (!service) {
+                stop_active_instances(scheduler);
+                m_active_module.reset();
+                return false;
+            }
+            constructor_args.push_back(service);
+        }
+
+        NativeBehaviour* raw_inst = new_module->create_behaviour(
+            type_name,
+            constructor_args.empty() ? nullptr : constructor_args.data()
+        );
+        if (!raw_inst) {
+            stop_active_instances(scheduler);
+            m_active_module.reset();
+            return false;
+        }
+
+        raw_inst->entity_id = entity_id;
+        raw_inst->task_scope_id = entity_id;
+        raw_inst->async_scheduler = &scheduler;
+        candidate_instances.push_back({entity_id, type_name, std::unique_ptr<NativeBehaviour>(raw_inst)});
+    }
+
+    stop_active_instances(scheduler);
+    m_active_module = std::move(new_module);
+    m_active_instances = std::move(candidate_instances);
     restore_all_instances(snapshots);
 
-    // 8. Lifecycle start
     for (auto& slot : m_active_instances) {
         if (slot.instance) {
             slot.instance->on_start();
         }
     }
 
-    // 9. Update last known good
-    m_last_known_good_module = new_module;
     return true;
 }
 
-bool HotReloadManager::rollback(AsyncScheduler& scheduler, const DIContainer& di) {
-    if (!m_last_known_good_module) return false;
-
-    auto snapshots = snapshot_all_instances();
-
+void HotReloadManager::stop_active_instances(AsyncScheduler& scheduler) {
     for (const auto& slot : m_active_instances) {
         if (slot.instance) {
             scheduler.cancel_scope(slot.instance->task_scope_id);
@@ -135,27 +138,6 @@ bool HotReloadManager::rollback(AsyncScheduler& scheduler, const DIContainer& di
         }
     }
     m_active_instances.clear();
-
-    m_active_module = m_last_known_good_module;
-
-    for (const auto& [entity_id, type_name] : m_active_descriptors) {
-        NativeBehaviour* raw_inst = m_last_known_good_module->create_behaviour(type_name);
-        if (raw_inst) {
-            raw_inst->entity_id = entity_id;
-            raw_inst->task_scope_id = entity_id;
-            m_active_instances.push_back({entity_id, type_name, std::unique_ptr<NativeBehaviour>(raw_inst)});
-        }
-    }
-
-    restore_all_instances(snapshots);
-
-    for (auto& slot : m_active_instances) {
-        if (slot.instance) {
-            slot.instance->on_start();
-        }
-    }
-
-    return true;
 }
 
 } // namespace EngineScript

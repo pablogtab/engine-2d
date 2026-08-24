@@ -15,6 +15,8 @@ struct CacheEntry {
     std::string sdk_hash;
     std::string generated_header;
     std::string generated_source;
+    std::string generated_header_filename;
+    std::string generated_source_filename;
     std::string metadata_json;
     uint64_t timestamp = 0;
 };
