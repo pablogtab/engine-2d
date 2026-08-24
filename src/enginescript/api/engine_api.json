@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "abiVersion": 3,
-  "sdkHash": "engine2d_abi_v3",
+  "abiVersion": 4,
+  "sdkHash": "engine2d_abi_v4",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",

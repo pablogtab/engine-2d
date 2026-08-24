@@ -115,6 +115,15 @@ filesystem access, and engine-private state. Every new runtime system or
 component must either add a documented, tested EngineScript binding with editor
 Play/export parity or be explicitly recorded as non-scriptable.
 
+Generated native modules expose `engine_script_module_exports` with C linkage.
+The loader copies only POD descriptor data, validates the ABI version and SDK
+hash, and then owns the dynamic-library lifetime. A native behaviour is always
+destroyed before its module is unloaded.
+
+`e2sc` writes `GameModule.generated.cpp` beside the generated behaviour files.
+It registers every behaviour factory through that export symbol; native build
+targets compile this file together with the generated behaviour sources.
+
 ## Hot reload
 
 Editor Play Mode watches the source signature of active script assets. A change

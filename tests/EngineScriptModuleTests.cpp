@@ -1,4 +1,7 @@
 #include <cassert>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include "enginescript/module/GameModule.hpp"
 
@@ -17,6 +20,93 @@ public:
 void* create_player(void**) {
     return new TestPlayerBehaviour();
 }
+
+namespace {
+
+std::string quote_argument(const std::filesystem::path& path) {
+    return "\"" + path.string() + "\"";
+}
+
+void test_dynamic_module_loading() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_native_module_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+    fs::create_directories(root);
+
+    const fs::path source = root / "GameplayModule.cpp";
+#if defined(_WIN32)
+    const fs::path library = root / "GameplayModule.dll";
+    constexpr const char* library_flags = " /LD ";
+#elif defined(__APPLE__)
+    const fs::path library = root / "libGameplayModule.dylib";
+    constexpr const char* library_flags = " -dynamiclib ";
+#else
+    const fs::path library = root / "libGameplayModule.so";
+    constexpr const char* library_flags = " -shared -fPIC ";
+#endif
+    std::ofstream(source) << R"(
+#include "enginescript/module/GameModule.hpp"
+
+class LoadedBehaviour final : public EngineScript::NativeBehaviour {
+public:
+    void update(float) override {}
+};
+
+extern "C" EngineScript::NativeBehaviour* create_loaded(void**) {
+    return new LoadedBehaviour();
+}
+
+extern "C" const EngineScript::NativeModuleExports* engine_script_module_exports() {
+    static const EngineScript::NativeBehaviourExport behaviours[] = {
+        {"Loaded", create_loaded}
+    };
+    static const EngineScript::NativeModuleExports exports{
+        EngineScript::ENGINE_SCRIPT_ABI_VERSION,
+        EngineScript::ENGINE_SCRIPT_SDK_HASH,
+        "Gameplay",
+        7,
+        behaviours,
+        1
+    };
+    return &exports;
+}
+)";
+
+#if defined(_MSC_VER)
+    const std::string command = quote_argument(ENGINE_TEST_CXX_COMPILER) +
+        " /nologo /std:c++20" + library_flags + " /I" +
+        quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "src") + " /I" +
+        quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "vendor") + " /Fe" +
+        quote_argument(library) + " " + quote_argument(source);
+#else
+    const std::string command = quote_argument(ENGINE_TEST_CXX_COMPILER) +
+        " -std=c++20" + library_flags + " -I" +
+        quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "src") + " -I" +
+        quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "vendor") + " -I" +
+        quote_argument(ENGINE_TEST_GLM_INCLUDE_DIR) + " -o " +
+        quote_argument(library) + " " + quote_argument(source);
+#endif
+    assert(std::system(command.c_str()) == 0);
+
+    std::string load_error;
+    std::unique_ptr<GameModule> module = GameModule::load_dynamic_library(library.string(), &load_error);
+    assert(module != nullptr);
+    assert(load_error.empty());
+    assert(module->is_compatible());
+    assert(module->descriptor().module_name == "Gameplay");
+    assert(module->descriptor().build_number == 7);
+    assert(module->has_behaviour_type("Loaded"));
+
+    NativeBehaviour* behaviour = module->create_behaviour("Loaded");
+    assert(behaviour != nullptr);
+    behaviour->update(0.016f);
+    delete behaviour;
+    module.reset();
+    fs::remove_all(root, error);
+}
+
+} // namespace
 
 int main() {
     std::cout << "[TEST] Running EngineScriptModuleTests...\n";
@@ -55,6 +145,9 @@ int main() {
     bad_desc.abi_version = 999;
     GameModule bad_module(bad_desc);
     assert(!bad_module.is_compatible());
+
+    // Test 4: Load a behaviour factory through the versioned C ABI boundary.
+    test_dynamic_module_loading();
 
     std::cout << "[PASS] EngineScriptModuleTests passed!\n";
     return 0;

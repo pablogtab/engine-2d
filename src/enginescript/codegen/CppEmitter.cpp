@@ -1,9 +1,11 @@
 #include "CppEmitter.hpp"
 #include "../api/ApiCatalog.hpp"
+#include "../module/GameModule.hpp"
 #include <format>
 #include <iomanip>
 #include <sstream>
 #include <filesystem>
+#include <stdexcept>
 
 namespace EngineScript {
 
@@ -149,6 +151,57 @@ CppOutput CppEmitter::emit_module(const IRModule& module) {
     return out;
 }
 
+std::string CppEmitter::emit_game_module_entrypoint(
+    const std::vector<IRModule>& modules,
+    const std::string& module_name,
+    uint32_t build_number
+) const {
+    std::unordered_set<std::string> behaviour_names;
+    std::ostringstream output;
+    output << "#include \"enginescript/module/GameModule.hpp\"\n\n";
+    for (const IRModule& module : modules) {
+        for (const IRClass& behaviour : module.classes) {
+            if (!behaviour.is_behaviour) continue;
+            if (!behaviour_names.emplace(behaviour.name).second) {
+                throw std::runtime_error("EngineScript native module requires unique behaviour class names");
+            }
+            output << std::format(
+                "extern \"C\" EngineScript::NativeBehaviour* create_{}(void** args);\n",
+                behaviour.name
+            );
+        }
+    }
+    output << "\nextern \"C\" const EngineScript::NativeModuleExports* "
+           << "engine_script_module_exports() {\n";
+    if (behaviour_names.empty()) {
+        output << std::format(
+            "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, \"{}\", {}, nullptr, 0}};\n",
+            ENGINE_SCRIPT_ABI_VERSION,
+            module_name,
+            build_number
+        );
+        output << "    return &exports;\n}\n";
+        return output.str();
+    }
+    output << "    static const EngineScript::NativeBehaviourExport behaviours[] = {\n";
+    for (const IRModule& module : modules) {
+        for (const IRClass& behaviour : module.classes) {
+            if (behaviour.is_behaviour) {
+                output << std::format("        {{\"{}\", create_{}}},\n", behaviour.name, behaviour.name);
+            }
+        }
+    }
+    output << "    };\n";
+    output << std::format(
+        "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, \"{}\", {}, behaviours, sizeof(behaviours) / sizeof(behaviours[0])}};\n",
+        ENGINE_SCRIPT_ABI_VERSION,
+        module_name,
+        build_number
+    );
+    output << "    return &exports;\n}\n";
+    return output.str();
+}
+
 void CppEmitter::emit_struct_header(const IRStruct& st, std::string& out) {
     out += std::format("struct {} {{\n", st.name);
     for (const auto& prop : st.properties) {
@@ -251,7 +304,7 @@ void CppEmitter::emit_class_source(const IRClass& cls, const std::string& header
     }
 
     // Factory export
-    out += std::format("extern \"C\" void* create_{}(void** args) {{\n", cls.name);
+    out += std::format("extern \"C\" EngineScript::NativeBehaviour* create_{}(void** args) {{\n", cls.name);
     out += std::format("    return new {}(", cls.name);
     for (std::size_t index = 0; index < cls.constructor_params.size(); ++index) {
         const auto& parameter = cls.constructor_params[index];

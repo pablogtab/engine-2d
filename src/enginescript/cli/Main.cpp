@@ -139,6 +139,13 @@ int main(int argc, char* argv[]) {
             s_out << cpp.source_content;
         }
 
+        CppEmitter emitter(workspace.source_manager());
+        std::ofstream entrypoint_out(fs::path(output_dir) / "GameModule.generated.cpp");
+        entrypoint_out << emitter.emit_game_module_entrypoint(
+            workspace.ir_modules(),
+            fs::path(project_dir).filename().string()
+        );
+
         std::cout << "Successfully compiled " << file_count << " EngineScript files into " << output_dir << "\n";
     } catch (const std::exception& ex) {
         std::cerr << "Error writing build output: " << ex.what() << "\n";

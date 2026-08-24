@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -51,8 +52,8 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 3;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v3";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 4;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v4";
 
 class Input {
 public:
@@ -144,6 +145,28 @@ public:
 
 using BehaviourFactoryFn = std::function<void*(void** args)>;
 
+struct NativeBehaviourExport {
+    const char* type_name{nullptr};
+    NativeBehaviour* (*factory)(void** args){nullptr};
+};
+
+struct NativeModuleExports {
+    uint32_t abi_version{0};
+    const char* sdk_hash{nullptr};
+    const char* module_name{nullptr};
+    uint32_t build_number{0};
+    const NativeBehaviourExport* behaviour_types{nullptr};
+    std::size_t behaviour_type_count{0};
+};
+
+using GetNativeModuleExportsFn = const NativeModuleExports* (*)();
+
+inline constexpr const char* ENGINE_SCRIPT_MODULE_EXPORT_SYMBOL = "engine_script_module_exports";
+
+// Native libraries expose this symbol with C linkage. The returned data must
+// remain valid until the loader releases the library.
+extern "C" const NativeModuleExports* engine_script_module_exports();
+
 struct BehaviourTypeRegistration {
     std::string type_name;
     BehaviourFactoryFn factory = nullptr;
@@ -171,7 +194,15 @@ public:
     NativeBehaviour* create_behaviour(const std::string& type_name, void** args = nullptr) const;
     bool has_behaviour_type(const std::string& type_name) const;
 
-    void set_library_handle(void* handle) { m_lib_handle = handle; }
+    [[nodiscard]] static std::unique_ptr<GameModule> from_native_exports(
+        const NativeModuleExports& exports,
+        std::string* error = nullptr
+    );
+    [[nodiscard]] static std::unique_ptr<GameModule> load_dynamic_library(
+        const std::string& path,
+        std::string* error = nullptr
+    );
+
     void* library_handle() const { return m_lib_handle; }
 
 private:

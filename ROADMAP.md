@@ -519,6 +519,8 @@ reload.
 - [x] Complete the local platformer behaviour spike and compile generated C++ in tests.
 - [x] Add a versioned EngineScript gameplay API catalog and use it as the compiler builtin contract.
 - [x] Expose Audio and Scene gameplay services with compiler, generated C++, and Play Mode parity.
+- [x] Add validated C ABI loading for native EngineScript modules.
+- [x] Emit a native GameModule entrypoint from every EngineScript project build.
 - [ ] Record reproducible cold/incremental build, reload, size, memory, diagnostic,
   Windows, Linux, macOS, and iOS results before claiming cross-platform completion.
 - [x] Make an explicit continue, reduce, change-language, or abandon decision.

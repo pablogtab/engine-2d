@@ -213,7 +213,7 @@ target_include_directories(EngineScriptLib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
 )
-target_link_libraries(EngineScriptLib PUBLIC glm::glm)
+target_link_libraries(EngineScriptLib PUBLIC glm::glm ${CMAKE_DL_LIBS})
 target_compile_definitions(EngineScriptLib PRIVATE
     ENGINE_SCRIPT_API_CATALOG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/enginescript/api/engine_api.json"
 )
@@ -1162,6 +1162,11 @@ add_enginescript_test(EngineScriptGenericTests tests/EngineScriptGenericTests.cp
 add_enginescript_test(EngineScriptCacheTests tests/EngineScriptCacheTests.cpp)
 add_enginescript_test(EngineScriptAsyncTests tests/EngineScriptAsyncTests.cpp)
 add_enginescript_test(EngineScriptModuleTests tests/EngineScriptModuleTests.cpp)
+target_compile_definitions(EngineScriptModuleTests PRIVATE
+    ENGINE_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    ENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    ENGINE_TEST_GLM_INCLUDE_DIR="${_engine_glm_include_dir}"
+)
 add_enginescript_test(EngineScriptHotReloadTests tests/EngineScriptHotReloadTests.cpp)
 add_enginescript_test(EngineScriptEditorIntegrationTests tests/EngineScriptEditorIntegrationTests.cpp)
 add_enginescript_test(EngineScriptProjectTests tests/EngineScriptProjectTests.cpp)

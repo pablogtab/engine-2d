@@ -1,62 +1,41 @@
-const path = require('path');
 const vscode = require('vscode');
 const { LanguageClient } = require('vscode-languageclient/node');
-const fs = require('fs');
 const { spawn } = require('child_process');
+const { findProjectRoot, findToolBinary: resolveToolBinary } = require('./tooling');
 
 let client;
 let outputChannel;
 const activeCompilations = new Map();
 
-function platformDirectory() {
-    const architecture = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch;
-    return `${process.platform}-${architecture}`;
-}
-
-function binaryName(baseName) {
-    const isWindows = process.platform === 'win32';
-    return isWindows ? `${baseName}.exe` : baseName;
-}
-
 function findToolBinary(context, baseName, settingName) {
-    const executable = binaryName(baseName);
-
     const config = vscode.workspace.getConfiguration('enginescript');
-    const customPath = config.get(settingName);
-    if (customPath && fs.existsSync(customPath)) {
-        return customPath;
-    }
-
-    // Portable packages keep every native tool below its OS/architecture.
-    const embeddedBin = context.asAbsolutePath(path.join('bin', platformDirectory(), executable));
-    if (fs.existsSync(embeddedBin)) {
-        return embeddedBin;
-    }
-
-    // Developer checkout fallback.
-    if (vscode.workspace.workspaceFolders) {
-        for (const folder of vscode.workspace.workspaceFolders) {
-            const root = folder.uri.fsPath;
-            const candidates = [
-                path.join(root, 'build', executable),
-                path.join(root, 'build', 'Debug', executable),
-                path.join(root, 'build', 'Release', executable),
-                path.join(root, 'bin', executable)
-            ];
-            for (const c of candidates) {
-                if (fs.existsSync(c)) {
-                    return c;
-                }
-            }
-        }
-    }
-
-    return executable;
+    return resolveToolBinary({
+        extensionPath: context.extensionPath,
+        baseName,
+        configuredPath: config.get(settingName),
+        workspaceFolders: vscode.workspace.workspaceFolders || []
+    });
 }
 
 function projectRootForDocument(document) {
-    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-    return workspaceFolder?.uri.fsPath;
+    return findProjectRoot(document.uri.fsPath);
+}
+
+function projectRootForWorkspace() {
+    const active = vscode.window.activeTextEditor?.document;
+    const activeRoot = active ? projectRootForDocument(active) : undefined;
+    if (activeRoot) return activeRoot;
+    for (const folder of vscode.workspace.workspaceFolders || []) {
+        const root = findProjectRoot(folder.uri.fsPath);
+        if (root) return root;
+    }
+    return undefined;
+}
+
+function reportMissingTool(baseName, settingName) {
+    vscode.window.showErrorMessage(
+        `EngineScript ${baseName} was not found. Build Engine2D, install a matching VSIX, or set enginescript.${settingName}.`
+    );
 }
 
 function compileProject(context, root, showProgress) {
@@ -66,6 +45,10 @@ function compileProject(context, root, showProgress) {
     }
 
     const compilerPath = findToolBinary(context, 'e2sc', 'compilerPath');
+    if (!compilerPath) {
+        reportMissingTool('compiler', 'compilerPath');
+        return Promise.resolve(-1);
+    }
     outputChannel.appendLine(`Compiling ${root}`);
 
     const run = () => new Promise((resolve) => {
@@ -105,7 +88,16 @@ function activate(context) {
     context.subscriptions.push(outputChannel);
 
     const serverPath = findToolBinary(context, 'e2s-lsp', 'serverPath');
-    const projectRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const projectRoot = projectRootForWorkspace();
+
+    if (!projectRoot) {
+        vscode.window.showWarningMessage('Open an Engine2D project containing project.engine2d to enable EngineScript.');
+        return;
+    }
+    if (!serverPath) {
+        reportMissingTool('language server', 'serverPath');
+        return;
+    }
 
     const serverOptions = {
         command: serverPath,
@@ -146,7 +138,7 @@ function activate(context) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('enginescript.compileProject', async () => {
-            const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const root = projectRootForWorkspace();
             if (!root) {
                 vscode.window.showWarningMessage('Open an Engine2D project before compiling EngineScript.');
                 return;
@@ -166,7 +158,7 @@ function activate(context) {
 
     context.subscriptions.push(
         vscode.workspace.onDidSaveTextDocument(async (document) => {
-            if (document.languageId !== 'enginescript' && path.extname(document.uri.fsPath) !== '.e2s') {
+            if (document.languageId !== 'enginescript' && !document.uri.fsPath.endsWith('.e2s')) {
                 return;
             }
 

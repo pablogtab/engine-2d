@@ -4,6 +4,7 @@
 #include "../core/SourceManager.hpp"
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace EngineScript {
 
@@ -19,6 +20,11 @@ public:
     explicit CppEmitter(const SourceManager& source_manager);
 
     CppOutput emit_module(const IRModule& module);
+    [[nodiscard]] std::string emit_game_module_entrypoint(
+        const std::vector<IRModule>& modules,
+        const std::string& module_name,
+        uint32_t build_number = 0
+    ) const;
 
 private:
     std::string type_to_cpp(const Type* type, bool is_const_ref = false) const;

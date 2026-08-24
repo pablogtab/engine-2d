@@ -19,7 +19,7 @@ std::string quote_argument(const std::filesystem::path& path) {
     return "\"" + path.string() + "\"";
 }
 
-void require_generated_cpp_compiles(const CppOutput& output) {
+void require_generated_cpp_compiles(const CppOutput& output, const std::string& entrypoint) {
     namespace fs = std::filesystem;
     const fs::path root = fs::temp_directory_path() / "engine2d_codegen_native_compile";
     std::error_code error;
@@ -28,20 +28,22 @@ void require_generated_cpp_compiles(const CppOutput& output) {
 
     const fs::path header = root / output.header_filename;
     const fs::path source = root / output.source_filename;
+    const fs::path entrypoint_source = root / "GameModule.generated.cpp";
     std::ofstream(header) << output.header_content;
     std::ofstream(source) << output.source_content;
+    std::ofstream(entrypoint_source) << entrypoint;
 
 #if defined(_MSC_VER)
     const std::string command = quote_argument(ENGINE_TEST_CXX_COMPILER) +
         " /nologo /std:c++20 /Zs /I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "src") +
         " /I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "vendor") +
-        " /I" + quote_argument(root) + " " + quote_argument(source);
+        " /I" + quote_argument(root) + " " + quote_argument(source) + " " + quote_argument(entrypoint_source);
 #else
     const std::string command = quote_argument(ENGINE_TEST_CXX_COMPILER) +
         " -std=c++20 -fsyntax-only -I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "src") +
         " -I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "vendor") +
         " -I" + quote_argument(ENGINE_TEST_GLM_INCLUDE_DIR) +
-        " -I" + quote_argument(root) + " " + quote_argument(source);
+        " -I" + quote_argument(root) + " " + quote_argument(source) + " " + quote_argument(entrypoint_source);
 #endif
 
     assert(std::system(command.c_str()) == 0);
@@ -110,12 +112,16 @@ int main() {
 
     CppEmitter emitter(sm);
     CppOutput output = emitter.emit_module(ir_mod);
+    const std::string entrypoint = emitter.emit_game_module_entrypoint({ir_mod}, "Gameplay");
 
     assert(!output.header_content.empty());
     assert(!output.source_content.empty());
     assert(output.header_content.find("class PlatformerPlayer") != std::string::npos);
     assert(output.header_content.find("float walkSpeed") != std::string::npos);
     assert(output.source_content.find("create_PlatformerPlayer") != std::string::npos);
+    assert(output.source_content.find("EngineScript::NativeBehaviour* create_PlatformerPlayer") != std::string::npos);
+    assert(entrypoint.find("engine_script_module_exports") != std::string::npos);
+    assert(entrypoint.find("{\"PlatformerPlayer\", create_PlatformerPlayer}") != std::string::npos);
     assert(output.source_content.find("EngineScript::StringOps::to_lower") != std::string::npos);
     assert(output.source_content.find("EngineScript::StringOps::includes") != std::string::npos);
     assert(output.header_content.find("EngineScript::SpriteRenderer2D* sprite") != std::string::npos);
@@ -127,7 +133,7 @@ int main() {
     assert(output.source_content.find("m_scene->load(\"Assets/Scenes/Next.scene\")") != std::string::npos);
     assert(output.source_content.find("co_await delay(0.5f)") != std::string::npos);
     assert(output.source_content.find("#line") != std::string::npos);
-    require_generated_cpp_compiles(output);
+    require_generated_cpp_compiles(output, entrypoint);
 
     std::cout << "[PASS] EngineScriptCodegenTests passed!\n";
     return 0;
