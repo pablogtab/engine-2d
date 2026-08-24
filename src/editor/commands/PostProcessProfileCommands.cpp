@@ -3,6 +3,7 @@
 #include "../../scene/Scene.hpp"
 #include "../../scene/CustomScene.hpp"
 #include "../../core/AssetDatabase.hpp"
+#include "../../ecs/components/RenderingComponents.hpp"
 #include <utility>
 
 namespace Engine {
@@ -43,7 +44,15 @@ bool SetSceneRenderLayerEffectsCommand::apply(const std::vector<RenderLayerEffec
     if (auto* custom = dynamic_cast<CustomScene*>(m_scene)) {
         return custom->set_render_layer_effect_assignments(assignments, *m_database);
     }
-    m_scene->set_render_layer_effect_assignments(assignments);
+    auto& em = m_scene->get_entity_manager();
+    em.for_each<CameraComponent>([&](EntityID, CameraComponent& cam) {
+        if (cam.is_primary) {
+            cam.post_process.layer_effects.clear();
+            for (const auto& item : assignments) {
+                cam.post_process.layer_effects.push_back({item.profile_handle, item.render_layer, item.enabled});
+            }
+        }
+    });
     return true;
 }
 bool SetSceneRenderLayerEffectsCommand::execute() { return apply(m_after); }

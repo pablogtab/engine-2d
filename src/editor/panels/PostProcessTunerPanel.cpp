@@ -92,12 +92,12 @@ void PostProcessTunerPanel::on_gui() {
     if (!pipeline || !profile) {
         ImGui::TextDisabled("No Post-Processing Profile is assigned to the active scene.");
         ImGui::Separator();
-        ImGui::TextWrapped("Assign a .postprocess profile in the Scene Settings section of the Inspector to view and edit its parameters here.");
+        ImGui::TextWrapped("Assign a .postprocess profile to a CameraComponent in the Inspector to view and edit its parameters here.");
         ImGui::End();
         return;
     }
 
-    m_selected_profile_handle = scene->get_post_process_profile_handle();
+    m_selected_profile_handle = m_scene_manager ? m_scene_manager->get_post_process_profile_handle() : AssetHandle{};
 
     ImGui::TextColored(ImVec4(0.4f, 0.75f, 1.0f, 1.0f), "%s", profile->name.c_str());
     if (const AssetRecord* selected_asset = m_selected_profile_handle.is_valid() ? database.find(m_selected_profile_handle) : nullptr) {

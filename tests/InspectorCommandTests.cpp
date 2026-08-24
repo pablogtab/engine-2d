@@ -1453,8 +1453,6 @@ void test_modify_scene_settings_command_undo_redo() {
     SceneSettings after = before;
     after.physics_enabled = false;
     after.gravity = {10.0f, -20.0f};
-    after.post_process_profile_handle = AssetHandle{123};
-    after.render_layer_effect_assignments = {{AssetHandle{456}, 5, true}};
 
     assert(history.execute_command(std::make_unique<ModifySceneSettingsCommand>(
         &scene, nullptr, nullptr, before, after, "Modify Scene Settings"
@@ -1552,14 +1550,12 @@ void test_inactive_scene_settings_modification_does_not_affect_active_runtime() 
     SceneSettings new_settings_b = scene_b->settings();
     new_settings_b.gravity = {123.0f, 456.0f};
     new_settings_b.physics_enabled = false;
-    new_settings_b.post_process_profile_handle = AssetHandle{999};
 
     assert(scene_manager.apply_scene_settings(*scene_b, new_settings_b, AssetDatabase::get()));
 
     // Verify scene_b data was updated
     assert(scene_b->settings().gravity == glm::vec2(123.0f, 456.0f));
     assert(!scene_b->settings().physics_enabled);
-    assert(scene_b->settings().post_process_profile_handle == AssetHandle{999});
 
     // CRITICAL: active runtime MUST NOT be touched by inactive scene edit!
     assert(PhysicsSystem::get_gravity() == glm::vec2(0.0f, -10.0f));

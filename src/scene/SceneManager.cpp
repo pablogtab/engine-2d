@@ -590,22 +590,28 @@ PostProcessProfile* SceneManager::get_editable_post_process_profile() {
     );
 }
 
+AssetHandle SceneManager::get_post_process_profile_handle() const {
+    Scene* scene = get_active_scene();
+    if (!scene) return {};
+    if (auto* custom = dynamic_cast<CustomScene*>(scene)) return custom->get_post_process_profile_handle();
+    const CameraComponent* camera = nullptr;
+    auto& em = scene->get_entity_manager();
+    em.for_each<CameraComponent>([&](EntityID, CameraComponent& cam) {
+        if (!camera || cam.is_primary) {
+            camera = &cam;
+        }
+    });
+    return (camera && camera->post_process.enabled) ? camera->post_process.global_profile_handle : AssetHandle{};
+}
+
 bool SceneManager::apply_scene_settings(
     Scene& scene,
     const SceneSettings& settings,
-    const AssetDatabase& database
+    const AssetDatabase&
 ) {
     scene.settings() = settings;
     if (get_active_scene() == &scene) {
         PhysicsSystem::set_gravity(settings.gravity);
-        if (auto* custom = dynamic_cast<CustomScene*>(&scene)) {
-            static_cast<void>(custom->set_post_process_profile_handle(settings.post_process_profile_handle, database));
-            static_cast<void>(custom->set_render_layer_effect_assignments(settings.render_layer_effect_assignments, database));
-        } else {
-            auto& context = execution_context(scene);
-            static_cast<void>(context.renderer.set_post_process_profile(scene, settings.post_process_profile_handle, database));
-            static_cast<void>(context.renderer.set_render_layer_effects(scene, settings.render_layer_effect_assignments, database));
-        }
     }
     return true;
 }

@@ -3,6 +3,7 @@
 #include "../ecs/RenderSystem.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../renderer/postprocess/PostProcessPasses.hpp"
+#include "../ecs/components/RenderingComponents.hpp"
 #include <algorithm>
 
 namespace Engine {
@@ -22,10 +23,22 @@ bool same_assignments(
     return true;
 }
 
+const CameraComponent* get_primary_camera(Scene& scene) {
+    auto& em = scene.get_entity_manager();
+    const CameraComponent* primary = nullptr;
+    em.for_each<CameraComponent>([&](EntityID, CameraComponent& cam) {
+        if (!primary || cam.is_primary) {
+            primary = &cam;
+        }
+    });
+    return primary;
+}
+
 } // namespace
 
 bool SceneRenderer::synchronize_post_process(Scene& scene, const AssetDatabase& database) {
-    const AssetHandle handle = scene.get_post_process_profile_handle();
+    const CameraComponent* camera = get_primary_camera(scene);
+    const AssetHandle handle = (camera && camera->post_process.enabled) ? camera->post_process.global_profile_handle : AssetHandle{};
     if (handle == m_loaded_post_process_handle) return !handle.is_valid() || m_post_process_profile.has_value();
     if (!handle.is_valid()) {
         m_loaded_post_process_handle = {};
@@ -43,7 +56,13 @@ bool SceneRenderer::synchronize_post_process(Scene& scene, const AssetDatabase& 
 }
 
 bool SceneRenderer::synchronize_render_layer_effects(Scene& scene, const AssetDatabase& database) {
-    const auto& assignments = scene.get_render_layer_effect_assignments();
+    const CameraComponent* camera = get_primary_camera(scene);
+    std::vector<RenderLayerEffectAssignment> assignments;
+    if (camera && camera->post_process.enabled) {
+        for (const auto& effect : camera->post_process.layer_effects) {
+            assignments.push_back({effect.effect_handle, effect.render_layer, effect.enabled});
+        }
+    }
     if (same_assignments(assignments, m_loaded_layer_assignments)) return true;
     if (!m_render_effect_system.set_layer_assignments(assignments, database)) return false;
     m_loaded_layer_assignments = assignments;
@@ -134,16 +153,13 @@ PostProcessProfile* SceneRenderer::editable_post_process_profile(Scene& scene, c
 bool SceneRenderer::set_post_process_profile(
     Scene& scene, AssetHandle handle, const AssetDatabase& database
 ) {
-    if (!handle.is_valid()) {
-        scene.set_post_process_profile_handle({});
-        m_loaded_post_process_handle = {};
-        m_post_process_profile.reset();
-        m_post_process_pipeline.destroy_targets();
-        m_post_process_initialized = false;
-        return true;
-    }
-    if (!PostProcessProfile::load_asset(handle, database)) return false;
-    scene.set_post_process_profile_handle(handle);
+    if (handle.is_valid() && !PostProcessProfile::load_asset(handle, database)) return false;
+    auto& em = scene.get_entity_manager();
+    em.for_each<CameraComponent>([&](EntityID, CameraComponent& cam) {
+        if (cam.is_primary) {
+            cam.post_process.global_profile_handle = handle;
+        }
+    });
     m_loaded_post_process_handle = {};
     return synchronize_post_process(scene, database);
 }
@@ -154,14 +170,29 @@ bool SceneRenderer::set_render_layer_effects(
     const AssetDatabase& database
 ) {
     if (!m_render_effect_system.set_layer_assignments(assignments, database)) return false;
-    scene.set_render_layer_effect_assignments(assignments);
+    auto& em = scene.get_entity_manager();
+    em.for_each<CameraComponent>([&](EntityID, CameraComponent& cam) {
+        if (cam.is_primary) {
+            cam.post_process.layer_effects.clear();
+            for (const auto& item : assignments) {
+                cam.post_process.layer_effects.push_back({item.profile_handle, item.render_layer, item.enabled});
+            }
+        }
+    });
     m_loaded_layer_assignments = std::move(assignments);
     return true;
 }
 
 bool SceneRenderer::refresh_render_layer_effects(Scene& scene, const AssetDatabase& database) {
-    if (!m_render_effect_system.set_layer_assignments(scene.get_render_layer_effect_assignments(), database)) return false;
-    m_loaded_layer_assignments = scene.get_render_layer_effect_assignments();
+    const CameraComponent* camera = get_primary_camera(scene);
+    std::vector<RenderLayerEffectAssignment> assignments;
+    if (camera && camera->post_process.enabled) {
+        for (const auto& effect : camera->post_process.layer_effects) {
+            assignments.push_back({effect.effect_handle, effect.render_layer, effect.enabled});
+        }
+    }
+    if (!m_render_effect_system.set_layer_assignments(assignments, database)) return false;
+    m_loaded_layer_assignments = std::move(assignments);
     return m_render_effect_system.refresh(database);
 }
 

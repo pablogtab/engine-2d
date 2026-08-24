@@ -7,6 +7,8 @@
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
 #include "../../scene/PrefabOverrides.hpp"
+#include "../../core/AssetDatabase.hpp"
+#include "../../renderer/RenderLayerEffectProfile.hpp"
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -160,6 +162,135 @@ void CameraInspectorDrawer::draw(
             if (camera.bounds.y > camera.bounds.w) std::swap(camera.bounds.y, camera.bounds.w);
         }
         track(em, entity, bounds_before, "Camera.Bounds", "Edit Camera Bounds", context);
+    }
+
+    // Post Processing Section
+    ImGui::Spacing();
+    if (ImGui::CollapsingHeader("Post Processing", ImGuiTreeNodeFlags_DefaultOpen)) {
+        AssetDatabase& database = AssetDatabase::get();
+        const CameraComponent pp_before = camera;
+
+        // Enabled
+        bool pp_enabled = camera.post_process.enabled;
+        if (property_bool("Enabled##CameraPostProcess", &pp_enabled)) {
+            camera.post_process.enabled = pp_enabled;
+            track(em, entity, pp_before, "Camera.PostProcess.Enabled", "Toggle Camera Post-Processing", context, true);
+        }
+
+        // Global Profile
+        const AssetHandle current_profile = camera.post_process.global_profile_handle;
+        const AssetRecord* selected_asset = current_profile.is_valid() ? database.find(current_profile) : nullptr;
+
+        begin_property_row("Global Profile");
+        ImGui::PushID("CameraGlobalProfileCombo");
+        if (ImGui::BeginCombo("##profile", selected_asset ? selected_asset->source_path.c_str() : "None (No Profile)")) {
+            if (ImGui::Selectable("None (No Profile)", !current_profile.is_valid())) {
+                if (current_profile.is_valid()) {
+                    camera.post_process.global_profile_handle = {};
+                    track(em, entity, pp_before, "Camera.PostProcess.GlobalProfile", "Clear Camera Global Profile", context, true);
+                }
+            }
+            for (const AssetRecord& record : database.records()) {
+                if (record.type != AssetType::PostProcessProfile || record.status != AssetStatus::Ready) continue;
+                const bool is_selected = record.handle == current_profile;
+                if (ImGui::Selectable(record.source_path.c_str(), is_selected)) {
+                    if (record.handle != current_profile) {
+                        camera.post_process.global_profile_handle = record.handle;
+                        track(em, entity, pp_before, "Camera.PostProcess.GlobalProfile", "Set Camera Global Profile", context, true);
+                    }
+                }
+                if (is_selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::PopID();
+
+        // Layer Effects
+        ImGui::Spacing();
+        ImGui::TextDisabled("Layer Effects");
+        ImGui::Separator();
+
+        // Add Effect dropdown
+        if (ImGui::BeginCombo("Add Layer Effect", "+ Add Effect Profile")) {
+            for (const AssetRecord& record : database.records()) {
+                if (record.type != AssetType::RenderLayerEffectProfile || record.status != AssetStatus::Ready ||
+                    !RenderLayerEffectProfile::load_asset(record.handle, database)) continue;
+                RenderLayer first_unused = 0;
+                bool found_unused = false;
+                for (unsigned l = 0; l <= 31; ++l) {
+                    const auto r_layer = static_cast<RenderLayer>(l);
+                    const bool occupied = std::any_of(camera.post_process.layer_effects.begin(), camera.post_process.layer_effects.end(), [r_layer](const auto& le) {
+                        return le.render_layer == r_layer;
+                    });
+                    if (!occupied) {
+                        first_unused = r_layer;
+                        found_unused = true;
+                        break;
+                    }
+                }
+                if (found_unused) {
+                    if (ImGui::Selectable(record.source_path.c_str())) {
+                        camera.post_process.layer_effects.push_back({record.handle, first_unused, true});
+                        track(em, entity, pp_before, "Camera.PostProcess.LayerEffects", "Add Camera Layer Effect", context, true);
+                    }
+                }
+            }
+            ImGui::EndCombo();
+        }
+
+        // List existing layer effects
+        for (std::size_t index = 0; index < camera.post_process.layer_effects.size(); ++index) {
+            auto& assignment = camera.post_process.layer_effects[index];
+            auto loaded = RenderLayerEffectProfile::load_asset_for_authoring(assignment.effect_handle, database);
+            ImGui::PushID(static_cast<int>(index));
+            if (!loaded) {
+                ImGui::TextDisabled("Unavailable profile: %s", assignment.effect_handle.to_string().c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) {
+                    camera.post_process.layer_effects.erase(camera.post_process.layer_effects.begin() + static_cast<std::ptrdiff_t>(index));
+                    track(em, entity, pp_before, "Camera.PostProcess.LayerEffects", "Remove Camera Layer Effect", context, true);
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::PopID();
+                continue;
+            }
+
+            bool remove_requested = false;
+            const std::string label = loaded->name + " -> Layer " + std::to_string(static_cast<unsigned>(assignment.render_layer));
+            if (ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+                bool enabled = assignment.enabled;
+                if (ImGui::Checkbox("Enabled", &enabled)) {
+                    assignment.enabled = enabled;
+                    track(em, entity, pp_before, "Camera.PostProcess.LayerEffects", "Toggle Camera Layer Effect Enabled", context, true);
+                }
+
+                int layer = static_cast<int>(assignment.render_layer);
+                if (ImGui::InputInt("Render Layer", &layer, 1, 1, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                    const auto target_layer = static_cast<RenderLayer>(std::clamp(layer, 0, 31));
+                    const bool occupied = std::any_of(camera.post_process.layer_effects.begin(), camera.post_process.layer_effects.end(), [&](const auto& le) {
+                        return &le != &assignment && le.render_layer == target_layer;
+                    });
+                    if (!occupied) {
+                        assignment.render_layer = target_layer;
+                        track(em, entity, pp_before, "Camera.PostProcess.LayerEffects", "Change Camera Effect Layer", context, true);
+                    }
+                }
+
+                if (const AssetRecord* profile_record = database.find(assignment.effect_handle)) {
+                    ImGui::TextDisabled("%s", profile_record->source_path.c_str());
+                }
+                remove_requested = ImGui::Button("Remove from Camera");
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+
+            if (remove_requested) {
+                camera.post_process.layer_effects.erase(camera.post_process.layer_effects.begin() + static_cast<std::ptrdiff_t>(index));
+                track(em, entity, pp_before, "Camera.PostProcess.LayerEffects", "Remove Camera Layer Effect", context, true);
+                break;
+            }
+        }
     }
 
     ImGui::TextDisabled("Output resolution is configured in Project Settings");

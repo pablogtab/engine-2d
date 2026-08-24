@@ -85,6 +85,7 @@ public:
     [[nodiscard]] SDL_Color get_clear_color() const;
     [[nodiscard]] PostProcessPipeline* get_post_process_pipeline();
     [[nodiscard]] PostProcessProfile* get_editable_post_process_profile();
+    [[nodiscard]] AssetHandle get_post_process_profile_handle() const;
     [[nodiscard]] bool apply_scene_settings(
         Scene& scene,
         const SceneSettings& settings,

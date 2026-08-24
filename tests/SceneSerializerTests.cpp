@@ -5,6 +5,7 @@
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
 #include "scene/Scene.hpp"
+#include "scene/SceneSchema.hpp"
 #include "scene/ComponentRegistry.hpp"
 #include "scene/SceneSerializer.hpp"
 #include "editor/commands/EditorCommandHistory.hpp"
@@ -27,21 +28,39 @@ void test_render_layer_effect_assignments_round_trip() {
     TestScene scene;
     scene.settings().physics_enabled = false;
     scene.settings().gravity = {15.0f, -320.0f};
-    scene.settings().post_process_profile_handle = AssetHandle{777};
-    scene.set_render_layer_effect_assignments({{AssetHandle{10}, 2, true}, {AssetHandle{10}, 9, false}});
+
+    auto& em = scene.get_entity_manager();
+    const EntityID camera_entity = em.create_entity();
+    em.add_component<TransformComponent>(camera_entity, TransformComponent{});
+    CameraComponent camera;
+    camera.is_primary = true;
+    camera.post_process.enabled = true;
+    camera.post_process.global_profile_handle = AssetHandle{777};
+    camera.post_process.layer_effects = {{AssetHandle{10}, 2, true}, {AssetHandle{10}, 9, false}};
+    em.add_component<CameraComponent>(camera_entity, camera);
+
     SceneSerializer serializer(&scene);
     const std::string snapshot = serializer.serialize_to_string();
-    scene.set_render_layer_effect_assignments({});
+
     scene.settings().physics_enabled = true;
     scene.settings().gravity = {};
-    scene.settings().post_process_profile_handle = {};
+    auto& cam_mut = em.get_component<CameraComponent>(camera_entity);
+    cam_mut.post_process = {};
+
     assert(serializer.deserialize_from_string(snapshot));
     assert(!scene.settings().physics_enabled);
     assert(scene.settings().gravity == glm::vec2(15.0f, -320.0f));
-    assert(scene.settings().post_process_profile_handle == AssetHandle{777});
-    assert(scene.get_render_layer_effect_assignments() == std::vector<RenderLayerEffectAssignment>(
-        {{AssetHandle{10}, 2, true}, {AssetHandle{10}, 9, false}}
-    ));
+
+    auto& restored_cam = scene.get_entity_manager().get_component<CameraComponent>(camera_entity);
+    assert(restored_cam.post_process.enabled);
+    assert(restored_cam.post_process.global_profile_handle == AssetHandle{777});
+    assert(restored_cam.post_process.layer_effects.size() == 2);
+    assert(restored_cam.post_process.layer_effects[0].effect_handle == AssetHandle{10});
+    assert(restored_cam.post_process.layer_effects[0].render_layer == 2);
+    assert(restored_cam.post_process.layer_effects[0].enabled);
+    assert(restored_cam.post_process.layer_effects[1].effect_handle == AssetHandle{10});
+    assert(restored_cam.post_process.layer_effects[1].render_layer == 9);
+    assert(!restored_cam.post_process.layer_effects[1].enabled);
 }
 
 EntityID add_preserved_entity(TestScene& scene) {
@@ -235,7 +254,7 @@ void test_v1_scene_migrates_to_current_schema() {
     SceneSerializer loaded_serializer(&loaded);
     assert(loaded_serializer.deserialize_from_string(legacy.dump()));
     const nlohmann::json current = nlohmann::json::parse(loaded_serializer.serialize_to_string());
-    assert(current.at("version").get<std::uint32_t>() == 3);
+    assert(current.at("version").get<std::uint32_t>() == SceneSchema::CURRENT_VERSION);
     assert(current.at("component_versions").is_object());
     assert(current.at("component_versions").size() == default_component_registry().descriptors().size());
 }
@@ -472,8 +491,6 @@ void test_invalid_json_or_entity_after_settings_leaves_scene_and_settings_intact
     TestScene scene;
     scene.settings().physics_enabled = false;
     scene.settings().gravity = {12.0f, -34.0f};
-    scene.settings().post_process_profile_handle = AssetHandle{99};
-    scene.settings().render_layer_effect_assignments = {{AssetHandle{88}, 3, true}};
     const EntityID preserved = add_preserved_entity(scene);
 
     SceneSerializer serializer(&scene);
@@ -489,8 +506,6 @@ void test_invalid_json_or_entity_after_settings_leaves_scene_and_settings_intact
     // Verify scene settings and entity remain 100% original
     assert(!scene.settings().physics_enabled);
     assert(scene.settings().gravity == glm::vec2(12.0f, -34.0f));
-    assert(scene.settings().post_process_profile_handle == AssetHandle{99});
-    assert((scene.settings().render_layer_effect_assignments == std::vector<RenderLayerEffectAssignment>{{AssetHandle{88}, 3, true}}));
     assert_preserved(scene, preserved);
 
     // 2. Invalid hierarchy link in entities payload
@@ -499,10 +514,9 @@ void test_invalid_json_or_entity_after_settings_leaves_scene_and_settings_intact
     bad_hierarchy_json["entities"].front()["hierarchy"] = {{"parent", 8888}};
     assert(!serializer.deserialize_from_string(bad_hierarchy_json.dump()));
 
+    // Verify scene settings and entity remain 100% original
     assert(!scene.settings().physics_enabled);
     assert(scene.settings().gravity == glm::vec2(12.0f, -34.0f));
-    assert(scene.settings().post_process_profile_handle == AssetHandle{99});
-    assert((scene.settings().render_layer_effect_assignments == std::vector<RenderLayerEffectAssignment>{{AssetHandle{88}, 3, true}}));
     assert_preserved(scene, preserved);
 
     // 3. Malformed settings payload (invalid gravity type)
@@ -512,8 +526,6 @@ void test_invalid_json_or_entity_after_settings_leaves_scene_and_settings_intact
 
     assert(!scene.settings().physics_enabled);
     assert(scene.settings().gravity == glm::vec2(12.0f, -34.0f));
-    assert(scene.settings().post_process_profile_handle == AssetHandle{99});
-    assert((scene.settings().render_layer_effect_assignments == std::vector<RenderLayerEffectAssignment>{{AssetHandle{88}, 3, true}}));
     assert_preserved(scene, preserved);
 }
 

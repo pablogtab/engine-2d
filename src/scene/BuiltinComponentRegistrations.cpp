@@ -465,6 +465,14 @@ void register_camera(ComponentRegistry& registry) {
         .display_name = "Camera 2D",
         .serialized_key = "camera",
         .serialize = [](const CameraComponent& camera, const ComponentSerializationContext&) {
+            Json layer_effects = Json::array();
+            for (const auto& effect : camera.post_process.layer_effects) {
+                layer_effects.push_back({
+                    {"effect_handle", effect.effect_handle.to_string()},
+                    {"render_layer", static_cast<unsigned>(effect.render_layer)},
+                    {"enabled", effect.enabled}
+                });
+            }
             return Json{
                 {"is_primary", camera.is_primary},
                 {"clear_color", {camera.clear_color.r, camera.clear_color.g, camera.clear_color.b, camera.clear_color.a}},
@@ -475,7 +483,12 @@ void register_camera(ComponentRegistry& registry) {
                 {"follow_speed", camera.follow_speed},
                 {"enable_bounds", camera.enable_bounds},
                 {"bounds", {camera.bounds.x, camera.bounds.y, camera.bounds.z, camera.bounds.w}},
-                {"render_layer_mask", camera.render_layer_mask}
+                {"render_layer_mask", camera.render_layer_mask},
+                {"post_process", {
+                    {"enabled", camera.post_process.enabled},
+                    {"global_profile_handle", camera.post_process.global_profile_handle.to_string()},
+                    {"layer_effects", std::move(layer_effects)}
+                }}
             };
         },
         .deserialize = [](CameraComponent& camera, const Json& value, const ComponentSerializationContext&, std::string& error) {
@@ -504,6 +517,26 @@ void register_camera(ComponentRegistry& registry) {
             camera.enable_bounds = value.at("enable_bounds").get<bool>();
             camera.bounds = {bounds[0].get<float>(), bounds[1].get<float>(), bounds[2].get<float>(), bounds[3].get<float>()};
             camera.render_layer_mask = value.value("render_layer_mask", ALL_RENDER_LAYERS);
+            if (value.contains("post_process") && value.at("post_process").is_object()) {
+                const auto& pp = value.at("post_process");
+                camera.post_process.enabled = pp.value("enabled", true);
+                if (pp.contains("global_profile_handle") && pp.at("global_profile_handle").is_string()) {
+                    camera.post_process.global_profile_handle = AssetHandle::from_string(pp.at("global_profile_handle").get<std::string>()).value_or(AssetHandle{});
+                }
+                if (pp.contains("layer_effects") && pp.at("layer_effects").is_array()) {
+                    camera.post_process.layer_effects.clear();
+                    for (const auto& item : pp.at("layer_effects")) {
+                        if (!item.is_object()) continue;
+                        CameraLayerEffectAssignment assignment;
+                        if (item.contains("effect_handle") && item.at("effect_handle").is_string()) {
+                            assignment.effect_handle = AssetHandle::from_string(item.at("effect_handle").get<std::string>()).value_or(AssetHandle{});
+                        }
+                        assignment.render_layer = static_cast<RenderLayer>(item.value("render_layer", 0u));
+                        assignment.enabled = item.value("enabled", true);
+                        camera.post_process.layer_effects.push_back(assignment);
+                    }
+                }
+            }
             return true;
         },
         .finalize = [](EntityManager& em, EntityID, CameraComponent& camera, const ComponentFinalizeContext&, std::string& error) {

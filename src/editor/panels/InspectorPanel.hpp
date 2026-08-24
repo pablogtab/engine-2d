@@ -75,7 +75,6 @@ private:
     std::function<SDL_Texture*(AssetHandle)> m_preview_material;
     char m_multi_tag_buffer[128]{""};
     std::uint32_t m_multi_tag_selection_owner{0};
-    int m_layer_effect_target_layer{0};
 };
 
 

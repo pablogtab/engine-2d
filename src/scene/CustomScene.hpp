@@ -1,8 +1,11 @@
 #pragma once
 
 #include "Scene.hpp"
+#include "../core/AssetHandle.hpp"
+#include "../renderer/RenderLayerEffectProfile.hpp"
 #include "../renderer/RenderView.hpp"
 #include <SDL3/SDL.h>
+#include <vector>
 
 namespace Engine {
 
@@ -32,17 +35,20 @@ public:
     [[nodiscard]] virtual PostProcessPipeline* get_post_process_pipeline() { return nullptr; }
     [[nodiscard]] virtual PostProcessProfile* get_editable_post_process_profile() { return nullptr; }
     virtual bool set_post_process_profile_handle(AssetHandle handle, const AssetDatabase&) {
-        Scene::set_post_process_profile_handle(handle);
+        m_post_process_profile_handle = handle;
         return true;
+    }
+    [[nodiscard]] virtual AssetHandle get_post_process_profile_handle() const {
+        return m_post_process_profile_handle;
     }
     virtual bool set_render_layer_effect_assignments(
         std::vector<RenderLayerEffectAssignment> assignments, const AssetDatabase&
     ) {
-        Scene::set_render_layer_effect_assignments(std::move(assignments));
+        m_render_layer_effect_assignments = std::move(assignments);
         return true;
     }
     [[nodiscard]] virtual const std::vector<RenderLayerEffectAssignment>& get_render_layer_effect_assignments() const {
-        return Scene::get_render_layer_effect_assignments();
+        return m_render_layer_effect_assignments;
     }
     virtual bool refresh_render_layer_effects(const AssetDatabase&) { return false; }
     virtual void set_is_editing(bool editing) { m_is_editing = editing; }
@@ -50,6 +56,8 @@ public:
 
 private:
     bool m_is_editing{true};
+    AssetHandle m_post_process_profile_handle{};
+    std::vector<RenderLayerEffectAssignment> m_render_layer_effect_assignments;
 };
 
 } // namespace Engine

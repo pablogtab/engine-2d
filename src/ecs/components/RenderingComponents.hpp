@@ -109,6 +109,22 @@ struct ShadowCaster2DComponent {
     bool operator==(const ShadowCaster2DComponent&) const = default;
 };
 
+struct CameraLayerEffectAssignment {
+    AssetHandle effect_handle{};
+    RenderLayer render_layer{0};
+    bool enabled{true};
+
+    bool operator==(const CameraLayerEffectAssignment&) const = default;
+};
+
+struct CameraPostProcessSettings {
+    bool enabled{true};
+    AssetHandle global_profile_handle{};
+    std::vector<CameraLayerEffectAssignment> layer_effects{};
+
+    bool operator==(const CameraPostProcessSettings&) const = default;
+};
+
 struct CameraComponent {
     bool is_primary{false};
     SDL_Color clear_color{24, 28, 36, 255};
@@ -120,6 +136,7 @@ struct CameraComponent {
     bool enable_bounds{false};
     glm::vec4 bounds{-2000.0f, -1000.0f, 2000.0f, 1000.0f};
     RenderLayerMask render_layer_mask{ALL_RENDER_LAYERS};
+    CameraPostProcessSettings post_process{};
 
     CameraComponent() = default;
     bool operator==(const CameraComponent& other) const {
@@ -129,7 +146,8 @@ struct CameraComponent {
             zoom == other.zoom && projection == other.projection &&
             follow_target == other.follow_target && follow_offset == other.follow_offset &&
             follow_speed == other.follow_speed && enable_bounds == other.enable_bounds &&
-            bounds == other.bounds && render_layer_mask == other.render_layer_mask;
+            bounds == other.bounds && render_layer_mask == other.render_layer_mask &&
+            post_process == other.post_process;
     }
 };
 

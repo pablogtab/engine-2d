@@ -51,6 +51,70 @@ bool migrate_v2_to_v3(Json& root, const ComponentRegistry&, std::string&) {
     return true;
 }
 
+bool migrate_v3_to_v4(Json& root, const ComponentRegistry&, std::string& error) {
+    bool has_post_process = false;
+    std::string global_profile;
+    Json layer_effects = Json::array();
+
+    if (root.contains("settings") && root["settings"].is_object()) {
+        Json& settings = root["settings"];
+        if (settings.contains("post_process_profile_handle")) {
+            if (settings["post_process_profile_handle"].is_string()) {
+                global_profile = settings["post_process_profile_handle"].get<std::string>();
+                if (!global_profile.empty()) has_post_process = true;
+            }
+            settings.erase("post_process_profile_handle");
+        }
+        if (settings.contains("render_layer_effect_assignments")) {
+            if (settings["render_layer_effect_assignments"].is_array() && !settings["render_layer_effect_assignments"].empty()) {
+                has_post_process = true;
+                for (const auto& item : settings["render_layer_effect_assignments"]) {
+                    if (!item.is_object()) continue;
+                    layer_effects.push_back({
+                        {"effect_handle", item.value("profile_handle", "")},
+                        {"render_layer", item.value("render_layer", 0u)},
+                        {"enabled", item.value("enabled", true)}
+                    });
+                }
+            }
+            settings.erase("render_layer_effect_assignments");
+        }
+    }
+
+    if (has_post_process) {
+        if (!root.contains("entities") || !root["entities"].is_array() || root["entities"].empty()) {
+            error = "Cannot migrate post-processing to CameraComponent: scene has no camera entity.";
+            return false;
+        }
+        Json* target_camera_entity = nullptr;
+        for (auto& entity : root["entities"]) {
+            if (entity.is_object() && entity.contains("camera") && entity["camera"].is_object()) {
+                if (entity["camera"].value("is_primary", false)) {
+                    target_camera_entity = &entity;
+                    break;
+                }
+                if (!target_camera_entity) {
+                    target_camera_entity = &entity;
+                }
+            }
+        }
+        if (!target_camera_entity) {
+            error = "Cannot migrate post-processing to CameraComponent: scene has no camera entity.";
+            return false;
+        }
+
+        Json& camera_obj = (*target_camera_entity)["camera"];
+        camera_obj["post_process"] = Json{
+            {"enabled", true},
+            {"global_profile_handle", std::move(global_profile)},
+            {"layer_effects", std::move(layer_effects)}
+        };
+    }
+
+    root["version"] = static_cast<std::uint32_t>(4);
+    return true;
+}
+
 bool migrate_scene_once(
     std::uint32_t version,
     Json& root,
@@ -60,6 +124,7 @@ bool migrate_scene_once(
     switch (version) {
         case 1: return migrate_v1_to_v2(root, registry, error);
         case 2: return migrate_v2_to_v3(root, registry, error);
+        case 3: return migrate_v3_to_v4(root, registry, error);
         default:
             error = "No scene migration is registered from version " + std::to_string(version);
             return false;
@@ -173,26 +238,6 @@ bool SceneSchema::validate_structure(
             if (!gravity.is_array() || gravity.size() != 2 || !gravity[0].is_number() || !gravity[1].is_number()) {
                 error = "Scene settings gravity must be a 2-element numeric array";
                 return false;
-            }
-        }
-        if (settings.contains("post_process_profile_handle") && !settings.at("post_process_profile_handle").is_string()) {
-            error = "Scene settings post_process_profile_handle must be a string";
-            return false;
-        }
-        if (settings.contains("render_layer_effect_assignments")) {
-            const auto& assignments = settings.at("render_layer_effect_assignments");
-            if (!assignments.is_array()) {
-                error = "Scene settings render_layer_effect_assignments must be an array";
-                return false;
-            }
-            for (const auto& item : assignments) {
-                if (!item.is_object() || !item.contains("profile_handle") || !item.at("profile_handle").is_string() ||
-                    !item.contains("render_layer") || !item.at("render_layer").is_number_unsigned() ||
-                    item.at("render_layer").get<unsigned>() > 31 ||
-                    (item.contains("enabled") && !item.at("enabled").is_boolean())) {
-                    error = "Scene settings render_layer_effect_assignments entry is invalid";
-                    return false;
-                }
             }
         }
     }
