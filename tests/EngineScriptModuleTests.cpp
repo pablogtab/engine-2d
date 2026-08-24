@@ -4,6 +4,8 @@
 #include <fstream>
 #include <iostream>
 #include "enginescript/module/GameModule.hpp"
+#include "enginescript/module/NativeModuleBuilder.hpp"
+#include "enginescript/editor/EngineScriptWorkspace.hpp"
 
 using namespace EngineScript;
 
@@ -55,6 +57,41 @@ public:
 
 extern "C" EngineScript::NativeBehaviour* create_loaded(void**) {
     return new LoadedBehaviour();
+}
+
+void test_generated_module_build_and_load() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_generated_native_module_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+    fs::create_directories(root);
+
+    EngineScriptWorkspace workspace(root.string());
+    workspace.add_source_file("Assets/Scripts/Probe.e2s", R"(
+@behaviour
+export class Probe extends Behaviour {
+    @expose speed: Float = 42.0;
+    override update(deltaTime: Float): Void { speed = speed + deltaTime; }
+}
+)");
+    assert(workspace.compile().success);
+    const NativeModuleBuildResult build = NativeModuleBuilder::build(workspace, root.string(), 11);
+    assert(build.success);
+    std::string load_error;
+    std::unique_ptr<GameModule> module = GameModule::load_dynamic_library(build.library_path, &load_error);
+    assert(module != nullptr);
+    assert(module->has_behaviour_type("Probe"));
+    std::unique_ptr<NativeBehaviour> behaviour(module->create_behaviour("Probe"));
+    assert(behaviour != nullptr);
+    NativeBehaviour::ExposedPropertyValue speed;
+    assert(behaviour->get_exposed_property("speed", speed));
+    assert(std::get<double>(speed) == 42.0);
+    behaviour->update(0.5f);
+    assert(behaviour->get_exposed_property("speed", speed));
+    assert(std::get<double>(speed) == 42.5);
+    behaviour.reset();
+    module.reset();
+    fs::remove_all(root, error);
 }
 
 extern "C" const EngineScript::NativeModuleExports* engine_script_module_exports() {
@@ -148,6 +185,7 @@ int main() {
 
     // Test 4: Load a behaviour factory through the versioned C ABI boundary.
     test_dynamic_module_loading();
+    test_generated_module_build_and_load();
 
     std::cout << "[PASS] EngineScriptModuleTests passed!\n";
     return 0;

@@ -100,7 +100,8 @@ headless host may deliberately leave a service unavailable.
 
 The C++ backend emits native `NativeBehaviour` subclasses and factories. Tests
 compile generated fixtures with the configured Clang, GCC, or MSVC toolchain;
-native standalone module loading remains an explicit roadmap item.
+native standalone module loading is validated independently while the Play Mode
+runtime migration remains an explicit roadmap item.
 
 ## API contract and coverage
 
@@ -109,6 +110,11 @@ the gameplay SDK surface. The compiler resolves its builtin types and functions
 from this catalog, and its ABI version and SDK hash are checked against the
 native `GameModule` contract. Entries marked `planned` are intentionally not
 visible to authored scripts yet.
+
+Exposed properties use a typed bridge shared by the runtime and generated
+behaviours: `Bool`, numbers, `String`, `Vec2`, and `Entity` are pushed from the
+Inspector before each lifecycle callback and pulled back afterwards. Asset
+references remain metadata-only until the asset runtime binding is available.
 
 The catalog excludes editor-only controls, SDL/GPU backend details, arbitrary
 filesystem access, and engine-private state. Every new runtime system or

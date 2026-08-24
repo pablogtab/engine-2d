@@ -17,6 +17,7 @@
 #include "../enginescript/editor/EngineScriptWorkspace.hpp"
 #include "../enginescript/async/AsyncScheduler.hpp"
 #include "../enginescript/module/GameModule.hpp"
+#include "../enginescript/module/NativeModuleBuilder.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -105,7 +106,79 @@ public:
         execute_method("on_collision_enter", {other});
     }
 
+    bool set_exposed_property(
+        const std::string& name,
+        const ExposedPropertyValue& value
+    ) override {
+        ScriptComponent* component = script_component();
+        if (!component) return false;
+        auto field = std::find_if(component->public_fields.begin(), component->public_fields.end(),
+            [&name](const ScriptPublicField& candidate) { return candidate.name == name; });
+        if (field == component->public_fields.end()) return false;
+
+        switch (field->type) {
+            case ScriptFieldType::Boolean:
+                if (const auto* typed = std::get_if<bool>(&value)) field->value = *typed;
+                else return false;
+                return true;
+            case ScriptFieldType::Number:
+                if (const auto* typed = std::get_if<double>(&value)) field->value = *typed;
+                else return false;
+                return true;
+            case ScriptFieldType::String:
+                if (const auto* typed = std::get_if<std::string>(&value)) field->value = *typed;
+                else return false;
+                return true;
+            case ScriptFieldType::Vector2:
+                if (const auto* typed = std::get_if<glm::vec2>(&value)) field->value = ScriptVector2{typed->x, typed->y};
+                else return false;
+                return true;
+            case ScriptFieldType::Entity:
+                if (const auto* typed = std::get_if<EngineScript::Entity>(&value)) field->value = typed->id;
+                else return false;
+                return true;
+            case ScriptFieldType::Asset:
+                return false;
+        }
+        return false;
+    }
+
+    bool get_exposed_property(
+        const std::string& name,
+        ExposedPropertyValue& value
+    ) const override {
+        const ScriptComponent* component = script_component();
+        if (!component) return false;
+        const auto field = std::find_if(component->public_fields.begin(), component->public_fields.end(),
+            [&name](const ScriptPublicField& candidate) { return candidate.name == name; });
+        if (field == component->public_fields.end()) return false;
+
+        if (const auto* typed = std::get_if<bool>(&field->value)) value = *typed;
+        else if (const auto* typed = std::get_if<double>(&field->value)) value = *typed;
+        else if (const auto* typed = std::get_if<std::string>(&field->value)) value = *typed;
+        else if (const auto* typed = std::get_if<ScriptVector2>(&field->value)) value = glm::vec2{typed->x, typed->y};
+        else if (const auto* typed = std::get_if<EntityID>(&field->value)) value = make_entity(*typed);
+        else return false;
+        return true;
+    }
+
 private:
+    EngineScript::Entity make_entity(EntityID id) const {
+        EngineScript::Entity entity;
+        entity.id = id;
+        if (m_binding && m_binding->entity_manager && m_binding->entity_manager->is_alive(id) &&
+            m_binding->entity_manager->has_component<TagComponent>(id)) {
+            entity.name = m_binding->entity_manager->get_component<TagComponent>(id).tag;
+            entity.tag = entity.name;
+        }
+        entity.runtime_context = m_binding ? m_binding->entity_manager : nullptr;
+        entity.destroy_callback = [](void* context, uint32_t entity_id) {
+            auto* entities = static_cast<EntityManager*>(context);
+            if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
+        };
+        return entity;
+    }
+
     ScriptComponent* script_component() const {
         if (!m_binding || !m_binding->entity_manager ||
             !m_binding->entity_manager->is_alive(m_binding->entity) ||
@@ -595,6 +668,93 @@ std::optional<std::uint64_t> file_signature(const std::string& path) {
     return static_cast<std::uint64_t>(time.time_since_epoch().count());
 }
 
+EngineScript::Entity script_entity(EntityManager& entities, EntityID id) {
+    EngineScript::Entity result;
+    result.id = id;
+    if (entities.is_alive(id) && entities.has_component<TagComponent>(id)) {
+        result.name = entities.get_component<TagComponent>(id).tag;
+        result.tag = result.name;
+    }
+    result.runtime_context = &entities;
+    result.destroy_callback = [](void* context, uint32_t entity_id) {
+        auto* runtime_entities = static_cast<EntityManager*>(context);
+        if (runtime_entities && runtime_entities->is_alive(entity_id)) {
+            runtime_entities->destroy_entity(entity_id);
+        }
+    };
+    return result;
+}
+
+bool push_exposed_property(
+    EngineScript::NativeBehaviour& behaviour,
+    const ScriptPublicField& field,
+    EntityManager& entities
+) {
+    switch (field.type) {
+        case ScriptFieldType::Boolean:
+            if (const auto* value = std::get_if<bool>(&field.value)) return behaviour.set_exposed_property(field.name, *value);
+            break;
+        case ScriptFieldType::Number:
+            if (const auto* value = std::get_if<double>(&field.value)) return behaviour.set_exposed_property(field.name, *value);
+            break;
+        case ScriptFieldType::String:
+            if (const auto* value = std::get_if<std::string>(&field.value)) return behaviour.set_exposed_property(field.name, *value);
+            break;
+        case ScriptFieldType::Vector2:
+            if (const auto* value = std::get_if<ScriptVector2>(&field.value)) {
+                return behaviour.set_exposed_property(field.name, glm::vec2{value->x, value->y});
+            }
+            break;
+        case ScriptFieldType::Entity:
+            if (const auto* value = std::get_if<EntityID>(&field.value)) {
+                return behaviour.set_exposed_property(field.name, script_entity(entities, *value));
+            }
+            break;
+        case ScriptFieldType::Asset:
+            break;
+    }
+    return false;
+}
+
+void pull_exposed_property(
+    const EngineScript::NativeBehaviour& behaviour,
+    ScriptPublicField& field
+) {
+    EngineScript::NativeBehaviour::ExposedPropertyValue value;
+    if (!behaviour.get_exposed_property(field.name, value)) return;
+
+    if (field.type == ScriptFieldType::Boolean) {
+        if (const auto* typed = std::get_if<bool>(&value)) field.value = *typed;
+    } else if (field.type == ScriptFieldType::Number) {
+        if (const auto* typed = std::get_if<double>(&value)) field.value = *typed;
+    } else if (field.type == ScriptFieldType::String) {
+        if (const auto* typed = std::get_if<std::string>(&value)) field.value = *typed;
+    } else if (field.type == ScriptFieldType::Vector2) {
+        if (const auto* typed = std::get_if<glm::vec2>(&value)) field.value = ScriptVector2{typed->x, typed->y};
+    } else if (field.type == ScriptFieldType::Entity) {
+        if (const auto* typed = std::get_if<EngineScript::Entity>(&value)) field.value = typed->id;
+    }
+}
+
+void push_exposed_properties(
+    EngineScript::NativeBehaviour& behaviour,
+    const ScriptComponent& component,
+    EntityManager& entities
+) {
+    for (const ScriptPublicField& field : component.public_fields) {
+        static_cast<void>(push_exposed_property(behaviour, field, entities));
+    }
+}
+
+void pull_exposed_properties(
+    const EngineScript::NativeBehaviour& behaviour,
+    ScriptComponent& component
+) {
+    for (ScriptPublicField& field : component.public_fields) {
+        pull_exposed_property(behaviour, field);
+    }
+}
+
 } // namespace
 
 ScriptRuntime::ScriptRuntime() {}
@@ -701,6 +861,23 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         return result;
     }
 
+    std::shared_ptr<EngineScript::GameModule> generated_native_module;
+    std::string native_build_error;
+    const EngineScript::NativeModuleBuildResult native_build = EngineScript::NativeModuleBuilder::build(
+        *m_native_workspace,
+        asset_database.project_root().string(),
+        m_next_native_build_number++
+    );
+    if (native_build.success) {
+        std::unique_ptr<EngineScript::GameModule> loaded = EngineScript::GameModule::load_dynamic_library(
+            native_build.library_path,
+            &native_build_error
+        );
+        if (loaded) generated_native_module = std::shared_ptr<EngineScript::GameModule>(std::move(loaded));
+    } else {
+        native_build_error = native_build.error;
+    }
+
     struct RuntimeDefinition {
         std::shared_ptr<const EngineScript::IRClass> ir_class;
         std::string registered_type;
@@ -713,7 +890,9 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         for (const auto& definition : module.classes) {
             if (!definition.is_behaviour) continue;
             auto shared_definition = std::make_shared<EngineScript::IRClass>(definition);
-            const std::string registered_type = module.module_path + "::" + definition.name;
+            const std::string registered_type = generated_native_module
+                ? definition.name
+                : module.module_path + "::" + definition.name;
             if (!definitions_by_path.emplace(
                     module.module_path,
                     RuntimeDefinition{shared_definition, registered_type}
@@ -721,6 +900,7 @@ ScriptRuntimeStartResult ScriptRuntime::start(
                 invalid_behaviour_modules.insert(module.module_path);
             }
 
+            if (generated_native_module) continue;
             EngineScript::BehaviourTypeRegistration registration;
             registration.type_name = registered_type;
             for (const auto& parameter : definition.constructor_params) {
@@ -741,7 +921,9 @@ ScriptRuntimeStartResult ScriptRuntime::start(
             module_descriptor.behaviour_types.push_back(std::move(registration));
         }
     }
-    m_native_module = std::make_shared<EngineScript::GameModule>(std::move(module_descriptor));
+    m_native_module = generated_native_module
+        ? std::move(generated_native_module)
+        : std::make_shared<EngineScript::GameModule>(std::move(module_descriptor));
 
     entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
         if (!component.enabled) return;
@@ -796,6 +978,11 @@ ScriptRuntimeStartResult ScriptRuntime::start(
             }
         }
 
+        if (!m_native_module->library_handle() && !native_build_error.empty()) {
+            ENGINE_LOG_WARN("[SCRIPT] Native module build unavailable; using transitional runtime: {}", native_build_error);
+            native_build_error.clear();
+        }
+
         std::vector<ScriptPublicField> compiled_fields = public_fields_from_behaviour(*manifest);
         auto& mutable_component = entity_manager.get_component<ScriptComponent>(entity);
         for (const ScriptPublicField& default_field : compiled_fields) {
@@ -822,7 +1009,15 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         instance.binding->entity = entity;
         instance.binding->services = &m_services;
         void* arguments[] = {instance.binding.get()};
-        instance.behaviour.reset(m_native_module->create_behaviour(instance.class_name, arguments));
+        if (m_native_module->library_handle() && !manifest->dependencies.empty()) {
+            ++result.failed;
+            set_error(entity, "native EngineScript host bindings are not available for injected dependencies");
+            return;
+        }
+        instance.behaviour.reset(m_native_module->create_behaviour(
+            instance.class_name,
+            m_native_module->library_handle() ? nullptr : arguments
+        ));
         if (!instance.behaviour) {
             ++result.failed;
             set_error(entity, "could not instantiate EngineScript behaviour " + instance.class_name);
@@ -831,7 +1026,9 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         instance.behaviour->entity_id = entity;
         instance.behaviour->task_scope_id = entity;
         instance.behaviour->async_scheduler = m_native_async_scheduler.get();
+        push_exposed_properties(*instance.behaviour, mutable_component, entity_manager);
         instance.behaviour->on_start();
+        pull_exposed_properties(*instance.behaviour, mutable_component);
         m_instances.push_back(std::move(instance));
         ++result.started;
     });
@@ -933,6 +1130,13 @@ void ScriptRuntime::dispatch_events() {
                         if (entities && entities->is_alive(id)) entities->destroy_entity(id);
                     };
                     instance.behaviour->on_collision_enter(other);
+                    if (m_entity_manager->is_alive(instance.entity) &&
+                        m_entity_manager->has_component<ScriptComponent>(instance.entity)) {
+                        pull_exposed_properties(
+                            *instance.behaviour,
+                            m_entity_manager->get_component<ScriptComponent>(instance.entity)
+                        );
+                    }
                 }
             }
         }
@@ -1011,7 +1215,15 @@ void ScriptRuntime::update(float delta_time) {
             !m_entity_manager->has_component<ScriptComponent>(inst.entity)) continue;
         const auto& component = m_entity_manager->get_component<ScriptComponent>(inst.entity);
         if (component.enabled && inst.behaviour) {
+            push_exposed_properties(*inst.behaviour, component, *m_entity_manager);
             inst.behaviour->update(delta_time);
+            if (m_entity_manager->is_alive(inst.entity) &&
+                m_entity_manager->has_component<ScriptComponent>(inst.entity)) {
+                pull_exposed_properties(
+                    *inst.behaviour,
+                    m_entity_manager->get_component<ScriptComponent>(inst.entity)
+                );
+            }
         }
     }
 }

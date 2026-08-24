@@ -167,6 +167,7 @@ private:
     std::unordered_map<AssetHandle, std::optional<std::uint64_t>> m_source_signatures;
     std::unordered_map<AssetHandle, std::string> m_reload_errors;
     std::uint64_t m_next_hot_reload_poll_ms{0};
+    std::uint32_t m_next_native_build_number{1};
     std::vector<std::uint64_t> m_event_subscriptions;
     std::vector<PendingEvent> m_pending_events;
 };

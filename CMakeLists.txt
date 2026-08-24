@@ -203,12 +203,15 @@ set(ENGINESCRIPT_SOURCES
     src/enginescript/cache/CompilerCache.cpp
     src/enginescript/async/AsyncScheduler.cpp
     src/enginescript/module/GameModule.cpp
+    src/enginescript/module/NativeModuleBuilder.cpp
     src/enginescript/module/HotReloadManager.cpp
     src/enginescript/editor/EngineScriptWorkspace.cpp
     src/enginescript/lsp/LanguageServer.cpp
 )
 
 add_library(EngineScriptLib STATIC ${ENGINESCRIPT_SOURCES})
+get_target_property(_engine_script_glm_include_dirs glm::glm INTERFACE_INCLUDE_DIRECTORIES)
+list(GET _engine_script_glm_include_dirs 0 _engine_script_glm_include_dir)
 target_include_directories(EngineScriptLib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
@@ -216,6 +219,10 @@ target_include_directories(EngineScriptLib PUBLIC
 target_link_libraries(EngineScriptLib PUBLIC glm::glm ${CMAKE_DL_LIBS})
 target_compile_definitions(EngineScriptLib PRIVATE
     ENGINE_SCRIPT_API_CATALOG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/src/enginescript/api/engine_api.json"
+    ENGINE_SCRIPT_NATIVE_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    ENGINE_SCRIPT_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src"
+    ENGINE_SCRIPT_NATIVE_VENDOR_DIR="${CMAKE_CURRENT_SOURCE_DIR}/vendor"
+    ENGINE_SCRIPT_NATIVE_GLM_INCLUDE_DIR="${_engine_script_glm_include_dir}"
 )
 
 add_executable(e2sc src/enginescript/cli/Main.cpp)

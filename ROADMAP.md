@@ -521,6 +521,8 @@ reload.
 - [x] Expose Audio and Scene gameplay services with compiler, generated C++, and Play Mode parity.
 - [x] Add validated C ABI loading for native EngineScript modules.
 - [x] Emit a native GameModule entrypoint from every EngineScript project build.
+- [x] Bridge typed exposed properties between `ScriptComponent` and `NativeBehaviour` lifecycle callbacks.
+- [ ] Compile generated project modules and replace the transitional Play Mode interpreter with native instances and ordered host bindings.
 - [ ] Record reproducible cold/incremental build, reload, size, memory, diagnostic,
   Windows, Linux, macOS, and iOS results before claiming cross-platform completion.
 - [x] Make an explicit continue, reduce, change-language, or abandon decision.
