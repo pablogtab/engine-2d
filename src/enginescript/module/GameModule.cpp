@@ -78,6 +78,29 @@ std::unique_ptr<GameModule> GameModule::from_native_exports(
         BehaviourTypeRegistration registration;
         registration.type_name = native_registration.type_name;
         registration.factory = native_registration.factory;
+        if (native_registration.dependency_count != 0 && !native_registration.dependencies) {
+            return fail("EngineScript module has missing behaviour dependencies");
+        }
+        for (std::size_t dependency_index = 0;
+             dependency_index < native_registration.dependency_count;
+             ++dependency_index) {
+            const NativeDependencyExport& dependency = native_registration.dependencies[dependency_index];
+            if (!dependency.type_name || std::string_view(dependency.type_name).empty()) {
+                return fail("EngineScript module has an invalid behaviour dependency");
+            }
+            registration.constructor_dependencies.emplace_back(dependency.type_name, dependency.kind);
+            switch (dependency.kind) {
+                case NativeDependencyKind::Service:
+                    registration.injected_services.push_back(dependency.type_name);
+                    break;
+                case NativeDependencyKind::RequiredComponent:
+                    registration.required_components.push_back(dependency.type_name);
+                    break;
+                case NativeDependencyKind::OptionalComponent:
+                    registration.optional_components.push_back(dependency.type_name);
+                    break;
+            }
+        }
         descriptor.behaviour_types.push_back(std::move(registration));
     }
     return std::make_unique<GameModule>(std::move(descriptor));

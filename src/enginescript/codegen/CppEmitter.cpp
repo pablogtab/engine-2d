@@ -2,6 +2,7 @@
 #include "../api/ApiCatalog.hpp"
 #include "../module/GameModule.hpp"
 #include <format>
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 #include <filesystem>
@@ -183,11 +184,51 @@ std::string CppEmitter::emit_game_module_entrypoint(
         output << "    return &exports;\n}\n";
         return output.str();
     }
+    for (const IRModule& module : modules) {
+        for (const IRClass& behaviour : module.classes) {
+            if (!behaviour.is_behaviour || behaviour.constructor_params.empty()) continue;
+            output << std::format(
+                "    static const EngineScript::NativeDependencyExport dependencies_{}[] = {{\n",
+                behaviour.name
+            );
+            for (const IRParam& parameter : behaviour.constructor_params) {
+                const bool is_component = std::find(
+                    parameter.decorators.begin(), parameter.decorators.end(), "component"
+                ) != parameter.decorators.end();
+                const bool is_optional = std::find(
+                    parameter.decorators.begin(), parameter.decorators.end(), "optional"
+                ) != parameter.decorators.end();
+                const NativeDependencyKind kind = is_component
+                    ? NativeDependencyKind::RequiredComponent
+                    : (is_optional ? NativeDependencyKind::OptionalComponent : NativeDependencyKind::Service);
+                const char* kind_name = kind == NativeDependencyKind::Service
+                    ? "Service"
+                    : (kind == NativeDependencyKind::RequiredComponent ? "RequiredComponent" : "OptionalComponent");
+                output << std::format(
+                    "        {{\"{}\", EngineScript::NativeDependencyKind::{}}},\n",
+                    parameter.type ? parameter.type->name : "",
+                    kind_name
+                );
+            }
+            output << "    };\n";
+        }
+    }
     output << "    static const EngineScript::NativeBehaviourExport behaviours[] = {\n";
     for (const IRModule& module : modules) {
         for (const IRClass& behaviour : module.classes) {
             if (behaviour.is_behaviour) {
-                output << std::format("        {{\"{}\", create_{}}},\n", behaviour.name, behaviour.name);
+                if (behaviour.constructor_params.empty()) {
+                    output << std::format("        {{\"{}\", create_{}, nullptr, 0}},\n", behaviour.name, behaviour.name);
+                } else {
+                    output << std::format(
+                        "        {{\"{}\", create_{}, dependencies_{}, sizeof(dependencies_{}) / sizeof(dependencies_{}[0])}},\n",
+                        behaviour.name,
+                        behaviour.name,
+                        behaviour.name,
+                        behaviour.name,
+                        behaviour.name
+                    );
+                }
             }
         }
     }

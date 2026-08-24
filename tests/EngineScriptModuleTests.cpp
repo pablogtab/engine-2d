@@ -59,7 +59,7 @@ extern "C" EngineScript::NativeBehaviour* create_loaded(void**) {
 
 extern "C" const EngineScript::NativeModuleExports* engine_script_module_exports() {
     static const EngineScript::NativeBehaviourExport behaviours[] = {
-        {"Loaded", create_loaded}
+        {"Loaded", create_loaded, nullptr, 0}
     };
     static const EngineScript::NativeModuleExports exports{
         EngineScript::ENGINE_SCRIPT_ABI_VERSION,

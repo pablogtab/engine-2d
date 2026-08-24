@@ -121,7 +121,9 @@ int main() {
     assert(output.source_content.find("create_PlatformerPlayer") != std::string::npos);
     assert(output.source_content.find("EngineScript::NativeBehaviour* create_PlatformerPlayer") != std::string::npos);
     assert(entrypoint.find("engine_script_module_exports") != std::string::npos);
-    assert(entrypoint.find("{\"PlatformerPlayer\", create_PlatformerPlayer}") != std::string::npos);
+    assert(entrypoint.find("{\"PlatformerPlayer\", create_PlatformerPlayer, dependencies_PlatformerPlayer") != std::string::npos);
+    assert(entrypoint.find("NativeDependencyKind::Service") != std::string::npos);
+    assert(entrypoint.find("NativeDependencyKind::RequiredComponent") != std::string::npos);
     assert(output.source_content.find("EngineScript::StringOps::to_lower") != std::string::npos);
     assert(output.source_content.find("EngineScript::StringOps::includes") != std::string::npos);
     assert(output.header_content.find("EngineScript::SpriteRenderer2D* sprite") != std::string::npos);

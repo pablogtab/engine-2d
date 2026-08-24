@@ -145,9 +145,22 @@ public:
 
 using BehaviourFactoryFn = std::function<void*(void** args)>;
 
+enum class NativeDependencyKind : uint8_t {
+    Service,
+    RequiredComponent,
+    OptionalComponent
+};
+
+struct NativeDependencyExport {
+    const char* type_name{nullptr};
+    NativeDependencyKind kind{NativeDependencyKind::Service};
+};
+
 struct NativeBehaviourExport {
     const char* type_name{nullptr};
     NativeBehaviour* (*factory)(void** args){nullptr};
+    const NativeDependencyExport* dependencies{nullptr};
+    std::size_t dependency_count{0};
 };
 
 struct NativeModuleExports {
@@ -173,6 +186,7 @@ struct BehaviourTypeRegistration {
     std::vector<std::string> injected_services;
     std::vector<std::string> required_components;
     std::vector<std::string> optional_components;
+    std::vector<std::pair<std::string, NativeDependencyKind>> constructor_dependencies;
 };
 
 struct ModuleDescriptor {
