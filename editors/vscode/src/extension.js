@@ -5,7 +5,15 @@ const { findProjectRoot, findToolBinary: resolveToolBinary } = require('./toolin
 
 let client;
 let outputChannel;
+let statusBarItem;
 const activeCompilations = new Map();
+
+function setStatus(text, tooltip) {
+    if (!statusBarItem) return;
+    statusBarItem.text = text;
+    statusBarItem.tooltip = tooltip;
+    statusBarItem.show();
+}
 
 function findToolBinary(context, baseName, settingName) {
     const config = vscode.workspace.getConfiguration('enginescript');
@@ -87,14 +95,44 @@ function activate(context) {
     outputChannel = vscode.window.createOutputChannel('EngineScript');
     context.subscriptions.push(outputChannel);
 
+    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    statusBarItem.command = 'enginescript.compileProject';
+    context.subscriptions.push(statusBarItem);
+    setStatus('$(sync~spin) EngineScript: starting', 'EngineScript extension is starting');
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('enginescript.compileProject', async () => {
+            const root = projectRootForWorkspace();
+            if (!root) {
+                vscode.window.showWarningMessage('Open an Engine2D project before compiling EngineScript.');
+                return;
+            }
+
+            outputChannel.clear();
+            outputChannel.show(true);
+            setStatus('$(sync~spin) EngineScript: compiling', `Compiling ${root}`);
+            const exitCode = await compileProject(context, root, true);
+
+            if (exitCode === 0) {
+                setStatus('$(check) EngineScript: ready', `Last build succeeded for ${root}`);
+                vscode.window.showInformationMessage('EngineScript project compiled successfully.');
+            } else {
+                setStatus('$(error) EngineScript: build failed', 'Open the EngineScript output for compiler diagnostics');
+                vscode.window.showErrorMessage('EngineScript compilation failed. See the EngineScript output.');
+            }
+        })
+    );
+
     const serverPath = findToolBinary(context, 'e2s-lsp', 'serverPath');
     const projectRoot = projectRootForWorkspace();
 
     if (!projectRoot) {
+        setStatus('$(circle-slash) EngineScript: open project', 'Open a folder containing project.engine2d');
         vscode.window.showWarningMessage('Open an Engine2D project containing project.engine2d to enable EngineScript.');
         return;
     }
     if (!serverPath) {
+        setStatus('$(warning) EngineScript: LSP unavailable', 'Configure enginescript.serverPath or install matching tools');
         reportMissingTool('language server', 'serverPath');
         return;
     }
@@ -120,9 +158,12 @@ function activate(context) {
         );
 
         client.start().catch((err) => {
+            setStatus('$(error) EngineScript: LSP failed', 'Check the EngineScript output and server path');
             console.warn('[EngineScript] Language server start notification:', err);
         });
+        setStatus('$(check) EngineScript: ready', `Language server connected to ${projectRoot}`);
     } catch (err) {
+        setStatus('$(error) EngineScript: LSP failed', 'Check the EngineScript output and server path');
         console.warn('[EngineScript] Language client initialization warning:', err);
     }
 
@@ -132,26 +173,6 @@ function activate(context) {
                 await client.stop();
                 client.start();
                 vscode.window.showInformationMessage('EngineScript Language Server restarted.');
-            }
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('enginescript.compileProject', async () => {
-            const root = projectRootForWorkspace();
-            if (!root) {
-                vscode.window.showWarningMessage('Open an Engine2D project before compiling EngineScript.');
-                return;
-            }
-
-            outputChannel.clear();
-            outputChannel.show(true);
-            const exitCode = await compileProject(context, root, true);
-
-            if (exitCode === 0) {
-                vscode.window.showInformationMessage('EngineScript project compiled successfully.');
-            } else {
-                vscode.window.showErrorMessage('EngineScript compilation failed. See the EngineScript output.');
             }
         })
     );
@@ -174,8 +195,10 @@ function activate(context) {
 
             const exitCode = await compileProject(context, root, false);
             if (exitCode === 0) {
+                setStatus('$(check) EngineScript: ready', `Last build succeeded for ${root}`);
                 vscode.window.setStatusBarMessage('EngineScript compiled successfully.', 2500);
             } else {
+                setStatus('$(error) EngineScript: build failed', 'Open the EngineScript output for compiler diagnostics');
                 outputChannel.show(true);
                 vscode.window.showErrorMessage('EngineScript compilation failed after save. See the EngineScript output.');
             }

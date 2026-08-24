@@ -62,6 +62,28 @@ int main() {
     json j_comp = json::parse(comp_res);
     assert(j_comp["result"].is_array());
     assert(j_comp["result"].size() > 5);
+    bool has_behaviour_template = false;
+    for (const auto& item : j_comp["result"]) {
+        if (item["label"] == "behaviour class") {
+            has_behaviour_template = item["insertTextFormat"] == 2;
+        }
+    }
+    assert(has_behaviour_template);
+
+    // Definitions resolve to the declaration span instead of a placeholder range.
+    std::string definition_req = R"({
+        "jsonrpc":"2.0",
+        "id":3,
+        "method":"textDocument/definition",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":0,"character":14}
+        }
+    })";
+    json definition = json::parse(server.handle_message(definition_req));
+    assert(definition["result"]["uri"] == "file:///workspace/My%20Game/Source/Player.e2s");
+    assert(definition["result"]["range"]["start"]["line"] == 0);
+    assert(definition["result"]["range"]["start"]["character"] == 13);
 
     // Diagnostics belonging to another source file must not appear on Player.e2s.
     std::string other_open = R"({
@@ -85,7 +107,7 @@ int main() {
         "method":"textDocument/didChange",
         "params":{
             "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":3},
-            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {}"}]
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  audio: Audio;\n  update(deltaTime: Float): Void {\n    audio.playSound(\"jump\");\n  }\n}"}]
         }
     })";
     json player_diagnostics = json::parse(server.handle_message(player_fixed));
@@ -96,6 +118,26 @@ int main() {
     json enemy_update = json::parse(player_updates.front());
     assert(enemy_update["params"]["uri"] == "file:///workspace/My%20Game/Source/Enemy.e2s");
     assert(!enemy_update["params"]["diagnostics"].empty());
+
+    // Completion after a typed receiver is restricted to the inferred API type.
+    std::string member_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":4,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":4,"character":10}
+        }
+    })";
+    json member_completion = json::parse(server.handle_message(member_completion_req));
+    bool has_play_sound = false;
+    bool has_scene_load = false;
+    for (const auto& item : member_completion["result"]) {
+        has_play_sound |= item["label"] == "playSound";
+        has_scene_load |= item["label"] == "load";
+    }
+    assert(has_play_sound);
+    assert(!has_scene_load);
 
     std::cout << "[PASS] EngineScriptLspTests passed!\n";
     return 0;

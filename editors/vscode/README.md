@@ -1,7 +1,13 @@
 # EngineScript for VS Code
 
-The extension provides syntax highlighting, diagnostics, completion, hover,
-navigation, and the `EngineScript: Compile Project` command for `.e2s` files.
+The extension provides syntax highlighting, live diagnostics, completion, hover,
+go-to-definition for authored declarations, document symbols, and type-aware
+member completion for typed variables, properties, injections, and services.
+The language server reads the versioned EngineScript API catalog, so available
+types, global functions, and service methods stay aligned with the compiler.
+The `EngineScript: Compile Project` command builds `.e2s` files. Its status-bar item
+shows language-server availability and the result of the latest project build;
+click it to compile the active Engine2D project.
 
 ## Native tools
 

@@ -1,7 +1,10 @@
 #include "LanguageServer.hpp"
+#include "enginescript/api/ApiCatalog.hpp"
 #include <nlohmann/json.hpp>
 #include <cctype>
 #include <filesystem>
+#include <optional>
+#include <regex>
 #include <sstream>
 
 namespace EngineScript {
@@ -40,6 +43,101 @@ std::string decode_uri_path(std::string_view encoded) {
         decoded.push_back(encoded[index]);
     }
     return decoded;
+}
+
+struct DeclarationLocation {
+    std::string source_path;
+    uint32_t line = 0;
+    uint32_t character = 0;
+    uint32_t length = 0;
+};
+
+std::optional<DeclarationLocation> find_declaration(
+    const SourceManager& source_manager,
+    const std::string& name
+) {
+    if (name.empty()) return std::nullopt;
+
+    const std::regex declaration_pattern(
+        R"(^\s*(?:export\s+)?(?:class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*))"
+    );
+    const std::regex method_pattern(
+        R"(^\s*(?:async\s+)?(?:override\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\()"
+    );
+    const std::regex property_pattern(
+        R"(^\s*(?:public|private|protected|readonly|static\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*:)"
+    );
+
+    for (const SourceFile& file : source_manager.all_files()) {
+        std::istringstream lines(file.content);
+        std::string line;
+        uint32_t line_number = 0;
+        while (std::getline(lines, line)) {
+            std::smatch match;
+            for (const std::regex* pattern : {&declaration_pattern, &method_pattern, &property_pattern}) {
+                if (std::regex_search(line, match, *pattern) && match[1].str() == name) {
+                    return DeclarationLocation{
+                        .source_path = file.path,
+                        .line = line_number,
+                        .character = static_cast<uint32_t>(match.position(1)),
+                        .length = static_cast<uint32_t>(match.length(1))
+                    };
+                }
+            }
+            ++line_number;
+        }
+    }
+    return std::nullopt;
+}
+
+std::string base_type_name(std::string type_name) {
+    const size_t generic_start = type_name.find('<');
+    if (generic_start != std::string::npos) type_name.resize(generic_start);
+    if (!type_name.empty() && type_name.back() == '?') type_name.pop_back();
+    return type_name;
+}
+
+std::optional<std::string> infer_receiver_type(
+    const SourceManager& source_manager,
+    const std::string& source_path,
+    std::string_view line_prefix
+) {
+    static const std::regex receiver_pattern(R"(([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*$)");
+    std::cmatch receiver_match;
+    if (!std::regex_search(line_prefix.begin(), line_prefix.end(), receiver_match, receiver_pattern)) {
+        return std::nullopt;
+    }
+
+    const std::string receiver = receiver_match[1].str();
+    if (ApiCatalog::instance().has_available_type(receiver)) return receiver;
+
+    const SourceFile* file = source_manager.get_file(source_path);
+    if (!file) return std::nullopt;
+
+    const std::regex typed_declaration_pattern(
+        R"(\b(?:let|const)?\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*(?:<[^;=(){}]+>)?\??))"
+    );
+    const std::regex service_assignment_pattern(
+        R"(\b(?:let|const)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([A-Za-z_][A-Za-z0-9_]*))"
+    );
+
+    std::optional<std::string> inferred_type;
+    std::istringstream lines(file->content);
+    std::string source_line;
+    while (std::getline(lines, source_line)) {
+        const std::string searchable_line = source_line.size() > line_prefix.size() &&
+            source_line.starts_with(std::string(line_prefix)) ? std::string(line_prefix) : source_line;
+        std::smatch match;
+        if (std::regex_search(searchable_line, match, typed_declaration_pattern) && match[1].str() == receiver) {
+            inferred_type = base_type_name(match[2].str());
+        }
+        if (std::regex_search(searchable_line, match, service_assignment_pattern) && match[1].str() == receiver &&
+            ApiCatalog::instance().has_available_type(match[2].str())) {
+            inferred_type = match[2].str();
+        }
+        if (source_line.starts_with(std::string(line_prefix))) break;
+    }
+    return inferred_type;
 }
 }
 
@@ -277,6 +375,26 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
     resp["id"] = parse_id(id);
 
     json items = json::array();
+    const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
+    const std::string line_content = m_workspace.source_manager().get_line_content(file_id, line + 1);
+    const bool completing_decorator = character > 0 && character <= line_content.size() &&
+        line_content[character - 1] == '@';
+    const std::string line_prefix = line_content.substr(0, std::min<std::size_t>(character, line_content.size()));
+    if (const auto receiver_type = infer_receiver_type(
+            m_workspace.source_manager(), source_path_for_uri(uri), line_prefix)) {
+        for (const ApiMethodDescriptor& method : ApiCatalog::instance().methods()) {
+            if (method.availability != ApiAvailability::Available || method.owner_type != *receiver_type) continue;
+            items.push_back({
+                {"label", method.name},
+                {"kind", 2},
+                {"detail", method.owner_type + "." + method.name + "(...) -> " + method.return_type},
+                {"insertTextFormat", 2},
+                {"insertText", method.name + "($0)"}
+            });
+        }
+        resp["result"] = items;
+        return resp.dump();
+    }
 
     // Keywords
     std::vector<std::string> kw = {
@@ -284,20 +402,54 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
         "let", "const", "if", "else", "while", "for", "return", "async", "await",
         "override", "constructor", "private", "protected", "public"
     };
-    for (const auto& k : kw) {
-        items.push_back({{"label", k}, {"kind", 14}}); // Keyword
+    if (!completing_decorator) {
+        for (const auto& k : kw) {
+            items.push_back({{"label", k}, {"kind", 14}}); // Keyword
+        }
+
+        items.push_back({
+            {"label", "behaviour class"},
+            {"kind", 15},
+            {"detail", "Engine2D behaviour template"},
+            {"insertTextFormat", 2},
+            {"insertText", "@behaviour\\nexport class ${1:Name} extends Behaviour {\\n    $0\\n}"}
+        });
+        for (const ApiFunctionDescriptor& function : ApiCatalog::instance().functions()) {
+            if (function.availability != ApiAvailability::Available) continue;
+            items.push_back({
+                {"label", function.name},
+                {"kind", 3},
+                {"detail", function.name + "(...) -> " + function.return_type},
+                {"insertTextFormat", 2},
+                {"insertText", function.name + "($0)"}
+            });
+        }
+        items.push_back({
+            {"label", "update"},
+            {"kind", 15},
+            {"detail", "EngineScript lifecycle method"},
+            {"insertTextFormat", 2},
+            {"insertText", "override update(deltaTime: Float): Void {\\n    $0\\n}"}
+        });
     }
 
     // Decorators
     std::vector<std::string> decs = {"behaviour", "expose", "inject", "component", "optional", "range", "serializable"};
     for (const auto& d : decs) {
-        items.push_back({{"label", "@" + d}, {"kind", 15}}); // Snippet / Decorator
+        json item = {{"label", "@" + d}, {"kind", 15}};
+        if (d == "expose") {
+            item["insertTextFormat"] = 2;
+            item["insertText"] = "@expose({ min: ${1:0}, max: ${2:100} })";
+        }
+        items.push_back(std::move(item));
     }
 
     // Builtin Types
-    std::vector<std::string> types = {"Float", "Int", "Bool", "String", "Vec2", "Vec3", "Duration", "Task", "Result", "Array", "Map", "Set", "Entity"};
-    for (const auto& t : types) {
-        items.push_back({{"label", t}, {"kind", 7}}); // Class / Type
+    if (!completing_decorator) {
+        for (const ApiTypeDescriptor& type : ApiCatalog::instance().types()) {
+            if (type.availability != ApiAvailability::Available) continue;
+            items.push_back({{"label", type.name}, {"kind", 7}, {"detail", "EngineScript " + type.name}});
+        }
     }
 
     resp["result"] = items;
@@ -449,13 +601,30 @@ std::string LanguageServer::on_definition(const std::string& id, const std::stri
     resp["jsonrpc"] = "2.0";
     resp["id"] = parse_id(id);
 
-    json loc;
-    loc["uri"] = uri;
-    loc["range"] = {
-        {"start", {{"line", 0}, {"character", 0}}},
-        {"end", {{"line", 0}, {"character", 1}}}
+    const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
+    const std::string line_content = m_workspace.source_manager().get_line_content(file_id, line + 1);
+    const std::string word = extract_word_at(line_content, character);
+    const auto declaration = find_declaration(m_workspace.source_manager(), word);
+    if (!declaration) {
+        resp["result"] = nullptr;
+        return resp.dump();
+    }
+
+    std::string target_uri = uri;
+    for (const auto& [known_uri, source_path] : m_uri_to_source_path) {
+        if (source_path == declaration->source_path) {
+            target_uri = known_uri;
+            break;
+        }
+    }
+
+    resp["result"] = {
+        {"uri", target_uri},
+        {"range", {
+            {"start", {{"line", declaration->line}, {"character", declaration->character}}},
+            {"end", {{"line", declaration->line}, {"character", declaration->character + declaration->length}}}
+        }}
     };
-    resp["result"] = loc;
     return resp.dump();
 }
 
