@@ -655,8 +655,9 @@ void Application::run() {
         if (m_editor_layer && m_editor_layer->is_visible()) {
             auto* vp = m_editor_layer->get_viewport_panel();
             if (vp) {
-                is_playing = (vp->get_play_state() == EditorPlayState::Play);
-                game_view_active = vp->get_play_state() != EditorPlayState::Edit;
+                const bool play_starting = m_scene_manager.play_load_progress().active;
+                is_playing = (vp->get_play_state() == EditorPlayState::Play) || play_starting;
+                game_view_active = vp->get_play_state() != EditorPlayState::Edit || play_starting;
             }
         }
 #endif

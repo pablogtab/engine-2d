@@ -155,26 +155,57 @@ void SceneManager::start_play() {
         return;
     }
 
-    Scene* active_scene = get_active_scene();
-    if (!active_scene) return;
-
+    if (!get_active_scene() || m_play_startup_phase != PlayStartupPhase::None) return;
     m_runtime_scene.reset();
     m_pending_runtime_scene.reset();
+    m_play_startup_phase = PlayStartupPhase::Snapshot;
+    m_play_load_progress = {true, 0.05f, "Capturing scene state", "Saving the authoring snapshot"};
+}
 
-    // 1. Take in-memory snapshot of authoring scene state
-    SceneSerializer serializer(active_scene, m_renderer);
-    m_snapshot_json = serializer.serialize_to_string();
-
-    // 2. Attach runtime physics simulation
-    active_scene->on_detach();
-    active_scene->set_is_editing(false);
-    active_scene->on_attach();
-    const auto& game = m_game_view;
-    active_scene->on_viewport_resize(RenderViewKind::Game, game);
-
-    m_play_state = ScenePlayState::Play;
-    Time::set_time_scale(1.0f);
-    start_scripts(*active_scene);
+void SceneManager::advance_play_startup() {
+    Scene* active_scene = get_active_scene();
+    if (!active_scene) {
+        m_play_startup_phase = PlayStartupPhase::None;
+        m_play_load_progress = {};
+        return;
+    }
+    switch (m_play_startup_phase) {
+        case PlayStartupPhase::Snapshot: {
+            SceneSerializer serializer(active_scene, m_renderer);
+            m_snapshot_json = serializer.serialize_to_string();
+            m_play_startup_phase = PlayStartupPhase::PrepareRuntime;
+            m_play_load_progress = {true, 0.35f, "Preparing runtime scene", "Attaching physics and game viewport"};
+            break;
+        }
+        case PlayStartupPhase::PrepareRuntime: {
+            active_scene->on_detach();
+            active_scene->set_is_editing(false);
+            active_scene->on_attach();
+            active_scene->on_viewport_resize(RenderViewKind::Game, m_game_view);
+            m_play_startup_phase = PlayStartupPhase::StartScripts;
+            std::size_t script_count = 0;
+            const AssetDatabase& database = m_asset_database ? *m_asset_database : AssetDatabase::get();
+            for (const AssetRecord& record : database.records()) {
+                if (record.type == AssetType::Script && record.status == AssetStatus::Ready) ++script_count;
+            }
+            m_play_load_progress = {
+                true,
+                0.70f,
+                "Compiling gameplay scripts",
+                std::to_string(script_count) + " script" + (script_count == 1 ? "" : "s") + " into native module"
+            };
+            break;
+        }
+        case PlayStartupPhase::StartScripts:
+            m_play_state = ScenePlayState::Play;
+            Time::set_time_scale(1.0f);
+            start_scripts(*active_scene);
+            m_play_startup_phase = PlayStartupPhase::None;
+            m_play_load_progress = {};
+            break;
+        case PlayStartupPhase::None:
+            break;
+    }
 }
 
 void SceneManager::start_scripts(Scene& scene) {
@@ -250,7 +281,18 @@ void SceneManager::resume_play() {
 }
 
 void SceneManager::stop_play() {
-    if (m_play_state == ScenePlayState::Edit) return;
+    if (m_play_state == ScenePlayState::Edit && m_play_startup_phase == PlayStartupPhase::None) return;
+    if (m_play_state == ScenePlayState::Edit) {
+        if (Scene* active_scene = get_active_scene()) {
+            active_scene->on_detach();
+            active_scene->set_is_editing(true);
+            active_scene->on_attach();
+            active_scene->on_viewport_resize(RenderViewKind::Editor, m_editor_view);
+        }
+        m_play_startup_phase = PlayStartupPhase::None;
+        m_play_load_progress = {};
+        return;
+    }
 
     m_script_runtime.shutdown();
     m_pending_runtime_scene.reset();
@@ -285,6 +327,10 @@ void SceneManager::stop_play() {
 }
 
 void SceneManager::update(float delta_time) {
+    if (m_play_startup_phase != PlayStartupPhase::None) {
+        advance_play_startup();
+        return;
+    }
     Scene* active = get_active_scene();
     if (active) {
         if (m_play_state == ScenePlayState::Play) {

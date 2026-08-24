@@ -20,6 +20,13 @@ enum class ScenePlayState {
     Pause
 };
 
+struct SceneLoadProgress {
+    bool active{false};
+    float value{0.0f};
+    std::string label;
+    std::string detail;
+};
+
 class SceneManager {
 public:
     using RuntimeSceneLoader = std::function<std::shared_ptr<Scene>(
@@ -54,6 +61,7 @@ public:
     [[nodiscard]] bool is_playing() const { return m_play_state == ScenePlayState::Play; }
     [[nodiscard]] bool is_paused() const { return m_play_state == ScenePlayState::Pause; }
     [[nodiscard]] bool is_editing() const { return m_play_state == ScenePlayState::Edit; }
+    [[nodiscard]] const SceneLoadProgress& play_load_progress() const { return m_play_load_progress; }
     [[nodiscard]] const ScriptRuntime& get_script_runtime() const { return m_script_runtime; }
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
     void set_asset_database(const AssetDatabase* asset_database) { m_asset_database = asset_database; }
@@ -81,6 +89,7 @@ private:
     void save_state();
     void apply_active_view();
     void start_scripts(Scene& scene);
+    void advance_play_startup();
     [[nodiscard]] bool request_runtime_scene_load(const std::string& path, std::string& error);
     void activate_pending_runtime_scene();
 
@@ -100,6 +109,9 @@ private:
     RuntimeSceneLoader m_runtime_scene_loader;
     std::function<void()> m_on_authoring_state_invalidated;
     ScriptRuntime m_script_runtime;
+    enum class PlayStartupPhase { None, Snapshot, PrepareRuntime, StartScripts };
+    PlayStartupPhase m_play_startup_phase{PlayStartupPhase::None};
+    SceneLoadProgress m_play_load_progress;
 };
 
 } // namespace Engine

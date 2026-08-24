@@ -98,6 +98,9 @@ export class SwitchScene extends Behaviour {
     manager.set_asset_database(&database);
     manager.add_scene(scene);
     manager.start_play();
+    manager.update(0.0f);
+    manager.update(0.0f);
+    manager.update(0.0f);
     assert(manager.is_playing());
     assert(manager.get_script_runtime().instance_count() == 1);
     manager.update(0.5f);
@@ -147,6 +150,9 @@ export class SwitchScene extends Behaviour {
     int invalidation_calls = 0;
     history_manager.set_on_authoring_state_invalidated([&]() { ++invalidation_calls; });
     history_manager.start_play();
+    history_manager.update(0.0f);
+    history_manager.update(0.0f);
+    history_manager.update(0.0f);
     history_manager.update(1.0f);
     assert(history_entities.get_component<TransformComponent>(history_entity).position.x == 25.0f);
     history_manager.stop_play();

@@ -1223,6 +1223,27 @@ void ViewportPanel::on_gui() {
             ImVec2 img_min = ImGui::GetItemRectMin();
             ImVec2 img_max = ImGui::GetItemRectMax();
             ImVec2 img_size = ImVec2(img_max.x - img_min.x, img_max.y - img_min.y);
+            if (m_scene_manager && m_scene_manager->play_load_progress().active) {
+                const SceneLoadProgress& progress = m_scene_manager->play_load_progress();
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                const ImVec2 panel_min(img_min.x + img_size.x * 0.22f, img_min.y + img_size.y * 0.43f);
+                const ImVec2 panel_max(img_min.x + img_size.x * 0.78f, img_min.y + img_size.y * 0.61f);
+                draw_list->AddRectFilled(panel_min, panel_max, IM_COL32(18, 21, 30, 238), 8.0f);
+                draw_list->AddText(ImVec2(panel_min.x + 18.0f, panel_min.y + 16.0f), IM_COL32(232, 235, 245, 255), progress.label.c_str());
+                char percentage[16];
+                std::snprintf(percentage, sizeof(percentage), "%d%%", static_cast<int>(progress.value * 100.0f));
+                draw_list->AddText(ImVec2(panel_max.x - 52.0f, panel_min.y + 16.0f), IM_COL32(170, 176, 196, 255), percentage);
+                draw_list->AddText(ImVec2(panel_min.x + 18.0f, panel_min.y + 38.0f), IM_COL32(158, 165, 184, 255), progress.detail.c_str());
+                const ImVec2 bar_min(panel_min.x + 18.0f, panel_min.y + 66.0f);
+                const ImVec2 bar_max(panel_max.x - 18.0f, panel_min.y + 80.0f);
+                draw_list->AddRectFilled(bar_min, bar_max, IM_COL32(55, 60, 76, 255), 4.0f);
+                draw_list->AddRectFilled(
+                    bar_min,
+                    ImVec2(bar_min.x + (bar_max.x - bar_min.x) * progress.value, bar_max.y),
+                    IM_COL32(95, 76, 210, 255),
+                    4.0f
+                );
+            }
             ImGuiIO& io = ImGui::GetIO();
             ImVec2 mouse_pos = io.MousePos;
 
