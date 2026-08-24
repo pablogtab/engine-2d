@@ -44,6 +44,7 @@ public:
     const CompilerCache& compiler_cache() const { return m_cache; }
     const ProjectMetadataManifest& metadata_manifest() const { return m_manifest; }
     const std::vector<IRModule>& ir_modules() const { return m_ir_modules; }
+    const std::vector<std::string>& registered_files() const { return m_registered_files; }
 
     // Serialization helper for scene files
     std::string serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const;

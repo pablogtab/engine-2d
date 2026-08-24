@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../ir/TypedIR.hpp"
+#include "../module/GameModule.hpp"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -36,7 +37,7 @@ struct BehaviourManifest {
 
 struct ProjectMetadataManifest {
     std::string language_version = "1.0.0";
-    std::string sdk_hash = "engine2d_abi_v1";
+    std::string sdk_hash = ENGINE_SCRIPT_SDK_HASH;
     std::vector<BehaviourManifest> behaviours;
     std::vector<std::string> structs;
     std::vector<std::string> enums;

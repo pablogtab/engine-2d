@@ -110,7 +110,7 @@ public:
     [[nodiscard]] ScriptHotReloadResult reload_changed_scripts(bool force = false);
     void shutdown();
 
-    [[nodiscard]] bool is_running() const { return m_native_workspace != nullptr || !m_instances.empty(); }
+    [[nodiscard]] bool is_running() const { return m_entity_manager != nullptr || !m_instances.empty(); }
     [[nodiscard]] std::size_t instance_count() const { return m_instances.size(); }
     [[nodiscard]] const ScriptExecutionStatus* status(EntityID entity) const;
     [[nodiscard]] const std::string* reload_error(AssetHandle handle) const;

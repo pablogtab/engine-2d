@@ -6,6 +6,7 @@ const { spawn } = require('child_process');
 
 let client;
 let outputChannel;
+const activeCompilations = new Map();
 
 function platformDirectory() {
     const architecture = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch;
@@ -51,6 +52,52 @@ function findToolBinary(context, baseName, settingName) {
     }
 
     return executable;
+}
+
+function projectRootForDocument(document) {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+    return workspaceFolder?.uri.fsPath;
+}
+
+function compileProject(context, root, showProgress) {
+    const active = activeCompilations.get(root);
+    if (active) {
+        return active;
+    }
+
+    const compilerPath = findToolBinary(context, 'e2sc', 'compilerPath');
+    outputChannel.appendLine(`Compiling ${root}`);
+
+    const run = () => new Promise((resolve) => {
+        const processHandle = spawn(compilerPath, [root], { cwd: root });
+        let settled = false;
+        const finish = (code) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            resolve(code);
+        };
+
+        processHandle.stdout.on('data', (data) => outputChannel.append(data.toString()));
+        processHandle.stderr.on('data', (data) => outputChannel.append(data.toString()));
+        processHandle.on('error', (error) => {
+            outputChannel.appendLine(`Unable to start compiler: ${error.message}`);
+            finish(-1);
+        });
+        processHandle.on('close', (code) => finish(code ?? -1));
+    });
+
+    const compilation = showProgress
+        ? vscode.window.withProgress(
+            { location: vscode.ProgressLocation.Notification, title: 'Compiling EngineScript project' },
+            run
+        )
+        : run();
+
+    const tracked = compilation.finally(() => activeCompilations.delete(root));
+    activeCompilations.set(root, tracked);
+    return tracked;
 }
 
 function activate(context) {
@@ -105,29 +152,40 @@ function activate(context) {
                 return;
             }
 
-            const compilerPath = findToolBinary(context, 'e2sc', 'compilerPath');
             outputChannel.clear();
             outputChannel.show(true);
-            outputChannel.appendLine(`Compiling ${root}`);
-
-            const exitCode = await vscode.window.withProgress(
-                { location: vscode.ProgressLocation.Notification, title: 'Compiling EngineScript project' },
-                () => new Promise((resolve) => {
-                    const processHandle = spawn(compilerPath, [root], { cwd: root });
-                    processHandle.stdout.on('data', (data) => outputChannel.append(data.toString()));
-                    processHandle.stderr.on('data', (data) => outputChannel.append(data.toString()));
-                    processHandle.on('error', (error) => {
-                        outputChannel.appendLine(`Unable to start compiler: ${error.message}`);
-                        resolve(-1);
-                    });
-                    processHandle.on('close', (code) => resolve(code ?? -1));
-                })
-            );
+            const exitCode = await compileProject(context, root, true);
 
             if (exitCode === 0) {
                 vscode.window.showInformationMessage('EngineScript project compiled successfully.');
             } else {
                 vscode.window.showErrorMessage('EngineScript compilation failed. See the EngineScript output.');
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument(async (document) => {
+            if (document.languageId !== 'enginescript' && path.extname(document.uri.fsPath) !== '.e2s') {
+                return;
+            }
+
+            const config = vscode.workspace.getConfiguration('enginescript', document.uri);
+            if (!config.get('autoCompileOnSave', true)) {
+                return;
+            }
+
+            const root = projectRootForDocument(document);
+            if (!root) {
+                return;
+            }
+
+            const exitCode = await compileProject(context, root, false);
+            if (exitCode === 0) {
+                vscode.window.setStatusBarMessage('EngineScript compiled successfully.', 2500);
+            } else {
+                outputChannel.show(true);
+                vscode.window.showErrorMessage('EngineScript compilation failed after save. See the EngineScript output.');
             }
         })
     );

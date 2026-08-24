@@ -9,7 +9,7 @@ using json = nlohmann::ordered_json;
 std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
     json root;
     root["languageVersion"] = "1.0.0";
-    root["sdkHash"] = "engine2d_abi_v1";
+    root["sdkHash"] = ENGINE_SCRIPT_SDK_HASH;
 
     json behaviours_arr = json::array();
     json structs_arr = json::array();

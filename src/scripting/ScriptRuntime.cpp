@@ -41,6 +41,7 @@ namespace {
 struct RuntimeObjectRef {
     enum class Kind {
         Input,
+        Log,
         RigidBody,
         BodyVelocity,
         Animator
@@ -50,7 +51,15 @@ struct RuntimeObjectRef {
     bool available{true};
 };
 
-using RuntimeValue = std::variant<std::monostate, double, bool, std::string, EntityID, RuntimeObjectRef>;
+using RuntimeValue = std::variant<
+    std::monostate,
+    double,
+    bool,
+    std::string,
+    EntityID,
+    EngineScript::Entity,
+    RuntimeObjectRef
+>;
 using RuntimeEnvironment = std::unordered_map<std::string, RuntimeValue>;
 
 double runtime_number(const RuntimeValue& value) {
@@ -88,8 +97,8 @@ public:
         execute_method("on_destroy", {});
     }
 
-    void on_collision_enter(std::uint32_t other_entity) override {
-        execute_method("on_collision_enter", {static_cast<EntityID>(other_entity)});
+    void on_collision_enter(const EngineScript::Entity& other) override {
+        execute_method("on_collision_enter", {other});
     }
 
 private:
@@ -138,6 +147,7 @@ private:
             if (parameter.name != name || !parameter.type) continue;
             const std::string& type = parameter.type->name;
             if (type == "Input") return RuntimeObjectRef{RuntimeObjectRef::Kind::Input, true};
+            if (type == "Log") return RuntimeObjectRef{RuntimeObjectRef::Kind::Log, true};
             if (type == "RigidBody2D") {
                 const bool available = m_binding && m_binding->entity_manager &&
                     m_binding->entity_manager->has_component<RigidBodyComponent>(m_binding->entity);
@@ -167,6 +177,22 @@ private:
         if (const auto* variable = dynamic_cast<const IRVarRef*>(operation)) {
             return read_identifier(variable->name, environment);
         }
+        if (const auto* call = dynamic_cast<const IRCall*>(operation)) {
+            const auto parameter = std::find_if(
+                m_definition->constructor_params.begin(),
+                m_definition->constructor_params.end(),
+                [call](const EngineScript::IRParam& candidate) {
+                    return candidate.name == call->callee_name && candidate.type && candidate.type->name == "Log";
+                }
+            );
+            if (parameter != m_definition->constructor_params.end()) {
+                const std::string message = call->args.empty()
+                    ? std::string{}
+                    : runtime_string(evaluate(call->args.front().get(), environment));
+                ENGINE_LOG_INFO("[SCRIPT] {}", message);
+                return {};
+            }
+        }
         if (const auto* unary = dynamic_cast<const IRUnary*>(operation)) {
             const RuntimeValue operand = evaluate(unary->operand.get(), environment);
             if (unary->op == TokenType::Exclamation) return !runtime_boolean(operand);
@@ -179,7 +205,12 @@ private:
             if (binary->op == TokenType::PipePipe && runtime_boolean(left)) return true;
             const RuntimeValue right = evaluate(binary->right.get(), environment);
             switch (binary->op) {
-                case TokenType::Plus: return runtime_number(left) + runtime_number(right);
+                case TokenType::Plus: {
+                    if (std::holds_alternative<std::string>(left) || std::holds_alternative<std::string>(right)) {
+                        return runtime_string(left) + runtime_string(right);
+                    }
+                    return runtime_number(left) + runtime_number(right);
+                }
                 case TokenType::Minus: return runtime_number(left) - runtime_number(right);
                 case TokenType::Star: return runtime_number(left) * runtime_number(right);
                 case TokenType::Slash: return runtime_number(right) == 0.0 ? 0.0 : runtime_number(left) / runtime_number(right);
@@ -187,8 +218,18 @@ private:
                 case TokenType::LessEquals: return runtime_number(left) <= runtime_number(right);
                 case TokenType::Greater: return runtime_number(left) > runtime_number(right);
                 case TokenType::GreaterEquals: return runtime_number(left) >= runtime_number(right);
-                case TokenType::EqualsEquals: return runtime_number(left) == runtime_number(right);
-                case TokenType::ExclamationEquals: return runtime_number(left) != runtime_number(right);
+                case TokenType::EqualsEquals: {
+                    if (std::holds_alternative<std::string>(left) || std::holds_alternative<std::string>(right)) {
+                        return runtime_string(left) == runtime_string(right);
+                    }
+                    return runtime_number(left) == runtime_number(right);
+                }
+                case TokenType::ExclamationEquals: {
+                    if (std::holds_alternative<std::string>(left) || std::holds_alternative<std::string>(right)) {
+                        return runtime_string(left) != runtime_string(right);
+                    }
+                    return runtime_number(left) != runtime_number(right);
+                }
                 case TokenType::AmpAmp: return runtime_boolean(left) && runtime_boolean(right);
                 case TokenType::PipePipe: return runtime_boolean(left) || runtime_boolean(right);
                 default: return {};
@@ -196,6 +237,33 @@ private:
         }
         if (const auto* member = dynamic_cast<const IRMemberGet*>(operation)) {
             const RuntimeValue target = evaluate(member->target.get(), environment);
+
+            if (const auto* entity = std::get_if<EngineScript::Entity>(&target)) {
+                if (member->member_name == "id") return static_cast<double>(entity->id);
+                if (member->member_name == "name") return entity->name;
+                if (member->member_name == "tag") return entity->tag;
+            }
+
+            // Serialized Entity fields still store a stable EntityID.
+            if (const auto* entity_id = std::get_if<EntityID>(&target)) {
+                if (member->member_name == "id") return static_cast<double>(*entity_id);
+                if (member->member_name == "name" || member->member_name == "tag") {
+                    if (m_binding && m_binding->entity_manager && m_binding->entity_manager->is_alive(*entity_id)) {
+                        if (m_binding->entity_manager->has_component<TagComponent>(*entity_id)) {
+                            return m_binding->entity_manager->get_component<TagComponent>(*entity_id).tag;
+                        }
+                    }
+                    return std::string("");
+                }
+            }
+
+            // String target (e.g. str.length, str.size)
+            if (const auto* str = std::get_if<std::string>(&target)) {
+                if (member->member_name == "length" || member->member_name == "size") {
+                    return static_cast<double>(str->size());
+                }
+            }
+
             const auto* object = std::get_if<RuntimeObjectRef>(&target);
             if (!object || !object->available || !m_binding || !m_binding->entity_manager) return {};
             if (object->kind == RuntimeObjectRef::Kind::RigidBody) {
@@ -215,6 +283,51 @@ private:
         }
         if (const auto* method = dynamic_cast<const IRMethodCall*>(operation)) {
             const RuntimeValue target = evaluate(method->target.get(), environment);
+
+            // String methods (e.g. other.name.includes("Coin"))
+            if (const auto* str = std::get_if<std::string>(&target)) {
+                if (method->method_name == "includes" || method->method_name == "contains") {
+                    std::string arg = !method->args.empty() ? runtime_string(evaluate(method->args.front().get(), environment)) : "";
+                    return EngineScript::StringOps::includes(*str, arg);
+                }
+                if (method->method_name == "startsWith" || method->method_name == "starts_with") {
+                    std::string arg = !method->args.empty() ? runtime_string(evaluate(method->args.front().get(), environment)) : "";
+                    return EngineScript::StringOps::starts_with(*str, arg);
+                }
+                if (method->method_name == "endsWith" || method->method_name == "ends_with") {
+                    std::string arg = !method->args.empty() ? runtime_string(evaluate(method->args.front().get(), environment)) : "";
+                    return EngineScript::StringOps::ends_with(*str, arg);
+                }
+                if (method->method_name == "indexOf" || method->method_name == "index_of") {
+                    std::string arg = !method->args.empty() ? runtime_string(evaluate(method->args.front().get(), environment)) : "";
+                    return static_cast<double>(EngineScript::StringOps::index_of(*str, arg));
+                }
+                if (method->method_name == "toLowerCase" || method->method_name == "to_lower") {
+                    return EngineScript::StringOps::to_lower(*str);
+                }
+                if (method->method_name == "toUpperCase" || method->method_name == "to_upper") {
+                    return EngineScript::StringOps::to_upper(*str);
+                }
+                if (method->method_name == "length" || method->method_name == "size") {
+                    return static_cast<double>(str->size());
+                }
+            }
+
+            if (const auto* entity = std::get_if<EngineScript::Entity>(&target)) {
+                if (method->method_name == "destroy") {
+                    entity->destroy();
+                    return true;
+                }
+            }
+
+            // Serialized Entity fields also expose destroy through their ID.
+            if (const auto* entity_id = std::get_if<EntityID>(&target)) {
+                if (method->method_name == "destroy" && m_binding && m_binding->entity_manager) {
+                    m_binding->entity_manager->destroy_entity(*entity_id);
+                    return true;
+                }
+            }
+
             const auto* object = std::get_if<RuntimeObjectRef>(&target);
             if (!object || !object->available) return {};
             if (object->kind == RuntimeObjectRef::Kind::Input && !method->args.empty()) {
@@ -250,12 +363,15 @@ private:
         return {};
     }
 
-    void execute(const EngineScript::IROperation* operation, RuntimeEnvironment& environment) const {
+    bool execute(const EngineScript::IROperation* operation, RuntimeEnvironment& environment) const {
         using namespace EngineScript;
-        if (!operation) return;
+        if (!operation) return false;
+        if (const auto* ret = dynamic_cast<const IRReturn*>(operation)) {
+            return true;
+        }
         if (const auto* declaration = dynamic_cast<const IRVarDecl*>(operation)) {
             environment[declaration->name] = evaluate(declaration->initializer.get(), environment);
-            return;
+            return false;
         }
         if (const auto* assignment = dynamic_cast<const IRAssign*>(operation)) {
             RuntimeValue value = evaluate(assignment->value.get(), environment);
@@ -265,7 +381,7 @@ private:
             else if (assignment->assignment_op == TokenType::MinusEquals) value = runtime_number(current) - runtime_number(value);
             if (local != environment.end()) local->second = value;
             else write_property(assignment->target_name, value);
-            return;
+            return false;
         }
         if (const auto* member_set = dynamic_cast<const IRMemberSet*>(operation)) {
             const RuntimeValue target = evaluate(member_set->target.get(), environment);
@@ -279,16 +395,19 @@ private:
                 if (member_set->member_name == "y") velocity.y = value;
                 PhysicsSystem::set_velocity(*m_binding->entity_manager, m_binding->entity, velocity);
             }
-            return;
+            return false;
         }
         if (const auto* branch = dynamic_cast<const IRIf*>(operation)) {
             const auto& selected = runtime_boolean(evaluate(branch->condition.get(), environment))
                 ? branch->then_operations
                 : branch->else_operations;
-            for (const auto& nested : selected) execute(nested.get(), environment);
-            return;
+            for (const auto& nested : selected) {
+                if (execute(nested.get(), environment)) return true;
+            }
+            return false;
         }
         static_cast<void>(evaluate(operation, environment));
+        return false;
     }
 
     void execute_method(const std::string& name, std::vector<RuntimeValue> arguments) const {
@@ -305,7 +424,9 @@ private:
             environment.emplace(found->params[index].name, std::move(arguments[index]));
         }
         for (const auto& block : found->blocks) {
-            for (const auto& statement : block.statements) execute(statement.op.get(), environment);
+            for (const auto& statement : block.statements) {
+                if (execute(statement.op.get(), environment)) return;
+            }
         }
     }
 
@@ -467,20 +588,31 @@ ScriptRuntimeStartResult ScriptRuntime::start(
     m_asset_database = &asset_database;
     m_event_dispatcher = event_dispatcher;
     m_services = std::move(services);
-    m_native_workspace = std::make_unique<EngineScript::EngineScriptWorkspace>(asset_database.project_root().string());
+    if (!m_native_workspace || m_native_workspace->source_manager().project_root() != asset_database.project_root().string()) {
+        m_native_workspace = std::make_unique<EngineScript::EngineScriptWorkspace>(asset_database.project_root().string());
+    }
     m_native_async_scheduler = std::make_unique<EngineScript::AsyncScheduler>();
     subscribe_to_events();
 
     ScriptRuntimeStartResult result;
+    std::unordered_set<std::string> ready_script_paths;
     for (const AssetRecord& record : asset_database.records()) {
         if (record.type != AssetType::Script || record.status != AssetStatus::Ready) continue;
         const std::string source = FileSystem::read_text(asset_database.resolve(record.handle));
         if (source.empty()) continue;
+        ready_script_paths.insert(record.source_path);
         m_native_workspace->add_source_file(record.source_path, source);
         m_source_signatures[record.handle] = file_signature(asset_database.resolve(record.handle));
     }
 
-    const EngineScript::CompilationResult compilation = m_native_workspace->compile(true);
+    const std::vector<std::string> registered_scripts = m_native_workspace->registered_files();
+    for (const auto& registered_path : registered_scripts) {
+        if (!ready_script_paths.contains(registered_path)) {
+            m_native_workspace->remove_source_file(registered_path);
+        }
+    }
+
+    const EngineScript::CompilationResult compilation = m_native_workspace->compile(false);
     if (!compilation.success) {
         const std::string error = compilation.diagnostics.empty()
             ? "EngineScript project compilation failed"
@@ -574,7 +706,7 @@ ScriptRuntimeStartResult ScriptRuntime::start(
                 set_error(entity, "missing required Animator2D component");
                 return;
             }
-            if (dependency.is_service && dependency.type != "Input") {
+            if (dependency.is_service && dependency.type != "Input" && dependency.type != "Log") {
                 ++result.failed;
                 set_error(entity, "unsupported injected service: " + dependency.type);
                 return;
@@ -700,10 +832,23 @@ void ScriptRuntime::dispatch_events() {
         if (event.type == PendingEventType::CollisionEnter) {
             for (auto& instance : m_instances) {
                 if (!instance.behaviour) continue;
-                if (instance.entity == event.entity_a) {
-                    instance.behaviour->on_collision_enter(event.entity_b);
-                } else if (instance.entity == event.entity_b) {
-                    instance.behaviour->on_collision_enter(event.entity_a);
+                const EntityID other_id = instance.entity == event.entity_a
+                    ? event.entity_b
+                    : instance.entity == event.entity_b ? event.entity_a : 0;
+                if (other_id != 0) {
+                    EngineScript::Entity other;
+                    other.id = other_id;
+                    if (m_entity_manager->is_alive(other_id) &&
+                        m_entity_manager->has_component<TagComponent>(other_id)) {
+                        other.name = m_entity_manager->get_component<TagComponent>(other_id).tag;
+                        other.tag = other.name;
+                    }
+                    other.runtime_context = m_entity_manager;
+                    other.destroy_callback = [](void* context, uint32_t id) {
+                        auto* entities = static_cast<EntityManager*>(context);
+                        if (entities && entities->is_alive(id)) entities->destroy_entity(id);
+                    };
+                    instance.behaviour->on_collision_enter(other);
                 }
             }
         }
@@ -731,6 +876,7 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
     for (const AssetHandle handle : checked_assets) {
         const AssetRecord* record = m_asset_database->find(handle);
         if (!record || record->type != AssetType::Script || record->status != AssetStatus::Ready) {
+            changed_assets.push_back(handle);
             continue;
         }
 
@@ -796,7 +942,6 @@ void ScriptRuntime::shutdown() {
     }
     m_instances.clear();
     m_native_module.reset();
-    m_native_workspace.reset();
     m_native_async_scheduler.reset();
 
     m_entity_manager = nullptr;

@@ -10,11 +10,49 @@
 #include <unordered_map>
 #include <functional>
 #include <memory>
+#include <algorithm>
+#include <cctype>
 
 namespace EngineScript {
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 1;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v1";
+namespace StringOps {
+
+inline bool includes(const std::string& value, const std::string& needle) {
+    return value.find(needle) != std::string::npos;
+}
+
+inline bool starts_with(const std::string& value, const std::string& prefix) {
+    return value.rfind(prefix, 0) == 0;
+}
+
+inline bool ends_with(const std::string& value, const std::string& suffix) {
+    return value.size() >= suffix.size() &&
+        value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+inline int index_of(const std::string& value, const std::string& needle) {
+    const std::size_t position = value.find(needle);
+    return position == std::string::npos ? -1 : static_cast<int>(position);
+}
+
+inline std::string to_lower(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return value;
+}
+
+inline std::string to_upper(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+        return static_cast<char>(std::toupper(character));
+    });
+    return value;
+}
+
+} // namespace StringOps
+
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 2;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v2";
 
 class Input {
 public:
@@ -23,9 +61,33 @@ public:
     [[nodiscard]] virtual bool pressed(const std::string& action) const = 0;
 };
 
+class Log {
+public:
+    virtual ~Log() = default;
+    virtual void write(const std::string& message) const = 0;
+
+    void operator()(const std::string& message) const {
+        write(message);
+    }
+};
+
 struct RigidBody2D {
     glm::vec2 velocity{0.0f, 0.0f};
     bool isGrounded{false};
+};
+
+struct Entity {
+    uint32_t id = 0;
+    std::string name;
+    std::string tag;
+
+    using DestroyCallback = void (*)(void*, uint32_t);
+    void* runtime_context = nullptr;
+    DestroyCallback destroy_callback = nullptr;
+
+    void destroy() const {
+        if (destroy_callback) destroy_callback(runtime_context, id);
+    }
 };
 
 class Animator2D {
@@ -40,7 +102,7 @@ public:
     virtual void update(float delta_time) {}
     virtual void on_start() {}
     virtual void on_destroy() {}
-    virtual void on_collision_enter(uint32_t other_entity) { static_cast<void>(other_entity); }
+    virtual void on_collision_enter(const Entity& other) { static_cast<void>(other); }
 
     [[nodiscard]] AsyncScheduler::DelayAwaiter delay(float seconds) const {
         return async_scheduler

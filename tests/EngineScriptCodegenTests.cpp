@@ -61,6 +61,7 @@ int main() {
         export class PlatformerPlayer extends Behaviour {
             constructor(
                 @inject private input: Input,
+                @inject private log: Log,
                 @component private body: RigidBody2D
             ) {}
 
@@ -70,6 +71,19 @@ int main() {
             override update(deltaTime: Float): Void {
                 let axis: Float = input.axis("Horizontal");
                 body.velocity.x = axis * walkSpeed;
+                log("Updated");
+            }
+
+            override on_collision_enter(other: Entity): Void {
+                let lowerName: String = other.name.toLowerCase();
+                let coinIndex: Int = lowerName.indexOf("coin");
+                if (lowerName.includes("coin") && other.tag.startsWith("Collectible")) {
+                    other.destroy();
+                }
+            }
+
+            async respawn(): Task<Void> {
+                await delay(500.ms);
             }
         }
     )";
@@ -96,6 +110,11 @@ int main() {
     assert(output.header_content.find("class PlatformerPlayer") != std::string::npos);
     assert(output.header_content.find("float walkSpeed") != std::string::npos);
     assert(output.source_content.find("create_PlatformerPlayer") != std::string::npos);
+    assert(output.source_content.find("EngineScript::StringOps::to_lower") != std::string::npos);
+    assert(output.source_content.find("EngineScript::StringOps::includes") != std::string::npos);
+    assert(output.source_content.find("(*m_log)(\"Updated\")") != std::string::npos);
+    assert(output.source_content.find("other.destroy()") != std::string::npos);
+    assert(output.source_content.find("co_await delay(0.5f)") != std::string::npos);
     assert(output.source_content.find("#line") != std::string::npos);
     require_generated_cpp_compiles(output);
 

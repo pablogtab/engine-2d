@@ -227,7 +227,11 @@ export class BoostPlayer extends Behaviour {
     walkSpeed: Float = 280.0;
 
     on_collision_enter(other: Entity): Void {
+        if (!other.name.toLowerCase().includes("coin")) {
+            return;
+        }
         walkSpeed = walkSpeed + 75.0;
+        other.destroy();
     }
 }
 )";
@@ -276,6 +280,7 @@ export class BoostPlayer extends Behaviour {
     const auto& updated_comp = entity_manager.get_component<ScriptComponent>(player);
     assert(std::holds_alternative<double>(updated_comp.public_fields[0].value));
     assert(std::abs(std::get<double>(updated_comp.public_fields[0].value) - 355.0) < 0.001);
+    assert(!entity_manager.is_alive(coin));
 
     runtime.shutdown();
     fs::remove_all(root, error);

@@ -60,6 +60,11 @@
           "type": "string",
           "default": "",
           "description": "Optional absolute path to the EngineScript compiler."
+        },
+        "enginescript.autoCompileOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically compile .e2s scripts into .e2s_build when saving."
         }
       }
     }

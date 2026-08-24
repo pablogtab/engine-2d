@@ -96,6 +96,37 @@ int main() {
 
     assert(ret_diags.has_errors());
 
+    // Test 4: String and Entity method contracts reject invalid arguments.
+    DiagnosticEngine method_diags;
+    std::string bad_methods_code = R"(
+        function invalid(other: Entity): Void {
+            let missing: Bool = other.name.includes();
+            let wrong: Bool = other.name.startsWith(42);
+            let extra: String = other.name.toLowerCase("unused");
+            other.destroy(1);
+        }
+
+        @behaviour
+        export class InvalidLog extends Behaviour {
+            constructor(@inject private log: Log) {}
+
+            override update(deltaTime: Float): Void {
+                log(42);
+            }
+        }
+    )";
+    FileId f4 = sm.register_source("Source/BadMethods.e2s", bad_methods_code);
+    Lexer l4(f4, bad_methods_code, method_diags);
+    Parser p4(f4, "Source/BadMethods.e2s", l4.tokenize_all(), method_diags);
+    auto m4 = p4.parse_module();
+    SymbolResolver res4(sm, method_diags);
+    res4.resolve_module(m4);
+    TypeChecker check4(res4, method_diags);
+    check4.check_module(m4);
+
+    assert(method_diags.has_errors());
+    assert(method_diags.error_count() == 5);
+
     std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;
 }

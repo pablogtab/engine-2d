@@ -443,6 +443,76 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Handle known engine builtin calls & methods
         if (auto mem = dynamic_cast<MemberAccessExpr*>(call->callee.get())) {
+            auto target_t = get_type_of_node(mem->object.get());
+            if (target_t && target_t->kind == TypeKind::String) {
+                const auto validate_argument_count = [&](std::size_t expected) {
+                    if (call->arguments.size() != expected) {
+                        m_diagnostics.report_error(
+                            "E3030",
+                            std::format(
+                                "String.{} expects {} argument{}, got {}",
+                                mem->member_name,
+                                expected,
+                                expected == 1 ? "" : "s",
+                                call->arguments.size()
+                            ),
+                            call->span
+                        );
+                        return false;
+                    }
+                    return true;
+                };
+                const auto validate_string_argument = [&]() {
+                    if (!validate_argument_count(1)) return false;
+                    const auto argument_type = get_type_of_node(call->arguments.front().get());
+                    if (!argument_type || !argument_type->is_string()) {
+                        m_diagnostics.report_error(
+                            "E3031",
+                            std::format("String.{} expects a String argument", mem->member_name),
+                            call->arguments.front()->span
+                        );
+                        return false;
+                    }
+                    return true;
+                };
+
+                if (mem->member_name == "includes" || mem->member_name == "contains" ||
+                    mem->member_name == "startsWith" || mem->member_name == "starts_with" ||
+                    mem->member_name == "endsWith" || mem->member_name == "ends_with") {
+                    static_cast<void>(validate_string_argument());
+                    m_node_types[call] = m_type_bool;
+                    return m_type_bool;
+                }
+                if (mem->member_name == "indexOf" || mem->member_name == "index_of") {
+                    static_cast<void>(validate_string_argument());
+                    m_node_types[call] = m_type_int;
+                    return m_type_int;
+                }
+                if (mem->member_name == "length" || mem->member_name == "size") {
+                    static_cast<void>(validate_argument_count(0));
+                    m_node_types[call] = m_type_int;
+                    return m_type_int;
+                }
+                if (mem->member_name == "toLowerCase" || mem->member_name == "to_lower" ||
+                    mem->member_name == "toUpperCase" || mem->member_name == "to_upper") {
+                    static_cast<void>(validate_argument_count(0));
+                    m_node_types[call] = m_type_string;
+                    return m_type_string;
+                }
+            }
+
+            if (target_t && target_t->kind == TypeKind::Entity && mem->member_name == "destroy") {
+                if (!call->arguments.empty()) {
+                    m_diagnostics.report_error(
+                        "E3032",
+                        std::format("Entity.destroy expects 0 arguments, got {}", call->arguments.size()),
+                        call->span
+                    );
+                }
+                m_node_types[call] = m_type_void;
+                return m_type_void;
+            }
+
             if (mem->member_name == "axis") {
                 m_node_types[call] = m_type_float;
                 return m_type_float;
@@ -495,6 +565,26 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Global async functions
         if (auto id = dynamic_cast<IdentifierExpr*>(call->callee.get())) {
+            if (callee_t && callee_t->name == "Log") {
+                if (call->arguments.size() != 1) {
+                    m_diagnostics.report_error(
+                        "E3033",
+                        std::format("Log expects 1 String argument, got {}", call->arguments.size()),
+                        call->span
+                    );
+                } else {
+                    const auto argument_type = get_type_of_node(call->arguments.front().get());
+                    if (!argument_type || !argument_type->is_string()) {
+                        m_diagnostics.report_error(
+                            "E3034",
+                            "Log expects a String argument",
+                            call->arguments.front()->span
+                        );
+                    }
+                }
+                m_node_types[call] = m_type_void;
+                return m_type_void;
+            }
             if (id->name == "delay" || id->name == "realDelay" || id->name == "nextFrame" || id->name == "fixedUpdate") {
                 auto task_t = Type::make_generic(TypeKind::Task, "Task", {m_type_void});
                 m_node_types[call] = task_t;
@@ -572,9 +662,29 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             }
         }
 
+        // String fields / properties
+        if (obj_t->kind == TypeKind::String) {
+            if (mem->member_name == "length" || mem->member_name == "size") {
+                m_node_types[mem] = m_type_int;
+                return m_type_int;
+            }
+        }
+
+        // Entity fields
+        if (obj_t->kind == TypeKind::Entity) {
+            if (mem->member_name == "id") {
+                m_node_types[mem] = m_type_int;
+                return m_type_int;
+            }
+            if (mem->member_name == "name" || mem->member_name == "tag") {
+                m_node_types[mem] = m_type_string;
+                return m_type_string;
+            }
+        }
+
         // Array fields
         if (obj_t->kind == TypeKind::Array) {
-            if (mem->member_name == "length") {
+            if (mem->member_name == "length" || mem->member_name == "size") {
                 m_node_types[mem] = m_type_int;
                 return m_type_int;
             }

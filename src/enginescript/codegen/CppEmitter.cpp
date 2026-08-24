@@ -33,7 +33,7 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
         case TypeKind::Vec4:       s = "glm::vec4"; break;
         case TypeKind::Color:      s = "glm::vec4"; break;
         case TypeKind::Duration:   s = "float"; break;
-        case TypeKind::Entity:     s = "uint32_t"; break;
+        case TypeKind::Entity:     s = "EngineScript::Entity"; break;
         case TypeKind::Array:
             if (!type->type_args.empty()) {
                 s = std::format("std::vector<{}>", type_to_cpp(type->type_args[0].get()));
@@ -63,7 +63,8 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
             }
             break;
         default:
-            if (type->name == "Input" || type->name == "RigidBody2D" || type->name == "Animator2D") {
+            if (type->name == "Input" || type->name == "Log" ||
+                type->name == "RigidBody2D" || type->name == "Animator2D") {
                 s = "EngineScript::" + type->name;
             } else {
                 s = type->name;
@@ -81,7 +82,7 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
         s = s + "*";
     }
 
-    if (is_const_ref && (type->kind == TypeKind::String || type->kind == TypeKind::Array || type->kind == TypeKind::Map)) {
+    if (is_const_ref && (type->kind == TypeKind::String || type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::Entity)) {
         return std::format("const {}&", s);
     }
 
@@ -386,7 +387,13 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     if (auto call = dynamic_cast<const IRCall*>(op)) {
-        std::string s = call->callee_name + "(";
+        const bool injected_callable = m_injected_members.contains(call->callee_name);
+        std::string s;
+        if (injected_callable) {
+            s = "(*" + identifier_to_cpp(call->callee_name) + ")(";
+        } else {
+            s = identifier_to_cpp(call->callee_name) + "(";
+        }
         for (size_t i = 0; i < call->args.size(); ++i) {
             s += emit_operation_cpp(call->args[i].get());
             if (i + 1 < call->args.size()) s += ", ";
@@ -396,6 +403,35 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     if (auto mc = dynamic_cast<const IRMethodCall*>(op)) {
+        if (mc->target && mc->target->result_type && mc->target->result_type->kind == TypeKind::String) {
+            std::string target_str = emit_operation_cpp(mc->target.get());
+            if (mc->method_name == "includes" || mc->method_name == "contains") {
+                std::string arg = !mc->args.empty() ? emit_operation_cpp(mc->args[0].get()) : "\"\"";
+                return std::format("EngineScript::StringOps::includes({}, {})", target_str, arg);
+            }
+            if (mc->method_name == "startsWith" || mc->method_name == "starts_with") {
+                std::string arg = !mc->args.empty() ? emit_operation_cpp(mc->args[0].get()) : "\"\"";
+                return std::format("EngineScript::StringOps::starts_with({}, {})", target_str, arg);
+            }
+            if (mc->method_name == "endsWith" || mc->method_name == "ends_with") {
+                std::string arg = !mc->args.empty() ? emit_operation_cpp(mc->args[0].get()) : "\"\"";
+                return std::format("EngineScript::StringOps::ends_with({}, {})", target_str, arg);
+            }
+            if (mc->method_name == "indexOf" || mc->method_name == "index_of") {
+                std::string arg = !mc->args.empty() ? emit_operation_cpp(mc->args[0].get()) : "\"\"";
+                return std::format("EngineScript::StringOps::index_of({}, {})", target_str, arg);
+            }
+            if (mc->method_name == "toLowerCase" || mc->method_name == "to_lower") {
+                return std::format("EngineScript::StringOps::to_lower({})", target_str);
+            }
+            if (mc->method_name == "toUpperCase" || mc->method_name == "to_upper") {
+                return std::format("EngineScript::StringOps::to_upper({})", target_str);
+            }
+            if (mc->method_name == "length" || mc->method_name == "size") {
+                return std::format("static_cast<int>({}.size())", target_str);
+            }
+        }
+
         std::string s = emit_operation_cpp(mc->target.get()) + member_access_operator(mc->target.get()) + mc->method_name + "(";
         for (size_t i = 0; i < mc->args.size(); ++i) {
             s += emit_operation_cpp(mc->args[i].get());
@@ -406,6 +442,11 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     if (auto mg = dynamic_cast<const IRMemberGet*>(op)) {
+        if (mg->target && mg->target->result_type && mg->target->result_type->kind == TypeKind::String) {
+            if (mg->member_name == "length" || mg->member_name == "size") {
+                return std::format("static_cast<int>({}.size())", emit_operation_cpp(mg->target.get()));
+            }
+        }
         return emit_operation_cpp(mg->target.get()) + member_access_operator(mg->target.get()) + mg->member_name;
     }
 

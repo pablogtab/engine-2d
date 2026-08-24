@@ -26,7 +26,7 @@ void SymbolResolver::register_builtin_types() {
         "Void", "Bool", "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64",
         "Int", "UInt", "Float", "Float32", "Float64", "String", "Vec2", "Vec3", "Vec4", "Color",
         "Duration", "Entity", "Array", "FixedArray", "Map", "Set", "Result", "Task", "Weak",
-        "Behaviour", "Input", "RigidBody2D", "Animator2D", "Transform2D", "SpriteRenderer2D"
+        "Behaviour", "Input", "Log", "RigidBody2D", "Animator2D", "Transform2D", "SpriteRenderer2D"
     };
 
     for (const auto& b : builtins) {
