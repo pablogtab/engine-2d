@@ -16,10 +16,40 @@
 #include "renderer/Renderer2D.hpp"
 #include "core/FileSystem.hpp"
 #include <cassert>
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 
 using namespace Engine;
+
+class ScopedPrefabTestWorkspace {
+public:
+    ScopedPrefabTestWorkspace() {
+        std::error_code error;
+        m_previous_path = std::filesystem::current_path(error);
+        assert(!error);
+
+        const auto timestamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        m_workspace_path = std::filesystem::temp_directory_path(error) /
+            ("engine2d_prefab_stage_" + std::to_string(timestamp));
+        assert(!error);
+
+        std::filesystem::create_directories(m_workspace_path / "assets/prefabs", error);
+        assert(!error);
+        std::filesystem::current_path(m_workspace_path, error);
+        assert(!error);
+    }
+
+    ~ScopedPrefabTestWorkspace() {
+        std::error_code error;
+        std::filesystem::current_path(m_previous_path, error);
+        std::filesystem::remove_all(m_workspace_path, error);
+    }
+
+private:
+    std::filesystem::path m_previous_path;
+    std::filesystem::path m_workspace_path;
+};
 
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -407,6 +437,8 @@ void test_file_system_write_text_atomically() {
 // Main
 // ──────────────────────────────────────────────────────────────────────────────
 int main() {
+    ScopedPrefabTestWorkspace workspace;
+
     test_transient_scene_not_in_scene_list();
     test_transient_scene_blocks_navigation();
     test_prefab_stage_open_isolated_session();
