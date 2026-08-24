@@ -27,6 +27,7 @@ class AssetDatabase;
 class EntityManager;
 class EventDispatcher;
 struct ScriptRuntimeBinding;
+class NativeBehaviourHost;
 
 struct ScriptDisplayInfo {
     int pixel_width{0};
@@ -127,6 +128,7 @@ private:
         std::string script_path;
         std::string class_name;
         std::unique_ptr<ScriptRuntimeBinding> binding;
+        std::unique_ptr<NativeBehaviourHost> native_host;
         std::unique_ptr<EngineScript::NativeBehaviour> behaviour;
         std::vector<ScriptPublicField> field_definitions;
     };

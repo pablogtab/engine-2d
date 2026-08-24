@@ -82,8 +82,10 @@ export class ReloadBehaviour extends Behaviour {
     write_script(script_path, "@behaviour\nexport class Broken { let x: =\n");
     const ScriptHotReloadResult syntax_failure = runtime.reload_changed_scripts(true);
     assert(syntax_failure.reloaded == 0 && syntax_failure.failed == 1);
-    assert(runtime.instance_count() == 0);
-    assert(runtime.status(entity) && runtime.status(entity)->state == ScriptExecutionState::Error);
+    assert(runtime.instance_count() == 1);
+    assert(runtime.reload_error(asset->handle));
+    runtime.update(0.016f);
+    assert(std::abs(entities.get_component<RigidBodyComponent>(entity).velocity.x - 7.0f) < 0.001f);
 
     // Recovery hot reload
     write_script(script_path, R"(
@@ -110,8 +112,7 @@ export class ReloadBehaviour extends Behaviour {
     static_cast<void>(database.scan("Assets"));
     const ScriptHotReloadResult removed = runtime.reload_changed_scripts(true);
     assert(removed.reloaded == 0 && removed.failed == 1);
-    assert(runtime.instance_count() == 0);
-    assert(runtime.status(entity) && runtime.status(entity)->state == ScriptExecutionState::Error);
+    assert(runtime.instance_count() == 1);
 
     runtime.shutdown();
     fs::remove_all(root, error);

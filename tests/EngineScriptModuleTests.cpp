@@ -59,41 +59,6 @@ extern "C" EngineScript::NativeBehaviour* create_loaded(void**) {
     return new LoadedBehaviour();
 }
 
-void test_generated_module_build_and_load() {
-    namespace fs = std::filesystem;
-    const fs::path root = fs::temp_directory_path() / "engine2d_generated_native_module_tests";
-    std::error_code error;
-    fs::remove_all(root, error);
-    fs::create_directories(root);
-
-    EngineScriptWorkspace workspace(root.string());
-    workspace.add_source_file("Assets/Scripts/Probe.e2s", R"(
-@behaviour
-export class Probe extends Behaviour {
-    @expose speed: Float = 42.0;
-    override update(deltaTime: Float): Void { speed = speed + deltaTime; }
-}
-)");
-    assert(workspace.compile().success);
-    const NativeModuleBuildResult build = NativeModuleBuilder::build(workspace, root.string(), 11);
-    assert(build.success);
-    std::string load_error;
-    std::unique_ptr<GameModule> module = GameModule::load_dynamic_library(build.library_path, &load_error);
-    assert(module != nullptr);
-    assert(module->has_behaviour_type("Probe"));
-    std::unique_ptr<NativeBehaviour> behaviour(module->create_behaviour("Probe"));
-    assert(behaviour != nullptr);
-    NativeBehaviour::ExposedPropertyValue speed;
-    assert(behaviour->get_exposed_property("speed", speed));
-    assert(std::get<double>(speed) == 42.0);
-    behaviour->update(0.5f);
-    assert(behaviour->get_exposed_property("speed", speed));
-    assert(std::get<double>(speed) == 42.5);
-    behaviour.reset();
-    module.reset();
-    fs::remove_all(root, error);
-}
-
 extern "C" const EngineScript::NativeModuleExports* engine_script_module_exports() {
     static const EngineScript::NativeBehaviourExport behaviours[] = {
         {"Loaded", create_loaded, nullptr, 0}
@@ -140,6 +105,44 @@ extern "C" const EngineScript::NativeModuleExports* engine_script_module_exports
     behaviour->update(0.016f);
     delete behaviour;
     module.reset();
+    fs::remove_all(root, error);
+}
+
+void test_generated_module_build_and_load() {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_generated_native_module_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+    fs::create_directories(root);
+    EngineScriptWorkspace workspace(root.string());
+    workspace.add_source_file("Assets/Scripts/Probe.e2s", R"(
+@behaviour
+export class Probe extends Behaviour {
+    @expose speed: Float = 42.0;
+    override update(deltaTime: Float): Void { speed = speed + deltaTime; }
+}
+)");
+    assert(workspace.compile().success);
+    const NativeModuleBuildResult build = NativeModuleBuilder::build(workspace, root.string(), 11);
+    assert(build.success);
+    std::string load_error;
+    std::unique_ptr<GameModule> module = GameModule::load_dynamic_library(build.library_path, &load_error);
+    assert(module && module->has_behaviour_type("Probe"));
+    std::unique_ptr<NativeBehaviour> behaviour(module->create_behaviour("Probe"));
+    NativeBehaviour::ExposedPropertyValue speed;
+    assert(behaviour && behaviour->get_exposed_property("speed", speed));
+    assert(std::get<double>(speed) == 42.0);
+    behaviour->update(0.5f);
+    assert(behaviour->get_exposed_property("speed", speed));
+    assert(std::get<double>(speed) == 42.5);
+    behaviour.reset();
+    module.reset();
+    const NativeModuleBuildResult static_sources = NativeModuleBuilder::build(
+        workspace, root.string(), 12, NativeModuleBuildMode::StaticSources
+    );
+    assert(static_sources.success);
+    assert(fs::exists(fs::path(static_sources.output_directory) / "GameModule.generated.cpp"));
+    assert(static_sources.library_path.empty());
     fs::remove_all(root, error);
 }
 

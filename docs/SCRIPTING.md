@@ -98,10 +98,10 @@ These services use the same calls in editor Play Mode and generated native
 modules. Audio and scene requests are routed through the host runtime, so a
 headless host may deliberately leave a service unavailable.
 
-The C++ backend emits native `NativeBehaviour` subclasses and factories. Tests
-compile generated fixtures with the configured Clang, GCC, or MSVC toolchain;
-native standalone module loading is validated independently while the Play Mode
-runtime migration remains an explicit roadmap item.
+The C++ backend emits native `NativeBehaviour` subclasses and factories. Play
+Mode compiles every valid script project to a versioned dynamic module, validates
+its ABI, and creates native behaviour instances with ordered host bindings.
+There is no interpreter fallback in the active runtime path.
 
 ## API contract and coverage
 
@@ -130,17 +130,18 @@ destroyed before its module is unloaded.
 It registers every behaviour factory through that export symbol; native build
 targets compile this file together with the generated behaviour sources.
 
+`NativeModuleBuilder` has two explicit outputs: `DynamicLibrary` is used by
+desktop Play Mode, while `StaticSources` writes the same generated sources and
+entrypoint for an export target to compile and link statically. Neither mode
+writes authored project content.
+
 ## Hot reload
 
 Editor Play Mode watches the source signature of active script assets. A change
-recompiles the complete project and recreates behaviour instances while keeping
-compatible serialized public values.
-
-Reload is fail-stop. If the new project does not compile, a dependency cannot be
-resolved, or an instance cannot be created, all script behaviours stop and the
-Inspector reports the error. Engine2D never hides the failure by returning to
-the previous implementation. Saving a later valid version starts fresh
-instances from the current serialized component values.
+compiles and ABI-loads a candidate module before replacing the active one. A
+candidate failure keeps the active native behaviours running and reports the
+reload error. A successful candidate recreates instances from the current
+serialized component values.
 
 ## Async ownership
 

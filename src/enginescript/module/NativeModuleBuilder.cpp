@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 
 namespace EngineScript {
 namespace {
@@ -30,12 +31,14 @@ std::filesystem::path library_path(const std::filesystem::path& directory, uint3
 NativeModuleBuildResult NativeModuleBuilder::build(
     EngineScriptWorkspace& workspace,
     const std::string& project_root,
-    uint32_t build_number
+    uint32_t build_number,
+    NativeModuleBuildMode mode
 ) {
     namespace fs = std::filesystem;
     NativeModuleBuildResult result;
     const fs::path output = fs::path(project_root) / "Library" / "EngineScript" / "Generated" /
         std::to_string(build_number);
+    result.output_directory = output.string();
     std::error_code error;
     fs::create_directories(output, error);
     if (error) {
@@ -44,13 +47,26 @@ NativeModuleBuildResult NativeModuleBuilder::build(
     }
 
     std::vector<fs::path> sources;
-    for (const CppOutput& generated : workspace.compile().generated_cpp) {
+    const CompilationResult compilation = workspace.compile();
+    if (!compilation.success) {
+        result.error = "EngineScript project compilation failed before native build";
+        return result;
+    }
+    std::unordered_set<std::string> generated_names;
+    for (const CppOutput& generated : compilation.generated_cpp) {
+        if (!generated_names.emplace(generated.header_filename).second ||
+            !generated_names.emplace(generated.source_filename).second) {
+            result.error = "EngineScript native build has colliding generated filenames";
+            return result;
+        }
         const fs::path header = output / generated.header_filename;
         const fs::path source = output / generated.source_filename;
         fs::create_directories(header.parent_path(), error);
-        std::ofstream(header) << generated.header_content;
-        std::ofstream(source) << generated.source_content;
-        if (!header.parent_path().empty() && error) {
+        std::ofstream header_stream(header);
+        std::ofstream source_stream(source);
+        header_stream << generated.header_content;
+        source_stream << generated.source_content;
+        if (error || !header_stream || !source_stream) {
             result.error = "Could not write EngineScript generated source";
             return result;
         }
@@ -63,25 +79,41 @@ NativeModuleBuildResult NativeModuleBuilder::build(
 
     CppEmitter emitter(workspace.source_manager());
     const fs::path entrypoint = output / "GameModule.generated.cpp";
-    std::ofstream(entrypoint) << emitter.emit_game_module_entrypoint(
+    std::ofstream entrypoint_stream(entrypoint);
+    entrypoint_stream << emitter.emit_game_module_entrypoint(
         workspace.ir_modules(), fs::path(project_root).filename().string(), build_number
     );
+    entrypoint_stream.close();
+    if (!entrypoint_stream) {
+        result.error = "Could not write EngineScript module entrypoint";
+        return result;
+    }
     sources.push_back(entrypoint);
+
+    if (mode == NativeModuleBuildMode::StaticSources) {
+        result.success = true;
+        return result;
+    }
 
     const fs::path library = library_path(output, build_number);
     std::ostringstream command;
-    command << quote(ENGINE_SCRIPT_NATIVE_CXX_COMPILER) << " -std=c++20 ";
 #if defined(_WIN32)
-    command << " /LD ";
+    command << quote(ENGINE_SCRIPT_NATIVE_CXX_COMPILER) << " /nologo /std:c++20 /LD"
+            << " /I" << quote(ENGINE_SCRIPT_NATIVE_SOURCE_DIR)
+            << " /I" << quote(ENGINE_SCRIPT_NATIVE_VENDOR_DIR)
+            << " /I" << quote(ENGINE_SCRIPT_NATIVE_GLM_INCLUDE_DIR)
+            << " /I" << quote(output) << " /Fe" << quote(library);
 #elif defined(__APPLE__)
-    command << " -dynamiclib -fPIC ";
+    command << quote(ENGINE_SCRIPT_NATIVE_CXX_COMPILER) << " -std=c++20 -dynamiclib -fPIC ";
 #else
-    command << " -shared -fPIC ";
+    command << quote(ENGINE_SCRIPT_NATIVE_CXX_COMPILER) << " -std=c++20 -shared -fPIC ";
 #endif
+#if !defined(_WIN32)
     command << " -I" << quote(ENGINE_SCRIPT_NATIVE_SOURCE_DIR)
             << " -I" << quote(ENGINE_SCRIPT_NATIVE_VENDOR_DIR)
             << " -I" << quote(ENGINE_SCRIPT_NATIVE_GLM_INCLUDE_DIR)
             << " -I" << quote(output) << " -o " << quote(library);
+#endif
     for (const fs::path& source : sources) command << " " << quote(source);
     if (std::system(command.str().c_str()) != 0 || !fs::exists(library)) {
         result.error = "EngineScript native C++ compilation failed";

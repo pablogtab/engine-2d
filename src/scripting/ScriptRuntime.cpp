@@ -38,6 +38,100 @@ struct ScriptRuntimeBinding {
     const ScriptRuntimeServices* services{nullptr};
 };
 
+class NativeBehaviourHost {
+public:
+    explicit NativeBehaviourHost(ScriptRuntimeBinding& binding)
+        : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding), m_animator(binding) {}
+
+    bool prepare(const EngineScript::BehaviourTypeRegistration& registration, std::string& error) {
+        for (const auto& [type, kind] : registration.constructor_dependencies) {
+            if (type == "Input") m_arguments.push_back(&m_input);
+            else if (type == "Log") m_arguments.push_back(&m_log);
+            else if (type == "Audio") m_arguments.push_back(&m_audio);
+            else if (type == "Scene") m_arguments.push_back(&m_scene);
+            else if (type == "RigidBody2D") m_arguments.push_back(&m_rigid_body);
+            else if (type == "SpriteRenderer2D") m_arguments.push_back(&m_sprite);
+            else if (type == "Animator2D") m_arguments.push_back(&m_animator);
+            else if (kind == EngineScript::NativeDependencyKind::OptionalComponent) m_arguments.push_back(nullptr);
+            else { error = "unsupported native EngineScript dependency: " + type; return false; }
+        }
+        return true;
+    }
+
+    void sync_before() {
+        if (!m_binding.entity_manager) return;
+        EntityManager& entities = *m_binding.entity_manager;
+        if (entities.has_component<RigidBodyComponent>(m_binding.entity)) {
+            m_rigid_body.velocity = entities.get_component<RigidBodyComponent>(m_binding.entity).velocity;
+            m_rigid_body.isGrounded = PhysicsSystem::is_grounded(entities, m_binding.entity);
+        }
+        if (entities.has_component<SpriteComponent>(m_binding.entity)) {
+            m_sprite.flipX = entities.get_component<SpriteComponent>(m_binding.entity).flip_x;
+        }
+    }
+
+    void sync_after() {
+        if (!m_binding.entity_manager) return;
+        EntityManager& entities = *m_binding.entity_manager;
+        if (entities.has_component<RigidBodyComponent>(m_binding.entity)) {
+            PhysicsSystem::set_velocity(entities, m_binding.entity, m_rigid_body.velocity);
+        }
+        if (entities.has_component<SpriteComponent>(m_binding.entity)) {
+            entities.get_component<SpriteComponent>(m_binding.entity).flip_x = m_sprite.flipX;
+        }
+    }
+
+    void** arguments() { return m_arguments.empty() ? nullptr : m_arguments.data(); }
+
+private:
+    class Input final : public EngineScript::Input {
+    public:
+        explicit Input(const ScriptRuntimeBinding&) {}
+        float axis(const std::string& name) const override { return Engine::Input::get_axis(name); }
+        bool pressed(const std::string& action) const override { return Engine::Input::is_action_just_pressed(action); }
+    };
+    class Log final : public EngineScript::Log {
+    public:
+        void write(const std::string& message) const override { ENGINE_LOG_INFO("[SCRIPT] {}", message); }
+    };
+    class Audio final : public EngineScript::Audio {
+    public:
+        explicit Audio(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        bool playSound(const std::string& path, float volume, float pitch) override { std::string error; return m_binding.services && m_binding.services->play_sound && m_binding.services->play_sound(path, volume, pitch, error); }
+        bool playMusic(const std::string& path, float volume, bool loop) override { std::string error; return m_binding.services && m_binding.services->play_music && m_binding.services->play_music(path, volume, loop, error); }
+        void stopMusic() override { if (m_binding.services && m_binding.services->stop_music) m_binding.services->stop_music(); }
+        void pauseMusic() override { if (m_binding.services && m_binding.services->pause_music) m_binding.services->pause_music(); }
+        void resumeMusic() override { if (m_binding.services && m_binding.services->resume_music) m_binding.services->resume_music(); }
+        void setMasterVolume(float value) override { if (m_binding.services && m_binding.services->set_master_volume) m_binding.services->set_master_volume(value); }
+        void setMusicVolume(float value) override { if (m_binding.services && m_binding.services->set_music_volume) m_binding.services->set_music_volume(value); }
+        void setSfxVolume(float value) override { if (m_binding.services && m_binding.services->set_sfx_volume) m_binding.services->set_sfx_volume(value); }
+        float masterVolume() const override { return m_binding.services && m_binding.services->get_master_volume ? m_binding.services->get_master_volume() : 1.0f; }
+        float musicVolume() const override { return m_binding.services && m_binding.services->get_music_volume ? m_binding.services->get_music_volume() : 1.0f; }
+        float sfxVolume() const override { return m_binding.services && m_binding.services->get_sfx_volume ? m_binding.services->get_sfx_volume() : 1.0f; }
+    private: const ScriptRuntimeBinding& m_binding; };
+    class Scene final : public EngineScript::Scene {
+    public:
+        explicit Scene(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        bool load(const std::string& path) override { std::string error; return m_binding.services && m_binding.services->request_scene_load && m_binding.services->request_scene_load(path, error); }
+        std::string currentName() const override { return m_binding.services && m_binding.services->current_scene_name ? m_binding.services->current_scene_name() : std::string{}; }
+    private: const ScriptRuntimeBinding& m_binding; };
+    class Animator final : public EngineScript::Animator2D {
+    public:
+        explicit Animator(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        void play(const std::string& clip) override { if (m_binding.entity_manager) SpriteAnimationSystem::play_clip(*m_binding.entity_manager, m_binding.entity, clip); }
+    private: const ScriptRuntimeBinding& m_binding; };
+
+    ScriptRuntimeBinding& m_binding;
+    Input m_input;
+    Log m_log;
+    Audio m_audio;
+    Scene m_scene;
+    Animator m_animator;
+    EngineScript::RigidBody2D m_rigid_body;
+    EngineScript::SpriteRenderer2D m_sprite;
+    std::vector<void*> m_arguments;
+};
+
 namespace {
 
 struct RuntimeObjectRef {
@@ -877,53 +971,33 @@ ScriptRuntimeStartResult ScriptRuntime::start(
     } else {
         native_build_error = native_build.error;
     }
+    if (!generated_native_module) {
+        const std::string error = native_build_error.empty()
+            ? "EngineScript native module could not be loaded"
+            : native_build_error;
+        entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
+            if (!component.enabled) return;
+            ++result.failed;
+            set_error(entity, error);
+        });
+        return result;
+    }
 
-    struct RuntimeDefinition {
-        std::shared_ptr<const EngineScript::IRClass> ir_class;
-        std::string registered_type;
-    };
-    std::unordered_map<std::string, RuntimeDefinition> definitions_by_path;
+    std::unordered_map<std::string, std::string> definitions_by_path;
     std::unordered_set<std::string> invalid_behaviour_modules;
-    EngineScript::ModuleDescriptor module_descriptor;
-    module_descriptor.module_name = "Engine2DPlayMode";
     for (const auto& module : m_native_workspace->ir_modules()) {
         for (const auto& definition : module.classes) {
             if (!definition.is_behaviour) continue;
-            auto shared_definition = std::make_shared<EngineScript::IRClass>(definition);
-            const std::string registered_type = generated_native_module
-                ? definition.name
-                : module.module_path + "::" + definition.name;
+            const std::string registered_type = definition.name;
             if (!definitions_by_path.emplace(
                     module.module_path,
-                    RuntimeDefinition{shared_definition, registered_type}
+                    registered_type
                 ).second) {
                 invalid_behaviour_modules.insert(module.module_path);
             }
-
-            if (generated_native_module) continue;
-            EngineScript::BehaviourTypeRegistration registration;
-            registration.type_name = registered_type;
-            for (const auto& parameter : definition.constructor_params) {
-                if (!parameter.type) continue;
-                const bool is_service = std::find(
-                    parameter.decorators.begin(), parameter.decorators.end(), "inject"
-                ) != parameter.decorators.end();
-                const bool is_component = std::find(
-                    parameter.decorators.begin(), parameter.decorators.end(), "component"
-                ) != parameter.decorators.end();
-                if (is_service) registration.injected_services.push_back(parameter.type->name);
-                if (is_component) registration.required_components.push_back(parameter.type->name);
-            }
-            registration.factory = [shared_definition](void** args) -> void* {
-                auto* binding = args ? static_cast<ScriptRuntimeBinding*>(args[0]) : nullptr;
-                return new InterpretedBehaviour(shared_definition, binding);
-            };
-            module_descriptor.behaviour_types.push_back(std::move(registration));
         }
     }
-    m_native_module = generated_native_module
-        ? std::move(generated_native_module)
-        : std::make_shared<EngineScript::GameModule>(std::move(module_descriptor));
+    m_native_module = std::move(generated_native_module);
 
     entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
         if (!component.enabled) return;
@@ -978,11 +1052,6 @@ ScriptRuntimeStartResult ScriptRuntime::start(
             }
         }
 
-        if (!m_native_module->library_handle() && !native_build_error.empty()) {
-            ENGINE_LOG_WARN("[SCRIPT] Native module build unavailable; using transitional runtime: {}", native_build_error);
-            native_build_error.clear();
-        }
-
         std::vector<ScriptPublicField> compiled_fields = public_fields_from_behaviour(*manifest);
         auto& mutable_component = entity_manager.get_component<ScriptComponent>(entity);
         for (const ScriptPublicField& default_field : compiled_fields) {
@@ -1002,21 +1071,39 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         instance.entity = entity;
         instance.script_handle = component.script_handle;
         instance.script_path = record->source_path;
-        instance.class_name = definition->second.registered_type;
+        instance.class_name = definition->second;
         instance.field_definitions = std::move(compiled_fields);
         instance.binding = std::make_unique<ScriptRuntimeBinding>();
         instance.binding->entity_manager = &entity_manager;
         instance.binding->entity = entity;
         instance.binding->services = &m_services;
-        void* arguments[] = {instance.binding.get()};
-        if (m_native_module->library_handle() && !manifest->dependencies.empty()) {
-            ++result.failed;
-            set_error(entity, "native EngineScript host bindings are not available for injected dependencies");
-            return;
+        void** factory_arguments = nullptr;
+        {
+            const auto registration = std::find_if(
+                m_native_module->descriptor().behaviour_types.begin(),
+                m_native_module->descriptor().behaviour_types.end(),
+                [&instance](const EngineScript::BehaviourTypeRegistration& candidate) {
+                    return candidate.type_name == instance.class_name;
+                }
+            );
+            if (registration == m_native_module->descriptor().behaviour_types.end()) {
+                ++result.failed;
+                set_error(entity, "native EngineScript behaviour registration is missing");
+                return;
+            }
+            instance.native_host = std::make_unique<NativeBehaviourHost>(*instance.binding);
+            std::string host_error;
+            if (!instance.native_host->prepare(*registration, host_error)) {
+                ++result.failed;
+                set_error(entity, host_error);
+                return;
+            }
+            instance.native_host->sync_before();
+            factory_arguments = instance.native_host->arguments();
         }
         instance.behaviour.reset(m_native_module->create_behaviour(
             instance.class_name,
-            m_native_module->library_handle() ? nullptr : arguments
+            factory_arguments
         ));
         if (!instance.behaviour) {
             ++result.failed;
@@ -1028,6 +1115,7 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         instance.behaviour->async_scheduler = m_native_async_scheduler.get();
         push_exposed_properties(*instance.behaviour, mutable_component, entity_manager);
         instance.behaviour->on_start();
+        if (instance.native_host) instance.native_host->sync_after();
         pull_exposed_properties(*instance.behaviour, mutable_component);
         m_instances.push_back(std::move(instance));
         ++result.started;
@@ -1180,6 +1268,40 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
 
     if (changed_assets.empty()) return result;
 
+    EngineScript::EngineScriptWorkspace candidate_workspace(m_asset_database->project_root().string());
+    for (const AssetRecord& record : m_asset_database->records()) {
+        if (record.type != AssetType::Script || record.status != AssetStatus::Ready) continue;
+        const std::string source = FileSystem::read_text(m_asset_database->resolve(record.handle));
+        if (!source.empty()) candidate_workspace.add_source_file(record.source_path, source);
+    }
+    const EngineScript::CompilationResult candidate_compilation = candidate_workspace.compile(false);
+    std::string candidate_error;
+    if (!candidate_compilation.success) {
+        candidate_error = candidate_compilation.diagnostics.empty()
+            ? "EngineScript hot reload compilation failed"
+            : candidate_compilation.diagnostics.front().message;
+    } else {
+        const EngineScript::NativeModuleBuildResult candidate_build = EngineScript::NativeModuleBuilder::build(
+            candidate_workspace,
+            m_asset_database->project_root().string(),
+            m_next_native_build_number
+        );
+        if (!candidate_build.success) {
+            candidate_error = candidate_build.error;
+        } else {
+            std::string load_error;
+            if (!EngineScript::GameModule::load_dynamic_library(candidate_build.library_path, &load_error)) {
+                candidate_error = load_error;
+            }
+        }
+    }
+    if (!candidate_error.empty()) {
+        result.failed = changed_assets.size();
+        for (const AssetHandle handle : changed_assets) m_reload_errors[handle] = candidate_error;
+        ENGINE_LOG_ERROR("[SCRIPT RELOAD] Candidate rejected; active module kept: {}", candidate_error);
+        return result;
+    }
+
     EntityManager* entity_manager = m_entity_manager;
     const AssetDatabase* asset_database = m_asset_database;
     EventDispatcher* event_dispatcher = m_event_dispatcher;
@@ -1194,7 +1316,7 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
     result.failed = restarted.failed;
 
     if (restarted.failed > 0) {
-        std::string error = "EngineScript hot reload failed; affected behaviours were stopped";
+        std::string error = "EngineScript hot reload failed after candidate validation";
         for (const AssetHandle handle : changed_assets) m_reload_errors[handle] = error;
         ENGINE_LOG_ERROR("[SCRIPT RELOAD] {}", error);
     } else {
@@ -1215,8 +1337,10 @@ void ScriptRuntime::update(float delta_time) {
             !m_entity_manager->has_component<ScriptComponent>(inst.entity)) continue;
         const auto& component = m_entity_manager->get_component<ScriptComponent>(inst.entity);
         if (component.enabled && inst.behaviour) {
+            if (inst.native_host) inst.native_host->sync_before();
             push_exposed_properties(*inst.behaviour, component, *m_entity_manager);
             inst.behaviour->update(delta_time);
+            if (inst.native_host) inst.native_host->sync_after();
             if (m_entity_manager->is_alive(inst.entity) &&
                 m_entity_manager->has_component<ScriptComponent>(inst.entity)) {
                 pull_exposed_properties(
