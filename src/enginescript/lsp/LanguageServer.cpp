@@ -416,7 +416,8 @@ std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
         }
         if (method == "textDocument/references") {
             return on_references(id, j["params"]["textDocument"].value("uri", ""),
-                j["params"]["position"].value("line", 0), j["params"]["position"].value("character", 0));
+                j["params"]["position"].value("line", 0), j["params"]["position"].value("character", 0),
+                j["params"].value("context", json::object()).value("includeDeclaration", true));
         }
         if (method == "textDocument/rename") {
             return on_rename(id, j["params"]["textDocument"].value("uri", ""),
@@ -1152,7 +1153,11 @@ std::string LanguageServer::on_signature_help(
 }
 
 std::string LanguageServer::on_references(
-    const std::string& id, const std::string& uri, uint32_t line, uint32_t character
+    const std::string& id,
+    const std::string& uri,
+    uint32_t line,
+    uint32_t character,
+    bool include_declaration
 ) {
     json result = json::array();
     const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
@@ -1160,6 +1165,7 @@ std::string LanguageServer::on_references(
     const auto symbol_id = byte_offset ? m_workspace.symbol_id_at(file_id, *byte_offset) : std::nullopt;
     if (symbol_id) {
         for (const WorkspaceSymbolOccurrence& occurrence : m_workspace.occurrences_for_symbol(*symbol_id)) {
+            if (!include_declaration && occurrence.is_declaration) continue;
             const SourceFile* file = m_workspace.source_manager().get_file(occurrence.span.file_id);
             if (!file) continue;
             result.push_back({

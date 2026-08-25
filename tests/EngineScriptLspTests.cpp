@@ -835,6 +835,15 @@ int main() {
         }}
     }.dump()));
     assert(member_references["result"].size() == 2);
+    const json member_uses_only = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 390}, {"method", "textDocument/references"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 5}, {"character", read_member}}},
+            {"context", {{"includeDeclaration", false}}}
+        }}
+    }.dump()));
+    assert(member_uses_only["result"].size() == 1);
     const uint32_t value_member = static_cast<uint32_t>(member_reference_lines[5].rfind("value") + 1);
     const json field_references = json::parse(server.handle_message(json{
         {"jsonrpc", "2.0"}, {"id", 40}, {"method", "textDocument/references"},
