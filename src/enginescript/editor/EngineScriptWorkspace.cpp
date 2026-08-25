@@ -395,6 +395,16 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     // 4. Type Checking
     TypeChecker checker(resolver, semantic_diagnostics);
     checker.check_all(ast_modules);
+    for (const auto& [member_access, symbol] : checker.resolved_member_symbols()) {
+        if (!member_access || !symbol || symbol->id == 0) continue;
+        const auto occurrence_span = exact_symbol_span(
+            m_source_manager, member_access->span, member_access->member_name);
+        if (occurrence_span) {
+            m_symbol_occurrences.push_back({
+                symbol->id, symbol->name, *occurrence_span, false, symbol->kind
+            });
+        }
+    }
     for (const InferredTypeInfo& inferred : checker.inferred_types()) {
         m_inferred_types.push_back({inferred.span, inferred.type_name});
     }
@@ -527,17 +537,35 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         .max_instantiations = ENGINE_SCRIPT_MAX_GENERIC_INSTANTIATIONS,
         .max_active_depth = 32
     });
-    for (const IRModule& module : ir_modules) generics.analyze_module(module);
+    generics.analyze_modules(ir_modules);
     result.generic_code_growth.unique_instantiations = generics.instantiation_count();
     result.generic_code_growth.instantiations = generics.all_instantiations();
-    if (generics.last_failure() == GenericInstantiationFailure::CountLimit) {
+    if (generics.has_failed()) {
+        std::string message;
+        std::string code;
+        switch (generics.last_failure()) {
+            case GenericInstantiationFailure::Cycle:
+                code = "E3090";
+                message = std::format("Cyclic generic instantiation detected while expanding '{}'", generics.failed_instantiation());
+                break;
+            case GenericInstantiationFailure::DepthLimit:
+                code = "E3092";
+                message = std::format("Generic instantiation depth limit exceeded while expanding '{}'", generics.failed_instantiation());
+                break;
+            case GenericInstantiationFailure::CountLimit:
+                code = "E3091";
+                message = std::format(
+                    "Generic instantiation limit of {} exceeded while expanding '{}'; reduce concrete combinations",
+                    ENGINE_SCRIPT_MAX_GENERIC_INSTANTIATIONS,
+                    generics.failed_instantiation()
+                );
+                break;
+            case GenericInstantiationFailure::None:
+                break;
+        }
         m_diagnostics.report_error(
-            "E3091",
-            std::format(
-                "Generic instantiation limit of {} exceeded while expanding '{}'; reduce concrete combinations",
-                ENGINE_SCRIPT_MAX_GENERIC_INSTANTIATIONS,
-                generics.failed_instantiation()
-            ),
+            std::move(code),
+            std::move(message),
             {}
         );
         result.success = false;

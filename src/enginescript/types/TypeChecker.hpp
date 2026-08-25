@@ -25,6 +25,9 @@ public:
     std::shared_ptr<Type> get_type_of_node(const ASTNode* node) const;
     std::shared_ptr<Type> resolve_type_annotation(const TypeAnnotation& annot, const Scope* scope = nullptr) const;
     std::vector<InferredTypeInfo> inferred_types() const;
+    const std::unordered_map<const MemberAccessExpr*, std::shared_ptr<Symbol>>& resolved_member_symbols() const {
+        return m_member_symbols;
+    }
 
 private:
     void check_declaration(const std::shared_ptr<Declaration>& decl, const std::shared_ptr<Scope>& scope);
@@ -56,6 +59,7 @@ private:
     const SymbolResolver& m_resolver;
     DiagnosticEngine& m_diagnostics;
     std::unordered_map<const ASTNode*, std::shared_ptr<Type>> m_node_types;
+    std::unordered_map<const MemberAccessExpr*, std::shared_ptr<Symbol>> m_member_symbols;
     mutable std::unordered_set<std::uint64_t> m_reported_type_contracts;
     mutable std::unordered_set<std::uint64_t> m_reported_constraint_contracts;
     std::shared_ptr<Type> m_current_self_type;

@@ -798,6 +798,62 @@ int main() {
         }}
     }.dump()));
     assert(scoped_rename["result"]["changes"]["file:///workspace/My%20Game/Source/Player.e2s"].size() == 2);
+
+    const std::array<std::string, 7> member_reference_lines{{
+        "export class Counter {",
+        "    value: Int = 0;",
+        "    read(): Int { return value; }",
+        "}",
+        "function use(counter: Counter): Int {",
+        "    return counter.read() + counter.value;",
+        "}"
+    }};
+    std::string member_reference_document;
+    for (const std::string& source_line : member_reference_lines) member_reference_document += source_line + "\n";
+    static_cast<void>(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 33}}},
+            {"contentChanges", json::array({{{"text", member_reference_document}}})}
+        }}
+    }.dump()));
+    const uint32_t read_member = static_cast<uint32_t>(member_reference_lines[5].find("read") + 1);
+    const json member_definition = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 38}, {"method", "textDocument/definition"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 5}, {"character", read_member}}}
+        }}
+    }.dump()));
+    assert(member_definition["result"]["range"]["start"]["line"] == 2);
+    const json member_references = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 39}, {"method", "textDocument/references"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 5}, {"character", read_member}}},
+            {"context", {{"includeDeclaration", true}}}
+        }}
+    }.dump()));
+    assert(member_references["result"].size() == 2);
+    const uint32_t value_member = static_cast<uint32_t>(member_reference_lines[5].rfind("value") + 1);
+    const json field_references = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 40}, {"method", "textDocument/references"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 5}, {"character", value_member}}},
+            {"context", {{"includeDeclaration", true}}}
+        }}
+    }.dump()));
+    assert(field_references["result"].size() == 3);
+    const json member_rename = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 41}, {"method", "textDocument/rename"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 5}, {"character", read_member}}},
+            {"newName", "readValue"}
+        }}
+    }.dump()));
+    assert(member_rename["result"]["changes"]["file:///workspace/My%20Game/Source/Player.e2s"].size() == 2);
     fs::remove_all(discovery_root);
 
     std::cout << "[PASS] EngineScriptLspTests passed!\n";

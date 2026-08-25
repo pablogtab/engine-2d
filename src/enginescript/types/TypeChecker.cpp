@@ -2011,10 +2011,14 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         if (obj_t->kind == TypeKind::Enum) {
             const auto owner = scope->lookup(obj_t->name);
-            if (owner && std::any_of(owner->members.begin(), owner->members.end(),
-                [mem](const auto& member) { return member && member->name == mem->member_name; })) {
-                m_node_types[mem] = obj_t;
-                return obj_t;
+            if (owner) {
+                const auto member = std::find_if(owner->members.begin(), owner->members.end(),
+                    [mem](const auto& candidate) { return candidate && candidate->name == mem->member_name; });
+                if (member != owner->members.end()) {
+                    m_member_symbols[mem] = *member;
+                    m_node_types[mem] = obj_t;
+                    return obj_t;
+                }
             }
             m_diagnostics.report_error("E3057", std::format("Enum '{}' has no member '{}'", obj_t->name, mem->member_name), mem->span);
             m_node_types[mem] = m_type_error;
@@ -2062,6 +2066,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     }
                 );
                 if (member != owner->members.end()) {
+                    m_member_symbols[mem] = *member;
                     if ((*member)->access != AccessModifier::Public) {
                         m_diagnostics.report_error(
                             "E3056",
