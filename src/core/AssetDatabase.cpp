@@ -16,6 +16,27 @@ namespace fs = std::filesystem;
 namespace Engine {
 namespace {
 constexpr int k_database_version = 1;
+
+bool is_asset_handle_key(const std::string& key) {
+    return key != "handle" && key.size() > 7 && key.ends_with("_handle");
+}
+
+void collect_asset_handles(const nlohmann::json& value, std::vector<AssetHandle>& output) {
+    if (value.is_array()) {
+        for (const auto& item : value) collect_asset_handles(item, output);
+        return;
+    }
+    if (!value.is_object()) return;
+    for (const auto& [key, child] : value.items()) {
+        if (is_asset_handle_key(key) && child.is_string()) {
+            if (const auto handle = AssetHandle::from_string(child.get<std::string>()); handle) {
+                output.push_back(*handle);
+            }
+        }
+        collect_asset_handles(child, output);
+    }
+}
+
 std::string normalize_path(const fs::path& path) { return path.lexically_normal().generic_string(); }
 AssetType type_from_name(const std::string& name) {
     if (name == "scene") return AssetType::Scene; if (name == "prefab") return AssetType::Prefab;
@@ -189,18 +210,11 @@ void AssetDatabase::rebuild_dependencies() {
         const auto json = nlohmann::json::parse(FileSystem::read_text((m_project_root / record.source_path).string()), nullptr, false);
         if (json.is_discarded()) continue;
         std::vector<AssetHandle> dependencies;
-        const auto append = [&dependencies](const nlohmann::json& value) {
-            if (!value.is_string()) return;
-            if (const auto handle = AssetHandle::from_string(value.get<std::string>()); handle) dependencies.push_back(*handle);
-        };
-        if (record.type == AssetType::Material) append(json.value("shader_handle", nlohmann::json{}));
-        if (record.type == AssetType::RenderLayerEffectProfile && json.contains("passes") && json["passes"].is_array()) {
-            for (const auto& pass : json["passes"]) if (pass.is_object()) append(pass.value("material_handle", nlohmann::json{}));
-        }
-        if (record.type == AssetType::Shader && json.contains("variants") && json["variants"].is_array()) {
-            for (const auto& variant : json["variants"]) if (variant.is_object()) append(variant.value("source_handle", nlohmann::json{}));
-        }
-        if (record.type == AssetType::ParticleEffect) append(json.value("texture_handle", nlohmann::json{}));
+        collect_asset_handles(json, dependencies);
+        std::sort(dependencies.begin(), dependencies.end(), [](AssetHandle lhs, AssetHandle rhs) {
+            return lhs.value < rhs.value;
+        });
+        dependencies.erase(std::unique(dependencies.begin(), dependencies.end()), dependencies.end());
         if (!dependencies.empty()) {
             m_dependencies.emplace(record.handle.value, dependencies);
             for (const auto dependency : dependencies) m_dependents[dependency.value].push_back(record.handle);

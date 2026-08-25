@@ -97,7 +97,11 @@ private:
 
 class DeleteAssetCommand final : public IEditorCommand {
 public:
-    DeleteAssetCommand(AssetDatabase* database, std::filesystem::path path);
+    DeleteAssetCommand(
+        AssetDatabase* database,
+        std::filesystem::path path,
+        bool allow_referenced = false
+    );
     bool execute() override;
     bool undo() override;
     [[nodiscard]] std::string get_description() const override;
@@ -110,6 +114,7 @@ private:
     std::vector<std::uint8_t> m_metadata_bytes;
     bool m_had_metadata{false};
     bool m_captured{false};
+    bool m_allow_referenced{false};
 };
 
 } // namespace Engine

@@ -4,7 +4,6 @@
 #include "../commands/HierarchyCommands.hpp"
 #include "../commands/PrefabCommands.hpp"
 #include "../commands/EditorEntityStateCommands.hpp"
-#include "../../scene/PrefabSerializer.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../tools/EditorIcons.hpp"
@@ -167,7 +166,7 @@ void SceneHierarchyPanel::on_gui() {
         ImGui::Separator();
 
         // --- Entity Tree List ---
-        ImGui::BeginChild("EntityTreeScroll", ImVec2(0, -35), true);
+        ImGui::BeginChild("EntityTreeScroll", ImVec2(0, 0), true);
 
         std::string filter_str = m_search_filter;
         std::transform(filter_str.begin(), filter_str.end(), filter_str.begin(), ::tolower);
@@ -270,46 +269,6 @@ void SceneHierarchyPanel::on_gui() {
         }
 
         ImGui::EndChild();
-
-        // --- Bottom Actions Bar ---
-        if (runtime_mode) {
-            ImGui::TextDisabled("Create, delete and reparent are disabled during Play.");
-        } else if (ImGui::Button(" + Create ", ImVec2(100, 24))) {
-            ImGui::OpenPopup("HierarchyCreatePopup");
-        }
-        if (!runtime_mode && ImGui::BeginPopup("HierarchyCreatePopup")) {
-            const EntityID selected_parent = (m_selection && !m_selection->empty())
-                ? m_selection->get_primary() : 0;
-            render_create_menu(em, selected_parent);
-            ImGui::EndPopup();
-        }
-        if (!runtime_mode) ImGui::SameLine();
-        if (!runtime_mode && m_selection && !m_selection->empty()) {
-            std::vector<EntityID> to_delete;
-            for (EntityID s_id : m_selection->get_selected()) {
-                if (m_prefab_stage && m_prefab_stage->is_root_entity(s_id)) continue;
-                to_delete.push_back(s_id);
-            }
-            const bool can_delete_any = !to_delete.empty();
-            std::string del_label = m_selection->count() > 1 ? " Delete (" + std::to_string(m_selection->count()) + ") " : " Delete ";
-            if (!can_delete_any) {
-                ImGui::BeginDisabled(true);
-            }
-            if (ImGui::Button(del_label.c_str(), ImVec2(90, 24))) {
-                if (m_command_history) {
-                    m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(&em, m_selection, to_delete));
-                } else {
-                    for (EntityID s_id : to_delete) em.destroy_entity(s_id);
-                    m_selection->clear();
-                }
-            }
-            if (!can_delete_any) {
-                ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Prefab root entity cannot be deleted");
-                }
-            }
-        }
 
         // Keyboard Shortcut via ShortcutManager: editor.delete
         if (!runtime_mode && !io.WantTextInput && ShortcutManager::get().is_triggered("editor.delete") &&
@@ -659,7 +618,14 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             if (clean_name.empty()) clean_name = "Prefab";
             const std::string filepath = (std::filesystem::path(FileSystem::get_project_directory()) /
                 "Assets/Prefabs" / (clean_name + ".prefab")).string();
-            static_cast<void>(PrefabSerializer::save_to_file(em, id, filepath, m_renderer));
+            if (m_command_history) {
+                m_command_history->execute_command(
+                    std::make_unique<SaveAsPrefabCommand>(&em, id, filepath, m_renderer, m_entity_state_store.get())
+                );
+            } else {
+                SaveAsPrefabCommand command(&em, id, filepath, m_renderer, m_entity_state_store.get());
+                static_cast<void>(command.execute());
+            }
         }
 
         if (em.has_component<PrefabLinkComponent>(id)) {

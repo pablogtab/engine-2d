@@ -1073,6 +1073,54 @@ void test_prefab_propagation_preserves_overridden_instances() {
     std::cout << "test_prefab_propagation_preserves_overridden_instances passed." << std::endl;
 }
 
+void test_save_as_prefab_links_source_subtree_and_supports_undo_redo() {
+    EntityManager em;
+    EditorEntityStateStore state_store;
+    EditorCommandHistory history;
+
+    const std::string prefab_file = "assets/prefabs/save_as_link_source_test.prefab";
+    std::filesystem::remove(prefab_file);
+
+    const EntityID root = em.create_entity();
+    em.add_component<TagComponent>(root, TagComponent{"Volcanic_Rock"});
+    em.add_component<TransformComponent>(root, TransformComponent{});
+    const EntityID child = em.create_entity();
+    em.add_component<TagComponent>(child, TagComponent{"Glow"});
+    em.add_component<TransformComponent>(child, TransformComponent{});
+    assert(em.set_parent(child, root).succeeded());
+
+    auto command = std::make_unique<SaveAsPrefabCommand>(
+        &em, root, prefab_file, nullptr, &state_store
+    );
+    assert(command->is_valid());
+    assert(history.execute_command(std::move(command)));
+    assert(FileSystem::exists(prefab_file));
+    assert(em.has_component<PrefabLinkComponent>(root));
+    assert(em.has_component<PrefabLinkComponent>(child));
+    const auto& root_link = em.get_component<PrefabLinkComponent>(root);
+    const auto& child_link = em.get_component<PrefabLinkComponent>(child);
+    assert(root_link.prefab_asset_path == prefab_file);
+    assert(root_link.source_local_id == 1);
+    assert(root_link.is_root_instance);
+    assert(child_link.prefab_asset_path == prefab_file);
+    assert(child_link.source_local_id == 2);
+    assert(!child_link.is_root_instance);
+
+    history.undo();
+    assert(!FileSystem::exists(prefab_file));
+    assert(!em.has_component<PrefabLinkComponent>(root));
+    assert(!em.has_component<PrefabLinkComponent>(child));
+
+    history.redo();
+    assert(FileSystem::exists(prefab_file));
+    assert(em.has_component<PrefabLinkComponent>(root));
+    assert(em.has_component<PrefabLinkComponent>(child));
+
+    history.undo();
+    std::filesystem::remove(prefab_file);
+    std::cout << "test_save_as_prefab_links_source_subtree_and_supports_undo_redo passed." << std::endl;
+}
+
 void test_prefab_duplication_preserves_link() {
     EntityManager em;
     EditorEntityStateStore state_store;
@@ -1489,6 +1537,7 @@ int main() {
     test_apply_prefab_command_and_undo_redo();
     test_prefab_live_propagation_on_apply();
     test_prefab_propagation_preserves_overridden_instances();
+    test_save_as_prefab_links_source_subtree_and_supports_undo_redo();
     test_prefab_duplication_preserves_link();
     test_prefab_multi_selection_batch_unpack();
     test_prefab_property_overrides_detection();

@@ -413,7 +413,31 @@ void AssetBrowserPanel::move_asset_paths(
     destroy_asset_previews();
 }
 
-void AssetBrowserPanel::delete_selected_assets() {
+std::vector<std::string> AssetBrowserPanel::selected_asset_usages() const {
+    std::vector<std::string> usages;
+    if (!m_asset_database) return usages;
+    for (const auto& path : selected_asset_paths()) {
+        const AssetRecord* record = m_asset_database->find_by_path(path);
+        if (!record) continue;
+        for (const AssetHandle dependent_handle : m_asset_database->dependents(record->handle)) {
+            const AssetRecord* dependent = m_asset_database->find(dependent_handle);
+            usages.push_back(
+                path.filename().string() + " <- " +
+                (dependent ? dependent->source_path : dependent_handle.to_string())
+            );
+        }
+        if (m_live_asset_usage_provider) {
+            for (std::string usage : m_live_asset_usage_provider(record->handle)) {
+                usages.push_back(path.filename().string() + " <- " + std::move(usage));
+            }
+        }
+    }
+    std::sort(usages.begin(), usages.end());
+    usages.erase(std::unique(usages.begin(), usages.end()), usages.end());
+    return usages;
+}
+
+void AssetBrowserPanel::delete_selected_assets(bool allow_referenced) {
     m_bulk_action_error.clear();
     const auto paths = selected_asset_paths();
     if (!m_asset_database || !m_command_history || paths.empty()) return;
@@ -421,7 +445,9 @@ void AssetBrowserPanel::delete_selected_assets() {
         paths.size() == 1 ? "Delete Asset" : "Delete Selected Assets"
     );
     for (const auto& path : paths) {
-        group->add_command(std::make_unique<DeleteAssetCommand>(m_asset_database, path));
+        group->add_command(std::make_unique<DeleteAssetCommand>(
+            m_asset_database, path, allow_referenced
+        ));
     }
     if (m_command_history->execute_command(std::move(group))) {
         clear_selection();
@@ -1749,10 +1775,29 @@ void AssetBrowserPanel::on_gui() {
 
         if (ImGui::BeginPopupModal("Delete Assets", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             const auto paths = selected_asset_paths();
+            const auto usages = selected_asset_usages();
             ImGui::Text("Delete %zu asset%s?", paths.size(), paths.size() == 1 ? "" : "s");
             ImGui::TextDisabled("This operation can be undone from the editor history.");
-            if (ImGui::Button("Delete", ImVec2(120.0f, 0.0f))) {
-                delete_selected_assets();
+            if (!usages.empty()) {
+                ImGui::Spacing();
+                ImGui::TextColored(
+                    ImVec4(0.95f, 0.48f, 0.30f, 1.0f),
+                    "Warning: selected assets are still in use."
+                );
+                ImGui::TextWrapped(
+                    "Deleting them will leave missing references in scenes, prefabs or components."
+                );
+                ImGui::BeginChild(
+                    "ReferencedAssetUsages",
+                    ImVec2(520.0f, std::min(150.0f, 24.0f * static_cast<float>(usages.size()) + 8.0f)),
+                    true
+                );
+                for (const std::string& usage : usages) ImGui::BulletText("%s", usage.c_str());
+                ImGui::EndChild();
+            }
+            const char* delete_label = usages.empty() ? "Delete" : "Delete Anyway";
+            if (ImGui::Button(delete_label, ImVec2(140.0f, 0.0f))) {
+                delete_selected_assets(!usages.empty());
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();

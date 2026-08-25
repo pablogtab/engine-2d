@@ -833,7 +833,9 @@ void InspectorPanel::draw_scene_settings(Scene& active_scene) {
     // Physics Section
     if (ImGui::CollapsingHeader("Physics", ImGuiTreeNodeFlags_DefaultOpen)) {
         bool physics_enabled = active_scene.settings().physics_enabled;
-        if (property_bool("Simulation Enabled", &physics_enabled) && m_command_history) {
+        // The Physics header already supplies the context. Keeping this label
+        // short prevents the value control from colliding in narrow inspectors.
+        if (property_bool("Enabled", &physics_enabled) && m_command_history) {
             SceneSettings before = active_scene.settings();
             SceneSettings after = before;
             after.physics_enabled = physics_enabled;

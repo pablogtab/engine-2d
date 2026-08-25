@@ -180,13 +180,24 @@ std::string MoveAssetCommand::get_description() const {
     return "Move Asset " + m_source.filename().string();
 }
 
-DeleteAssetCommand::DeleteAssetCommand(AssetDatabase* database, fs::path path)
-    : m_database(database), m_path(std::move(path)) {}
+DeleteAssetCommand::DeleteAssetCommand(AssetDatabase* database, fs::path path, bool allow_referenced)
+    : m_database(database), m_path(std::move(path)), m_allow_referenced(allow_referenced) {}
 
 bool DeleteAssetCommand::execute() {
     std::error_code error;
     if (!m_captured) {
         if (!fs::is_regular_file(m_path, error) || error) return false;
+        if (m_database && !m_allow_referenced) {
+            const AssetRecord* record = m_database->find_by_path(m_path);
+            if (record && !m_database->dependents(record->handle).empty()) {
+                ENGINE_LOG_WARN(
+                    "[ASSET] Refusing to delete referenced asset '{}'; {} dependent asset(s)",
+                    m_path.string(),
+                    m_database->dependents(record->handle).size()
+                );
+                return false;
+            }
+        }
         m_source_bytes = FileSystem::read_bytes(m_path.string());
         m_captured = true;
     }

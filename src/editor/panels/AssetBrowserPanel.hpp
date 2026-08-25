@@ -63,6 +63,11 @@ public:
     void set_on_material_preview_reset(std::function<void()> callback) {
         m_on_material_preview_reset = std::move(callback);
     }
+    void set_live_asset_usage_provider(
+        std::function<std::vector<std::string>(AssetHandle)> provider
+    ) {
+        m_live_asset_usage_provider = std::move(provider);
+    }
 
 private:
     void navigate_to(const std::filesystem::path& directory);
@@ -85,7 +90,8 @@ private:
         const std::vector<std::filesystem::path>& paths,
         const std::filesystem::path& directory
     );
-    void delete_selected_assets();
+    void delete_selected_assets(bool allow_referenced = false);
+    [[nodiscard]] std::vector<std::string> selected_asset_usages() const;
     void toggle_selected_favorites();
     void record_recent(AssetHandle handle);
     void load_preferences();
@@ -118,6 +124,7 @@ private:
     std::function<void(AssetHandle)> m_on_open_particle_effect;
     std::function<void(AssetHandle, std::shared_ptr<const Material>)> m_on_material_preview;
     std::function<void()> m_on_material_preview_reset;
+    std::function<std::vector<std::string>(AssetHandle)> m_live_asset_usage_provider;
     std::string m_selected_file{""};
     std::unordered_set<std::string> m_selected_files;
     std::string m_selection_anchor;

@@ -95,6 +95,24 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     m_recent_scenes_path = m_project_root / "ProjectSettings/EditorRecentScenes.json";
     m_autosave_preferences_path = m_project_root / "ProjectSettings/EditorAutosave.json";
     m_entity_state_preferences_path = m_project_root / "Library/Editor/EntityStates.json";
+    const std::filesystem::path editor_layout_path = m_project_root / "Library/Editor/imgui.ini";
+    std::error_code layout_error;
+    std::filesystem::create_directories(editor_layout_path.parent_path(), layout_error);
+    if (!layout_error && !std::filesystem::exists(editor_layout_path)) {
+        // Preserve the layout used by older builds that wrote imgui.ini next
+        // to the executable/current working directory.
+        const std::filesystem::path legacy_layout = std::filesystem::current_path() / "imgui.ini";
+        if (std::filesystem::exists(legacy_layout)) {
+            std::filesystem::copy_file(
+                legacy_layout,
+                editor_layout_path,
+                std::filesystem::copy_options::skip_existing,
+                layout_error
+            );
+            layout_error.clear();
+        }
+    }
+    m_imgui_ini_path = editor_layout_path.string();
     const std::string autosave_directory = (m_project_root / "Library/Autosaves").string();
     std::snprintf(m_autosave_directory, sizeof(m_autosave_directory), "%s", autosave_directory.c_str());
     m_autosave_recovery.set_directory(autosave_directory);
@@ -110,6 +128,20 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;     // Enable Docking
+    // Own persistence explicitly. dev.sh may terminate the process before
+    // Dear ImGui's delayed ini timer or normal shutdown gets a chance to run.
+    io.IniFilename = nullptr;
+    if (std::filesystem::exists(editor_layout_path) &&
+        std::filesystem::file_size(editor_layout_path, layout_error) > 0 && !layout_error) {
+        m_last_saved_imgui_ini = FileSystem::read_text(m_imgui_ini_path);
+        if (!m_last_saved_imgui_ini.empty()) {
+            ImGui::LoadIniSettingsFromMemory(
+                m_last_saved_imgui_ini.data(),
+                m_last_saved_imgui_ini.size()
+            );
+            ENGINE_LOG_INFO("[EDITOR] Loaded project layout from '{}'.", m_imgui_ini_path);
+        }
+    }
     static_cast<void>(initialize_editor_icons());
 
     // 2. Setup Dear ImGui Modern Theme
@@ -321,6 +353,7 @@ void EditorLayer::shutdown() {
     if (!m_initialized) return;
 
     save_entity_state_preferences();
+    persist_imgui_layout();
     ImGui_ImplSDLRenderer3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
@@ -758,6 +791,25 @@ void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
 
 }
 
+void EditorLayer::persist_imgui_layout() {
+    if (m_imgui_ini_path.empty() || ImGui::GetCurrentContext() == nullptr) return;
+
+    std::size_t size = 0;
+    const char* data = ImGui::SaveIniSettingsToMemory(&size);
+    if (!data || size == 0) return;
+    if (m_last_saved_imgui_ini.size() == size &&
+        std::equal(data, data + size, m_last_saved_imgui_ini.begin())) {
+        return;
+    }
+
+    const std::string current(data, size);
+    if (!FileSystem::write_text_atomically(m_imgui_ini_path, current)) {
+        ENGINE_LOG_ERROR("[EDITOR] Failed persisting project layout to '{}'.", m_imgui_ini_path);
+        return;
+    }
+    m_last_saved_imgui_ini = current;
+}
+
 void EditorLayer::create_new_scene(const std::string& name) {
     if (!m_scene_manager) return;
     auto new_scene = std::make_shared<Scene>(name);
@@ -1033,12 +1085,15 @@ void EditorLayer::render_dockspace() {
     ImGui::PopStyleVar(3);
 
     ImGuiID dockspace_id = ImGui::GetID("Engine2DDockSpace");
-    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
-
     if (!m_dockspace_initialized) {
         m_dockspace_initialized = true;
-        setup_default_dockspace_layout(dockspace_id);
+        // ImGui loads the project ini during the first NewFrame. Only build
+        // defaults when that file did not provide this dockspace.
+        if (ImGui::DockBuilderGetNode(dockspace_id) == nullptr) {
+            setup_default_dockspace_layout(dockspace_id);
+        }
     }
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
     ImGui::End();
 
@@ -1593,6 +1648,9 @@ void EditorLayer::end_frame(SDL_Renderer* renderer) {
     if (!m_initialized || !m_visible) return;
 
     ImGui::Render();
+    // Persist only when the serialized layout changed. This is independent of
+    // Dear ImGui's delayed dirty timer and therefore survives dev.sh SIGTERM.
+    persist_imgui_layout();
     ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
 }
 

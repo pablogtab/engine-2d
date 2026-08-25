@@ -8,10 +8,159 @@
 #include "../../scene/PrefabPropagation.hpp"
 #include "../../scene/PrefabOverrides.hpp"
 #include <filesystem>
+#include <queue>
 
 
 
 namespace Engine {
+
+SaveAsPrefabCommand::SaveAsPrefabCommand(
+    EntityManager* em,
+    EntityID root_entity,
+    std::string prefab_filepath,
+    SDL_Renderer* renderer,
+    const EditorEntityStateStore* state_store
+) : m_em(em),
+    m_root_entity(root_entity),
+    m_prefab_filepath(std::move(prefab_filepath)),
+    m_renderer(renderer) {
+    std::replace(m_prefab_filepath.begin(), m_prefab_filepath.end(), '\\', '/');
+    if (!m_em || !m_em->is_alive(m_root_entity) || m_prefab_filepath.empty()) {
+        m_valid = false;
+        return;
+    }
+    if (state_store && state_store->is_locked(m_root_entity)) {
+        ENGINE_LOG_WARN("[PREFAB] Cannot save locked entity #{} as prefab", m_root_entity);
+        m_valid = false;
+        return;
+    }
+    const std::string stem = std::filesystem::path(m_prefab_filepath).stem().string();
+    if (!stem.empty()) m_description = "Save Prefab '" + stem + "'";
+}
+
+bool SaveAsPrefabCommand::write_asset(const std::string& content) {
+    try {
+        const std::filesystem::path path(m_prefab_filepath);
+        if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path());
+    } catch (const std::exception& e) {
+        ENGINE_LOG_ERROR("[PREFAB] Failed creating directory for '{}': {}", m_prefab_filepath, e.what());
+        return false;
+    }
+    if (!FileSystem::write_text_atomically(m_prefab_filepath, content)) return false;
+    if (!AssetDatabase::get().import_asset(m_prefab_filepath).has_value()) return false;
+    return true;
+}
+
+bool SaveAsPrefabCommand::restore_previous_asset() {
+    if (m_previous_file_existed) {
+        return write_asset(m_previous_file_content);
+    }
+
+    std::error_code error;
+    const bool removed = std::filesystem::remove(m_prefab_filepath, error);
+    if (error || (!removed && std::filesystem::exists(m_prefab_filepath))) return false;
+    static_cast<void>(AssetDatabase::get().remove_asset(m_prefab_filepath));
+    static_cast<void>(AssetDatabase::get().discard_missing_asset_record(m_prefab_filepath));
+    static_cast<void>(AssetDatabase::get().rescan());
+    return true;
+}
+
+void SaveAsPrefabCommand::apply_instance_links() {
+    for (std::size_t index = 0; index < m_previous_links.size(); ++index) {
+        const EntityID entity = m_previous_links[index].entity;
+        if (!m_em->is_alive(entity)) continue;
+
+        const EntityID source_local_id = static_cast<EntityID>(index + 1);
+        if (entity != m_root_entity && m_em->has_component<PrefabLinkComponent>(entity) &&
+            m_em->get_component<PrefabLinkComponent>(entity).is_root_instance) {
+            // A nested prefab root keeps its own asset identity.
+            continue;
+        }
+
+        const PrefabLinkComponent link{
+            m_prefab_filepath,
+            "",
+            source_local_id,
+            entity == m_root_entity
+        };
+        if (m_em->has_component<PrefabLinkComponent>(entity)) {
+            m_em->get_component<PrefabLinkComponent>(entity) = link;
+        } else {
+            m_em->add_component<PrefabLinkComponent>(entity, link);
+        }
+    }
+}
+
+void SaveAsPrefabCommand::restore_previous_links() {
+    for (const PreviousLinkState& state : m_previous_links) {
+        if (!m_em->is_alive(state.entity)) continue;
+        if (state.link.has_value()) {
+            if (m_em->has_component<PrefabLinkComponent>(state.entity)) {
+                m_em->get_component<PrefabLinkComponent>(state.entity) = *state.link;
+            } else {
+                m_em->add_component<PrefabLinkComponent>(state.entity, *state.link);
+            }
+        } else if (m_em->has_component<PrefabLinkComponent>(state.entity)) {
+            m_em->remove_component<PrefabLinkComponent>(state.entity);
+        }
+    }
+}
+
+bool SaveAsPrefabCommand::execute() {
+    if (!m_valid || !m_em || !m_em->is_alive(m_root_entity)) return false;
+
+    if (!m_initialized) {
+        ComponentSerializationContext context{
+            .renderer = m_renderer,
+            .asset_manager = &AssetManager::get(),
+            .asset_database = &AssetDatabase::get()
+        };
+        m_prefab_json = EntitySubtreeArchive::capture_to_json(*m_em, m_root_entity, context);
+        if (m_prefab_json.empty()) return false;
+
+        std::error_code error;
+        m_previous_file_existed = std::filesystem::is_regular_file(m_prefab_filepath, error) && !error;
+        if (m_previous_file_existed) {
+            m_previous_file_content = FileSystem::read_text(m_prefab_filepath);
+            if (m_previous_file_content.empty()) return false;
+        }
+
+        std::queue<EntityID> pending;
+        pending.push(m_root_entity);
+        while (!pending.empty()) {
+            const EntityID entity = pending.front();
+            pending.pop();
+            if (!m_em->is_alive(entity)) continue;
+            PreviousLinkState state{.entity = entity};
+            if (m_em->has_component<PrefabLinkComponent>(entity)) {
+                state.link = m_em->get_component<PrefabLinkComponent>(entity);
+            }
+            m_previous_links.push_back(std::move(state));
+            if (m_em->has_component<HierarchyComponent>(entity)) {
+                for (const EntityID child : m_em->get_component<HierarchyComponent>(entity).children) {
+                    if (m_em->is_alive(child)) pending.push(child);
+                }
+            }
+        }
+        m_initialized = true;
+    }
+
+    if (!write_asset(m_prefab_json)) {
+        static_cast<void>(restore_previous_asset());
+        ENGINE_LOG_ERROR("[PREFAB] Failed saving prefab '{}'", m_prefab_filepath);
+        return false;
+    }
+    apply_instance_links();
+    ENGINE_LOG_INFO("[PREFAB] Saved '{}' and linked source entity #{} as its root instance", m_prefab_filepath, m_root_entity);
+    return true;
+}
+
+bool SaveAsPrefabCommand::undo() {
+    if (!m_valid || !m_initialized || !m_em) return false;
+    if (!restore_previous_asset()) return false;
+    restore_previous_links();
+    return true;
+}
 
 InstantiatePrefabCommand::InstantiatePrefabCommand(
     EntityManager* em,

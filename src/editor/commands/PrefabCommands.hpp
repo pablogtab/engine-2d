@@ -18,6 +18,47 @@ namespace Engine {
 class EntityManager;
 class EditorEntityStateStore;
 
+// Creates/overwrites a prefab asset from an authored scene subtree and turns
+// that same subtree into the first live instance of the new asset.
+class SaveAsPrefabCommand final : public IEditorCommand {
+public:
+    SaveAsPrefabCommand(
+        EntityManager* em,
+        EntityID root_entity,
+        std::string prefab_filepath,
+        SDL_Renderer* renderer = nullptr,
+        const EditorEntityStateStore* state_store = nullptr
+    );
+
+    bool execute() override;
+    bool undo() override;
+    [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] bool is_valid() const { return m_valid; }
+
+private:
+    struct PreviousLinkState {
+        EntityID entity{0};
+        std::optional<PrefabLinkComponent> link;
+    };
+
+    bool write_asset(const std::string& content);
+    bool restore_previous_asset();
+    void apply_instance_links();
+    void restore_previous_links();
+
+    EntityManager* m_em{nullptr};
+    EntityID m_root_entity{0};
+    std::string m_prefab_filepath;
+    SDL_Renderer* m_renderer{nullptr};
+    std::string m_description{"Save As Prefab"};
+    bool m_valid{true};
+    bool m_initialized{false};
+    bool m_previous_file_existed{false};
+    std::string m_previous_file_content;
+    std::string m_prefab_json;
+    std::vector<PreviousLinkState> m_previous_links;
+};
+
 class InstantiatePrefabCommand : public IEditorCommand {
 public:
     InstantiatePrefabCommand(
@@ -235,4 +276,3 @@ private:
 };
 
 } // namespace Engine
-

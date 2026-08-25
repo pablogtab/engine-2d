@@ -31,10 +31,28 @@
 #include "../renderer/material/MaterialAsset.hpp"
 #include <algorithm>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 
 namespace Engine {
 
 namespace {
+
+bool json_references_asset_handle(const nlohmann::json& value, const std::string& target) {
+    if (value.is_array()) {
+        return std::any_of(value.begin(), value.end(), [&](const auto& child) {
+            return json_references_asset_handle(child, target);
+        });
+    }
+    if (!value.is_object()) return false;
+    for (const auto& [key, child] : value.items()) {
+        if (key != "handle" && key.size() > 7 && key.ends_with("_handle") &&
+            child.is_string() && child.get_ref<const std::string&>() == target) {
+            return true;
+        }
+        if (json_references_asset_handle(child, target)) return true;
+    }
+    return false;
+}
 
 SafeAreaInsets map_safe_area_to_reference(
     const DisplayState& state,
@@ -278,6 +296,32 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     asset_browser->set_renderer(m_window->get_sdl_renderer());
     asset_browser->set_material_backend(m_renderer->get_material_backend());
     asset_browser->set_command_history(command_history);
+    asset_browser->set_live_asset_usage_provider([this](AssetHandle handle) {
+        std::vector<std::string> usages;
+        Scene* scene = m_scene_manager.get_active_scene();
+        if (!scene || !handle.is_valid()) return usages;
+
+        SceneSerializer serializer(scene, m_window->get_sdl_renderer());
+        const nlohmann::json document = nlohmann::json::parse(
+            serializer.serialize_to_string(), nullptr, false
+        );
+        if (document.is_discarded() || !document.contains("entities") ||
+            !document["entities"].is_array()) {
+            return usages;
+        }
+
+        const std::string target = handle.to_string();
+        for (const auto& entity : document["entities"]) {
+            if (!entity.is_object() || !json_references_asset_handle(entity, target)) continue;
+            const EntityID id = entity.value("id", EntityID{0});
+            const std::string tag = entity.value("tag", std::string{"Entity"});
+            usages.push_back(
+                "Open scene '" + scene->get_name() + "' / entity '" + tag +
+                "' (#" + std::to_string(id) + ")"
+            );
+        }
+        return usages;
+    });
     asset_browser->set_on_material_preview([this](
         AssetHandle handle, std::shared_ptr<const Material> material
     ) {

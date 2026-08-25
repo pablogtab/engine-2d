@@ -113,7 +113,20 @@ int main() {
     require(read(renamed) == after_modify, "redo modify restores new content");
     require(after_callbacks == 2, "redo modify reapplies after-state callback");
 
-    history.execute_command(std::make_unique<Engine::DeleteAssetCommand>(&database, renamed));
+    const fs::path scene_user = root / "Assets/scenes/UsesRenamed.data";
+    {
+        std::ofstream stream(scene_user);
+        stream << "{\"scene_handle\":\"" << handle.to_string() << "\"}\n";
+    }
+    require(database.import_asset(scene_user).has_value(), "dependent asset imports");
+    require(database.dependents(handle).size() == 1, "delete preflight sees dependent asset");
+    require(
+        !history.execute_command(std::make_unique<Engine::DeleteAssetCommand>(&database, renamed)),
+        "safe delete refuses a referenced asset"
+    );
+    require(fs::exists(renamed), "refused delete preserves source asset");
+
+    history.execute_command(std::make_unique<Engine::DeleteAssetCommand>(&database, renamed, true));
     require(!fs::exists(renamed), "delete removes source asset");
     history.undo();
     require(fs::exists(renamed), "undo delete restores source asset");

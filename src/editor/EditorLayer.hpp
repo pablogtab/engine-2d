@@ -124,6 +124,7 @@ public:
 private:
     void render_main_menu_bar();
     void setup_default_dockspace_layout(uint32_t dockspace_id);
+    void persist_imgui_layout();
     void update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch);
     void update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store, std::shared_ptr<EditorSelection> sel = nullptr);
     void render_prefab_stage_modals();
@@ -157,6 +158,8 @@ private:
     std::filesystem::path m_recent_scenes_path{"ProjectSettings/EditorRecentScenes.json"};
     std::filesystem::path m_autosave_preferences_path{"ProjectSettings/EditorAutosave.json"};
     std::filesystem::path m_entity_state_preferences_path{"Library/Editor/EntityStates.json"};
+    std::string m_imgui_ini_path;
+    std::string m_last_saved_imgui_ini;
     std::vector<AutosaveRecord> m_pending_recoveries;
     const Scene* m_last_active_scene{nullptr};
 

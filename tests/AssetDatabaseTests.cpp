@@ -119,12 +119,31 @@ int main() {
     require(dependency_database.dependencies(*shader).size() == 1, "shader exposes source dependency");
     require(dependency_database.dependents(source_handle).size() == 1, "source exposes descriptor dependent");
 
+    write_file(dependency_root / "assets/prefabs/MaterialUser.prefab",
+        "{\"entities\":[{\"sprite\":{\"material_handle\":\"" + material->to_string() + "\"}}]}");
+    const auto dependent_prefab = dependency_database.import_asset("assets/prefabs/MaterialUser.prefab");
+    require(dependent_prefab.has_value(), "prefab imports for generic dependency discovery");
+    write_file(dependency_root / "assets/scenes/PrefabUser.scene",
+        "{\"entities\":[{\"prefab_link\":{\"asset_handle\":\"" + dependent_prefab->to_string() + "\"}}]}");
+    const auto scene = dependency_database.import_asset("assets/scenes/PrefabUser.scene");
+    require(scene.has_value(), "scene imports for generic dependency discovery");
+    require(dependency_database.dependencies(*dependent_prefab).size() == 1,
+        "prefab discovers nested component asset handles");
+    require(dependency_database.dependencies(*scene).size() == 1,
+        "scene discovers prefab link asset handles");
+    require(dependency_database.dependents(*dependent_prefab).size() == 1,
+        "prefab reports the scene that uses it");
+
     fs::remove(dependency_root / "assets/shaders/Test.msl", error);
     [[maybe_unused]] const auto missing_dependency_scan = dependency_database.rescan();
     require(dependency_database.find(*shader)->status == Engine::AssetStatus::MissingDependency,
         "missing variant source invalidates shader descriptor");
     require(dependency_database.find(*material)->status == Engine::AssetStatus::MissingDependency,
         "missing shader invalidates material");
+    require(dependency_database.find(*dependent_prefab)->status == Engine::AssetStatus::MissingDependency,
+        "missing material invalidates referencing prefab");
+    require(dependency_database.find(*scene)->status == Engine::AssetStatus::MissingDependency,
+        "missing prefab invalidates referencing scene");
 
     write_file(dependency_root / "assets/shaders/Test.msl", "fragment float4 main0() { return float4(1); }");
     [[maybe_unused]] const auto repaired_dependency_scan = dependency_database.rescan();
@@ -132,6 +151,10 @@ int main() {
         "restored variant source repairs shader descriptor");
     require(dependency_database.find(*material)->status == Engine::AssetStatus::Ready,
         "restored shader repairs material");
+    require(dependency_database.find(*dependent_prefab)->status == Engine::AssetStatus::Ready,
+        "restored material repairs prefab");
+    require(dependency_database.find(*scene)->status == Engine::AssetStatus::Ready,
+        "restored prefab repairs scene");
     fs::remove_all(dependency_root, error);
     return EXIT_SUCCESS;
 }
