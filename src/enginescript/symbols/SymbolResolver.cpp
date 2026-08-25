@@ -258,7 +258,22 @@ void SymbolResolver::resolve_imports(const std::shared_ptr<ModuleNode>& module) 
 
             auto target_scope = get_module_scope(*target_path_opt);
             if (!target_scope) {
-                // Target module might not be compiled or missing
+                m_diagnostics.report_error(
+                    "E2012",
+                    std::format("Import module '{}' was not found", imp->module_path),
+                    imp->module_path_span
+                );
+            }
+
+            if (!imp->is_wildcard && imp->items.empty()) {
+                m_diagnostics.report_error(
+                    "E2013",
+                    "Import list cannot be empty; import at least one exported symbol or remove the declaration",
+                    imp->specifier_span
+                );
+            }
+
+            if (!target_scope) {
                 continue;
             }
 

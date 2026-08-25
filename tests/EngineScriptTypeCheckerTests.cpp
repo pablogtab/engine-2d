@@ -187,6 +187,26 @@ int main() {
     assert(check6.check_module(m6));
     assert(!particle_diags.has_errors());
 
+    // Test 7: Value constructors return their declared vector/color type.
+    DiagnosticEngine value_constructor_diags;
+    const std::string value_constructor_code = R"(
+        function values(): Void {
+            let v2: Vec2 = Vec2(-58.0, 28.0);
+            let v3: Vec3 = Vec3(1.0, 2.0, 3.0);
+            let v4: Vec4 = Vec4(1.0, 2.0, 3.0, 4.0);
+            let color: Color = Color(1.0, 0.5, 0.25, 1.0);
+        }
+    )";
+    const FileId f7 = sm.register_source("Source/ValueConstructors.e2s", value_constructor_code);
+    Lexer l7(f7, value_constructor_code, value_constructor_diags);
+    Parser p7(f7, "Source/ValueConstructors.e2s", l7.tokenize_all(), value_constructor_diags);
+    const auto m7 = p7.parse_module();
+    SymbolResolver res7(sm, value_constructor_diags);
+    res7.resolve_module(m7);
+    TypeChecker check7(res7, value_constructor_diags);
+    assert(check7.check_module(m7));
+    assert(!value_constructor_diags.has_errors());
+
     std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;
 }

@@ -238,6 +238,58 @@ void register_tag(ComponentRegistry& registry) {
     });
 }
 
+void register_gameplay_tags(ComponentRegistry& registry) {
+    register_or_throw<GameplayTagsComponent>(registry, {
+        .display_name = "Gameplay Tags",
+        .serialized_key = "gameplay_tags",
+        .serialize = [](const GameplayTagsComponent& component, const ComponentSerializationContext&) {
+            std::vector<std::string> tags = component.tags;
+            std::sort(tags.begin(), tags.end());
+            return Json{{"tags", std::move(tags)}};
+        },
+        .deserialize = [](
+            GameplayTagsComponent& component,
+            const Json& value,
+            const ComponentSerializationContext&,
+            std::string& error
+        ) {
+            if (!value.is_object() || value.size() != 1 || !value.contains("tags") ||
+                !value.at("tags").is_array() || value.at("tags").size() > 32) {
+                error = "Gameplay Tags must contain a tags array with at most 32 entries";
+                return false;
+            }
+            component.tags.clear();
+            for (const Json& item : value.at("tags")) {
+                if (!item.is_string() || !is_valid_gameplay_tag(item.get_ref<const std::string&>())) {
+                    error = "Gameplay Tags require lowercase dotted identifiers up to 64 characters";
+                    return false;
+                }
+                component.tags.push_back(item.get<std::string>());
+            }
+            std::sort(component.tags.begin(), component.tags.end());
+            if (std::adjacent_find(component.tags.begin(), component.tags.end()) != component.tags.end()) {
+                error = "Gameplay Tags cannot contain duplicates";
+                return false;
+            }
+            return true;
+        },
+        .validate = [](const GameplayTagsComponent& component) -> std::optional<std::string> {
+            if (component.tags.size() > 32) return "Gameplay Tags supports at most 32 entries";
+            std::vector<std::string> unique = component.tags;
+            for (const std::string& tag : unique) {
+                if (!is_valid_gameplay_tag(tag)) {
+                    return "Gameplay Tags require lowercase dotted identifiers up to 64 characters";
+                }
+            }
+            std::sort(unique.begin(), unique.end());
+            if (std::adjacent_find(unique.begin(), unique.end()) != unique.end()) {
+                return "Gameplay Tags cannot contain duplicates";
+            }
+            return std::nullopt;
+        }
+    });
+}
+
 void register_group(ComponentRegistry& registry) {
     register_or_throw<GroupComponent>(registry, {
         .display_name = "Group",
@@ -1054,6 +1106,7 @@ void register_particle_emitter(ComponentRegistry& registry) {
 
 void register_additional_builtin_components(ComponentRegistry& registry) {
     register_tag(registry);
+    register_gameplay_tags(registry);
     register_group(registry);
     register_render_effect(registry);
     register_light(registry);

@@ -73,6 +73,9 @@ int main() {
             @expose({ min: 0.0, max: 1000.0 })
             walkSpeed: Float = 220.0;
 
+            @expose
+            offset: Vec2 = Vec2(-58.0, 28.0);
+
             override update(deltaTime: Float): Void {
                 let axis: Float = input.axis("Horizontal");
                 body.velocity.x = axis * walkSpeed;
@@ -118,6 +121,8 @@ int main() {
     assert(!output.source_content.empty());
     assert(output.header_content.find("class PlatformerPlayer") != std::string::npos);
     assert(output.header_content.find("float walkSpeed") != std::string::npos);
+    assert(output.header_content.find("glm::vec2 offset") != std::string::npos);
+    assert(output.source_content.find("glm::vec2((-58.0f), 28.0f)") != std::string::npos);
     assert(output.source_content.find("create_PlatformerPlayer") != std::string::npos);
     assert(output.source_content.find("EngineScript::NativeBehaviour* create_PlatformerPlayer") != std::string::npos);
     assert(entrypoint.find("engine_script_module_exports") != std::string::npos);

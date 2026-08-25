@@ -195,6 +195,7 @@ std::shared_ptr<ImportDecl> Parser::parse_import() {
     imp->span = imp_tok.span;
 
     if (match(TokenType::OpenBrace)) {
+        const Token open_brace = previous();
         while (!check(TokenType::CloseBrace) && !is_at_end()) {
             Token item_tok = consume(TokenType::Identifier, "E1021", "Expected imported item name");
             ImportDecl::ImportItem item;
@@ -208,9 +209,11 @@ std::shared_ptr<ImportDecl> Parser::parse_import() {
             imp->items.push_back(item);
             if (!match(TokenType::Comma)) break;
         }
-        consume(TokenType::CloseBrace, "E1023", "Expected '}' in import declaration");
+        const Token close_brace = consume(TokenType::CloseBrace, "E1023", "Expected '}' in import declaration");
+        imp->specifier_span = open_brace.span.merge(close_brace.span);
     } else if (match(TokenType::Star)) {
         imp->is_wildcard = true;
+        imp->specifier_span = previous().span;
         consume(TokenType::As, "E1024", "Expected 'as' after '*'");
         Token alias_tok = consume(TokenType::Identifier, "E1025", "Expected alias name");
         imp->wildcard_alias = alias_tok.text;
@@ -219,12 +222,14 @@ std::shared_ptr<ImportDecl> Parser::parse_import() {
         ImportDecl::ImportItem item;
         item.name = default_tok.text;
         item.span = default_tok.span;
+        imp->specifier_span = default_tok.span;
         imp->items.push_back(item);
     }
 
     consume(TokenType::From, "E1027", "Expected 'from' after import specifiers");
     Token path_tok = consume(TokenType::StringLiteral, "E1028", "Expected module path string");
     imp->module_path = path_tok.string_value;
+    imp->module_path_span = path_tok.span;
     match(TokenType::Semicolon);
 
     imp->span = imp->span.merge(path_tok.span);
@@ -975,6 +980,37 @@ std::shared_ptr<Expression> Parser::parse_primary() {
     return nullptr;
 }
 
+bool Parser::looks_like_generic_call() const {
+    if (m_current >= m_tokens.size() || !m_tokens[m_current].is(TokenType::Less)) return false;
+
+    std::size_t cursor = m_current + 1;
+    const auto parse_type = [this](auto&& self, std::size_t& index) -> bool {
+        if (index >= m_tokens.size() || !m_tokens[index].is(TokenType::Identifier)) return false;
+        ++index;
+        if (index < m_tokens.size() && m_tokens[index].is(TokenType::Less)) {
+            ++index;
+            if (!self(self, index)) return false;
+            while (index < m_tokens.size() && m_tokens[index].is(TokenType::Comma)) {
+                ++index;
+                if (!self(self, index)) return false;
+            }
+            if (index >= m_tokens.size() || !m_tokens[index].is(TokenType::Greater)) return false;
+            ++index;
+        }
+        if (index < m_tokens.size() && m_tokens[index].is(TokenType::Question)) ++index;
+        return true;
+    };
+
+    if (!parse_type(parse_type, cursor)) return false;
+    while (cursor < m_tokens.size() && m_tokens[cursor].is(TokenType::Comma)) {
+        ++cursor;
+        if (!parse_type(parse_type, cursor)) return false;
+    }
+    return cursor + 1 < m_tokens.size() &&
+        m_tokens[cursor].is(TokenType::Greater) &&
+        m_tokens[cursor + 1].is(TokenType::OpenParen);
+}
+
 std::shared_ptr<Expression> Parser::parse_postfix(std::shared_ptr<Expression> expr) {
     if (!expr) return nullptr;
 
@@ -1008,20 +1044,17 @@ std::shared_ptr<Expression> Parser::parse_postfix(std::shared_ptr<Expression> ex
             Token close_tok = consume(TokenType::CloseParen, "E1252", "Expected ')'");
             call->span = call->span.merge(close_tok.span);
             expr = call;
-        } else if (check(TokenType::Less) && dynamic_cast<MemberAccessExpr*>(expr.get()) != nullptr) {
+        } else if (check(TokenType::Less) && dynamic_cast<MemberAccessExpr*>(expr.get()) != nullptr &&
+                   looks_like_generic_call()) {
             // Generic call arguments are only unambiguous in postfix position
             // when immediately followed by a call, e.g. assets.load<Texture>(path).
-            const size_t saved = m_current;
             advance();
             std::vector<TypeAnnotation> type_arguments;
             while (!check(TokenType::Greater) && !is_at_end()) {
                 type_arguments.push_back(parse_type_annotation());
                 if (!match(TokenType::Comma)) break;
             }
-            if (!match(TokenType::Greater) || !check(TokenType::OpenParen)) {
-                m_current = saved;
-                break;
-            }
+            consume(TokenType::Greater, "E1041", "Expected '>' to close generic call arguments");
             advance();
             auto call = std::make_shared<CallExpr>();
             call->callee = expr;

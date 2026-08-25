@@ -385,6 +385,9 @@ export class ServiceUser extends Behaviour {
     @expose
     received: String = "";
 
+    @expose
+    tagChecks: Int = 0;
+
     override on_start(): Void {
         audio.setMasterVolume(0.65);
         audio.playSound("Assets/Audio/start.wav", 0.5, 1.25);
@@ -409,6 +412,11 @@ export class ServiceUser extends Behaviour {
         let status: Entity = entities.findByName("Status");
         ui.setText(status, "Ready " + toString(points[0]));
         ui.setVisible(status, true);
+        if (entities.addGameplayTag(status, "ui.status")) tagChecks = tagChecks + 1;
+        if (entities.hasGameplayTag(status, "ui.status")) tagChecks = tagChecks + 1;
+        let tagged: Entity = entities.findByGameplayTag("ui.status");
+        if (entities.exists(tagged)) tagChecks = tagChecks + 1;
+        if (entities.removeGameplayTag(status, "ui.status")) tagChecks = tagChecks + 1;
         instantiate("Transient");
     }
 
@@ -518,6 +526,8 @@ export class ServiceUser extends Behaviour {
     assert(loaded_scene == "Assets/Scenes/Level2.scene");
     assert(display_changes == 2);
     assert(entity_manager.get_component<UITextComponent>(status).text == "Ready 1");
+    assert(entity_manager.has_component<GameplayTagsComponent>(status));
+    assert(entity_manager.get_component<GameplayTagsComponent>(status).tags.empty());
     bool transient_exists = false;
     entity_manager.for_each<TagComponent>([&](EntityID, const TagComponent& tag) {
         transient_exists = transient_exists || tag.tag == "Transient";
@@ -537,6 +547,11 @@ export class ServiceUser extends Behaviour {
     });
     assert(received != updated_fields.end());
     assert(std::get<std::string>(received->value) == "AssetLoaded:Assets/scripts/ServiceUser.e2s");
+    const auto tag_checks = std::find_if(updated_fields.begin(), updated_fields.end(), [](const ScriptPublicField& field) {
+        return field.name == "tagChecks";
+    });
+    assert(tag_checks != updated_fields.end());
+    assert(std::get<double>(tag_checks->value) == 4.0);
 
     runtime.shutdown();
     assert(stopped_music == 1);

@@ -384,7 +384,12 @@ int main() {
             "contentChanges":[{"text":"import {} from \"./Sh\";"}]
         }
     })";
-    static_cast<void>(server.handle_message(import_path_change));
+    json empty_import_diagnostics = json::parse(server.handle_message(import_path_change));
+    bool diagnosed_empty_import = false;
+    for (const auto& diagnostic : empty_import_diagnostics["params"]["diagnostics"]) {
+        diagnosed_empty_import |= diagnostic.value("code", "") == "E2013";
+    }
+    assert(diagnosed_empty_import);
     json import_path_completion = json::parse(server.handle_message(R"({
         "jsonrpc":"2.0", "id":12, "method":"textDocument/completion",
         "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"position":{"line":0,"character":20}}
@@ -397,13 +402,26 @@ int main() {
     }
     assert(has_shared_module && !leaked_global_type_in_path);
 
+    std::string missing_import_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":11},
+            "contentChanges":[{"text":"import {} from \"./PlatformerPlaye\";"}]
+        }
+    })";
+    json missing_import_diagnostics = json::parse(server.handle_message(missing_import_change));
+    assert(missing_import_diagnostics["params"]["diagnostics"].size() == 2);
+    assert(missing_import_diagnostics["params"]["diagnostics"][0]["code"] == "E2012");
+    assert(missing_import_diagnostics["params"]["diagnostics"][1]["code"] == "E2013");
+
     // Completion between braces is constrained to exports of the selected
     // module and never proposes catalog types from unrelated namespaces.
     std::string import_names_change = R"({
         "jsonrpc":"2.0",
         "method":"textDocument/didChange",
         "params":{
-            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":11},
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":12},
             "contentChanges":[{"text":"import { } from \"./Shared\";"}]
         }
     })";
@@ -419,6 +437,30 @@ int main() {
         leaked_global_type_in_names |= item["label"] == "PlayerPrefs";
     }
     assert(has_shared_export && !leaked_global_type_in_names);
+
+    // Entities completion exposes the semantic Gameplay Tags contract.
+    const std::string entities_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":13},
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  constructor(@inject private entities: Entities) {}\n  override update(deltaTime: Float): Void {\n    entities.\n  }\n}"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(entities_change));
+    const json entities_completion = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":14, "method":"textDocument/completion",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"position":{"line":4,"character":13}}
+    })"));
+    bool has_find_gameplay_tag = false;
+    bool has_has_gameplay_tag = false;
+    bool has_gameplay_tags = false;
+    for (const auto& item : entities_completion["result"]) {
+        has_find_gameplay_tag |= item["label"] == "findByGameplayTag";
+        has_has_gameplay_tag |= item["label"] == "hasGameplayTag";
+        has_gameplay_tags |= item["label"] == "gameplayTags";
+    }
+    assert(has_find_gameplay_tag && has_has_gameplay_tag && has_gameplay_tags);
 
 
     // A one-character typo before a member access offers a replacement for the typed field.

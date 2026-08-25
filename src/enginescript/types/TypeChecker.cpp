@@ -767,6 +767,29 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Global async functions
         if (auto id = dynamic_cast<IdentifierExpr*>(call->callee.get())) {
+            const std::size_t vector_width = id->name == "Vec2" ? 2 :
+                (id->name == "Vec3" ? 3 : ((id->name == "Vec4" || id->name == "Color") ? 4 : 0));
+            if (vector_width != 0) {
+                if (call->arguments.size() != vector_width) {
+                    m_diagnostics.report_error(
+                        "E3058",
+                        std::format("{} expects {} numeric arguments, got {}", id->name, vector_width, call->arguments.size()),
+                        call->span
+                    );
+                }
+                for (const auto& argument : call->arguments) {
+                    const auto argument_type = get_type_of_node(argument.get());
+                    if (argument_type && !argument_type->is_numeric()) {
+                        m_diagnostics.report_error(
+                            "E3059",
+                            std::format("{} constructor arguments must be numeric, got '{}'", id->name, argument_type->to_string()),
+                            argument->span
+                        );
+                    }
+                }
+                m_node_types[call] = callee_t;
+                return callee_t;
+            }
             if (callee_t && callee_t->name == "Log") {
                 if (call->arguments.size() != 1) {
                     m_diagnostics.report_error(

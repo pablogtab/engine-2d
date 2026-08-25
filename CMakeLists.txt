@@ -137,6 +137,7 @@ set(SOURCES
     src/editor/inspector/ScriptInspectorDrawer.cpp
     src/editor/inspector/RigidBodyInspectorDrawer.cpp
     src/editor/inspector/ColliderInspectorDrawer.cpp
+    src/editor/inspector/GameplayTagsInspectorDrawer.cpp
     src/editor/inspector/LightingInspectorDrawer.cpp
     src/editor/inspector/UIInspectorDrawer.cpp
     src/editor/inspector/TilemapInspectorDrawer.cpp

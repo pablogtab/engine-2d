@@ -55,6 +55,19 @@ int main() {
     assert(catalog.find_available_property("ParticleEmitter2D", "effectHandle") != nullptr);
     const ApiPropertyDescriptor* particle_scale = catalog.find_available_property("ParticleEmitOptions", "scale");
     assert(particle_scale != nullptr && particle_scale->writable);
+    const ApiMethodDescriptor* find_gameplay_tag =
+        catalog.find_available_method("Entities", "findByGameplayTag");
+    assert(find_gameplay_tag != nullptr);
+    assert(find_gameplay_tag->return_type == "Entity");
+    assert(find_gameplay_tag->parameters.size() == 1);
+    assert(find_gameplay_tag->parameters[0].type == "String");
+    assert(catalog.find_available_method("Entities", "findAllByGameplayTag") != nullptr);
+    assert(catalog.find_available_method("Entities", "hasGameplayTag") != nullptr);
+    assert(catalog.find_available_method("Entities", "addGameplayTag") != nullptr);
+    assert(catalog.find_available_method("Entities", "removeGameplayTag") != nullptr);
+    const ApiMethodDescriptor* gameplay_tags = catalog.find_available_method("Entities", "gameplayTags");
+    assert(gameplay_tags != nullptr);
+    assert(gameplay_tags->return_type == "Array<String>");
 
     std::cout << "[PASS] EngineScriptApiCatalogTests passed!\n";
     return 0;

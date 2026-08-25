@@ -75,7 +75,27 @@ int main() {
     auto mod3 = p3.parse_module();
     assert(!diags.has_errors());
 
-    // Test 4: Parser recovery on malformed syntax
+    // Test 4: Relational '<' after member access must not be speculatively
+    // diagnosed as a malformed generic call.
+    DiagnosticEngine comparison_diags;
+    const std::string comparison_code = R"(
+        let horizontal = difference.x < -amount;
+        let vertical = difference.y < -amount;
+        let threshold = difference.x < -1.0;
+        let texture = assets.load<Array<Texture>>("Assets/Textures/pet.png");
+    )";
+    Lexer comparison_lexer(4, comparison_code, comparison_diags);
+    Parser comparison_parser(
+        4,
+        "ComparisonAndGenericCall.e2s",
+        comparison_lexer.tokenize_all(),
+        comparison_diags
+    );
+    const auto comparison_module = comparison_parser.parse_module();
+    assert(comparison_module != nullptr);
+    assert(!comparison_diags.has_errors());
+
+    // Test 5: Parser recovery on malformed syntax
     DiagnosticEngine err_diags;
     std::string bad_code = R"(
         class Broken {
@@ -83,8 +103,8 @@ int main() {
             validMethod(): Void {}
         }
     )";
-    Lexer l4(4, bad_code, err_diags);
-    Parser p4(4, "Broken.e2s", l4.tokenize_all(), err_diags);
+    Lexer l4(5, bad_code, err_diags);
+    Parser p4(5, "Broken.e2s", l4.tokenize_all(), err_diags);
     auto mod4 = p4.parse_module();
     assert(err_diags.has_errors());
     assert(mod4 != nullptr); // Parser recovered and produced AST

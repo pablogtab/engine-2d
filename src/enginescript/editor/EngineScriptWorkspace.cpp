@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <unordered_set>
 
 namespace EngineScript {
 
@@ -266,6 +267,14 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     }
 
     const bool has_parse_errors = m_diagnostics.has_errors();
+    std::unordered_set<FileId> files_with_parse_errors;
+    if (has_parse_errors) {
+        for (const Diagnostic& diagnostic : m_diagnostics.get_diagnostics()) {
+            if (diagnostic.is_error() && diagnostic.span.is_valid()) {
+                files_with_parse_errors.insert(diagnostic.span.file_id);
+            }
+        }
+    }
 
     // 2. Check for dependency cycles
     std::vector<std::string> cycle;
@@ -304,6 +313,19 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     checker.check_all(ast_modules);
     for (const InferredTypeInfo& inferred : checker.inferred_types()) {
         m_inferred_types.push_back({inferred.span, inferred.type_name});
+    }
+
+    // A syntax error in one open document must not hide semantic diagnostics
+    // from the rest of the workspace. Keep diagnostics attached to files that
+    // parsed successfully, while dropping unanchored errors and cascades from
+    // the files whose recovered AST may be incomplete.
+    if (has_parse_errors) {
+        for (const Diagnostic& diagnostic : speculative_diagnostics.get_diagnostics()) {
+            if (diagnostic.span.is_valid()
+                && !files_with_parse_errors.contains(diagnostic.span.file_id)) {
+                m_diagnostics.report(diagnostic);
+            }
+        }
     }
 
     // Complete the syntactic symbol index with types inferred by the checker.

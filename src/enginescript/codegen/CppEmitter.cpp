@@ -633,6 +633,12 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
         if (call->callee_name == "__array_literal") {
             std::string type = call->result_type ? type_to_cpp(call->result_type.get()) : "std::vector<int>";
             s = type + "{";
+        } else if (call->callee_name == "Vec2") {
+            s = "glm::vec2(";
+        } else if (call->callee_name == "Vec3") {
+            s = "glm::vec3(";
+        } else if (call->callee_name == "Vec4" || call->callee_name == "Color") {
+            s = "glm::vec4(";
         } else if (call->callee_name == "toString") {
             s = "EngineScript::toString(";
         } else if (call->callee_name == "delay" || call->callee_name == "realDelay" ||

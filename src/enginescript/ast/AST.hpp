@@ -210,7 +210,9 @@ struct ImportDecl : public Declaration {
     std::vector<ImportItem> items;
     bool is_wildcard = false;
     std::string wildcard_alias;
+    SourceSpan specifier_span;
     std::string module_path;
+    SourceSpan module_path_span;
 };
 
 struct ParamDecl : public ASTNode {

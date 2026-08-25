@@ -325,6 +325,12 @@ public:
     [[nodiscard]] virtual Entity findByTag(const std::string& tag) const = 0;
     [[nodiscard]] virtual bool exists(const Entity& entity) const = 0;
     [[nodiscard]] virtual std::vector<Entity> findAllByTag(const std::string& tag) const = 0;
+    [[nodiscard]] virtual Entity findByGameplayTag(const std::string& tag) const = 0;
+    [[nodiscard]] virtual std::vector<Entity> findAllByGameplayTag(const std::string& tag) const = 0;
+    [[nodiscard]] virtual bool hasGameplayTag(const Entity& entity, const std::string& tag) const = 0;
+    virtual bool addGameplayTag(const Entity& entity, const std::string& tag) = 0;
+    virtual bool removeGameplayTag(const Entity& entity, const std::string& tag) = 0;
+    [[nodiscard]] virtual std::vector<std::string> gameplayTags(const Entity& entity) const = 0;
     [[nodiscard]] virtual std::vector<Entity> findAllWithTransform() const = 0;
     [[nodiscard]] virtual bool hasTransform(const Entity& entity) const = 0;
     [[nodiscard]] virtual Transform2D* transform(const Entity& entity) = 0;
