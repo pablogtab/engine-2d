@@ -854,6 +854,43 @@ int main() {
         }}
     }.dump()));
     assert(member_rename["result"]["changes"]["file:///workspace/My%20Game/Source/Player.e2s"].size() == 2);
+
+    const std::string comment_format_document =
+        "function formatted(): Void {\n"
+        "/* a closing brace in a comment: }\n"
+        "   and an opening brace: { */\n"
+        "if (true) {\n"
+        "return;\n"
+        "}\n"
+        "}\n";
+    static_cast<void>(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 34}}},
+            {"contentChanges", json::array({{{"text", comment_format_document}}})}
+        }}
+    }.dump()));
+    const json comment_formatting = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":42, "method":"textDocument/formatting",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"options":{"tabSize":4,"insertSpaces":true}}
+    })"));
+    assert(comment_formatting["result"].size() == 1);
+    const std::string formatted_comments = comment_formatting["result"][0]["newText"];
+    assert(formatted_comments.find("    /* a closing brace") != std::string::npos);
+    assert(formatted_comments.find("    if (true) {\n        return;\n    }\n}") != std::string::npos);
+
+    static_cast<void>(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 35}}},
+            {"contentChanges", json::array({{{"text", "function broken(): Void {\nlet value: Int = ;\n}\n"}}})}
+        }}
+    }.dump()));
+    const json invalid_formatting = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":43, "method":"textDocument/formatting",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"options":{"tabSize":4,"insertSpaces":true}}
+    })"));
+    assert(invalid_formatting["result"].empty());
     fs::remove_all(discovery_root);
 
     std::cout << "[PASS] EngineScriptLspTests passed!\n";

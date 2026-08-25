@@ -1208,18 +1208,28 @@ std::string LanguageServer::on_formatting(const std::string& id, const std::stri
     json edits = json::array();
     const SourceFile* file = m_workspace.source_manager().get_file(source_path_for_uri(uri));
     if (!file) return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", edits}}.dump();
+    for (const Diagnostic& diagnostic : m_workspace.diagnostic_engine().get_diagnostics()) {
+        if (diagnostic.is_error() && diagnostic.span.file_id == file->id) {
+            return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", edits}}.dump();
+        }
+    }
 
     std::istringstream input(file->content);
     std::string line;
     std::string formatted;
     int indent = 0;
     uint32_t line_count = 0;
+    bool in_block_comment = false;
     while (std::getline(input, line)) {
         ++line_count;
         const std::size_t first = line.find_first_not_of(" \t\r");
         std::string trimmed = first == std::string::npos ? std::string{} : line.substr(first);
-        if (!trimmed.empty() && trimmed.front() == '}') indent = std::max(0, indent - 1);
-        if (!trimmed.empty()) formatted.append(static_cast<std::size_t>(indent) * 4, ' ');
+        std::size_t leading_closes = 0;
+        if (!in_block_comment) {
+            while (leading_closes < trimmed.size() && trimmed[leading_closes] == '}') ++leading_closes;
+        }
+        const int line_indent = std::max(0, indent - static_cast<int>(leading_closes));
+        if (!trimmed.empty()) formatted.append(static_cast<std::size_t>(line_indent) * 4, ' ');
         formatted += trimmed;
         formatted += '\n';
 
@@ -1228,7 +1238,21 @@ std::string LanguageServer::on_formatting(const std::string& id, const std::stri
         int delta = 0;
         for (std::size_t index = 0; index < trimmed.size(); ++index) {
             const char character_value = trimmed[index];
-            if (!in_string && character_value == '/' && index + 1 < trimmed.size() && trimmed[index + 1] == '/') break;
+            if (in_block_comment) {
+                if (character_value == '*' && index + 1 < trimmed.size() && trimmed[index + 1] == '/') {
+                    in_block_comment = false;
+                    ++index;
+                }
+                continue;
+            }
+            if (!in_string && character_value == '/' && index + 1 < trimmed.size()) {
+                if (trimmed[index + 1] == '/') break;
+                if (trimmed[index + 1] == '*') {
+                    in_block_comment = true;
+                    ++index;
+                    continue;
+                }
+            }
             if (character_value == '"' && !escaped) in_string = !in_string;
             if (!in_string) {
                 if (character_value == '{') ++delta;
@@ -1237,7 +1261,7 @@ std::string LanguageServer::on_formatting(const std::string& id, const std::stri
             escaped = character_value == '\\' && !escaped;
             if (character_value != '\\') escaped = false;
         }
-        indent = std::max(0, indent + delta + (!trimmed.empty() && trimmed.front() == '}' ? 1 : 0));
+        indent = std::max(0, indent + delta);
     }
     if (!file->content.ends_with('\n') && !formatted.empty()) formatted.pop_back();
     if (formatted != file->content) {
