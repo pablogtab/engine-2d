@@ -188,8 +188,10 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
                                           const std::shared_ptr<Declaration>& declaration,
                                           const std::string& name,
                                           WorkspaceExportedSymbolKind kind) {
-                if (!declaration || !declaration->is_exported || name.empty()) return;
-                m_exported_symbols.push_back({file_id, path, name, declaration->span, kind});
+                if (!declaration || name.empty()) return;
+                m_exported_symbols.push_back({
+                    file_id, path, name, declaration->span, kind, declaration->is_exported
+                });
             };
             for (const auto& declaration : mod_node->declarations) {
                 if (const auto value = std::dynamic_pointer_cast<ClassDecl>(declaration)) {
@@ -258,6 +260,16 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
                             import_decl->span, mod_node->span, WorkspaceDocumentSymbolKind::Import
                         });
                     }
+                    continue;
+                }
+                if (const auto function_decl = std::dynamic_pointer_cast<FunctionDecl>(declaration)) {
+                    for (const auto& parameter : function_decl->params) {
+                        if (parameter) {
+                            add_symbol(parameter->name, parameter->type_annotation, parameter->span,
+                                       function_decl->span, WorkspaceDocumentSymbolKind::Parameter);
+                        }
+                    }
+                    index_statement(function_decl->body, function_decl->span);
                     continue;
                 }
                 const auto class_decl = std::dynamic_pointer_cast<ClassDecl>(declaration);
@@ -449,6 +461,10 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
             }
         };
         for (const auto& declaration : module->declarations) {
+            if (const auto function_decl = std::dynamic_pointer_cast<FunctionDecl>(declaration)) {
+                index_inferred_statement(function_decl->body, function_decl->span);
+                continue;
+            }
             const auto class_decl = std::dynamic_pointer_cast<ClassDecl>(declaration);
             if (!class_decl) continue;
             for (const auto& property : class_decl->properties) {
@@ -623,7 +639,9 @@ std::vector<WorkspaceExportedSymbol> EngineScriptWorkspace::exports_from(std::st
     const std::string normalized = m_source_manager.normalize_path(std::string(module_path));
     std::vector<WorkspaceExportedSymbol> exports;
     for (const WorkspaceExportedSymbol& symbol : m_exported_symbols) {
-        if (m_source_manager.normalize_path(symbol.module_path) == normalized) exports.push_back(symbol);
+        if (symbol.is_exported && m_source_manager.normalize_path(symbol.module_path) == normalized) {
+            exports.push_back(symbol);
+        }
     }
     return exports;
 }

@@ -1,5 +1,6 @@
 #include "LanguageServer.hpp"
 #include "enginescript/api/ApiCatalog.hpp"
+#include "enginescript/lexer/Lexer.hpp"
 #include "enginescript/types/NumericTypes.hpp"
 #include <nlohmann/json.hpp>
 #include <cctype>
@@ -66,6 +67,49 @@ json lsp_range(const SourceSpan& span) {
         {"start", {{"line", span.start_line - 1}, {"character", span.start_column - 1}}},
         {"end", {{"line", span.end_line - 1}, {"character", span.end_column - 1}}}
     };
+}
+
+std::optional<SourceSpan> exact_identifier_span(
+    const SourceManager& source_manager,
+    const SourceSpan& containing_span,
+    std::string_view name
+) {
+    const SourceFile* file = source_manager.get_file(containing_span.file_id);
+    if (!file || name.empty() || containing_span.start_offset >= file->content.size()) return std::nullopt;
+    const std::size_t end = std::min<std::size_t>(containing_span.end_offset, file->content.size());
+    std::size_t position = containing_span.start_offset;
+    const auto is_identifier = [](char value) {
+        return std::isalnum(static_cast<unsigned char>(value)) || value == '_';
+    };
+    while ((position = file->content.find(name, position)) != std::string::npos && position < end) {
+        const std::size_t name_end = position + name.size();
+        if ((position == 0 || !is_identifier(file->content[position - 1])) &&
+            (name_end >= file->content.size() || !is_identifier(file->content[name_end])) &&
+            name_end <= end) {
+            return source_manager.get_span(containing_span.file_id, static_cast<uint32_t>(position),
+                                           static_cast<uint32_t>(name_end));
+        }
+        position = name_end;
+    }
+    return std::nullopt;
+}
+
+uint32_t semantic_token_type(SymbolKind kind) {
+    switch (kind) {
+        case SymbolKind::Class: return 2;
+        case SymbolKind::Enum: return 3;
+        case SymbolKind::Interface: return 4;
+        case SymbolKind::Struct: return 5;
+        case SymbolKind::TypeParameter: return 6;
+        case SymbolKind::Parameter: return 7;
+        case SymbolKind::Variable: return 8;
+        case SymbolKind::Field: return 9;
+        case SymbolKind::EnumMember: return 10;
+        case SymbolKind::Function: return 11;
+        case SymbolKind::Method: return 12;
+        case SymbolKind::Import: return 8;
+    }
+    return 8;
 }
 
 std::string base_type_name(std::string type_name) {
@@ -1246,30 +1290,25 @@ std::string LanguageServer::on_code_action(
 
 std::string LanguageServer::on_workspace_symbol(const std::string& id, const std::string& query) {
     json symbols = json::array();
-    const std::regex declaration_pattern(
-        R"(^\s*(?:export\s+)?(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*))"
-    );
-    for (const SourceFile& file : m_workspace.source_manager().all_files()) {
-        std::istringstream lines(file.content);
-        std::string source_line;
-        uint32_t line_number = 0;
-        while (std::getline(lines, source_line)) {
-            std::smatch match;
-            if (std::regex_search(source_line, match, declaration_pattern) &&
-                (query.empty() || match[2].str().find(query) != std::string::npos)) {
-                const std::string kind = match[1].str();
-                const int symbol_kind = kind == "class" ? 5 : kind == "interface" ? 11 : kind == "enum" ? 10 : 23;
-                const uint32_t start = static_cast<uint32_t>(match.position(2));
-                symbols.push_back({
-                    {"name", match[2].str()}, {"kind", symbol_kind},
-                    {"location", {{"uri", uri_for_source_path(file.path)}, {"range", {
-                        {"start", {{"line", line_number}, {"character", start}}},
-                        {"end", {{"line", line_number}, {"character", start + match[2].length()}}}
-                    }}}}
-                });
-            }
-            ++line_number;
+    for (const WorkspaceExportedSymbol& symbol : m_workspace.workspace_symbols()) {
+        if (!query.empty() && symbol.name.find(query) == std::string::npos) continue;
+        int symbol_kind = 5;
+        switch (symbol.kind) {
+            case WorkspaceExportedSymbolKind::Class: symbol_kind = 5; break;
+            case WorkspaceExportedSymbolKind::Struct: symbol_kind = 23; break;
+            case WorkspaceExportedSymbolKind::Interface: symbol_kind = 11; break;
+            case WorkspaceExportedSymbolKind::Enum: symbol_kind = 10; break;
+            case WorkspaceExportedSymbolKind::Function: symbol_kind = 12; break;
+            case WorkspaceExportedSymbolKind::Constant: symbol_kind = 14; break;
         }
+        const SourceFile* file = m_workspace.source_manager().get_file(symbol.file_id);
+        if (!file) continue;
+        const SourceSpan range = exact_identifier_span(
+            m_workspace.source_manager(), symbol.declaration_span, symbol.name).value_or(symbol.declaration_span);
+        symbols.push_back({
+            {"name", symbol.name}, {"kind", symbol_kind},
+            {"location", {{"uri", uri_for_source_path(file->path)}, {"range", lsp_range(range)}}}
+        });
     }
     return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", std::move(symbols)}}.dump();
 }
@@ -1278,36 +1317,46 @@ std::string LanguageServer::on_semantic_tokens(const std::string& id, const std:
     json data = json::array();
     const SourceFile* file = m_workspace.source_manager().get_file(source_path_for_uri(uri));
     if (file) {
-        static const std::unordered_set<std::string> keywords = {
-            "import", "from", "as", "export", "class", "struct", "interface", "enum", "extends", "implements",
-            "let", "const", "private", "public", "protected", "static", "readonly", "async", "await", "return",
-            "if", "else", "while", "for", "in", "break", "continue", "true", "false", "null", "this", "override"
-        };
-        const std::regex token_pattern(R"(@[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*|[0-9]+(?:\.[0-9]+)?)");
+        DiagnosticEngine lexical_diagnostics;
+        Lexer lexer(file->id, file->content, lexical_diagnostics);
+        const std::vector<Token> tokens = lexer.tokenize_all();
         uint32_t previous_line = 0;
         uint32_t previous_start = 0;
-        std::istringstream lines(file->content);
-        std::string source_line;
-        uint32_t line_number = 0;
-        while (std::getline(lines, source_line)) {
-            const std::size_t comment = source_line.find("//");
-            const std::string_view code(source_line.data(), comment == std::string::npos ? source_line.size() : comment);
-            const std::string code_string(code);
-            for (std::sregex_iterator it(code_string.begin(), code_string.end(), token_pattern), end; it != end; ++it) {
-                const std::string token = it->str();
-                uint32_t type = 8;
-                if (token.starts_with('@')) type = 17;
-                else if (keywords.contains(token)) type = 13;
-                else if (std::isdigit(static_cast<unsigned char>(token.front()))) type = 15;
-                else if (std::isupper(static_cast<unsigned char>(token.front()))) type = 1;
-                const uint32_t start = static_cast<uint32_t>(it->position());
-                const uint32_t delta_line = line_number - previous_line;
+        TokenType previous_type = TokenType::Invalid;
+        for (const Token& token : tokens) {
+            uint32_t type = 0;
+            uint32_t modifiers = 0;
+            bool emit = true;
+            if (token.is_keyword()) type = 13;
+            else if (token.type == TokenType::StringLiteral) type = 14;
+            else if (token.type == TokenType::IntegerLiteral || token.type == TokenType::FloatLiteral ||
+                     token.type == TokenType::DurationLiteral) type = 15;
+            else if (token.type == TokenType::Identifier) {
+                if (previous_type == TokenType::At) {
+                    type = 17;
+                } else if (const auto occurrence = m_workspace.symbol_occurrence_at(file->id, token.span.start_offset)) {
+                    type = semantic_token_type(occurrence->kind);
+                    if (occurrence->is_declaration) modifiers |= 1U;
+                } else {
+                    type = std::isupper(static_cast<unsigned char>(token.text.front())) ? 1U : 8U;
+                }
+            } else {
+                emit = false;
+            }
+            if (emit && token.span.is_valid()) {
+                const uint32_t line = token.span.start_line - 1;
+                const uint32_t start = token.span.start_column - 1;
+                const uint32_t delta_line = line - previous_line;
                 const uint32_t delta_start = delta_line == 0 ? start - previous_start : start;
-                data.push_back(delta_line); data.push_back(delta_start); data.push_back(token.size()); data.push_back(type); data.push_back(0);
-                previous_line = line_number;
+                data.push_back(delta_line);
+                data.push_back(delta_start);
+                data.push_back(static_cast<uint32_t>(token.text.size()));
+                data.push_back(type);
+                data.push_back(modifiers);
+                previous_line = line;
                 previous_start = start;
             }
-            ++line_number;
+            previous_type = token.type;
         }
     }
     return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", {{"data", std::move(data)}}}}.dump();
@@ -1317,22 +1366,45 @@ std::string LanguageServer::on_inlay_hints(const std::string& id, const std::str
     json hints = json::array();
     const SourceFile* file = m_workspace.source_manager().get_file(source_path_for_uri(uri));
     if (file) {
-        const std::regex inferred_pattern(R"(\blet\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(true|false|"[^"]*"|-?[0-9]+(?:\.[0-9]+)?))");
-        std::istringstream lines(file->content);
-        std::string source_line;
-        uint32_t line_number = 0;
-        while (std::getline(lines, source_line)) {
-            std::smatch match;
-            if (std::regex_search(source_line, match, inferred_pattern)) {
-                const std::string value = match[2].str();
-                const std::string type = value == "true" || value == "false" ? "Bool" :
-                    value.starts_with('"') ? "String" : value.find('.') != std::string::npos ? "Float" : "Int";
-                hints.push_back({
-                    {"position", {{"line", line_number}, {"character", match.position(1) + match.length(1)}}},
-                    {"label", ": " + type}, {"kind", 1}, {"paddingLeft", false}, {"paddingRight", true}
-                });
+        std::unordered_set<uint32_t> hinted_name_offsets;
+        for (const WorkspaceDocumentSymbol& symbol : m_workspace.document_symbols(file->id)) {
+            if (!symbol.is_inferred || (symbol.kind != WorkspaceDocumentSymbolKind::Variable &&
+                                        symbol.kind != WorkspaceDocumentSymbolKind::Field)) {
+                continue;
             }
-            ++line_number;
+            const auto name_span = exact_identifier_span(
+                m_workspace.source_manager(), symbol.declaration_span, symbol.name);
+            if (!name_span) continue;
+            hinted_name_offsets.insert(name_span->start_offset);
+            hints.push_back({
+                {"position", {{"line", name_span->end_line - 1}, {"character", name_span->end_column - 1}}},
+                {"label", ": " + symbol.type_name}, {"kind", 1},
+                {"paddingLeft", false}, {"paddingRight", true}
+            });
+        }
+
+        // Semantic analysis can still infer a local when another module in the
+        // workspace is incomplete and therefore prevented the document-symbol
+        // index from being finalized. Recover those hints from lexer spans and
+        // the TypeChecker's inferred-type table, without guessing from literal
+        // spelling.
+        DiagnosticEngine lexical_diagnostics;
+        Lexer lexer(file->id, file->content, lexical_diagnostics);
+        const std::vector<Token> tokens = lexer.tokenize_all();
+        for (std::size_t index = 0; index + 3 < tokens.size(); ++index) {
+            if (tokens[index].type != TokenType::Let && tokens[index].type != TokenType::Const) continue;
+            const Token& name = tokens[index + 1];
+            if (name.type != TokenType::Identifier || tokens[index + 2].type != TokenType::Equals ||
+                hinted_name_offsets.contains(name.span.start_offset)) {
+                continue;
+            }
+            const auto inferred = m_workspace.inferred_type_at(file->id, tokens[index + 3].span.start_offset);
+            if (!inferred || *inferred == "<type-error>" || *inferred == "Void") continue;
+            hints.push_back({
+                {"position", {{"line", name.span.end_line - 1}, {"character", name.span.end_column - 1}}},
+                {"label", ": " + *inferred}, {"kind", 1},
+                {"paddingLeft", false}, {"paddingRight", true}
+            });
         }
     }
     return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", std::move(hints)}}.dump();

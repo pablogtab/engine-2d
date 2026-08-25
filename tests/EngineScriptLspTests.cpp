@@ -574,13 +574,14 @@ int main() {
     // The request is valid even while its document contains an incomplete edit.
     assert(signature_help.contains("result"));
 
-    const std::array<std::string, 7> conversion_lines{{
+    const std::array<std::string, 8> conversion_lines{{
         "function conversions(score: Int, speed: Float64): Void {",
         "  let a: Int = Int(score);",
         "  let b: UInt8 = UInt8(score);",
         "  let c: Float64 = Float64(speed);",
         "  let d: Float = Float(score);",
         "  let inferred = 1;",
+        "  let text = \"NotAType\"; // ignoredName",
         "}"
     }};
     std::string conversion_document;
@@ -660,12 +661,44 @@ int main() {
     })"));
     assert(!workspace_symbols["result"].empty());
     assert(workspace_symbols["result"][0]["name"] == "SharedConfig");
+    const json function_symbols = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":290, "method":"workspace/symbol", "params":{"query":"conversions"}
+    })"));
+    assert(function_symbols["result"].size() == 1);
+    assert(function_symbols["result"][0]["name"] == "conversions");
+    assert(function_symbols["result"][0]["kind"] == 12);
 
     const json semantic_tokens = json::parse(server.handle_message(R"({
         "jsonrpc":"2.0", "id":30, "method":"textDocument/semanticTokens/full",
         "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"}}
     })"));
     assert(!semantic_tokens["result"]["data"].empty());
+    uint32_t semantic_line = 0;
+    uint32_t semantic_start = 0;
+    bool semantic_function = false;
+    bool semantic_parameter = false;
+    bool semantic_inferred_variable = false;
+    bool tokenized_string_contents = false;
+    bool tokenized_comment_contents = false;
+    const auto& semantic_data = semantic_tokens["result"]["data"];
+    for (std::size_t index = 0; index + 4 < semantic_data.size(); index += 5) {
+        const uint32_t delta_line = semantic_data[index].get<uint32_t>();
+        const uint32_t delta_start = semantic_data[index + 1].get<uint32_t>();
+        semantic_line += delta_line;
+        semantic_start = delta_line == 0 ? semantic_start + delta_start : delta_start;
+        const uint32_t length = semantic_data[index + 2].get<uint32_t>();
+        const uint32_t token_type = semantic_data[index + 3].get<uint32_t>();
+        const uint32_t modifiers = semantic_data[index + 4].get<uint32_t>();
+        assert(semantic_line < conversion_lines.size());
+        const std::string token_text = conversion_lines[semantic_line].substr(semantic_start, length);
+        semantic_function |= token_text == "conversions" && token_type == 11 && (modifiers & 1U) != 0;
+        semantic_parameter |= token_text == "score" && semantic_line == 0 && token_type == 7 && (modifiers & 1U) != 0;
+        semantic_inferred_variable |= token_text == "inferred" && token_type == 8 && (modifiers & 1U) != 0;
+        tokenized_string_contents |= token_text == "NotAType";
+        tokenized_comment_contents |= token_text == "ignoredName";
+    }
+    assert(semantic_function && semantic_parameter && semantic_inferred_variable);
+    assert(!tokenized_string_contents && !tokenized_comment_contents);
 
     const json inlay_hints = json::parse(server.handle_message(R"({
         "jsonrpc":"2.0", "id":31, "method":"textDocument/inlayHint",

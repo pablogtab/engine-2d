@@ -62,6 +62,7 @@ struct WorkspaceExportedSymbol {
     std::string name;
     SourceSpan declaration_span;
     WorkspaceExportedSymbolKind kind{WorkspaceExportedSymbolKind::Class};
+    bool is_exported{false};
 };
 
 struct WorkspaceSymbolOccurrence {
@@ -101,7 +102,7 @@ public:
     std::vector<WorkspaceDocumentSymbol> symbols_in_scope(FileId file_id, uint32_t byte_offset) const;
     std::vector<WorkspaceDocumentSymbol> document_symbols(FileId file_id) const;
     std::vector<WorkspaceExportedSymbol> exports_from(std::string_view module_path) const;
-    const std::vector<WorkspaceExportedSymbol>& workspace_exports() const { return m_exported_symbols; }
+    const std::vector<WorkspaceExportedSymbol>& workspace_symbols() const { return m_exported_symbols; }
     std::optional<uint64_t> symbol_id_at(FileId file_id, uint32_t byte_offset) const;
     std::optional<WorkspaceSymbolOccurrence> symbol_occurrence_at(FileId file_id, uint32_t byte_offset) const;
     std::vector<WorkspaceSymbolOccurrence> occurrences_for_symbol(uint64_t symbol_id) const;
