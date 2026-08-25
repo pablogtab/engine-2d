@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "abiVersion": 22,
-  "sdkHash": "engine2d_abi_v22",
+  "abiVersion": 23,
+  "sdkHash": "engine2d_abi_v23",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",
@@ -129,6 +129,11 @@
     { "ownerType": "PlayerPrefs", "name": "clear", "returnType": "Void" },
     { "ownerType": "PlayerPrefs", "name": "save", "returnType": "Bool" },
     { "ownerType": "Entity", "name": "destroy", "returnType": "Void" },
+    { "ownerType": "Entity", "name": "hasComponent", "returnType": "Bool", "genericParameters": ["T"] },
+    { "ownerType": "Entity", "name": "getComponent", "returnType": "T", "nullableReturn": true, "genericParameters": ["T"] },
+    { "ownerType": "Entity", "name": "getComponents", "returnType": "Array<T>", "genericParameters": ["T"] },
+    { "ownerType": "Entity", "name": "addComponent", "returnType": "T", "nullableReturn": true, "genericParameters": ["T"] },
+    { "ownerType": "Entity", "name": "removeComponent", "returnType": "Bool", "parameters": [{ "name": "component", "type": "T" }], "genericParameters": ["T"] },
     { "ownerType": "Entities", "name": "destroy", "returnType": "Bool", "parameters": [{ "name": "entity", "type": "Entity" }] },
     { "ownerType": "Entities", "name": "setTag", "returnType": "Bool", "parameters": [{ "name": "entity", "type": "Entity" }, { "name": "tag", "type": "String" }] },
     { "ownerType": "Entities", "name": "parent", "returnType": "Entity", "nullableReturn": true, "parameters": [{ "name": "entity", "type": "Entity" }] },

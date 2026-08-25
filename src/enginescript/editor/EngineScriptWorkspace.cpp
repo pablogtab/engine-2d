@@ -5,6 +5,8 @@
 #include "../module/GameModule.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 
 namespace EngineScript {
@@ -21,6 +23,7 @@ void EngineScriptWorkspace::set_project_root(std::string project_root) {
     m_dep_graph.clear();
     m_inferred_types.clear();
     m_document_symbols.clear();
+    m_exported_symbols.clear();
     m_last_workspace_hash.clear();
     m_last_result.reset();
 }
@@ -47,6 +50,47 @@ void EngineScriptWorkspace::remove_source_file(const std::string& relative_path)
     std::erase_if(m_document_symbols, [file_id](const WorkspaceDocumentSymbol& symbol) {
         return symbol.file_id == file_id;
     });
+    std::erase_if(m_exported_symbols, [file_id](const WorkspaceExportedSymbol& symbol) {
+        return symbol.file_id == file_id;
+    });
+}
+
+size_t EngineScriptWorkspace::discover_project_sources() {
+    namespace fs = std::filesystem;
+    size_t discovered = 0;
+    const fs::path root(m_source_manager.project_root());
+    if (root.empty() || !fs::exists(root)) return 0;
+
+    const auto excluded = [](const fs::path& relative) {
+        for (const fs::path& part : relative) {
+            const std::string name = part.generic_string();
+            if (name == "Library" || name == ".e2s_build" || name == "build" || name == "Build") return true;
+        }
+        return false;
+    };
+    try {
+        for (const fs::directory_entry& entry : fs::recursive_directory_iterator(root)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".e2s") continue;
+            const fs::path relative = fs::relative(entry.path(), root);
+            if (excluded(relative)) continue;
+            std::ifstream input(entry.path(), std::ios::binary);
+            if (!input) continue;
+            add_source_file(relative.generic_string(), {std::istreambuf_iterator<char>(input), {}});
+            ++discovered;
+        }
+    } catch (const fs::filesystem_error&) {
+        return discovered;
+    }
+    return discovered;
+}
+
+bool EngineScriptWorkspace::restore_source_file_from_disk(const std::string& relative_path) {
+    namespace fs = std::filesystem;
+    const fs::path absolute = fs::path(m_source_manager.project_root()) / relative_path;
+    std::ifstream input(absolute, std::ios::binary);
+    if (!input) return false;
+    add_source_file(relative_path, {std::istreambuf_iterator<char>(input), {}});
+    return true;
 }
 
 CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
@@ -70,6 +114,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     m_diagnostics.clear();
     m_ir_modules.clear();
     m_inferred_types.clear();
+    m_exported_symbols.clear();
     m_manifest = {};
     m_dep_graph.clear();
     CompilationResult result;
@@ -99,6 +144,29 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         auto mod_node = parser.parse_module();
         if (mod_node) {
             ast_modules.push_back(mod_node);
+
+            const auto index_export = [this, file_id, &path](
+                                          const std::shared_ptr<Declaration>& declaration,
+                                          const std::string& name,
+                                          WorkspaceExportedSymbolKind kind) {
+                if (!declaration || !declaration->is_exported || name.empty()) return;
+                m_exported_symbols.push_back({file_id, path, name, declaration->span, kind});
+            };
+            for (const auto& declaration : mod_node->declarations) {
+                if (const auto value = std::dynamic_pointer_cast<ClassDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Class);
+                } else if (const auto value = std::dynamic_pointer_cast<StructDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Struct);
+                } else if (const auto value = std::dynamic_pointer_cast<InterfaceDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Interface);
+                } else if (const auto value = std::dynamic_pointer_cast<EnumDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Enum);
+                } else if (const auto value = std::dynamic_pointer_cast<FunctionDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Function);
+                } else if (const auto value = std::dynamic_pointer_cast<ConstDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Constant);
+                }
+            }
 
             std::erase_if(m_document_symbols, [file_id](const WorkspaceDocumentSymbol& symbol) {
                 return symbol.file_id == file_id;
@@ -445,6 +513,15 @@ std::vector<WorkspaceDocumentSymbol> EngineScriptWorkspace::symbols_in_scope(
         return lhs.name < rhs.name;
     });
     return result;
+}
+
+std::vector<WorkspaceExportedSymbol> EngineScriptWorkspace::exports_from(std::string_view module_path) const {
+    const std::string normalized = m_source_manager.normalize_path(std::string(module_path));
+    std::vector<WorkspaceExportedSymbol> exports;
+    for (const WorkspaceExportedSymbol& symbol : m_exported_symbols) {
+        if (m_source_manager.normalize_path(symbol.module_path) == normalized) exports.push_back(symbol);
+    }
+    return exports;
 }
 
 std::string EngineScriptWorkspace::serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const {

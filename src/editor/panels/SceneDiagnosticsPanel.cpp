@@ -10,6 +10,7 @@
 #include "../../ecs/components/ScriptingComponents.hpp"
 
 #include <imgui.h>
+#include <algorithm>
 
 namespace Engine {
 
@@ -136,10 +137,16 @@ void SceneDiagnosticsPanel::on_gui() {
                     entities.has_component<ScriptComponent>(m_pending_clear->entity)) {
                     const ScriptComponent before =
                         entities.get_component<ScriptComponent>(m_pending_clear->entity);
-                    if (before.script_handle == m_pending_clear->asset_handle) {
-                        auto after = before;
-                        after.script_handle = {};
-                        after.public_fields.clear();
+                    auto after = before;
+                    const auto instance = std::find_if(
+                        after.instances.begin(), after.instances.end(),
+                        [this](const ScriptBehaviourSlot& candidate) {
+                            return candidate.script_handle == m_pending_clear->asset_handle;
+                        }
+                    );
+                    if (instance != after.instances.end()) {
+                        instance->script_handle = {};
+                        instance->public_fields.clear();
                         m_command_history->execute_command(std::make_unique<SetComponentCommand<ScriptComponent>>(
                             &entities,
                             m_pending_clear->entity,

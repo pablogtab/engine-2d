@@ -1,5 +1,7 @@
 #include <cassert>
 #include <iostream>
+#include <filesystem>
+#include <fstream>
 #include "enginescript/api/ApiCatalog.hpp"
 #include "enginescript/lsp/LanguageServer.hpp"
 #include "enginescript/module/GameModule.hpp"
@@ -372,6 +374,52 @@ int main() {
     }
     assert(has_import_alias && !leaked_original_import_name);
 
+    // Completion in an import path only offers project modules matching the
+    // typed relative path; global EngineScript types must not leak here.
+    std::string import_path_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":10},
+            "contentChanges":[{"text":"import {} from \"./Sh\";"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(import_path_change));
+    json import_path_completion = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":12, "method":"textDocument/completion",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"position":{"line":0,"character":20}}
+    })"));
+    bool has_shared_module = false;
+    bool leaked_global_type_in_path = false;
+    for (const auto& item : import_path_completion["result"]) {
+        has_shared_module |= item["label"] == "./Shared";
+        leaked_global_type_in_path |= item["label"] == "PlayerPrefs";
+    }
+    assert(has_shared_module && !leaked_global_type_in_path);
+
+    // Completion between braces is constrained to exports of the selected
+    // module and never proposes catalog types from unrelated namespaces.
+    std::string import_names_change = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":11},
+            "contentChanges":[{"text":"import { } from \"./Shared\";"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(import_names_change));
+    json import_names_completion = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":13, "method":"textDocument/completion",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"position":{"line":0,"character":9}}
+    })"));
+    bool has_shared_export = false;
+    bool leaked_global_type_in_names = false;
+    for (const auto& item : import_names_completion["result"]) {
+        has_shared_export |= item["label"] == "SharedConfig";
+        leaked_global_type_in_names |= item["label"] == "PlayerPrefs";
+    }
+    assert(has_shared_export && !leaked_global_type_in_names);
+
 
     // A one-character typo before a member access offers a replacement for the typed field.
     std::string typo_change_req = R"({
@@ -435,6 +483,38 @@ int main() {
     }
     assert(has_particle_play && has_particle_burst && has_particle_stop && has_particle_state);
     assert(!leaked_audio_method);
+
+    // Closed project files are indexed at server startup; generated and Library
+    // copies never enter the semantic workspace.
+    namespace fs = std::filesystem;
+    const fs::path discovery_root = fs::temp_directory_path() / "engine2d_lsp_discovery_tests";
+    fs::remove_all(discovery_root);
+    fs::create_directories(discovery_root / "Source");
+    fs::create_directories(discovery_root / "Library");
+    {
+        std::ofstream(discovery_root / "Source" / "Health.e2s")
+            << "@behaviour\nexport class Health extends Behaviour { public current: Int = 10; }\n";
+        std::ofstream(discovery_root / "Library" / "Ignored.e2s")
+            << "export class Ignored {}\n";
+    }
+    LanguageServer discovered_server(discovery_root.string());
+    assert(discovered_server.workspace().source_manager().find_file_id("Source/Health.e2s") != INVALID_FILE_ID);
+    assert(discovered_server.workspace().source_manager().find_file_id("Library/Ignored.e2s") == INVALID_FILE_ID);
+
+    const std::string health_uri = "file://" + (discovery_root / "Source" / "Health.e2s").generic_string();
+    json closed_definition = json::parse(discovered_server.handle_message(R"({
+        "jsonrpc":"2.0", "id":20, "method":"textDocument/definition",
+        "params":{"textDocument":{"uri":")" + health_uri + R"("},"position":{"line":1,"character":14}}
+    })"));
+    assert(closed_definition["result"]["uri"] == health_uri);
+
+    json signature_help = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":21, "method":"textDocument/signatureHelp",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"position":{"line":4,"character":12}}
+    })"));
+    // The request is valid even while its document contains an incomplete edit.
+    assert(signature_help.contains("result"));
+    fs::remove_all(discovery_root);
 
     std::cout << "[PASS] EngineScriptLspTests passed!\n";
     return 0;

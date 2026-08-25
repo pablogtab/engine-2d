@@ -1,5 +1,6 @@
 #include "TypeChecker.hpp"
 #include "../api/ApiCatalog.hpp"
+#include <algorithm>
 #include <format>
 
 namespace EngineScript {
@@ -523,6 +524,60 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         if (auto mem = dynamic_cast<MemberAccessExpr*>(call->callee.get())) {
             auto target_t = get_type_of_node(mem->object.get());
             if (target_t) {
+                if (target_t->kind == TypeKind::Entity &&
+                    (mem->member_name == "getComponent" || mem->member_name == "getComponents" ||
+                     mem->member_name == "hasComponent" || mem->member_name == "addComponent")) {
+                    if (call->type_arguments.size() != 1) {
+                        m_diagnostics.report_error(
+                            "E3050",
+                            std::format("Entity.{} requires exactly one component type argument", mem->member_name),
+                            call->span
+                        );
+                        m_node_types[call] = m_type_error;
+                        return m_type_error;
+                    }
+                    if (!call->arguments.empty()) {
+                        m_diagnostics.report_error(
+                            "E3051",
+                            std::format("Entity.{} expects no value arguments", mem->member_name),
+                            call->span
+                        );
+                    }
+                    auto component_type = resolve_type_annotation(call->type_arguments.front(), scope.get());
+                    const std::string& component_name = call->type_arguments.front().name;
+                    const bool native_component = component_name == "Transform2D" || component_name == "RigidBody2D" ||
+                        component_name == "SpriteRenderer2D" || component_name == "Animator2D" ||
+                        component_name == "ParticleEmitter2D" || component_name == "Joint2D";
+                    const auto authored_symbol = scope->lookup(component_name);
+                    const bool authored_component = authored_symbol && authored_symbol->is_behaviour;
+                    if (!native_component && !authored_component) {
+                        m_diagnostics.report_error(
+                            "E3052",
+                            std::format("'{}' is not an attachable EngineScript component", component_name),
+                            call->type_arguments.front().span
+                        );
+                    }
+                    if (mem->member_name == "hasComponent") {
+                        m_node_types[call] = m_type_bool;
+                        return m_type_bool;
+                    }
+                    if (mem->member_name == "getComponents") {
+                        auto array_type = Type::make_generic(TypeKind::Array, "Array", {component_type});
+                        m_node_types[call] = array_type;
+                        return array_type;
+                    }
+                    component_type = std::make_shared<Type>(*component_type);
+                    component_type->is_nullable = true;
+                    m_node_types[call] = component_type;
+                    return component_type;
+                }
+                if (target_t->kind == TypeKind::Entity && mem->member_name == "removeComponent") {
+                    if (call->arguments.size() != 1) {
+                        m_diagnostics.report_error("E3053", "Entity.removeComponent expects one component reference", call->span);
+                    }
+                    m_node_types[call] = m_type_bool;
+                    return m_type_bool;
+                }
                 if (target_t->name == "Assets" && mem->member_name == "load") {
                     const bool valid_type = call->type_arguments.size() == 1 &&
                         (call->type_arguments.front().name == "Texture" ||
@@ -772,6 +827,26 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             }
         }
 
+        if (callee_t->kind == TypeKind::Function) {
+            if (call->arguments.size() != callee_t->param_types.size()) {
+                m_diagnostics.report_error(
+                    "E3054",
+                    std::format("Method expects {} arguments, got {}", callee_t->param_types.size(), call->arguments.size()),
+                    call->span
+                );
+            }
+            for (std::size_t index = 0; index < call->arguments.size() && index < callee_t->param_types.size(); ++index) {
+                const auto argument_type = get_type_of_node(call->arguments[index].get());
+                if (argument_type && !argument_type->is_assignable_to(callee_t->param_types[index])) {
+                    m_diagnostics.report_error(
+                        "E3055",
+                        std::format("Argument {} expects '{}', got '{}'", index + 1,
+                            callee_t->param_types[index]->to_string(), argument_type->to_string()),
+                        call->arguments[index]->span
+                    );
+                }
+            }
+        }
         if (callee_t->return_type) {
             m_node_types[call] = callee_t->return_type;
             return callee_t->return_type;
@@ -797,6 +872,108 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             property_type->is_nullable = property->nullable;
             m_node_types[mem] = property_type;
             return property_type;
+        }
+        // A member access is checked before its enclosing CallExpr.  Catalog
+        // methods are public engine API, so expose their callable shape here
+        // instead of reporting them as missing class fields.
+        if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(catalog_owner, mem->member_name)) {
+            auto function_type = Type::make_custom(TypeKind::Function, mem->member_name);
+            TypeAnnotation return_annotation{method->return_type};
+            function_type->return_type = resolve_type_annotation(return_annotation, scope.get());
+            function_type->return_type->is_nullable = method->nullable_return;
+            for (const auto& parameter : method->parameters) {
+                TypeAnnotation parameter_annotation{parameter.type};
+                function_type->param_types.push_back(resolve_type_annotation(parameter_annotation, scope.get()));
+            }
+            m_node_types[mem] = function_type;
+            return function_type;
+        }
+        // Result is a language value type rather than a catalog component.
+        // Its static constructors and instance methods are nevertheless public
+        // callable members, and CallExpr validates their generic contracts.
+        if ((obj_t->name == "Result" && (mem->member_name == "success" || mem->member_name == "failure")) ||
+            (obj_t->kind == TypeKind::Result &&
+             (mem->member_name == "isOk" || mem->member_name == "isError" ||
+              mem->member_name == "value" || mem->member_name == "error"))) {
+            auto function_type = Type::make_custom(TypeKind::Function, mem->member_name);
+            if (mem->member_name == "isOk" || mem->member_name == "isError") function_type->return_type = m_type_bool;
+            else if (obj_t->kind == TypeKind::Result && obj_t->type_args.size() == 2) {
+                function_type->return_type = obj_t->type_args[mem->member_name == "value" ? 0 : 1];
+            } else {
+                function_type->return_type = m_type_void;
+            }
+            m_node_types[mem] = function_type;
+            return function_type;
+        }
+        if (obj_t->name == "Assets" && mem->member_name == "load") {
+            auto function_type = Type::make_custom(TypeKind::Function, "load");
+            auto asset_type = Type::make_custom(TypeKind::Class, "Asset");
+            function_type->return_type = Type::make_generic(TypeKind::Task, "Task", {asset_type});
+            function_type->param_types.push_back(m_type_string);
+            m_node_types[mem] = function_type;
+            return function_type;
+        }
+
+        if (obj_t->kind == TypeKind::Class) {
+            const auto owner = scope->lookup(obj_t->name);
+            if (owner) {
+                const auto member = std::find_if(
+                    owner->members.begin(), owner->members.end(),
+                    [mem](const std::shared_ptr<Symbol>& candidate) {
+                        return candidate && candidate->name == mem->member_name;
+                    }
+                );
+                if (member != owner->members.end()) {
+                    if ((*member)->access != AccessModifier::Public) {
+                        m_diagnostics.report_error(
+                            "E3056",
+                            std::format("{}.{} is not public", obj_t->name, mem->member_name),
+                            mem->span
+                        );
+                    }
+                    if ((*member)->kind == SymbolKind::Method) {
+                        auto function_type = Type::make_custom(TypeKind::Function, mem->member_name);
+                        if (const auto* method = dynamic_cast<const MethodDecl*>((*member)->ast_node.get())) {
+                            function_type->return_type = method->return_type
+                                ? resolve_type_annotation(*method->return_type, scope.get())
+                                : m_type_void;
+                            for (const auto& parameter : method->params) {
+                                function_type->param_types.push_back(
+                                    resolve_type_annotation(parameter->type_annotation, scope.get())
+                                );
+                            }
+                        } else {
+                            TypeAnnotation annotation{(*member)->type_string};
+                            function_type->return_type = resolve_type_annotation(annotation, scope.get());
+                        }
+                        m_node_types[mem] = function_type;
+                        return function_type;
+                    }
+                    std::shared_ptr<Type> field_type;
+                    if (const auto* property = dynamic_cast<const PropertyDecl*>((*member)->ast_node.get())) {
+                        field_type = property->type_annotation
+                            ? resolve_type_annotation(*property->type_annotation, scope.get())
+                            : get_type_of_node(property);
+                    }
+                    if (!field_type || field_type->is_error()) {
+                        TypeAnnotation annotation{(*member)->type_string};
+                        field_type = resolve_type_annotation(annotation, scope.get());
+                    }
+                    if (mem->is_optional) {
+                        field_type = std::make_shared<Type>(*field_type);
+                        field_type->is_nullable = true;
+                    }
+                    m_node_types[mem] = field_type;
+                    return field_type;
+                }
+            }
+            m_diagnostics.report_error(
+                "E3057",
+                std::format("{} has no public member '{}'", obj_t->name, mem->member_name),
+                mem->span
+            );
+            m_node_types[mem] = m_type_error;
+            return m_type_error;
         }
 
         auto field_t = m_type_float;

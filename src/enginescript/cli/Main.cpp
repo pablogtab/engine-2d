@@ -79,24 +79,7 @@ int main(int argc, char* argv[]) {
 
     EngineScriptWorkspace workspace(project_dir);
 
-    // Recursively discover .e2s files
-    size_t file_count = 0;
-    try {
-        for (const auto& entry : fs::recursive_directory_iterator(project_dir)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".e2s") {
-                std::string rel_path = fs::relative(entry.path(), project_dir).string();
-                std::ifstream in(entry.path(), std::ios::in | std::ios::binary);
-                if (in.is_open()) {
-                    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-                    workspace.add_source_file(rel_path, content);
-                    ++file_count;
-                }
-            }
-        }
-    } catch (const std::exception& ex) {
-        std::cerr << "Error scanning directory: " << ex.what() << "\n";
-        return 1;
-    }
+    const size_t file_count = workspace.discover_project_sources();
 
     if (file_count == 0) {
         std::cout << "No .e2s source files found in " << project_dir << "\n";
@@ -113,6 +96,17 @@ int main(int argc, char* argv[]) {
     }
 
     if (!res.success) {
+        if (!json_diagnostics) {
+            for (const Diagnostic& diagnostic : res.diagnostics) {
+                const SourceLocation location = workspace.source_manager().get_location(
+                    diagnostic.span.file_id, diagnostic.span.start_offset
+                );
+                std::cerr << (location.file_id != INVALID_FILE_ID
+                    ? workspace.source_manager().get_file(location.file_id)->path + ":" + std::to_string(location.line) + ":" + std::to_string(location.column) + ": "
+                    : std::string{})
+                    << diagnostic.code << ": " << diagnostic.message << "\n";
+            }
+        }
         return 1;
     }
 

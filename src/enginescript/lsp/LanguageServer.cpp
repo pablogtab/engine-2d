@@ -307,6 +307,7 @@ std::optional<std::string> infer_receiver_type(
 
 LanguageServer::LanguageServer(std::string project_root)
     : m_workspace(std::move(project_root)) {
+    m_workspace.discover_project_sources();
 }
 
 std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
@@ -336,6 +337,10 @@ std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
         if (method == "textDocument/didClose") {
             return on_did_close(j["params"]["textDocument"].value("uri", ""));
         }
+        if (method == "workspace/didChangeWatchedFiles") {
+            on_watched_files_changed(j.value("params", json::object()).dump());
+            return "";
+        }
         if (method == "shutdown") {
             json response = {{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", nullptr}};
             return response.dump();
@@ -363,6 +368,12 @@ std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
             uint32_t char_pos = j["params"]["position"].value("character", 0);
             return on_definition(id, uri, line, char_pos);
         }
+        if (method == "textDocument/signatureHelp") {
+            std::string uri = j["params"]["textDocument"].value("uri", "");
+            uint32_t line = j["params"]["position"].value("line", 0);
+            uint32_t char_pos = j["params"]["position"].value("character", 0);
+            return on_signature_help(id, uri, line, char_pos);
+        }
     } catch (...) {}
     return "";
 }
@@ -386,6 +397,7 @@ std::string LanguageServer::on_initialize(const std::string& id) {
         {"triggerCharacters", {".", "@", ":"}}
     };
     caps["definitionProvider"] = true;
+    caps["signatureHelpProvider"] = {{"triggerCharacters", {"(", ",", "<"}}};
     caps["documentSymbolProvider"] = true;
 
     resp["result"] = {{"capabilities", caps}};
@@ -410,7 +422,9 @@ std::string LanguageServer::on_did_change(const std::string& uri, const std::str
 
 std::string LanguageServer::on_did_close(const std::string& uri) {
     const std::string source_path = source_path_for_uri(uri);
-    m_workspace.remove_source_file(source_path);
+    if (!m_workspace.restore_source_file_from_disk(source_path)) {
+        m_workspace.remove_source_file(source_path);
+    }
     m_open_document_versions.erase(uri);
     m_uri_to_source_path.erase(uri);
 
@@ -424,6 +438,28 @@ std::string LanguageServer::on_did_close(const std::string& uri) {
         m_pending_notifications.push_back(publish_diagnostics(remaining_uri));
     }
     return notification.dump();
+}
+
+void LanguageServer::on_watched_files_changed(const std::string& params_json) {
+    json params;
+    try { params = json::parse(params_json); } catch (...) { return; }
+    bool changed = false;
+    for (const auto& event : params.value("changes", json::array())) {
+        const std::string uri = event.value("uri", "");
+        if (uri.empty()) continue;
+        const std::string path = source_path_for_uri(uri);
+        if (!path.ends_with(".e2s") || !m_workspace.source_manager().is_within_project(path)) continue;
+        const int kind = event.value("type", 2); // 1 create, 2 change, 3 delete
+        if (m_open_document_versions.contains(uri)) continue; // unsaved overlay wins
+        if (kind == 3) m_workspace.remove_source_file(path);
+        else m_workspace.restore_source_file_from_disk(path);
+        changed = true;
+    }
+    if (!changed) return;
+    for (const auto& [uri, version] : m_open_document_versions) {
+        static_cast<void>(version);
+        m_pending_notifications.push_back(publish_diagnostics(uri));
+    }
 }
 
 std::string LanguageServer::source_path_for_uri(const std::string& uri) const {
@@ -443,6 +479,25 @@ std::string LanguageServer::source_path_for_uri(const std::string& uri) const {
     }
 #endif
     return m_workspace.source_manager().normalize_path(std::filesystem::path(path).lexically_normal().string());
+}
+
+std::string LanguageServer::uri_for_source_path(const std::string& source_path) const {
+    for (const auto& [uri, known_path] : m_uri_to_source_path) {
+        if (known_path == source_path) return uri;
+    }
+    std::string path = (std::filesystem::path(m_workspace.project_root()) / source_path).generic_string();
+    std::string encoded;
+    for (const unsigned char character : path) {
+        if (std::isalnum(character) || character == '/' || character == '-' || character == '_' || character == '.') {
+            encoded.push_back(static_cast<char>(character));
+        } else {
+            constexpr char hex[] = "0123456789ABCDEF";
+            encoded += '%';
+            encoded += hex[(character >> 4) & 0xF];
+            encoded += hex[character & 0xF];
+        }
+    }
+    return "file://" + encoded;
 }
 
 std::string LanguageServer::publish_diagnostics(const std::string& uri) {
@@ -544,8 +599,78 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
     const bool completing_decorator = character > 0 && character <= line_content.size() &&
         line_content[character - 1] == '@';
     const std::string line_prefix = line_content.substr(0, std::min<std::size_t>(character, line_content.size()));
+    const std::string source_path = source_path_for_uri(uri);
+    const SourceFile* source_file = m_workspace.source_manager().get_file(source_path);
+
+    // Import paths are module references, not ordinary expression/type
+    // contexts. Only project EngineScript modules are meaningful here.
+    static const std::regex import_path_pattern(
+        R"(^\s*import\s*\{[^}]*\}\s*from\s*[\"']([^\"']*)$)"
+    );
+    std::smatch import_path_match;
+    if (std::regex_search(line_prefix, import_path_match, import_path_pattern)) {
+        const std::filesystem::path importer_directory = std::filesystem::path(source_path).parent_path();
+        const std::string typed_path = import_path_match[1].str();
+        const uint32_t replacement_start = static_cast<uint32_t>(import_path_match.position(1));
+        for (const std::string& registered_path : m_workspace.registered_files()) {
+            if (registered_path == source_path || !registered_path.ends_with(".e2s")) continue;
+            std::filesystem::path relative = std::filesystem::path(registered_path).lexically_relative(importer_directory);
+            relative.replace_extension();
+            std::string module_path = relative.generic_string();
+            if (!module_path.starts_with(".")) module_path = "./" + module_path;
+            if (!typed_path.empty() && !module_path.starts_with(typed_path)) continue;
+            items.push_back({
+                {"label", module_path},
+                {"kind", 17},
+                {"detail", "EngineScript module " + registered_path},
+                {"sortText", "0_" + module_path},
+                {"textEdit", {
+                    {"newText", module_path},
+                    {"range", {
+                        {"start", {{"line", line}, {"character", replacement_start}}},
+                        {"end", {{"line", line}, {"character", character}}}
+                    }}
+                }}
+            });
+        }
+        resp["result"] = items;
+        return resp.dump();
+    }
+
+    // Between import braces, completion is restricted to exports of the
+    // selected module. Builtins and unrelated workspace symbols must not leak.
+    const std::size_t import_open = line_content.find('{');
+    const std::size_t import_close = line_content.find('}', import_open == std::string::npos ? 0 : import_open + 1);
+    static const std::regex import_module_pattern(R"(\bfrom\s*[\"']([^\"']+)[\"'])");
+    std::smatch import_module_match;
+    if (line_content.find("import") != std::string::npos && import_open != std::string::npos &&
+        import_close != std::string::npos && character > import_open && character <= import_close &&
+        std::regex_search(line_content, import_module_match, import_module_pattern)) {
+        const auto target = m_workspace.source_manager().resolve_import(source_path, import_module_match[1].str());
+        if (target) {
+            const std::string imported_text = line_content.substr(import_open + 1, import_close - import_open - 1);
+            for (const WorkspaceExportedSymbol& symbol : m_workspace.exports_from(*target)) {
+                const std::regex already_imported("\\b" + symbol.name + "\\b");
+                if (std::regex_search(imported_text, already_imported)) continue;
+                const int kind = symbol.kind == WorkspaceExportedSymbolKind::Function ? 3
+                    : symbol.kind == WorkspaceExportedSymbolKind::Constant ? 21
+                    : symbol.kind == WorkspaceExportedSymbolKind::Enum ? 13
+                    : symbol.kind == WorkspaceExportedSymbolKind::Interface ? 8
+                    : symbol.kind == WorkspaceExportedSymbolKind::Struct ? 22 : 7;
+                items.push_back({
+                    {"label", symbol.name},
+                    {"kind", kind},
+                    {"detail", "export from " + symbol.module_path},
+                    {"sortText", "0_" + symbol.name}
+                });
+            }
+        }
+        resp["result"] = items;
+        return resp.dump();
+    }
+
     if (const auto receiver_type = infer_receiver_type(
-            m_workspace, source_path_for_uri(uri), line, line_prefix)) {
+            m_workspace, source_path, line, line_prefix)) {
         for (const ApiPropertyDescriptor& property : ApiCatalog::instance().properties()) {
             if (property.availability != ApiAvailability::Available || property.owner_type != *receiver_type) continue;
             items.push_back({
@@ -576,8 +701,6 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
         R"(([A-Za-z_][A-Za-z0-9_]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_]*)*)\s*\.\s*$)"
     );
     std::smatch receiver_match;
-    const std::string source_path = source_path_for_uri(uri);
-    const SourceFile* source_file = m_workspace.source_manager().get_file(source_path);
     if (source_file && std::regex_search(line_prefix, receiver_match, receiver_pattern)) {
         const std::string receiver = receiver_match[1].str();
         if (receiver.find('.') == std::string::npos) {
@@ -873,13 +996,7 @@ std::string LanguageServer::on_definition(const std::string& id, const std::stri
         return resp.dump();
     }
 
-    std::string target_uri = uri;
-    for (const auto& [known_uri, source_path] : m_uri_to_source_path) {
-        if (source_path == declaration->source_path) {
-            target_uri = known_uri;
-            break;
-        }
-    }
+    const std::string target_uri = uri_for_source_path(declaration->source_path);
 
     resp["result"] = {
         {"uri", target_uri},
@@ -889,6 +1006,38 @@ std::string LanguageServer::on_definition(const std::string& id, const std::stri
         }}
     };
     return resp.dump();
+}
+
+std::string LanguageServer::on_signature_help(
+    const std::string& id, const std::string& uri, uint32_t line, uint32_t character
+) {
+    json response{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", nullptr}};
+    const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
+    const std::string content = m_workspace.source_manager().get_line_content(file_id, line + 1);
+    const std::string prefix = content.substr(0, std::min<std::size_t>(character, content.size()));
+    static const std::regex call_pattern(R"(([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]*>)?\s*\([^()]*$)");
+    std::smatch match;
+    if (!std::regex_search(prefix, match, call_pattern)) return response.dump();
+
+    const std::string name = match[1].str();
+    for (const ApiFunctionDescriptor& function : ApiCatalog::instance().functions()) {
+        if (function.availability != ApiAvailability::Available || function.name != name) continue;
+        json parameters = json::array();
+        for (const auto& parameter : function.parameters) parameters.push_back({{"label", parameter_signature(parameter)}});
+        response["result"] = {{"signatures", {{{"label", callable_signature(name, function.parameters,
+            static_cast<uint32_t>(function.parameters.size()), static_cast<uint32_t>(function.parameters.size()), function.return_type)},
+            {"parameters", parameters}}}}, {"activeSignature", 0}, {"activeParameter", 0}};
+        return response.dump();
+    }
+    for (const ApiMethodDescriptor& method : ApiCatalog::instance().methods()) {
+        if (method.availability != ApiAvailability::Available || method.name != name) continue;
+        json parameters = json::array();
+        for (const auto& parameter : method.parameters) parameters.push_back({{"label", parameter_signature(parameter)}});
+        response["result"] = {{"signatures", {{{"label", callable_signature(name, method.parameters, method.min_arguments,
+            method.max_arguments, method.return_type)}, {"parameters", parameters}}}}, {"activeSignature", 0}, {"activeParameter", 0}};
+        return response.dump();
+    }
+    return response.dump();
 }
 
 } // namespace EngineScript

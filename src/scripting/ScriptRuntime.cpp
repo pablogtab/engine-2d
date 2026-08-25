@@ -40,13 +40,37 @@
 namespace Engine {
 
 struct ScriptRuntimeBinding {
+    ScriptRuntime* runtime{nullptr};
     EntityManager* entity_manager{nullptr};
     EventDispatcher* event_dispatcher{nullptr};
     const AssetDatabase* asset_database{nullptr};
     EntityID entity{0};
+    ScriptSlotID slot_id{0};
     const ScriptRuntimeServices* services{nullptr};
     EngineScript::AsyncScheduler* async_scheduler{nullptr};
 };
+
+void bind_dynamic_component_access(EngineScript::Entity& entity, const ScriptRuntimeBinding& binding) {
+    entity.component_context = binding.runtime;
+    entity.find_component_callback = [](void* context, uint32_t entity_id, const char* type_name, std::size_t index) {
+        auto* runtime = static_cast<ScriptRuntime*>(context);
+        return runtime && type_name
+            ? runtime->find_behaviour_component(entity_id, type_name, index)
+            : EngineScript::ComponentReference{};
+    };
+    entity.count_components_callback = [](void* context, uint32_t entity_id, const char* type_name) {
+        const auto* runtime = static_cast<const ScriptRuntime*>(context);
+        return runtime && type_name
+            ? runtime->count_behaviour_components(entity_id, type_name)
+            : std::size_t{0};
+    };
+    entity.add_component_callback = [](void* context, uint32_t entity_id, const char* type_name) {
+        auto* runtime = static_cast<ScriptRuntime*>(context);
+        return runtime && type_name
+            ? runtime->add_behaviour_component(entity_id, type_name)
+            : EngineScript::ComponentReference{};
+    };
+}
 
 class NativeBehaviourHost {
 public:
@@ -54,6 +78,8 @@ public:
         : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding), m_events(binding), m_prefs(), m_assets(binding), m_particles(binding), m_ui(binding), m_tilemap(binding), m_display(binding), m_physics(binding), m_animator(binding) {}
 
     bool prepare(const EngineScript::BehaviourTypeRegistration& registration, std::string& error) {
+        m_component_references.reserve(registration.constructor_dependencies.size());
+        m_arguments.reserve(registration.constructor_dependencies.size());
         for (const auto& [type, kind] : registration.constructor_dependencies) {
             if (type == "Input") m_arguments.push_back(&m_input);
             else if (type == "Log") m_arguments.push_back(&m_log);
@@ -83,8 +109,19 @@ public:
                 }
                 m_arguments.push_back(emitter);
             }
-            else if (kind == EngineScript::NativeDependencyKind::OptionalComponent) m_arguments.push_back(nullptr);
-            else { error = "unsupported native EngineScript dependency: " + type; return false; }
+            else if (kind == EngineScript::NativeDependencyKind::RequiredComponent ||
+                     kind == EngineScript::NativeDependencyKind::OptionalComponent) {
+                EngineScript::ComponentReference reference = m_binding.runtime
+                    ? m_binding.runtime->find_behaviour_component(m_binding.entity, type, 0)
+                    : EngineScript::ComponentReference{};
+                if (!reference.resolve_callback && kind == EngineScript::NativeDependencyKind::RequiredComponent) {
+                    error = "missing required " + type + " behaviour";
+                    return false;
+                }
+                m_component_references.push_back(std::move(reference));
+                m_arguments.push_back(&m_component_references.back());
+            }
+            else { error = "unsupported EngineScript dependency: " + type; return false; }
         }
         return true;
     }
@@ -147,6 +184,8 @@ private:
             PhysicsSystem::set_ignore_one_way(id, ignore);
         };
     }
+
+    std::vector<EngineScript::ComponentReference> m_component_references;
 
     class Input final : public EngineScript::Input {
     public:
@@ -418,6 +457,7 @@ private:
                 auto* entities = static_cast<EntityManager*>(context);
                 if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
             };
+            bind_dynamic_component_access(entity, m_binding);
             return entity;
         }
         const ScriptRuntimeBinding& m_binding;
@@ -653,6 +693,7 @@ private:
                 auto* entities = static_cast<EntityManager*>(context);
                 if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
             };
+            bind_dynamic_component_access(entity, m_binding);
             return entity;
         }
         const ScriptRuntimeBinding& m_binding;
@@ -763,7 +804,7 @@ public:
         const std::string& name,
         const ExposedPropertyValue& value
     ) override {
-        ScriptComponent* component = script_component();
+        ScriptBehaviourSlot* component = script_component();
         if (!component) return false;
         auto field = std::find_if(component->public_fields.begin(), component->public_fields.end(),
             [&name](const ScriptPublicField& candidate) { return candidate.name == name; });
@@ -800,7 +841,7 @@ public:
         const std::string& name,
         ExposedPropertyValue& value
     ) const override {
-        const ScriptComponent* component = script_component();
+        const ScriptBehaviourSlot* component = script_component();
         if (!component) return false;
         const auto field = std::find_if(component->public_fields.begin(), component->public_fields.end(),
             [&name](const ScriptPublicField& candidate) { return candidate.name == name; });
@@ -829,20 +870,26 @@ private:
             auto* entities = static_cast<EntityManager*>(context);
             if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
         };
+        if (m_binding) bind_dynamic_component_access(entity, *m_binding);
         return entity;
     }
 
-    ScriptComponent* script_component() const {
+    ScriptBehaviourSlot* script_component() const {
         if (!m_binding || !m_binding->entity_manager ||
             !m_binding->entity_manager->is_alive(m_binding->entity) ||
             !m_binding->entity_manager->has_component<ScriptComponent>(m_binding->entity)) {
             return nullptr;
         }
-        return &m_binding->entity_manager->get_component<ScriptComponent>(m_binding->entity);
+        auto& scripts = m_binding->entity_manager->get_component<ScriptComponent>(m_binding->entity);
+        const auto found = std::find_if(
+            scripts.instances.begin(), scripts.instances.end(),
+            [this](const ScriptBehaviourSlot& candidate) { return candidate.id == m_binding->slot_id; }
+        );
+        return found == scripts.instances.end() ? nullptr : &*found;
     }
 
     RuntimeValue read_property(const std::string& name) const {
-        const ScriptComponent* component = script_component();
+        const ScriptBehaviourSlot* component = script_component();
         if (!component) return {};
         for (const auto& field : component->public_fields) {
             if (field.name != name) continue;
@@ -855,7 +902,7 @@ private:
     }
 
     void write_property(const std::string& name, const RuntimeValue& value) const {
-        ScriptComponent* component = script_component();
+        ScriptBehaviourSlot* component = script_component();
         if (!component) return;
         for (auto& field : component->public_fields) {
             if (field.name != name) continue;
@@ -1391,7 +1438,7 @@ void pull_exposed_property(
 
 void push_exposed_properties(
     EngineScript::NativeBehaviour& behaviour,
-    const ScriptComponent& component,
+    const ScriptBehaviourSlot& component,
     EntityManager& entities
 ) {
     for (const ScriptPublicField& field : component.public_fields) {
@@ -1401,11 +1448,35 @@ void push_exposed_properties(
 
 void pull_exposed_properties(
     const EngineScript::NativeBehaviour& behaviour,
-    ScriptComponent& component
+    ScriptBehaviourSlot& component
 ) {
     for (ScriptPublicField& field : component.public_fields) {
         pull_exposed_property(behaviour, field);
     }
+}
+
+ScriptBehaviourSlot* find_script_slot(EntityManager& entities, EntityID entity, ScriptSlotID slot_id) {
+    if (!entities.is_alive(entity) || !entities.has_component<ScriptComponent>(entity)) return nullptr;
+    auto& scripts = entities.get_component<ScriptComponent>(entity);
+    const auto found = std::find_if(
+        scripts.instances.begin(), scripts.instances.end(),
+        [slot_id](const ScriptBehaviourSlot& candidate) { return candidate.id == slot_id; }
+    );
+    return found == scripts.instances.end() ? nullptr : &*found;
+}
+
+const ScriptBehaviourSlot* find_script_slot(
+    const EntityManager& entities,
+    EntityID entity,
+    ScriptSlotID slot_id
+) {
+    if (!entities.is_alive(entity) || !entities.has_component<ScriptComponent>(entity)) return nullptr;
+    const auto& scripts = entities.get_component<ScriptComponent>(entity);
+    const auto found = std::find_if(
+        scripts.instances.begin(), scripts.instances.end(),
+        [slot_id](const ScriptBehaviourSlot& candidate) { return candidate.id == slot_id; }
+    );
+    return found == scripts.instances.end() ? nullptr : &*found;
 }
 
 } // namespace
@@ -1439,6 +1510,9 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     m_reload_errors = std::move(other.m_reload_errors);
     m_next_hot_reload_poll_ms = other.m_next_hot_reload_poll_ms;
     m_pending_events = std::move(other.m_pending_events);
+    m_pending_component_removals = std::move(other.m_pending_component_removals);
+    m_phase_sequence = other.m_phase_sequence;
+    m_phase_active = false;
 
     other.m_entity_manager = nullptr;
     other.m_asset_database = nullptr;
@@ -1452,6 +1526,9 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     other.m_reload_errors.clear();
     other.m_next_hot_reload_poll_ms = 0;
     other.m_pending_events.clear();
+    other.m_pending_component_removals.clear();
+    other.m_phase_sequence = 0;
+    other.m_phase_active = false;
 
     subscribe_to_events();
     return *this;
@@ -1518,9 +1595,11 @@ ScriptRuntimeStartResult ScriptRuntime::start(
             }
         }
         entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
-            if (!component.enabled) return;
-            ++result.failed;
-            set_error(entity, error, source_path, line, column);
+            for (const ScriptBehaviourSlot& instance : component.instances) {
+                if (!instance.enabled) continue;
+                ++result.failed;
+                set_error(entity, error, source_path, line, column);
+            }
         });
         return result;
     }
@@ -1554,172 +1633,186 @@ ScriptRuntimeStartResult ScriptRuntime::start(
             ? "EngineScript native module could not be loaded"
             : native_build_error;
         entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
-            if (!component.enabled) return;
-            ++result.failed;
-            set_error(entity, error);
+            for (const ScriptBehaviourSlot& instance : component.instances) {
+                if (!instance.enabled) continue;
+                ++result.failed;
+                set_error(entity, error);
+            }
         });
         return result;
     }
 
-    std::unordered_map<std::string, std::string> definitions_by_path;
-    std::unordered_set<std::string> invalid_behaviour_modules;
-    for (const auto& module : m_native_workspace->ir_modules()) {
-        for (const auto& definition : module.classes) {
-            if (!definition.is_behaviour) continue;
-            const std::string registered_type = definition.name;
-            if (!definitions_by_path.emplace(
-                    module.module_path,
-                    registered_type
-                ).second) {
-                invalid_behaviour_modules.insert(module.module_path);
-            }
-        }
-    }
     m_native_module = std::move(generated_native_module);
 
-    entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
-        if (!component.enabled) return;
-        const AssetRecord* record = asset_database.find(component.script_handle);
-        if (!record || record->type != AssetType::Script || record->status != AssetStatus::Ready) {
-            ++result.failed;
-            set_error(entity, "script asset is missing or unavailable");
-            return;
-        }
-
-        const auto definition = definitions_by_path.find(record->source_path);
-        const auto manifest = std::find_if(
-            m_native_workspace->metadata_manifest().behaviours.begin(),
-            m_native_workspace->metadata_manifest().behaviours.end(),
-            [record](const EngineScript::BehaviourManifest& behaviour) {
-                return behaviour.module_path == record->source_path;
-            }
-        );
-        if (definition == definitions_by_path.end() ||
-            manifest == m_native_workspace->metadata_manifest().behaviours.end() ||
-            invalid_behaviour_modules.contains(record->source_path)) {
-            ++result.failed;
-            set_error(entity, "script asset must export exactly one @behaviour class");
-            return;
-        }
-
-        for (const auto& dependency : manifest->dependencies) {
-            if (dependency.is_optional) continue;
-            if (dependency.is_component && dependency.type == "RigidBody2D" &&
-                !entity_manager.has_component<RigidBodyComponent>(entity)) {
+    entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& scripts) {
+        std::vector<ScriptSlotID> ordered_slots;
+        ordered_slots.reserve(scripts.instances.size());
+        for (const ScriptBehaviourSlot& slot : scripts.instances) ordered_slots.push_back(slot.id);
+        for (const ScriptSlotID slot_id : ordered_slots) {
+            ScriptBehaviourSlot* slot = find_script_slot(entity_manager, entity, slot_id);
+            if (!slot || !slot->enabled) continue;
+            std::string error;
+            if (instantiate_slot(entity, *slot, error)) ++result.started;
+            else {
                 ++result.failed;
-                set_error(entity, "missing required RigidBody2D component");
-                return;
-            }
-            if (dependency.is_component && dependency.type == "Animator2D" &&
-                !entity_manager.has_component<AnimationComponent>(entity)) {
-                ++result.failed;
-                set_error(entity, "missing required Animator2D component");
-                return;
-            }
-            if (dependency.is_component && dependency.type == "SpriteRenderer2D" &&
-                !entity_manager.has_component<SpriteComponent>(entity)) {
-                ++result.failed;
-                set_error(entity, "missing required SpriteRenderer2D component");
-                return;
-            }
-            if (dependency.is_component && dependency.type == "Transform2D" &&
-                !entity_manager.has_component<TransformComponent>(entity)) {
-                ++result.failed;
-                set_error(entity, "missing required Transform2D component");
-                return;
-            }
-            if (dependency.is_component && dependency.type == "ParticleEmitter2D" &&
-                !entity_manager.has_component<ParticleEmitter2DComponent>(entity)) {
-                ++result.failed;
-                set_error(entity, "missing required ParticleEmitter2D component");
-                return;
-            }
-            if (dependency.is_service && dependency.type != "Input" && dependency.type != "Log" &&
-                dependency.type != "Audio" && dependency.type != "Scene" && dependency.type != "Time" &&
-                dependency.type != "Entities" && dependency.type != "Display" && dependency.type != "Physics" &&
-                dependency.type != "Events" && dependency.type != "Assets" && dependency.type != "UI" &&
-                dependency.type != "Tilemap" && dependency.type != "PlayerPrefs" &&
-                dependency.type != "Particles") {
-                ++result.failed;
-                set_error(entity, "unsupported injected service: " + dependency.type);
-                return;
+                set_error(entity, std::move(error));
             }
         }
-
-        std::vector<ScriptPublicField> compiled_fields = public_fields_from_behaviour(*manifest);
-        auto& mutable_component = entity_manager.get_component<ScriptComponent>(entity);
-        for (const ScriptPublicField& default_field : compiled_fields) {
-            const auto existing = std::find_if(
-                mutable_component.public_fields.begin(),
-                mutable_component.public_fields.end(),
-                [&default_field](const ScriptPublicField& field) {
-                    return field.name == default_field.name && field.type == default_field.type;
-                }
-            );
-            if (existing == mutable_component.public_fields.end()) {
-                mutable_component.public_fields.push_back(default_field);
-            }
-        }
-
-        Instance instance;
-        instance.entity = entity;
-        instance.script_handle = component.script_handle;
-        instance.script_path = record->source_path;
-        instance.class_name = definition->second;
-        instance.field_definitions = std::move(compiled_fields);
-        instance.binding = std::make_unique<ScriptRuntimeBinding>();
-        instance.binding->entity_manager = &entity_manager;
-        instance.binding->event_dispatcher = event_dispatcher;
-        instance.binding->asset_database = &asset_database;
-        instance.binding->entity = entity;
-        instance.binding->services = &m_services;
-        instance.binding->async_scheduler = m_native_async_scheduler.get();
-        void** factory_arguments = nullptr;
-        {
-            const auto registration = std::find_if(
-                m_native_module->descriptor().behaviour_types.begin(),
-                m_native_module->descriptor().behaviour_types.end(),
-                [&instance](const EngineScript::BehaviourTypeRegistration& candidate) {
-                    return candidate.type_name == instance.class_name;
-                }
-            );
-            if (registration == m_native_module->descriptor().behaviour_types.end()) {
-                ++result.failed;
-                set_error(entity, "native EngineScript behaviour registration is missing");
-                return;
-            }
-            instance.native_host = std::make_unique<NativeBehaviourHost>(*instance.binding);
-            std::string host_error;
-            if (!instance.native_host->prepare(*registration, host_error)) {
-                ++result.failed;
-                set_error(entity, host_error);
-                return;
-            }
-            instance.native_host->sync_before();
-            factory_arguments = instance.native_host->arguments();
-        }
-        instance.behaviour.reset(m_native_module->create_behaviour(
-            instance.class_name,
-            factory_arguments
-        ));
-        if (!instance.behaviour) {
-            ++result.failed;
-            set_error(entity, "could not instantiate EngineScript behaviour " + instance.class_name);
-            return;
-        }
-        instance.behaviour->entity_id = entity;
-        instance.behaviour->task_scope_id = entity;
-        instance.behaviour->async_scheduler = m_native_async_scheduler.get();
-        instance.behaviour->entities = instance.native_host ? instance.native_host->entities() : nullptr;
-        push_exposed_properties(*instance.behaviour, mutable_component, entity_manager);
-        instance.behaviour->on_start();
-        if (instance.native_host) instance.native_host->sync_after();
-        pull_exposed_properties(*instance.behaviour, mutable_component);
-        m_instances.push_back(std::move(instance));
-        ++result.started;
     });
 
     return result;
+}
+
+bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error) {
+    if (!slot.enabled) return true;
+    if (!m_entity_manager || !m_asset_database || !m_native_workspace || !m_native_module ||
+        !m_entity_manager->is_alive(entity)) {
+        error = "EngineScript runtime is not ready";
+        return false;
+    }
+    if (std::any_of(m_instances.begin(), m_instances.end(), [entity, &slot](const Instance& instance) {
+            return instance.entity == entity && instance.slot_id == slot.id && instance.behaviour;
+        })) return true;
+    if (!m_instantiating_slots.insert(slot.id).second) {
+        error = "cyclic required behaviour dependency";
+        return false;
+    }
+    struct InstantiationGuard {
+        std::unordered_set<ScriptSlotID>& slots;
+        ScriptSlotID id;
+        ~InstantiationGuard() { slots.erase(id); }
+    } guard{m_instantiating_slots, slot.id};
+
+    const AssetRecord* record = m_asset_database->find(slot.script_handle);
+    if (!record || record->type != AssetType::Script || record->status != AssetStatus::Ready) {
+        error = "script asset is missing or unavailable";
+        return false;
+    }
+    const auto& behaviours = m_native_workspace->metadata_manifest().behaviours;
+    const auto manifest = std::find_if(behaviours.begin(), behaviours.end(), [record](const auto& behaviour) {
+        return behaviour.module_path == record->source_path;
+    });
+    if (manifest == behaviours.end() ||
+        std::count_if(behaviours.begin(), behaviours.end(), [record](const auto& behaviour) {
+            return behaviour.module_path == record->source_path;
+        }) != 1) {
+        error = "script asset must export exactly one @behaviour class";
+        return false;
+    }
+
+    const auto has_native_component = [this, entity](const std::string& type) {
+        if (type == "Transform2D") return m_entity_manager->has_component<TransformComponent>(entity);
+        if (type == "RigidBody2D") return m_entity_manager->has_component<RigidBodyComponent>(entity);
+        if (type == "SpriteRenderer2D") return m_entity_manager->has_component<SpriteComponent>(entity);
+        if (type == "Animator2D") return m_entity_manager->has_component<AnimationComponent>(entity);
+        if (type == "ParticleEmitter2D") return m_entity_manager->has_component<ParticleEmitter2DComponent>(entity);
+        return false;
+    };
+    const auto is_native_component = [](const std::string& type) {
+        return type == "Transform2D" || type == "RigidBody2D" || type == "SpriteRenderer2D" ||
+            type == "Animator2D" || type == "ParticleEmitter2D";
+    };
+    const auto is_service = [](const std::string& type) {
+        static const std::unordered_set<std::string> services{
+            "Input", "Log", "Audio", "Scene", "Time", "Entities", "Display", "Physics",
+            "Events", "Assets", "UI", "Tilemap", "PlayerPrefs", "Particles"
+        };
+        return services.contains(type);
+    };
+
+    for (const auto& dependency : manifest->dependencies) {
+        if (dependency.is_service && !is_service(dependency.type)) {
+            error = "unsupported injected service: " + dependency.type;
+            return false;
+        }
+        if (!dependency.is_component || dependency.is_optional) continue;
+        if (is_native_component(dependency.type)) {
+            if (!has_native_component(dependency.type)) {
+                error = "missing required " + dependency.type + " component";
+                return false;
+            }
+            continue;
+        }
+        if (count_behaviour_components(entity, dependency.type) != 0) continue;
+        if (!m_entity_manager->has_component<ScriptComponent>(entity)) {
+            error = "missing required " + dependency.type + " behaviour";
+            return false;
+        }
+        ScriptBehaviourSlot* dependency_slot = nullptr;
+        auto& scripts = m_entity_manager->get_component<ScriptComponent>(entity);
+        for (ScriptBehaviourSlot& candidate : scripts.instances) {
+            const AssetRecord* candidate_record = m_asset_database->find(candidate.script_handle);
+            if (!candidate.enabled || !candidate_record) continue;
+            const auto candidate_manifest = std::find_if(
+                behaviours.begin(), behaviours.end(), [candidate_record](const auto& behaviour) {
+                    return behaviour.module_path == candidate_record->source_path;
+                }
+            );
+            if (candidate_manifest != behaviours.end() && candidate_manifest->name == dependency.type) {
+                dependency_slot = &candidate;
+                break;
+            }
+        }
+        if (!dependency_slot || !instantiate_slot(entity, *dependency_slot, error)) {
+            if (error.empty()) error = "missing required " + dependency.type + " behaviour";
+            return false;
+        }
+    }
+
+    std::vector<ScriptPublicField> compiled_fields = public_fields_from_behaviour(*manifest);
+    for (const ScriptPublicField& default_field : compiled_fields) {
+        const auto existing = std::find_if(slot.public_fields.begin(), slot.public_fields.end(),
+            [&default_field](const ScriptPublicField& field) {
+                return field.name == default_field.name && field.type == default_field.type;
+            });
+        if (existing == slot.public_fields.end()) slot.public_fields.push_back(default_field);
+    }
+
+    Instance instance;
+    instance.entity = entity;
+    instance.slot_id = slot.id;
+    instance.eligible_phase = m_phase_sequence + (m_phase_active ? 1u : 0u);
+    instance.script_handle = slot.script_handle;
+    instance.script_path = record->source_path;
+    instance.class_name = manifest->name;
+    instance.field_definitions = std::move(compiled_fields);
+    instance.binding = std::make_unique<ScriptRuntimeBinding>();
+    instance.binding->runtime = this;
+    instance.binding->entity_manager = m_entity_manager;
+    instance.binding->event_dispatcher = m_event_dispatcher;
+    instance.binding->asset_database = m_asset_database;
+    instance.binding->entity = entity;
+    instance.binding->slot_id = slot.id;
+    instance.binding->services = &m_services;
+    instance.binding->async_scheduler = m_native_async_scheduler.get();
+
+    const auto registration = std::find_if(
+        m_native_module->descriptor().behaviour_types.begin(),
+        m_native_module->descriptor().behaviour_types.end(),
+        [&instance](const auto& candidate) { return candidate.type_name == instance.class_name; }
+    );
+    if (registration == m_native_module->descriptor().behaviour_types.end()) {
+        error = "native EngineScript behaviour registration is missing";
+        return false;
+    }
+    instance.native_host = std::make_unique<NativeBehaviourHost>(*instance.binding);
+    if (!instance.native_host->prepare(*registration, error)) return false;
+    instance.native_host->sync_before();
+    instance.behaviour.reset(m_native_module->create_behaviour(instance.class_name, instance.native_host->arguments()));
+    if (!instance.behaviour) {
+        error = "could not instantiate EngineScript behaviour " + instance.class_name;
+        return false;
+    }
+    instance.behaviour->entity_id = entity;
+    instance.behaviour->task_scope_id = slot.id;
+    instance.behaviour->async_scheduler = m_native_async_scheduler.get();
+    instance.behaviour->entities = instance.native_host->entities();
+    push_exposed_properties(*instance.behaviour, slot, *m_entity_manager);
+    instance.behaviour->on_start();
+    instance.native_host->sync_after();
+    pull_exposed_properties(*instance.behaviour, slot);
+    m_instances.push_back(std::move(instance));
+    return true;
 }
 
 void ScriptRuntime::queue_custom_event(EntityID source, std::string name, std::string payload) {
@@ -1825,14 +1918,15 @@ void ScriptRuntime::dispatch_events() {
                         auto* entities = static_cast<EntityManager*>(context);
                         if (entities && entities->is_alive(id)) entities->destroy_entity(id);
                     };
+                    if (instance.binding) bind_dynamic_component_access(other, *instance.binding);
                     if (instance.native_host) instance.native_host->sync_before();
                     instance.behaviour->on_collision_enter(other);
                     if (instance.native_host) instance.native_host->sync_after();
-                    if (m_entity_manager->is_alive(instance.entity) &&
-                        m_entity_manager->has_component<ScriptComponent>(instance.entity)) {
+                    if (ScriptBehaviourSlot* slot = find_script_slot(
+                            *m_entity_manager, instance.entity, instance.slot_id)) {
                         pull_exposed_properties(
                             *instance.behaviour,
-                            m_entity_manager->get_component<ScriptComponent>(instance.entity)
+                            *slot
                         );
                     }
                 }
@@ -1844,11 +1938,11 @@ void ScriptRuntime::dispatch_events() {
                 instance.native_host->sync_before();
                 instance.behaviour->on_event(event.name, event.payload);
                 instance.native_host->sync_after();
-                if (m_entity_manager->is_alive(instance.entity) &&
-                    m_entity_manager->has_component<ScriptComponent>(instance.entity)) {
+                if (ScriptBehaviourSlot* slot = find_script_slot(
+                        *m_entity_manager, instance.entity, instance.slot_id)) {
                     pull_exposed_properties(
                         *instance.behaviour,
-                        m_entity_manager->get_component<ScriptComponent>(instance.entity)
+                        *slot
                     );
                 }
             }
@@ -1856,6 +1950,7 @@ void ScriptRuntime::dispatch_events() {
     }
 
     m_pending_events.clear();
+    flush_pending_component_removals();
 }
 
 ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
@@ -1869,7 +1964,9 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
     ScriptHotReloadResult result;
     std::unordered_set<AssetHandle> checked_assets;
     m_entity_manager->for_each<ScriptComponent>([&](EntityID, const ScriptComponent& component) {
-        if (component.enabled && component.script_handle.is_valid()) checked_assets.insert(component.script_handle);
+        for (const ScriptBehaviourSlot& instance : component.instances) {
+            if (instance.enabled && instance.script_handle.is_valid()) checked_assets.insert(instance.script_handle);
+        }
     });
 
     std::vector<AssetHandle> changed_assets;
@@ -1956,47 +2053,41 @@ void ScriptRuntime::update(float delta_time) {
         for (auto& inst : m_instances) {
             const auto status_found = m_statuses.find(inst.entity);
             if (status_found != m_statuses.end() && status_found->second.state == ScriptExecutionState::Error) continue;
-            if (!m_entity_manager || !m_entity_manager->is_alive(inst.entity) ||
-                !m_entity_manager->has_component<ScriptComponent>(inst.entity) || !inst.behaviour) continue;
-            const auto& component = m_entity_manager->get_component<ScriptComponent>(inst.entity);
-            if (!component.enabled) continue;
+            if (!m_entity_manager || !inst.behaviour) continue;
+            ScriptBehaviourSlot* component = find_script_slot(*m_entity_manager, inst.entity, inst.slot_id);
+            if (!component || !component->enabled) continue;
             if (inst.native_host) inst.native_host->sync_before();
-            push_exposed_properties(*inst.behaviour, component, *m_entity_manager);
+            push_exposed_properties(*inst.behaviour, *component, *m_entity_manager);
         }
         if (m_native_async_scheduler) {
             m_native_async_scheduler->step(delta_time, delta_time);
         }
         for (auto& inst : m_instances) {
-            if (!m_entity_manager || !m_entity_manager->is_alive(inst.entity) ||
-                !m_entity_manager->has_component<ScriptComponent>(inst.entity) || !inst.behaviour) continue;
+            if (!m_entity_manager || !inst.behaviour) continue;
+            ScriptBehaviourSlot* component = find_script_slot(*m_entity_manager, inst.entity, inst.slot_id);
+            if (!component) continue;
             if (inst.native_host) inst.native_host->sync_after();
-            pull_exposed_properties(
-                *inst.behaviour,
-                m_entity_manager->get_component<ScriptComponent>(inst.entity)
-            );
+            pull_exposed_properties(*inst.behaviour, *component);
         }
     }
     for (auto& inst : m_instances) {
         if (inst.behaviour) inst.behaviour->reap_completed_tasks();
         const auto status_found = m_statuses.find(inst.entity);
         if (status_found != m_statuses.end() && status_found->second.state == ScriptExecutionState::Error) continue;
-        if (!m_entity_manager || !m_entity_manager->is_alive(inst.entity) ||
-            !m_entity_manager->has_component<ScriptComponent>(inst.entity)) continue;
-        const auto& component = m_entity_manager->get_component<ScriptComponent>(inst.entity);
-        if (component.enabled && inst.behaviour) {
+        if (!m_entity_manager) continue;
+        ScriptBehaviourSlot* component = find_script_slot(*m_entity_manager, inst.entity, inst.slot_id);
+        if (component && component->enabled && inst.behaviour) {
             if (inst.native_host) inst.native_host->sync_before();
-            push_exposed_properties(*inst.behaviour, component, *m_entity_manager);
+            push_exposed_properties(*inst.behaviour, *component, *m_entity_manager);
             inst.behaviour->update(delta_time);
             if (inst.native_host) inst.native_host->sync_after();
-            if (m_entity_manager->is_alive(inst.entity) &&
-                m_entity_manager->has_component<ScriptComponent>(inst.entity)) {
-                pull_exposed_properties(
-                    *inst.behaviour,
-                    m_entity_manager->get_component<ScriptComponent>(inst.entity)
-                );
+            if (ScriptBehaviourSlot* live_slot = find_script_slot(
+                    *m_entity_manager, inst.entity, inst.slot_id)) {
+                pull_exposed_properties(*inst.behaviour, *live_slot);
             }
         }
     }
+    flush_pending_component_removals();
 }
 
 void ScriptRuntime::shutdown() {
@@ -2036,8 +2127,11 @@ void ScriptRuntime::set_error(
         m_entity_manager->is_alive(entity) &&
         m_entity_manager->has_component<ScriptComponent>(entity)) {
         const ScriptComponent& component = m_entity_manager->get_component<ScriptComponent>(entity);
-        if (const AssetRecord* asset = m_asset_database->find(component.script_handle)) {
-            source_path = asset->source_path;
+        for (const ScriptBehaviourSlot& instance : component.instances) {
+            if (const AssetRecord* asset = m_asset_database->find(instance.script_handle)) {
+                source_path = asset->source_path;
+                break;
+            }
         }
     }
     m_statuses[entity] = {ScriptExecutionState::Error, std::move(message), source_path, line, column};
@@ -2052,6 +2146,165 @@ void ScriptRuntime::set_error(
 const ScriptExecutionStatus* ScriptRuntime::status(EntityID entity) const {
     const auto found = m_statuses.find(entity);
     return found == m_statuses.end() ? nullptr : &found->second;
+}
+
+EngineScript::ComponentReference ScriptRuntime::find_behaviour_component(
+    EntityID entity,
+    const std::string& type_name,
+    std::size_t index
+) {
+    std::size_t current = 0;
+    for (Instance& instance : m_instances) {
+        if (instance.entity != entity || instance.class_name != type_name || !instance.behaviour) continue;
+        if (current++ != index) continue;
+        EngineScript::ComponentReference reference;
+        reference.runtime_context = this;
+        reference.entity_id = entity;
+        reference.slot_id = instance.slot_id;
+        reference.generation = instance.generation;
+        reference.type_name = type_name;
+        reference.resolve_callback = [](void* context, uint32_t target_entity, uint64_t slot_id,
+                                         uint32_t generation, const char* requested_type) -> void* {
+            auto* runtime = static_cast<ScriptRuntime*>(context);
+            if (!runtime || !requested_type) return nullptr;
+            for (Instance& candidate : runtime->m_instances) {
+                if (candidate.entity == target_entity && candidate.slot_id == slot_id &&
+                    candidate.generation == generation && candidate.class_name == requested_type &&
+                    candidate.behaviour) {
+                    return candidate.behaviour.get();
+                }
+            }
+            return nullptr;
+        };
+        reference.remove_callback = [](void* context, uint32_t target_entity, uint64_t slot_id,
+                                        uint32_t generation, const char* requested_type) {
+            auto* runtime = static_cast<ScriptRuntime*>(context);
+            if (!runtime || !requested_type) return false;
+            EngineScript::ComponentReference pending;
+            pending.runtime_context = runtime;
+            pending.entity_id = target_entity;
+            pending.slot_id = slot_id;
+            pending.generation = generation;
+            pending.type_name = requested_type;
+            return runtime->remove_behaviour_component(pending);
+        };
+        return reference;
+    }
+    return {};
+}
+
+std::size_t ScriptRuntime::count_behaviour_components(EntityID entity, const std::string& type_name) const {
+    return static_cast<std::size_t>(std::count_if(
+        m_instances.begin(), m_instances.end(),
+        [entity, &type_name](const Instance& instance) {
+            return instance.entity == entity && instance.class_name == type_name && instance.behaviour;
+        }
+    ));
+}
+
+EngineScript::ComponentReference ScriptRuntime::add_behaviour_component(
+    EntityID entity,
+    const std::string& type_name
+) {
+    if (!m_entity_manager || !m_entity_manager->is_alive(entity) || !m_native_module ||
+        !m_native_module->has_behaviour_type(type_name)) {
+        ENGINE_LOG_WARN("[SCRIPT] Cannot add unavailable EngineScript component {}", type_name);
+        return {};
+    }
+    const auto& behaviours = m_native_workspace->metadata_manifest().behaviours;
+    const auto manifest = std::find_if(behaviours.begin(), behaviours.end(), [&type_name](const auto& behaviour) {
+        return behaviour.name == type_name;
+    });
+    if (manifest == behaviours.end()) {
+        ENGINE_LOG_WARN("[SCRIPT] Cannot resolve EngineScript component asset for {}", type_name);
+        return {};
+    }
+    const auto record = std::find_if(m_asset_database->records().begin(), m_asset_database->records().end(),
+        [&manifest](const AssetRecord& candidate) {
+            return candidate.type == AssetType::Script && candidate.status == AssetStatus::Ready &&
+                candidate.source_path == manifest->module_path;
+        });
+    if (record == m_asset_database->records().end()) {
+        ENGINE_LOG_WARN("[SCRIPT] Cannot resolve EngineScript component asset for {}", type_name);
+        return {};
+    }
+
+    const bool created_container = !m_entity_manager->has_component<ScriptComponent>(entity);
+    if (created_container) {
+        ScriptComponent scripts;
+        scripts.instances.clear();
+        m_entity_manager->add_component<ScriptComponent>(entity, std::move(scripts));
+    }
+    auto& scripts = m_entity_manager->get_component<ScriptComponent>(entity);
+    ScriptBehaviourSlot slot;
+    slot.script_handle = record->handle;
+    slot.runtime_only = true;
+    const ScriptSlotID slot_id = slot.id;
+    scripts.instances.push_back(std::move(slot));
+
+    ScriptBehaviourSlot* attached = find_script_slot(*m_entity_manager, entity, slot_id);
+    std::string error;
+    if (!attached || !instantiate_slot(entity, *attached, error)) {
+        std::erase_if(scripts.instances, [slot_id](const ScriptBehaviourSlot& candidate) {
+            return candidate.id == slot_id;
+        });
+        if (created_container && scripts.instances.empty()) {
+            m_entity_manager->remove_component<ScriptComponent>(entity);
+        }
+        ENGINE_LOG_WARN("[SCRIPT] Cannot add {}: {}", type_name, error);
+        return {};
+    }
+    return find_behaviour_component(entity, type_name, count_behaviour_components(entity, type_name) - 1);
+}
+
+bool ScriptRuntime::remove_behaviour_component(const EngineScript::ComponentReference& reference) {
+    const auto found = std::find_if(
+        m_instances.begin(), m_instances.end(),
+        [&reference](const Instance& instance) {
+            return instance.entity == reference.entity_id && instance.slot_id == reference.slot_id &&
+                instance.generation == reference.generation && instance.class_name == reference.type_name &&
+                instance.behaviour;
+        }
+    );
+    if (found == m_instances.end()) return false;
+    const bool already_pending = std::any_of(
+        m_pending_component_removals.begin(), m_pending_component_removals.end(),
+        [&reference](const EngineScript::ComponentReference& pending) {
+            return pending.entity_id == reference.entity_id && pending.slot_id == reference.slot_id &&
+                pending.generation == reference.generation;
+        }
+    );
+    if (already_pending) return false;
+    m_pending_component_removals.push_back(reference);
+    return true;
+}
+
+void ScriptRuntime::flush_pending_component_removals() {
+    for (const EngineScript::ComponentReference& reference : m_pending_component_removals) {
+        const auto found = std::find_if(
+            m_instances.begin(), m_instances.end(),
+            [&reference](const Instance& instance) {
+                return instance.entity == reference.entity_id && instance.slot_id == reference.slot_id &&
+                    instance.generation == reference.generation && instance.class_name == reference.type_name;
+            }
+        );
+        if (found == m_instances.end()) continue;
+        if (found->behaviour) {
+            if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(found->behaviour->task_scope_id);
+            found->behaviour->cancel_owned_tasks();
+            found->behaviour->on_destroy();
+        }
+        if (m_entity_manager) {
+            if (ScriptBehaviourSlot* slot = find_script_slot(*m_entity_manager, found->entity, found->slot_id)) {
+                auto& scripts = m_entity_manager->get_component<ScriptComponent>(found->entity);
+                std::erase_if(scripts.instances, [slot_id = slot->id](const ScriptBehaviourSlot& candidate) {
+                    return candidate.id == slot_id;
+                });
+            }
+        }
+        m_instances.erase(found);
+    }
+    m_pending_component_removals.clear();
 }
 
 const std::string* ScriptRuntime::reload_error(AssetHandle handle) const {

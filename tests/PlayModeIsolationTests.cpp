@@ -95,7 +95,7 @@ export class SwitchScene extends Behaviour {
     authored_body.friction = 0.25f;
     entities.add_component<RigidBodyComponent>(entity, authored_body);
     ScriptComponent component;
-    component.script_handle = script->handle;
+    component.instances.front().script_handle = script->handle;
     entities.add_component<ScriptComponent>(entity, component);
 
     SceneManager manager;
@@ -138,7 +138,7 @@ export class SwitchScene extends Behaviour {
     auto switching_scene = std::make_shared<TestScene>("DeferredSceneSource");
     const EntityID switching_entity = switching_scene->get_entity_manager().create_entity();
     ScriptComponent switching_component;
-    switching_component.script_handle = switch_script->handle;
+    switching_component.instances.front().script_handle = switch_script->handle;
     switching_scene->get_entity_manager().add_component<ScriptComponent>(switching_entity, switching_component);
     SceneManager switching_manager;
     switching_manager.set_asset_database(&database);

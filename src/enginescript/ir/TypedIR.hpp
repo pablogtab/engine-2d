@@ -153,6 +153,7 @@ struct IRMethod {
     std::vector<IRBlock> blocks;
     bool is_async = false;
     bool is_override = false;
+    bool is_public = true;
     std::vector<std::string> decorators;
 };
 
@@ -161,6 +162,7 @@ struct IRProperty {
     std::shared_ptr<Type> type;
     std::shared_ptr<IROperation> initializer;
     std::vector<std::string> decorators;
+    bool is_public = true;
     std::unordered_map<std::string, double> numeric_attributes; // e.g. min, max
 };
 
@@ -193,6 +195,7 @@ struct IRModule {
     std::string module_path;
     FileId file_id = INVALID_FILE_ID;
     std::vector<std::string> imports;
+    std::unordered_map<std::string, std::string> import_aliases;
     std::vector<IRClass> classes;
     std::vector<IRStruct> structs;
     std::vector<IRFunction> functions;

@@ -69,6 +69,8 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
         default:
             if (ApiCatalog::instance().has_available_type(type->name)) {
                 s = "EngineScript::" + type->name;
+            } else if (type->kind == TypeKind::Class) {
+                s = std::format("EngineScript::ComponentHandle<{}>", type->name);
             } else {
                 s = type->name;
             }
@@ -78,13 +80,14 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
     const ApiTypeDescriptor* api_type = type->kind == TypeKind::Class
         ? ApiCatalog::instance().find_available_type(type->name) : nullptr;
     const bool is_value_type = api_type && api_type->value_type;
-    if (type->is_nullable) {
+    const bool is_behaviour_handle = type->kind == TypeKind::Class && !api_type;
+    if (type->is_nullable && !is_behaviour_handle) {
         if (type->kind == TypeKind::Class) {
             s = is_value_type ? std::format("std::optional<{}>", s) : s + "*";
         } else {
             s = std::format("std::optional<{}>", s);
         }
-    } else if (type->kind == TypeKind::Class && s != "void" && !is_value_type) {
+    } else if (type->kind == TypeKind::Class && s != "void" && !is_value_type && !is_behaviour_handle) {
         s = s + "*";
     }
 
@@ -118,6 +121,9 @@ CppOutput CppEmitter::emit_module(const IRModule& module) {
     for (const auto& imp : module.imports) {
         std::filesystem::path imp_p(imp);
         h_ss << std::format("#include \"{}.generated.hpp\"\n", imp_p.stem().string());
+    }
+    for (const auto& [alias, original] : module.import_aliases) {
+        h_ss << std::format("using {} = {};\n", alias, original);
     }
     h_ss << "\n";
 
@@ -260,6 +266,7 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
         : (cls.base_class.empty() ? "public EngineScript::NativeBehaviour" : "public " + cls.base_class);
     out += std::format("class {} : {} {{\n", cls.name, base);
     out += "public:\n";
+    out += std::format("    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = \"{}\";\n", cls.name);
 
     // Constructor with injection parameters
     out += std::format("    {}(", cls.name);
@@ -272,11 +279,13 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
 
     // Properties
     for (const auto& prop : cls.properties) {
+        if (!prop.is_public) continue;
         out += std::format("    {} {} = {{}};\n", type_to_cpp(prop.type.get()), prop.name);
     }
 
     // Methods
     for (const auto& m : cls.methods) {
+        if (!m.is_public) continue;
         std::string ret = type_to_cpp(m.return_type.get());
         const bool overrides_lifecycle = cls.is_behaviour &&
             (m.name == "on_start" || m.name == "update" || m.name == "on_destroy" ||
@@ -297,6 +306,25 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
     }
 
     out += "private:\n";
+    for (const auto& prop : cls.properties) {
+        if (prop.is_public) continue;
+        out += std::format("    {} {} = {{}};\n", type_to_cpp(prop.type.get()), prop.name);
+    }
+    for (const auto& m : cls.methods) {
+        if (m.is_public) continue;
+        std::string ret = type_to_cpp(m.return_type.get());
+        const bool overrides_lifecycle = cls.is_behaviour &&
+            (m.name == "on_start" || m.name == "update" || m.name == "on_destroy" ||
+             m.name == "on_collision_enter" || m.name == "on_event");
+        std::string virt = (m.is_override || overrides_lifecycle) ? " override" : "";
+        out += std::format("    {} {}(", ret, m.name);
+        for (size_t i = 0; i < m.params.size(); ++i) {
+            const auto& p = m.params[i];
+            out += std::format("{} {}", type_to_cpp(p.type.get(), true), p.name);
+            if (i + 1 < m.params.size()) out += ", ";
+        }
+        out += std::format("){};\n", virt);
+    }
     for (const auto& p : cls.constructor_params) {
         out += std::format("    {} m_{};\n", type_to_cpp(p.type.get()), p.name);
     }
@@ -370,11 +398,21 @@ void CppEmitter::emit_class_source(const IRClass& cls, const std::string& header
     out += std::format("    return new {}(", cls.name);
     for (std::size_t index = 0; index < cls.constructor_params.size(); ++index) {
         const auto& parameter = cls.constructor_params[index];
-        out += std::format(
-            "static_cast<{}>(args ? args[{}] : nullptr)",
-            type_to_cpp(parameter.type.get()),
-            index
-        );
+        const bool behaviour_component = parameter.type && parameter.type->kind == TypeKind::Class &&
+            !ApiCatalog::instance().has_available_type(parameter.type->name);
+        if (behaviour_component) {
+            out += std::format(
+                "EngineScript::ComponentHandle<{}>{{args ? *static_cast<EngineScript::ComponentReference*>(args[{}]) : EngineScript::ComponentReference{{}}}}",
+                parameter.type->name,
+                index
+            );
+        } else {
+            out += std::format(
+                "static_cast<{}>(args ? args[{}] : nullptr)",
+                type_to_cpp(parameter.type.get()),
+                index
+            );
+        }
         if (index + 1 < cls.constructor_params.size()) out += ", ";
     }
     out += ");\n";
@@ -664,7 +702,9 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             s += "<";
             for (size_t i = 0; i < mc->type_arguments.size(); ++i) {
                 if (i != 0) s += ", ";
-                s += "EngineScript::" + mc->type_arguments[i];
+                s += ApiCatalog::instance().has_available_type(mc->type_arguments[i])
+                    ? "EngineScript::" + mc->type_arguments[i]
+                    : mc->type_arguments[i];
             }
             s += ">";
         }

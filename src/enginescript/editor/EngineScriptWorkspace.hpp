@@ -46,6 +46,23 @@ struct WorkspaceDocumentSymbol {
     WorkspaceDocumentSymbolKind kind{WorkspaceDocumentSymbolKind::Variable};
 };
 
+enum class WorkspaceExportedSymbolKind {
+    Class,
+    Struct,
+    Interface,
+    Enum,
+    Function,
+    Constant
+};
+
+struct WorkspaceExportedSymbol {
+    FileId file_id{INVALID_FILE_ID};
+    std::string module_path;
+    std::string name;
+    SourceSpan declaration_span;
+    WorkspaceExportedSymbolKind kind{WorkspaceExportedSymbolKind::Class};
+};
+
 class EngineScriptWorkspace {
 public:
     explicit EngineScriptWorkspace(std::string project_root);
@@ -56,6 +73,10 @@ public:
     void add_source_file(const std::string& relative_path, const std::string& content);
     void update_source_file(const std::string& relative_path, const std::string& content);
     void remove_source_file(const std::string& relative_path);
+    // The compiler and the language server deliberately share this discovery
+    // entrypoint, so closed documents participate in the same module graph.
+    size_t discover_project_sources();
+    bool restore_source_file_from_disk(const std::string& relative_path);
 
     CompilationResult compile(bool force_rebuild = false);
 
@@ -69,6 +90,7 @@ public:
     std::optional<std::string> inferred_type_at(FileId file_id, uint32_t byte_offset) const;
     std::optional<std::string> symbol_type_at(FileId file_id, std::string_view name, uint32_t byte_offset) const;
     std::vector<WorkspaceDocumentSymbol> symbols_in_scope(FileId file_id, uint32_t byte_offset) const;
+    std::vector<WorkspaceExportedSymbol> exports_from(std::string_view module_path) const;
 
     // Serialization helper for scene files
     std::string serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const;
@@ -83,6 +105,7 @@ private:
     std::vector<IRModule> m_ir_modules;
     std::vector<WorkspaceInferredType> m_inferred_types;
     std::vector<WorkspaceDocumentSymbol> m_document_symbols;
+    std::vector<WorkspaceExportedSymbol> m_exported_symbols;
     std::vector<std::string> m_registered_files;
     std::string m_last_workspace_hash;
     std::optional<CompilationResult> m_last_result;

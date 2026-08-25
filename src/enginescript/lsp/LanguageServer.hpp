@@ -23,12 +23,15 @@ public:
     std::string on_completion(const std::string& id, const std::string& uri, uint32_t line, uint32_t character);
     std::string on_hover(const std::string& id, const std::string& uri, uint32_t line, uint32_t character);
     std::string on_definition(const std::string& id, const std::string& uri, uint32_t line, uint32_t character);
+    std::string on_signature_help(const std::string& id, const std::string& uri, uint32_t line, uint32_t character);
+    void on_watched_files_changed(const std::string& params_json);
 
     const EngineScriptWorkspace& workspace() const { return m_workspace; }
 
 private:
     std::string publish_diagnostics(const std::string& uri);
     std::string source_path_for_uri(const std::string& uri) const;
+    std::string uri_for_source_path(const std::string& source_path) const;
 
     EngineScriptWorkspace m_workspace;
     std::unordered_map<std::string, uint32_t> m_open_document_versions;

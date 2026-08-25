@@ -90,8 +90,8 @@ export class PlayerController extends Behaviour {
 
     EntityID entity = entity_manager.create_entity();
     ScriptComponent script_comp;
-    script_comp.enabled = true;
-    script_comp.script_handle = record->handle;
+    script_comp.instances.front().enabled = true;
+    script_comp.instances.front().script_handle = record->handle;
     entity_manager.add_component<ScriptComponent>(entity, script_comp);
 
     ScriptRuntimeServices services;
@@ -104,15 +104,16 @@ export class PlayerController extends Behaviour {
     runtime.update(0.016f);
     runtime.update(0.016f);
     const auto& updated = entity_manager.get_component<ScriptComponent>(entity);
-    const auto tick = std::find_if(updated.public_fields.begin(), updated.public_fields.end(), [](const ScriptPublicField& field) {
+    const auto& updated_fields = updated.instances.front().public_fields;
+    const auto tick = std::find_if(updated_fields.begin(), updated_fields.end(), [](const ScriptPublicField& field) {
         return field.name == "tickCount";
     });
-    assert(tick != updated.public_fields.end());
+    assert(tick != updated_fields.end());
     assert(std::get<double>(tick->value) == 2.0);
-    const auto async_completed = std::find_if(updated.public_fields.begin(), updated.public_fields.end(), [](const ScriptPublicField& field) {
+    const auto async_completed = std::find_if(updated_fields.begin(), updated_fields.end(), [](const ScriptPublicField& field) {
         return field.name == "asyncCompleted";
     });
-    assert(async_completed != updated.public_fields.end());
+    assert(async_completed != updated_fields.end());
     assert(std::get<bool>(async_completed->value));
     
     runtime.shutdown();
@@ -244,9 +245,9 @@ export class DynamicPlayer extends Behaviour {
     entity_manager.add_component<TransformComponent>(entity, TransformComponent{});
 
     ScriptComponent script_comp;
-    script_comp.enabled = true;
-    script_comp.script_handle = record->handle;
-    script_comp.public_fields = {
+    script_comp.instances.front().enabled = true;
+    script_comp.instances.front().script_handle = record->handle;
+    script_comp.instances.front().public_fields = {
         {"walkSpeed", ScriptFieldType::Number, 280.0},
         {"jumpSpeed", ScriptFieldType::Number, 520.0}
     };
@@ -264,7 +265,7 @@ export class DynamicPlayer extends Behaviour {
 
     // Modify speed dynamically in-game (as done via Inspector)
     auto& live_comp = entity_manager.get_component<ScriptComponent>(entity);
-    live_comp.public_fields[0].value = 750.0;
+    live_comp.instances.front().public_fields[0].value = 750.0;
 
     // Advance frame and verify update executes with modified live component
     runtime.update(0.016f);
@@ -321,9 +322,9 @@ export class BoostPlayer extends Behaviour {
     entity_manager.add_component<RigidBodyComponent>(player, RigidBodyComponent::Dynamic());
 
     ScriptComponent script_comp;
-    script_comp.enabled = true;
-    script_comp.script_handle = record->handle;
-    script_comp.public_fields = {
+    script_comp.instances.front().enabled = true;
+    script_comp.instances.front().script_handle = record->handle;
+    script_comp.instances.front().public_fields = {
         {"walkSpeed", ScriptFieldType::Number, 280.0}
     };
     entity_manager.add_component<ScriptComponent>(player, script_comp);
@@ -346,8 +347,8 @@ export class BoostPlayer extends Behaviour {
 
     // Verify speed was boosted by +75.0 (280 + 75 = 355)
     const auto& updated_comp = entity_manager.get_component<ScriptComponent>(player);
-    assert(std::holds_alternative<double>(updated_comp.public_fields[0].value));
-    assert(std::abs(std::get<double>(updated_comp.public_fields[0].value) - 355.0) < 0.001);
+    assert(std::holds_alternative<double>(updated_comp.instances.front().public_fields[0].value));
+    assert(std::abs(std::get<double>(updated_comp.instances.front().public_fields[0].value) - 355.0) < 0.001);
     assert(std::abs(entity_manager.get_component<RigidBodyComponent>(player).velocity.y - 780.0f) < 0.001f);
     assert(PhysicsSystem::is_ignoring_one_way(player));
     assert(!entity_manager.is_alive(coin));
@@ -437,8 +438,8 @@ export class ServiceUser extends Behaviour {
     EntityManager entity_manager;
     const EntityID entity = entity_manager.create_entity();
     ScriptComponent component;
-    component.enabled = true;
-    component.script_handle = record->handle;
+    component.instances.front().enabled = true;
+    component.instances.front().script_handle = record->handle;
     entity_manager.add_component<ScriptComponent>(entity, component);
     const EntityID status = entity_manager.create_entity();
     entity_manager.add_component<TagComponent>(status, TagComponent{"Status"});
@@ -530,10 +531,11 @@ export class ServiceUser extends Behaviour {
     runtime.dispatch_events();
     assert(script_events == 5);
     const ScriptComponent& updated_component = entity_manager.get_component<ScriptComponent>(entity);
-    const auto received = std::find_if(updated_component.public_fields.begin(), updated_component.public_fields.end(), [](const ScriptPublicField& field) {
+    const auto& updated_fields = updated_component.instances.front().public_fields;
+    const auto received = std::find_if(updated_fields.begin(), updated_fields.end(), [](const ScriptPublicField& field) {
         return field.name == "received";
     });
-    assert(received != updated_component.public_fields.end());
+    assert(received != updated_fields.end());
     assert(std::get<std::string>(received->value) == "AssetLoaded:Assets/scripts/ServiceUser.e2s");
 
     runtime.shutdown();
@@ -591,8 +593,8 @@ export class ParticleUser extends Behaviour {
     entity_manager.add_component<TransformComponent>(entity, TransformComponent{});
     entity_manager.add_component<ParticleEmitter2DComponent>(entity, ParticleEmitter2DComponent{});
     ScriptComponent script;
-    script.enabled = true;
-    script.script_handle = script_record->handle;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = script_record->handle;
     entity_manager.add_component<ScriptComponent>(entity, script);
 
     int play_calls = 0;

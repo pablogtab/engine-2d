@@ -4,6 +4,8 @@
 #include "../EcsTypes.hpp"
 
 #include <string>
+#include <atomic>
+#include <cstdint>
 #include <variant>
 #include <vector>
 
@@ -42,10 +44,36 @@ struct ScriptPublicField {
     bool operator==(const ScriptPublicField&) const = default;
 };
 
-struct ScriptComponent {
+using ScriptSlotID = std::uint64_t;
+
+[[nodiscard]] inline std::atomic<ScriptSlotID>& script_slot_id_counter() {
+    static std::atomic<ScriptSlotID> next_id{1};
+    return next_id;
+}
+
+[[nodiscard]] inline ScriptSlotID make_script_slot_id() {
+    return script_slot_id_counter().fetch_add(1, std::memory_order_relaxed);
+}
+
+inline void observe_script_slot_id(ScriptSlotID id) {
+    auto& next_id = script_slot_id_counter();
+    ScriptSlotID expected = next_id.load(std::memory_order_relaxed);
+    while (expected <= id &&
+           !next_id.compare_exchange_weak(expected, id + 1, std::memory_order_relaxed)) {}
+}
+
+struct ScriptBehaviourSlot {
+    ScriptSlotID id{make_script_slot_id()};
     AssetHandle script_handle{};
     bool enabled{true};
+    bool runtime_only{false};
     std::vector<ScriptPublicField> public_fields;
+
+    bool operator==(const ScriptBehaviourSlot&) const = default;
+};
+
+struct ScriptComponent {
+    std::vector<ScriptBehaviourSlot> instances{ScriptBehaviourSlot{}};
 
     bool operator==(const ScriptComponent&) const = default;
 };

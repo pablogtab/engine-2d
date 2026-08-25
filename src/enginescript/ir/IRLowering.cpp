@@ -14,6 +14,9 @@ IRModule IRLowering::lower_module(const ModuleNode& module) {
     for (const auto& decl : module.declarations) {
         if (auto imp = dynamic_cast<const ImportDecl*>(decl.get())) {
             ir_mod.imports.push_back(imp->module_path);
+            for (const ImportDecl::ImportItem& item : imp->items) {
+                if (item.alias) ir_mod.import_aliases.emplace(*item.alias, item.name);
+            }
         } else if (auto cls = dynamic_cast<const ClassDecl*>(decl.get())) {
             ir_mod.classes.push_back(lower_class(*cls));
         } else if (auto st = dynamic_cast<const StructDecl*>(decl.get())) {
@@ -77,6 +80,7 @@ IRStruct IRLowering::lower_struct(const StructDecl& st) {
 IRProperty IRLowering::lower_property(const PropertyDecl& prop) {
     IRProperty ir_prop;
     ir_prop.name = prop.name;
+    ir_prop.is_public = prop.access == AccessModifier::Public;
     ir_prop.type = prop.type_annotation ? m_type_checker.resolve_type_annotation(*prop.type_annotation) : m_type_checker.get_type_of_node(&prop);
 
     for (const auto& dec : prop.decorators) {
@@ -103,6 +107,7 @@ IRMethod IRLowering::lower_method(const MethodDecl& m) {
     ir_m.name = m.name;
     ir_m.is_async = m.is_async;
     ir_m.is_override = m.is_override;
+    ir_m.is_public = m.access == AccessModifier::Public;
     ir_m.return_type = m.return_type ? m_type_checker.resolve_type_annotation(*m.return_type) : Type::make_primitive(TypeKind::Void);
 
     for (const auto& d : m.decorators) {

@@ -14,6 +14,8 @@
 #include <variant>
 #include <algorithm>
 #include <cctype>
+#include <string_view>
+#include <type_traits>
 
 namespace EngineScript {
 
@@ -57,8 +59,8 @@ inline std::string toString(int value) {
     return std::to_string(value);
 }
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 22;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v22";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 23;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v23";
 
 class Input {
 public:
@@ -80,6 +82,7 @@ public:
 };
 
 struct RigidBody2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "RigidBody2D";
     glm::vec2 velocity{0.0f, 0.0f};
     bool isGrounded{false};
 
@@ -96,10 +99,12 @@ struct RigidBody2D {
 };
 
 struct SpriteRenderer2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "SpriteRenderer2D";
     bool flipX{false};
 };
 
 struct Transform2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "Transform2D";
     glm::vec2 position{0.0f, 0.0f};
     float rotation{0.0f};
     glm::vec2 scale{1.0f, 1.0f};
@@ -128,17 +133,119 @@ public:
     virtual bool setFullscreen(bool enabled) = 0;
 };
 
+struct ComponentReference {
+    using ResolveCallback = void* (*)(void*, uint32_t, uint64_t, uint32_t, const char*);
+    using RemoveCallback = bool (*)(void*, uint32_t, uint64_t, uint32_t, const char*);
+
+    void* runtime_context{nullptr};
+    uint32_t entity_id{0};
+    uint64_t slot_id{0};
+    uint32_t generation{0};
+    std::string type_name;
+    ResolveCallback resolve_callback{nullptr};
+    RemoveCallback remove_callback{nullptr};
+
+    [[nodiscard]] void* resolve() const {
+        return resolve_callback && !type_name.empty()
+            ? resolve_callback(runtime_context, entity_id, slot_id, generation, type_name.c_str())
+            : nullptr;
+    }
+};
+
+template <typename T>
+[[nodiscard]] constexpr const char* component_type_name() {
+    if constexpr (requires { T::ENGINE_SCRIPT_TYPE_NAME; }) {
+        return T::ENGINE_SCRIPT_TYPE_NAME;
+    } else {
+        return nullptr;
+    }
+}
+
+template <typename T>
+class ComponentHandle {
+public:
+    ComponentHandle() = default;
+    ComponentHandle(std::nullptr_t) {}
+    explicit ComponentHandle(ComponentReference reference) : m_reference(reference) {}
+
+    [[nodiscard]] T* get() const { return static_cast<T*>(m_reference.resolve()); }
+    [[nodiscard]] bool isValid() const { return get() != nullptr; }
+    [[nodiscard]] uint64_t slotId() const { return m_reference.slot_id; }
+    [[nodiscard]] const ComponentReference& reference() const { return m_reference; }
+
+    T* operator->() const { return get(); }
+    operator T*() const { return get(); }
+    explicit operator bool() const { return isValid(); }
+
+private:
+    ComponentReference m_reference;
+};
+
 struct Entity {
     uint32_t id = 0;
     std::string name;
     std::string tag;
 
     using DestroyCallback = void (*)(void*, uint32_t);
+    using FindComponentCallback = ComponentReference (*)(void*, uint32_t, const char*, std::size_t);
+    using CountComponentsCallback = std::size_t (*)(void*, uint32_t, const char*);
+    using AddComponentCallback = ComponentReference (*)(void*, uint32_t, const char*);
     void* runtime_context = nullptr;
     DestroyCallback destroy_callback = nullptr;
+    void* component_context = nullptr;
+    FindComponentCallback find_component_callback = nullptr;
+    CountComponentsCallback count_components_callback = nullptr;
+    AddComponentCallback add_component_callback = nullptr;
 
     void destroy() const {
         if (destroy_callback) destroy_callback(runtime_context, id);
+    }
+
+    template <typename T>
+    [[nodiscard]] ComponentHandle<T> getComponent() const {
+        const char* type = component_type_name<T>();
+        return ComponentHandle<T>{find_component_callback && type
+            ? find_component_callback(component_context, id, type, 0)
+            : ComponentReference{}};
+    }
+
+    template <typename T>
+    [[nodiscard]] std::vector<ComponentHandle<T>> getComponents() const {
+        std::vector<ComponentHandle<T>> result;
+        const char* type = component_type_name<T>();
+        if (!find_component_callback || !count_components_callback || !type) return result;
+        const std::size_t count = count_components_callback(component_context, id, type);
+        result.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            ComponentReference reference = find_component_callback(component_context, id, type, index);
+            if (reference.resolve_callback) result.emplace_back(reference);
+        }
+        return result;
+    }
+
+    template <typename T>
+    [[nodiscard]] bool hasComponent() const {
+        return static_cast<bool>(getComponent<T>());
+    }
+
+    template <typename T>
+    [[nodiscard]] ComponentHandle<T> addComponent() const {
+        const char* type = component_type_name<T>();
+        return ComponentHandle<T>{add_component_callback && type
+            ? add_component_callback(component_context, id, type)
+            : ComponentReference{}};
+    }
+
+    template <typename T>
+    bool removeComponent(const ComponentHandle<T>& component) const {
+        const ComponentReference& reference = component.reference();
+        return reference.remove_callback && reference.remove_callback(
+            reference.runtime_context,
+            reference.entity_id,
+            reference.slot_id,
+            reference.generation,
+            reference.type_name.c_str()
+        );
     }
 };
 
@@ -151,6 +258,7 @@ struct Asset {
 };
 
 struct ParticleEmitter2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "ParticleEmitter2D";
     float emitRate{0.0f};
     int burstCount{0};
     bool active{false};
@@ -181,6 +289,7 @@ struct ParticleEmitter2D {
 };
 
 struct Joint2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "Joint2D";
     Entity target{};
     bool collideConnected{false};
 };
@@ -231,6 +340,7 @@ public:
 
 class Animator2D {
 public:
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "Animator2D";
     virtual ~Animator2D() = default;
     virtual void play(const std::string& clip_name) = 0;
 };
