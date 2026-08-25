@@ -161,6 +161,13 @@ limit. `Int`, `UInt`, and `Float` remain aliases of `Int32`, `UInt32`, and
 constructors, not casts. Components remain typed ECS queries through
 `entity.getComponent<T>()`.
 
+Generic functions, structs, and classes accept explicit concrete type arguments
+and constraints such as `T extends Send`. Identical combinations are reused
+across the workspace. Compilation is capped at 256 unique concrete generic
+instantiations and 32 active expansion levels; `E3091` reports excessive code
+growth before invoking C++, and `e2sc` prints the resulting instantiation count
+and generated C++ byte size.
+
 The external platformer demo keeps gameplay in project-owned EngineScript
 behaviours: player movement, coyote time, jump buffering, double jump,
 drop-through platforms, trampoline bounce, coin destruction, persistent high

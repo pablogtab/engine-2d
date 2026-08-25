@@ -37,6 +37,19 @@ int main() {
     deterministic.end_instantiation("Node", {"Int"});
     assert(deterministic.begin_instantiation("Node", {"Int"}));
 
+    GenericsManager bounded({.max_instantiations = 2, .max_active_depth = 2});
+    assert(bounded.try_request_instantiation("Box", {"Int"}));
+    assert(bounded.try_request_instantiation("Box", {"String"}));
+    assert(bounded.try_request_instantiation("Box", {"Int"}));
+    assert(!bounded.try_request_instantiation("Box", {"Float"}));
+    assert(bounded.last_failure() == GenericInstantiationFailure::CountLimit);
+    assert(bounded.failed_instantiation() == "Box<Float>");
+    bounded.clear();
+    assert(bounded.begin_instantiation("Outer", {"Int"}));
+    assert(bounded.begin_instantiation("Inner", {"Int"}));
+    assert(!bounded.begin_instantiation("TooDeep", {"Int"}));
+    assert(bounded.last_failure() == GenericInstantiationFailure::DepthLimit);
+
     std::cout << "[PASS] EngineScriptGenericTests passed!\n";
     return 0;
 }

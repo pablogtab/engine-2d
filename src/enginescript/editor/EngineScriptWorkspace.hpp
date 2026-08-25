@@ -9,12 +9,19 @@
 #include "../codegen/MetadataEmitter.hpp"
 #include "../cache/CompilerCache.hpp"
 #include "../depgraph/DependencyGraph.hpp"
+#include "../generics/Generics.hpp"
 #include <string>
 #include <vector>
 #include <memory>
 #include <optional>
 
 namespace EngineScript {
+
+struct GenericCodeGrowthReport {
+    size_t unique_instantiations = 0;
+    size_t generated_cpp_bytes = 0;
+    std::vector<GenericInstantiation> instantiations;
+};
 
 struct CompilationResult {
     bool success = false;
@@ -23,6 +30,7 @@ struct CompilationResult {
     std::string metadata_json;
     std::vector<CppOutput> generated_cpp;
     std::vector<Diagnostic> diagnostics;
+    GenericCodeGrowthReport generic_code_growth;
 };
 
 struct WorkspaceInferredType {

@@ -10,7 +10,7 @@ namespace fs = std::filesystem;
 using namespace EngineScript;
 
 void print_usage() {
-    std::cout << "EngineScript Compiler (e2sc) v1.0.0\n"
+    std::cout << "EngineScript Compiler (e2sc) v2.0.0\n"
               << "Usage: e2sc <project_dir> [options]\n\n"
               << "Options:\n"
               << "  -o, --output <dir>    Output directory for generated C++ and metadata (default: <project_dir>/.e2s_build)\n"
@@ -39,7 +39,8 @@ int main(int argc, char* argv[]) {
             print_usage();
             return 0;
         } else if (arg == "-v" || arg == "--version") {
-            std::cout << "e2sc version 1.0.0 (EngineScript C++20 Backend)\n";
+            std::cout << "e2sc version 2.0.0 (language " << ENGINE_SCRIPT_LANGUAGE_VERSION
+                      << ", ABI " << ENGINE_SCRIPT_ABI_VERSION << ")\n";
             return 0;
         } else if (arg == "-c" || arg == "--check") {
             check_only = true;
@@ -92,6 +93,8 @@ int main(int argc, char* argv[]) {
         // Output JSON format
         std::cout << "{\"error_count\":" << res.error_count 
                   << ",\"warning_count\":" << res.warning_count 
+                  << ",\"generic_instantiations\":" << res.generic_code_growth.unique_instantiations
+                  << ",\"generated_cpp_bytes\":" << res.generic_code_growth.generated_cpp_bytes
                   << ",\"success\":" << (res.success ? "true" : "false") << "}\n";
     }
 
@@ -111,7 +114,8 @@ int main(int argc, char* argv[]) {
     }
 
     if (check_only) {
-        std::cout << "Verification successful. " << file_count << " files checked with 0 errors.\n";
+        std::cout << "Verification successful. " << file_count << " files checked with 0 errors; "
+                  << res.generic_code_growth.unique_instantiations << " concrete generic instantiations.\n";
         return 0;
     }
 
@@ -155,7 +159,10 @@ int main(int argc, char* argv[]) {
             fs::path(project_dir).filename().string()
         );
 
-        std::cout << "Successfully compiled " << file_count << " EngineScript files into " << output_dir << "\n";
+        std::cout << "Successfully compiled " << file_count << " EngineScript files into " << output_dir << "\n"
+                  << "Generic code growth: " << res.generic_code_growth.unique_instantiations
+                  << " concrete instantiations across " << res.generic_code_growth.generated_cpp_bytes
+                  << " generated C++ bytes.\n";
     } catch (const std::exception& ex) {
         std::cerr << "Error writing build output: " << ex.what() << "\n";
         return 1;

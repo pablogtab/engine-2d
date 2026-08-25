@@ -8,6 +8,7 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <format>
 #include <functional>
 #include <unordered_set>
 
@@ -522,6 +523,30 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         return finish(std::move(result));
     }
 
+    GenericsManager generics({
+        .max_instantiations = ENGINE_SCRIPT_MAX_GENERIC_INSTANTIATIONS,
+        .max_active_depth = 32
+    });
+    for (const IRModule& module : ir_modules) generics.analyze_module(module);
+    result.generic_code_growth.unique_instantiations = generics.instantiation_count();
+    result.generic_code_growth.instantiations = generics.all_instantiations();
+    if (generics.last_failure() == GenericInstantiationFailure::CountLimit) {
+        m_diagnostics.report_error(
+            "E3091",
+            std::format(
+                "Generic instantiation limit of {} exceeded while expanding '{}'; reduce concrete combinations",
+                ENGINE_SCRIPT_MAX_GENERIC_INSTANTIATIONS,
+                generics.failed_instantiation()
+            ),
+            {}
+        );
+        result.success = false;
+        result.error_count = m_diagnostics.error_count();
+        result.warning_count = m_diagnostics.warning_count();
+        result.diagnostics = m_diagnostics.get_diagnostics();
+        return finish(std::move(result));
+    }
+
     // 6. Generate Metadata
     result.metadata_json = MetadataEmitter::emit_json(ir_modules);
     m_manifest = MetadataEmitter::parse_json(result.metadata_json);
@@ -555,6 +580,8 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
             entry.metadata_json = result.metadata_json;
             m_cache.store(entry);
         }
+        result.generic_code_growth.generated_cpp_bytes +=
+            cpp_out.header_content.size() + cpp_out.source_content.size();
         result.generated_cpp.push_back(std::move(cpp_out));
     }
 

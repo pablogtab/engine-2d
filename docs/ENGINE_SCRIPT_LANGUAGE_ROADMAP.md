@@ -312,6 +312,12 @@ generic functions, generic structs/classes, constraints, and bounded inference.
 
 Unresolved templates do not cross the GameModule ABI. The compiler must monitor
 native code growth and reuse identical valid instantiations through the cache.
+The EngineScript 2.0 compiler bounds a workspace to 256 unique concrete
+instantiations and 32 active expansion levels. Repeated combinations are
+deduplicated deterministically; exceeding either boundary is an EngineScript
+diagnostic rather than an eventual C++ template failure. `e2sc` reports the
+unique-instantiation count and generated C++ byte size for every successful
+build.
 
 ## 5. Decorators, Dependency Injection, and Reflection
 
