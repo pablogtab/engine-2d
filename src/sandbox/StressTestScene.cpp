@@ -4,17 +4,21 @@
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <cstdlib>
+#include <algorithm>
+#include <iterator>
 
 namespace Sandbox {
 
-StressTestScene::StressTestScene(SDL_Renderer *renderer, Engine::ThreadPool* thread_pool, size_t particle_count)
+StressTestScene::StressTestScene(SDL_Renderer *renderer, Engine::ThreadPool* thread_pool, std::size_t scenario_index)
     : Engine::CustomScene("GPU/CPU Stress Test"),
       m_sdl_renderer(renderer), m_thread_pool(thread_pool), m_camera(1280.0f, 720.0f) {
-
-  set_particle_count(particle_count);
+  const auto& scenarios = Engine::built_in_stress_scenarios();
+  set_scenario(scenarios[std::min(scenario_index, scenarios.size() - 1)]);
 }
 
-void StressTestScene::set_particle_count(size_t count) {
+void StressTestScene::set_scenario(const Engine::StressScenario& scenario) {
+  m_scenario_name = scenario.name;
+  const std::size_t count = scenario.sprites;
   m_particles.clear();
   m_particles.resize(count);
   m_sprite_batch.resize(count);
@@ -74,8 +78,8 @@ void StressTestScene::on_attach() {
   size_t threads = m_thread_pool ? m_thread_pool->get_thread_count() : 1;
 
   ENGINE_LOG_INFO("=======================================================");
-  ENGINE_LOG_INFO(" [STRESS TEST SCENE ACTIVE] Particles: {} | Active CPU Threads: {}", m_particles.size(), threads);
-  ENGINE_LOG_INFO(" - Particle Count Hotkeys: 1 (3k), 2 (10k), 3 (30k), 4 (75k), 5 (150k)");
+  ENGINE_LOG_INFO(" [STRESS TEST SCENE ACTIVE] Scenario: {} | Sprites: {} | Active CPU Threads: {}", m_scenario_name, m_particles.size(), threads);
+  ENGINE_LOG_INFO(" - Scenario Hotkeys: 1-{} (shared deterministic stress catalog)", Engine::built_in_stress_scenarios().size());
   ENGINE_LOG_INFO(" - CPU Threads Hotkeys: F1 (1 Core), F2 (2 Cores), F3 (4 Cores), F4 (All Cores)");
   ENGINE_LOG_INFO("=======================================================");
 }
@@ -94,13 +98,19 @@ void StressTestScene::on_update(float delta_time) {
   m_camera.set_position(glm::vec2(std::sin(m_total_time * 0.5f) * 100.0f,
                                   std::cos(m_total_time * 0.5f) * 50.0f));
 
-  // Dynamic particle count hotkeys
+  // Select from the same data-owned scenarios used by regression tests.
   const bool* keys = SDL_GetKeyboardState(nullptr);
-  if (keys[SDL_SCANCODE_1] && m_particles.size() != 3000)   { set_particle_count(3000);   ENGINE_LOG_INFO("Set Stress Test to 3,000 Sprites"); }
-  if (keys[SDL_SCANCODE_2] && m_particles.size() != 10000)  { set_particle_count(10000);  ENGINE_LOG_INFO("Set Stress Test to 10,000 Sprites"); }
-  if (keys[SDL_SCANCODE_3] && m_particles.size() != 30000)  { set_particle_count(30000);  ENGINE_LOG_INFO("Set Stress Test to 30,000 Sprites"); }
-  if (keys[SDL_SCANCODE_4] && m_particles.size() != 75000)  { set_particle_count(75000);  ENGINE_LOG_INFO("Set Stress Test to 75,000 Sprites"); }
-  if (keys[SDL_SCANCODE_5] && m_particles.size() != 150000) { set_particle_count(150000); ENGINE_LOG_INFO("Set Stress Test to 150,000 Sprites"); }
+  const SDL_Scancode scenario_keys[] = {
+      SDL_SCANCODE_1, SDL_SCANCODE_2, SDL_SCANCODE_3, SDL_SCANCODE_4,
+      SDL_SCANCODE_5, SDL_SCANCODE_6, SDL_SCANCODE_7, SDL_SCANCODE_8, SDL_SCANCODE_9
+  };
+  const auto& scenarios = Engine::built_in_stress_scenarios();
+  for (std::size_t index = 0; index < std::min<std::size_t>(scenarios.size(), std::size(scenario_keys)); ++index) {
+    if (keys[scenario_keys[index]] && m_scenario_name != scenarios[index].name) {
+      set_scenario(scenarios[index]);
+      ENGINE_LOG_INFO("Set Stress Test scenario to '{}'", m_scenario_name);
+    }
+  }
 
   // Dynamic CPU Core count hotkeys
   if (m_thread_pool) {
@@ -161,7 +171,8 @@ void StressTestScene::on_render(Engine::Renderer2D &renderer) {
     float frame_ms = (m_accumulated_time / m_accumulated_frames) * 1000.0f;
     size_t active_threads = m_thread_pool ? m_thread_pool->get_thread_count() : 1;
 
-    ENGINE_LOG_INFO("[PERFORMANCE] Active: {} | Rendered: {} | Culled: {} | Draw Calls: {} | CPU Cores: {} | FPS: {} ({:.2f} ms/frame)",
+    ENGINE_LOG_INFO("[PERFORMANCE] Scenario: {} | Active: {} | Rendered: {} | Culled: {} | Draw Calls: {} | CPU Cores: {} | FPS: {} ({:.2f} ms/frame)",
+                    m_scenario_name,
                     m_particles.size(),
                     renderer.get_rendered_sprite_count(),
                     renderer.get_culled_sprite_count(),

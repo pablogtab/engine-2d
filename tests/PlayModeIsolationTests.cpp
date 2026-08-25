@@ -116,8 +116,13 @@ export class SwitchScene extends Behaviour {
     assert(runtime_body.angular_velocity == 90.0f);
     assert(runtime_body.mass == 42.0f && runtime_body.friction == 0.95f);
     assert(runtime_body.active_forces.size() == 1);
+    manager.set_runtime_selected_entity(entity);
+    assert(manager.runtime_selected_entity() == entity);
+    scene->get_entity_manager().get_component<RigidBodyComponent>(entity).mass = 77.0f;
+    assert(scene->get_entity_manager().get_component<RigidBodyComponent>(entity).mass == 77.0f);
     manager.stop_play();
     assert(manager.is_editing());
+    assert(manager.runtime_selected_entity() == 0);
     assert(!manager.get_script_runtime().is_running());
     const glm::vec3 restored = scene->get_entity_manager().get_component<TransformComponent>(entity).position;
     assert(restored.x == 2.0f && restored.y == 3.0f);

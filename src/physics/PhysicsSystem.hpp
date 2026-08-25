@@ -353,6 +353,15 @@ public:
   static void set_debug_options(const PhysicsDebugOptions& options) { s_debug_options = options; }
   [[nodiscard]] static const PhysicsDebugOptions& debug_options() { return s_debug_options; }
   [[nodiscard]] static const PhysicsDebugFrame& debug_frame() { return s_debug_frame; }
+  [[nodiscard]] static std::size_t active_body_count() { return s_b2_bodies.size(); }
+  [[nodiscard]] static std::size_t active_contact_count() {
+    std::size_t count = 0;
+    if (!s_b2_world) return count;
+    for (const b2Contact* contact = s_b2_world->GetContactList(); contact; contact = contact->GetNext()) {
+      if (contact->IsTouching()) ++count;
+    }
+    return count;
+  }
 
   static void clear() {
     s_b2_bodies.clear();

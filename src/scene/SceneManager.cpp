@@ -9,6 +9,7 @@
 #include "../ecs/TransformSystem.hpp"
 #include "../ecs/CameraSystem.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
+#include "../ecs/components/PhysicsComponents.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../enginescript/module/GameModule.hpp"
 #include <algorithm>
@@ -166,6 +167,7 @@ void SceneManager::start_play() {
     m_pending_runtime_scene.reset();
     m_requested_runtime_scene_path.clear();
     m_game_session.reset();
+    clear_runtime_selection();
     m_play_startup_phase = PlayStartupPhase::Snapshot;
     m_play_load_progress = {true, 0.05f, "Capturing scene state", "Saving the authoring snapshot"};
 }
@@ -327,6 +329,7 @@ void SceneManager::activate_pending_runtime_scene() {
     if (Scene* current = get_active_scene()) detach_scene(*current);
 
     m_runtime_scene = std::move(m_pending_runtime_scene);
+    clear_runtime_selection();
     attach_scene(*m_runtime_scene);
     configure_scene_view(*m_runtime_scene, RenderViewKind::Game, m_game_view);
     start_scripts(*m_runtime_scene);
@@ -390,6 +393,7 @@ void SceneManager::stop_play() {
         m_runtime_scene.reset();
     }
     m_play_state = ScenePlayState::Edit;
+    clear_runtime_selection();
 
     Scene* active_scene = nullptr;
     if (m_active_index >= 0 && static_cast<size_t>(m_active_index) < m_scenes.size()) {
@@ -412,6 +416,12 @@ void SceneManager::stop_play() {
 
     Time::set_time_scale(0.0f);
     ENGINE_LOG_INFO("[SCENE PLAY] Stopped Simulation: Authoring snapshot restored, switched back to Editor Camera.");
+}
+
+void SceneManager::set_runtime_selected_entity(EntityID entity) {
+    if (is_editing()) { m_runtime_selected_entity = 0; return; }
+    Scene* scene = get_active_scene();
+    m_runtime_selected_entity = scene && scene->get_entity_manager().is_alive(entity) ? entity : 0;
 }
 
 void SceneManager::update(float delta_time) {
@@ -447,7 +457,29 @@ void SceneManager::run_simulation_tick(float delta_time) {
             custom->on_update(delta_time);
         } else {
             auto runtime = m_frame_profiler.scope("runtime.update");
-            execution_context(*active).runtime.update(*active, delta_time);
+            execution_context(*active).runtime.update(*active, delta_time, &m_frame_profiler);
+        }
+        if (m_runtime_selected_entity != 0 &&
+            !active->get_entity_manager().is_alive(m_runtime_selected_entity)) {
+            clear_runtime_selection();
+        }
+        if (m_frame_profiler.enabled()) {
+            auto& entities = active->get_entity_manager();
+            m_frame_profiler.increment("entities", entities.get_living_entities().size());
+            m_frame_profiler.increment("scripts", m_script_runtime.instance_count());
+            std::uint64_t body_count = 0;
+            std::uint64_t collider_count = 0;
+            entities.for_each<RigidBodyComponent>([&](EntityID, RigidBodyComponent&) { ++body_count; });
+            entities.for_each<ColliderComponent>([&](EntityID, ColliderComponent&) { ++collider_count; });
+            m_frame_profiler.increment("physics_bodies", body_count);
+            m_frame_profiler.increment("colliders", collider_count);
+            m_frame_profiler.increment("contacts", PhysicsSystem::active_contact_count());
+            if (!dynamic_cast<CustomScene*>(active)) {
+                const auto& particles = execution_context(*active).runtime.particle_world();
+                m_frame_profiler.increment("particles", particles.system().get_active_count());
+                m_frame_profiler.increment("particle_emitters", particles.active_emitter_count());
+                m_frame_profiler.increment("particles_dropped", particles.dropped_this_frame());
+            }
         }
         {
             auto events = m_frame_profiler.scope("events");
@@ -474,6 +506,26 @@ void SceneManager::render(Renderer2D& renderer) {
                 m_asset_database ? *m_asset_database : AssetDatabase::get()
             );
         }
+    }
+    if (m_frame_profiler.enabled()) {
+        const auto& pool = renderer.get_render_target_pool_metrics();
+        const auto& frame = renderer.get_frame_metrics();
+        constexpr const char* stage_names[] = {
+            "scene_geometry", "local_effects", "lighting", "post_process", "canvas_ui", "presentation"
+        };
+        for (std::size_t index = 0; index < static_cast<std::size_t>(RenderStage::Count); ++index) {
+            const auto& stage = frame.stages[index];
+            const std::string prefix = std::string("render.") + stage_names[index];
+            m_frame_profiler.increment(prefix + ".cpu_us", static_cast<std::uint64_t>(stage.cpu_milliseconds * 1000.0f));
+            m_frame_profiler.increment(prefix + ".draw_calls", stage.draw_calls);
+            m_frame_profiler.increment(prefix + ".sprites", stage.sprites);
+            m_frame_profiler.increment(prefix + ".material_switches", stage.material_switches);
+        }
+        m_frame_profiler.increment("draw_calls", renderer.get_draw_call_count());
+        m_frame_profiler.increment("sprites_rendered", renderer.get_rendered_sprite_count());
+        m_frame_profiler.increment("sprites_culled", renderer.get_culled_sprite_count());
+        m_frame_profiler.increment("render_targets", pool.allocated_targets);
+        m_frame_profiler.increment("render_target_bytes", pool.allocated_bytes);
     }
 }
 

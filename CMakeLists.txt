@@ -37,6 +37,7 @@ set(SOURCES
     src/core/BinarySerializer.cpp
     src/core/DisplayManager.cpp
     src/debug/FrameProfiler.cpp
+    src/debug/StressScenarios.cpp
     src/core/FileSystem.cpp
     src/core/Input.cpp
     src/core/Log.cpp
@@ -995,6 +996,26 @@ target_include_directories(ProfilerInstrumentationTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
 )
 add_test(NAME ProfilerInstrumentationTests COMMAND ProfilerInstrumentationTests)
+
+add_executable(StressRegressionTests tests/StressRegressionTests.cpp)
+target_include_directories(StressRegressionTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(StressRegressionTests PRIVATE EngineRuntime)
+add_test(NAME StressRegressionTests COMMAND StressRegressionTests)
+set_tests_properties(StressRegressionTests PROPERTIES LABELS "stress")
+
+add_executable(EditorAiCommandTests
+    tests/EditorAiCommandTests.cpp
+    src/editor/ai/ProjectCommandRegistry.cpp
+)
+target_include_directories(EditorAiCommandTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(EditorAiCommandTests PRIVATE EngineRuntime SDL3::SDL3)
+add_test(NAME EditorAiCommandTests COMMAND EditorAiCommandTests)
 
 add_executable(OpenAiResponsesProviderTests
     tests/OpenAiResponsesProviderTests.cpp

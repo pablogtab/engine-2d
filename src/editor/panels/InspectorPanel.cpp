@@ -112,11 +112,25 @@ void InspectorPanel::on_gui() {
             return;
         }
 
-        const auto& selected_set = m_selection->get_selected();
+        const bool runtime_mode = !m_scene_manager->is_editing();
+        std::unordered_set<EntityID> runtime_selection;
+        if (runtime_mode && m_scene_manager->runtime_selected_entity() != 0) {
+            runtime_selection.insert(m_scene_manager->runtime_selected_entity());
+        }
+        const auto& selected_set = runtime_mode ? runtime_selection : m_selection->get_selected();
         EntityManager& em = active_scene->get_entity_manager();
+        if (runtime_mode) {
+            ImGui::TextColored(ImVec4(0.35f, 0.78f, 1.0f, 1.0f), "RUNTIME (temporary edits)");
+            ImGui::SameLine();
+            ImGui::TextDisabled("Changes are discarded on Stop");
+            ImGui::Separator();
+        }
 
         if (selected_set.empty()) {
+            const auto saved_history = m_command_history;
+            if (runtime_mode) m_command_history.reset();
             draw_scene_settings(*active_scene);
+            if (runtime_mode) m_command_history = saved_history;
             ImGui::PopStyleVar(3);
             ImGui::PopFont();
             ImGui::End();
@@ -134,7 +148,10 @@ void InspectorPanel::on_gui() {
             m_selection->set_selection(std::unordered_set<EntityID>(selected_ids.begin(), selected_ids.end()));
         }
         if (selected_ids.empty()) {
+            const auto saved_history = m_command_history;
+            if (runtime_mode) m_command_history.reset();
             draw_scene_settings(*active_scene);
+            if (runtime_mode) m_command_history = saved_history;
             ImGui::PopStyleVar(3);
             ImGui::PopFont();
             ImGui::End();
@@ -142,7 +159,10 @@ void InspectorPanel::on_gui() {
         }
 
         if (selected_ids.size() > 1) {
+            const auto saved_history = m_command_history;
+            if (runtime_mode) m_command_history.reset();
             draw_multi_components(em, selected_ids);
+            if (runtime_mode) m_command_history = saved_history;
             ImGui::PopStyleVar(3);
             ImGui::PopFont();
             ImGui::End();
@@ -151,7 +171,10 @@ void InspectorPanel::on_gui() {
 
         const EntityID selected_id = selected_ids.front();
 
+        const auto saved_history = m_command_history;
+        if (runtime_mode) m_command_history.reset();
         draw_components(em, selected_id);
+        if (runtime_mode) m_command_history = saved_history;
         ImGui::PopStyleVar(3);
         ImGui::PopFont();
     }

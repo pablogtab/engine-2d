@@ -23,6 +23,7 @@ public:
     [[nodiscard]] const std::vector<ProjectCommand>& commands() const { return m_commands; }
     [[nodiscard]] nlohmann::json status() const;
     [[nodiscard]] bool run(const std::string& name, nlohmann::json& result, std::string& error) const;
+    static bool cancel_active();
 
 private:
     [[nodiscard]] bool expand_and_validate(const ProjectCommand& command, std::vector<std::string>& arguments,

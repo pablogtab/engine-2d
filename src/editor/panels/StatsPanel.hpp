@@ -22,7 +22,11 @@ private:
     float m_accumulated_time{0.0f};
     FrameProfiler* m_profiler{nullptr};
     int m_history_window{120};
+    int m_selected_frame{-1};
+    bool m_follow_latest_frame{true};
     std::string m_project_root;
+    std::string m_export_feedback;
+    std::string m_stress_feedback;
 };
 
 } // namespace Engine

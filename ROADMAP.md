@@ -419,8 +419,8 @@ Remaining language/backend work is tracked in
 - [x] Prefix runtime script errors with their entity ID and expose them in the Script Inspector.
 - [ ] Add precise runtime script source locations and structured log filtering.
 - [x] Add a bounded CPU frame profiler with runtime/render/script/event scopes, counters, captures, and unavailable GPU timing state.
-- [x] Add pause, deterministic step frame, and clamped play timescale. Runtime entity inspection remains pending.
-- [ ] Add stress scenes and budgets for entity count, sprites, physics bodies, particles, and render targets.
+- [x] Add pause, deterministic step frame, clamped play timescale, and temporary runtime entity inspection edits discarded on Stop.
+- [x] Add data-configured stress budgets for entities, sprites, bodies, contacts, particles, scripts, lights, post-processing, and render targets.
 - [ ] Move large header implementations into source files when compile time or ownership boundaries justify it.
 - [ ] Optimize only after profiling identifies a measurable bottleneck.
 
@@ -486,8 +486,8 @@ Remaining language/backend work is tracked in
 
 ### Full Access Command and Build APIs
 
-- [ ] Add `run_project_command` for named build, test, format, export, and log commands with bounded output, exit status, artifact reporting, and audit records.
-- [ ] Add `get_build_status` for the latest configured build, executable paths, focused test failures, platform target, and concise diagnostics.
+- [x] Add `run_project_command` for named build, test, format, export, and log commands with bounded output, exit status, artifact reporting, cancellation, and audit records.
+- [x] Add `get_build_status` for configured commands, live/last execution state, executable paths, platform target, artifacts, and concise diagnostics.
 - [ ] Add project-file operations that preview a diff before creating, editing, moving, or deleting project scripts, data, shader, and documentation files.
 - [ ] Add a Git workspace API for status, diff, branch, selective staging, and explicit user-requested commits. It must preserve unrelated local changes and never auto-commit.
 
@@ -646,8 +646,8 @@ These suites protect systems that already exist but do not yet have dedicated au
 
 ### Phases 8 and 9 — Performance and Export Suites
 
-- [ ] `ProfilerInstrumentationTests` — counter scope, nested timings, frame reset, disabled overhead, and entity/pass attribution.
-- [ ] `StressRegressionTests` — recorded budgets for entities, sprites, physics, particles, scripts, and render-target allocation.
+- [x] `ProfilerInstrumentationTests` — counter scope, nested timings, frame reset, disabled overhead, ring buffer, percentiles, capture export, and entity/pass attribution.
+- [x] `StressRegressionTests` — deterministic execution and recorded correction budgets for entities, sprites, physics, particles, scripts, lighting, post-processing, allocations, and render targets.
 - [ ] `RuntimeBoundaryTests` — runtime targets do not link or initialize ImGui, editor panels, command history, or sandbox helpers.
 - [ ] `AssetPackagingTests` — dependency closure, shader variants, scene inclusion, missing-file failure, and deterministic package manifests.
 - [ ] `StandaloneSmokeTests` — launch, load initial scene, input, audio initialization, display defaults, save path, and clean shutdown.

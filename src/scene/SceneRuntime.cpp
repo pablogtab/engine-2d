@@ -4,6 +4,7 @@
 #include "../ecs/TransformSystem.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
+#include "../debug/FrameProfiler.hpp"
 
 namespace Engine {
 
@@ -56,7 +57,8 @@ void SceneRuntime::configure_game_view(const RenderViewConfiguration& configurat
     );
 }
 
-void SceneRuntime::update(Scene& scene, float delta_time) {
+void SceneRuntime::update(Scene& scene, float delta_time, FrameProfiler* profiler) {
+    FrameProfiler::Scope runtime_scope(profiler, "runtime.systems");
     const bool ui_had_focus = m_ui_input.focused_entity() != 0;
     const bool navigate_previous = Input::is_key_just_pressed(SDL_SCANCODE_UP);
     const bool navigate_next = Input::is_key_just_pressed(SDL_SCANCODE_DOWN);
@@ -64,6 +66,8 @@ void SceneRuntime::update(Scene& scene, float delta_time) {
         (Input::is_key_just_pressed(SDL_SCANCODE_RETURN) || Input::is_key_just_pressed(SDL_SCANCODE_SPACE));
     const bool activate_released = ui_had_focus &&
         (Input::is_key_just_released(SDL_SCANCODE_RETURN) || Input::is_key_just_released(SDL_SCANCODE_SPACE));
+    {
+    FrameProfiler::Scope ui_scope(profiler, "runtime.ui");
     static_cast<void>(m_ui_input.update(
         scene.get_entity_manager(),
         m_ui_output_size,
@@ -82,15 +86,29 @@ void SceneRuntime::update(Scene& scene, float delta_time) {
         },
         &scene.get_event_dispatcher()
     ));
+    }
     if (scene.settings().physics_enabled) {
+        FrameProfiler::Scope physics_scope(profiler, "physics");
         PhysicsSystem::update(scene.get_entity_manager(), scene.get_event_dispatcher(), delta_time);
     }
-    SpriteAnimationSystem::update(scene.get_entity_manager(), delta_time);
-    m_particle_world.update(scene, delta_time, AssetDatabase::get());
-    TransformSystem::update(scene.get_entity_manager());
-    static_cast<void>(m_camera_controller.update_from_entities(
-        scene.get_entity_manager(), delta_time
-    ));
+    {
+        FrameProfiler::Scope animation_scope(profiler, "animation");
+        SpriteAnimationSystem::update(scene.get_entity_manager(), delta_time);
+    }
+    {
+        FrameProfiler::Scope particles_scope(profiler, "particles");
+        m_particle_world.update(scene, delta_time, AssetDatabase::get());
+    }
+    {
+        FrameProfiler::Scope transforms_scope(profiler, "transforms");
+        TransformSystem::update(scene.get_entity_manager());
+    }
+    {
+        FrameProfiler::Scope camera_scope(profiler, "camera");
+        static_cast<void>(m_camera_controller.update_from_entities(
+            scene.get_entity_manager(), delta_time
+        ));
+    }
 }
 
 } // namespace Engine

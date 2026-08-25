@@ -68,6 +68,9 @@ public:
     [[nodiscard]] bool is_playing() const { return m_play_state == ScenePlayState::Play; }
     [[nodiscard]] bool is_paused() const { return m_play_state == ScenePlayState::Pause; }
     [[nodiscard]] bool is_editing() const { return m_play_state == ScenePlayState::Edit; }
+    [[nodiscard]] EntityID runtime_selected_entity() const { return m_runtime_selected_entity; }
+    void set_runtime_selected_entity(EntityID entity);
+    void clear_runtime_selection() { m_runtime_selected_entity = 0; }
     [[nodiscard]] const GameSession& game_session() const { return m_game_session; }
     [[nodiscard]] bool is_runtime_scene_loading() const { return m_game_session.state() == GameSession::TransitionState::Requested; }
     [[nodiscard]] const std::string& runtime_scene_load_error() const { return m_game_session.error(); }
@@ -158,6 +161,7 @@ private:
     SceneLoadProgress m_play_load_progress;
     float m_play_time_scale{1.0f};
     FrameProfiler m_frame_profiler;
+    EntityID m_runtime_selected_entity{0};
 };
 
 } // namespace Engine

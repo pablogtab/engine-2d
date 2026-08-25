@@ -764,6 +764,7 @@ void Application::run() {
         // 5. Render Editor Panels & Finalize ImGui Draw Data
 #if ENGINE_WITH_EDITOR
         if (m_editor_layer) {
+            auto editor_ui_scope = m_scene_manager.frame_profiler().scope("editor.ui");
             m_editor_layer->render_panels(raw_delta_time);
             m_editor_layer->end_frame(m_window->get_sdl_renderer());
         }

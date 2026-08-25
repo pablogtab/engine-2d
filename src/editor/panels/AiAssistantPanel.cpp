@@ -1,5 +1,6 @@
 #include "AiAssistantPanel.hpp"
 #include "../../core/AssetDatabase.hpp"
+#include "../ai/ProjectCommandRegistry.hpp"
 
 #include "../../scene/ComponentRegistry.hpp"
 #include "../../scene/SceneManager.hpp"
@@ -31,7 +32,7 @@ namespace {
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
-constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 7;
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 8;
 constexpr std::size_t AUTO_COMPACT_INPUT_TOKEN_THRESHOLD = 24000;
 std::string project_root();
 
@@ -870,6 +871,7 @@ std::string AiAssistantPanel::current_context_json() const {
 
 void AiAssistantPanel::cancel_request() {
     m_cancel_requested.store(true);
+    static_cast<void>(ProjectCommandRegistry::cancel_active());
     cancel_live_editor_tools("The viewport request was cancelled");
     ENGINE_LOG_INFO("[AI AUDIT] ui_action=cancel_request");
 }

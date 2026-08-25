@@ -108,7 +108,13 @@ void SceneHierarchyPanel::on_gui() {
         ImGui::Spacing();
 
         EntityManager& em = active_scene->get_entity_manager();
+        const bool runtime_mode = !m_scene_manager->is_editing();
         const auto& living_entities = em.get_living_entities();
+
+        if (runtime_mode) {
+            ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f),
+                "RUNTIME - values are temporary; structure is locked");
+        }
 
         if (m_selection && m_selection->count() > 1) {
             ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Selected: %zu entities", m_selection->count());
@@ -136,7 +142,7 @@ void SceneHierarchyPanel::on_gui() {
         ImVec2 avail = ImGui::GetContentRegionAvail();
         if (avail.y > 10.0f) {
             ImGui::Dummy(avail);
-            if (ImGui::BeginDragDropTarget()) {
+            if (!runtime_mode && ImGui::BeginDragDropTarget()) {
                 const ImGuiPayload* multi_payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_MULTI_DRAG");
                 const ImGuiPayload* single_payload = multi_payload ? nullptr : ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG");
                 std::vector<EntityID> dropped_entities;
@@ -170,7 +176,7 @@ void SceneHierarchyPanel::on_gui() {
         }
 
         // Right-click on empty area in tree window
-        if (ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        if (!runtime_mode && ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
             if (ImGui::BeginMenu("Create")) {
                 render_create_menu(em, 0);
                 ImGui::EndMenu();
@@ -179,7 +185,7 @@ void SceneHierarchyPanel::on_gui() {
         }
 
         // --- Keyboard Shortcuts (Alt+Up / Alt+Down to move entity) ---
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && m_selection && m_selection->count() == 1) {
+        if (!runtime_mode && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && m_selection && m_selection->count() == 1) {
             EntityID selected_entity = m_selection->get_primary();
             if (em.is_alive(selected_entity)) {
                 bool is_locked = m_entity_state_store && m_entity_state_store->is_locked(selected_entity);
@@ -210,17 +216,19 @@ void SceneHierarchyPanel::on_gui() {
         ImGui::EndChild();
 
         // --- Bottom Actions Bar ---
-        if (ImGui::Button(" + Create ", ImVec2(100, 24))) {
+        if (runtime_mode) {
+            ImGui::TextDisabled("Create, delete and reparent are disabled during Play.");
+        } else if (ImGui::Button(" + Create ", ImVec2(100, 24))) {
             ImGui::OpenPopup("HierarchyCreatePopup");
         }
-        if (ImGui::BeginPopup("HierarchyCreatePopup")) {
+        if (!runtime_mode && ImGui::BeginPopup("HierarchyCreatePopup")) {
             const EntityID selected_parent = (m_selection && !m_selection->empty())
                 ? m_selection->get_primary() : 0;
             render_create_menu(em, selected_parent);
             ImGui::EndPopup();
         }
-        ImGui::SameLine();
-        if (m_selection && !m_selection->empty()) {
+        if (!runtime_mode) ImGui::SameLine();
+        if (!runtime_mode && m_selection && !m_selection->empty()) {
             std::vector<EntityID> to_delete;
             for (EntityID s_id : m_selection->get_selected()) {
                 if (m_prefab_stage && m_prefab_stage->is_root_entity(s_id)) continue;
@@ -248,7 +256,7 @@ void SceneHierarchyPanel::on_gui() {
         }
 
         // Keyboard Shortcut via ShortcutManager: editor.delete
-        if (!io.WantTextInput && ShortcutManager::get().is_triggered("editor.delete") && 
+        if (!runtime_mode && !io.WantTextInput && ShortcutManager::get().is_triggered("editor.delete") &&
             (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows))) {
             if (m_selection && !m_selection->empty()) {
                 std::vector<EntityID> to_delete;
@@ -298,7 +306,9 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         name = em.get_component<TagComponent>(id).tag;
     }
 
-    bool is_selected = m_selection && m_selection->is_selected(id);
+    const bool runtime_mode = m_scene_manager && !m_scene_manager->is_editing();
+    bool is_selected = runtime_mode ? m_scene_manager->runtime_selected_entity() == id
+        : m_selection && m_selection->is_selected(id);
     bool has_children = false;
     if (em.has_component<HierarchyComponent>(id)) {
         const auto& children = em.get_component<HierarchyComponent>(id).children;
@@ -389,7 +399,11 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 
 
     // Single click / multi-click selection on the tree node item
-    if (m_selection) {
+    if (runtime_mode) {
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
+            m_scene_manager->set_runtime_selected_entity(id);
+        }
+    } else if (m_selection) {
         if (is_multi_key) {
             if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
                 m_selection->select(id, true);
@@ -409,7 +423,7 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
     }
 
     // --- Drag and Drop: Source ---
-    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+    if (!runtime_mode && ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
         std::vector<EntityID> drag_entities;
         if (m_selection && m_selection->is_selected(id) && m_selection->count() > 1) {
             const std::unordered_set<EntityID> sel_set = m_selection->get_selected();
@@ -434,7 +448,7 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
     }
 
     // --- Drag and Drop: Target (Reparent & Reorder) ---
-    if (ImGui::BeginDragDropTarget()) {
+    if (!runtime_mode && ImGui::BeginDragDropTarget()) {
         const ImVec2 item_min = ImGui::GetItemRectMin();
         const ImVec2 item_max = ImGui::GetItemRectMax();
         const float item_h = std::max(item_max.y - item_min.y, 1.0f);
@@ -555,7 +569,7 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
     }
 
     // Right-click context menu per entity
-    if (ImGui::BeginPopupContextItem()) {
+    if (!runtime_mode && ImGui::BeginPopupContextItem()) {
         if (m_selection && !m_selection->is_selected(id)) {
             m_selection->select(id, false);
         }
@@ -737,7 +751,8 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         ImGui::EndPopup();
     }
 
-    // Draw Lock and Visibility Icon Buttons right-aligned on the row
+    // Editor-only authoring state controls. Runtime hierarchy is structural read-only.
+    if (!runtime_mode) {
     float right_margin = ImGui::GetWindowContentRegionMax().x - 42.0f;
     ImGui::SameLine(std::max(right_margin, 20.0f));
 
@@ -771,6 +786,7 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         } else if (m_entity_state_store) {
             m_entity_state_store->set_locked(id, !is_locked);
         }
+    }
     }
 
     // Render Children recursively if tree node is expanded

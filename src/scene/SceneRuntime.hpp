@@ -8,13 +8,15 @@
 
 namespace Engine {
 
+class FrameProfiler;
+
 class SceneRuntime {
 public:
     SceneRuntime();
 
     void attach(Scene& scene, SDL_Renderer* renderer = nullptr);
     void detach();
-    void update(Scene& scene, float delta_time);
+    void update(Scene& scene, float delta_time, FrameProfiler* profiler = nullptr);
     void configure_game_view(const RenderViewConfiguration& configuration);
 
     [[nodiscard]] Camera2D& game_camera() { return m_game_camera; }
