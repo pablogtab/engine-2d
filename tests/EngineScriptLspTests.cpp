@@ -656,6 +656,23 @@ int main() {
     assert(formatting["result"].size() == 1);
     assert(formatting["result"][0]["newText"].get<std::string>().find("    let a") != std::string::npos);
 
+    LanguageServer formatting_server("/workspace/Formatting");
+    static_cast<void>(formatting_server.handle_message(R"({
+        "jsonrpc":"2.0", "method":"textDocument/didOpen",
+        "params":{"textDocument":{"uri":"file:///workspace/Formatting/Source/Broken.e2s","version":1,
+        "text":"function broken(): Void {\nlet before: Int = 1;\n  let invalid: = ; // keep exact\nlet after: Int = 2;\n}"}}
+    })"));
+    const json recovered_formatting = json::parse(formatting_server.handle_message(R"({
+        "jsonrpc":"2.0", "id":280, "method":"textDocument/formatting",
+        "params":{"textDocument":{"uri":"file:///workspace/Formatting/Source/Broken.e2s"},
+        "options":{"tabSize":4,"insertSpaces":true}}
+    })"));
+    assert(recovered_formatting["result"].size() == 1);
+    const std::string recovered_text = recovered_formatting["result"][0]["newText"];
+    assert(recovered_text.find("    let before: Int = 1;") != std::string::npos);
+    assert(recovered_text.find("  let invalid: = ; // keep exact") != std::string::npos);
+    assert(recovered_text.find("    let after: Int = 2;") != std::string::npos);
+
     const json workspace_symbols = json::parse(server.handle_message(R"({
         "jsonrpc":"2.0", "id":29, "method":"workspace/symbol", "params":{"query":"Shared"}
     })"));
@@ -727,6 +744,43 @@ int main() {
     }.dump()));
     assert(code_actions["result"].size() == 1);
     assert(code_actions["result"][0]["title"] == "Convert explicitly to Int");
+
+    LanguageServer action_server("/workspace/Actions");
+    static_cast<void>(action_server.handle_message(R"({
+        "jsonrpc":"2.0", "method":"textDocument/didOpen",
+        "params":{"textDocument":{"uri":"file:///workspace/Actions/Source/Contracts.e2s","version":1,
+        "text":"export class SharedConfig {}\nexport interface Named { format(value: Int): String; }"}}
+    })"));
+    static_cast<void>(action_server.handle_message(R"({
+        "jsonrpc":"2.0", "method":"textDocument/didOpen",
+        "params":{"textDocument":{"uri":"file:///workspace/Actions/Source/Formatter.e2s","version":1,
+        "text":"export class Formatter {}"}}
+    })"));
+    const json missing_import = {
+        {"code", "E2030"}, {"message", "Unresolved identifier 'SharedConfig'"},
+        {"range", {{"start", {{"line", 0}, {"character", 0}}}, {"end", {{"line", 0}, {"character", 12}}}}}
+    };
+    const json missing_interface_member = {
+        {"code", "E3074"}, {"message", "'Formatter' does not implement method 'Named.format'"},
+        {"range", {{"start", {{"line", 0}, {"character", 13}}}, {"end", {{"line", 0}, {"character", 22}}}}}
+    };
+    const json structural_actions = json::parse(action_server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 320}, {"method", "textDocument/codeAction"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/Actions/Source/Formatter.e2s"}}},
+            {"range", missing_import["range"]},
+            {"context", {{"diagnostics", json::array({missing_import, missing_interface_member})}}}
+        }}
+    }.dump()));
+    assert(structural_actions["result"].size() == 2);
+    assert(structural_actions["result"][0]["title"] == "Import SharedConfig from ./Contracts");
+    assert(structural_actions["result"][0]["edit"]["changes"]
+        ["file:///workspace/Actions/Source/Formatter.e2s"][0]["newText"] ==
+        "import { SharedConfig } from \"./Contracts\";\n");
+    assert(structural_actions["result"][1]["title"] == "Implement Named.format");
+    assert(structural_actions["result"][1]["edit"]["changes"]
+        ["file:///workspace/Actions/Source/Formatter.e2s"][0]["newText"].get<std::string>().find(
+        "format(value: Int): String") != std::string::npos);
 
     const json removed_change = {
         {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},

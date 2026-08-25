@@ -1,13 +1,16 @@
 #include "LanguageServer.hpp"
 #include "enginescript/api/ApiCatalog.hpp"
 #include "enginescript/lexer/Lexer.hpp"
+#include "enginescript/parser/Parser.hpp"
 #include "enginescript/types/NumericTypes.hpp"
 #include <nlohmann/json.hpp>
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <optional>
 #include <regex>
 #include <sstream>
+#include <unordered_set>
 
 namespace EngineScript {
 
@@ -941,13 +944,6 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
     );
     std::string word = extract_word_at(line_content, character);
 
-    // Removed EngineScript 1.x APIs must behave exactly like unknown symbols.
-    // Returning a generic hover here would make the deleted helper look valid.
-    if (word == "toString") {
-        resp["result"] = nullptr;
-        return resp.dump();
-    }
-
     std::string markdown = "";
 
     // 1. Decorators
@@ -1044,10 +1040,6 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
         }
     }
 
-    if (markdown.empty()) {
-        markdown = "**`" + (word.empty() ? "EngineScript Symbol" : word) + "`**\n\nEngineScript gameplay language symbol.";
-    }
-
     const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
     const SourceFile* file = m_workspace.source_manager().get_file(file_id);
     if (file && line < file->line_offsets.size()) {
@@ -1060,9 +1052,17 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
         if (!inferred_type) {
             inferred_type = infer_initializer_type(*file, word, line);
         }
+        if (inferred_type && (*inferred_type == "<type-error>" || *inferred_type == "Void")) {
+            inferred_type.reset();
+        }
         if (inferred_type) {
             markdown += "\n\n**Inferred type:** `" + *inferred_type + "`";
         }
+    }
+
+    if (markdown.empty()) {
+        resp["result"] = nullptr;
+        return resp.dump();
     }
 
     json hover_obj;
@@ -1214,9 +1214,14 @@ std::string LanguageServer::on_formatting(const std::string& id, const std::stri
     json edits = json::array();
     const SourceFile* file = m_workspace.source_manager().get_file(source_path_for_uri(uri));
     if (!file) return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", edits}}.dump();
+    std::unordered_set<uint32_t> invalid_lines;
     for (const Diagnostic& diagnostic : m_workspace.diagnostic_engine().get_diagnostics()) {
-        if (diagnostic.is_error() && diagnostic.span.file_id == file->id) {
-            return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", edits}}.dump();
+        if (!diagnostic.is_error() || diagnostic.span.file_id != file->id ||
+            (diagnostic.code.starts_with("E2") || diagnostic.code.starts_with("E3"))) continue;
+        const uint32_t first_line = diagnostic.span.start_line > 0 ? diagnostic.span.start_line - 1 : 0;
+        const uint32_t last_line = diagnostic.span.end_line > 0 ? diagnostic.span.end_line - 1 : first_line;
+        for (uint32_t invalid_line = first_line; invalid_line <= last_line; ++invalid_line) {
+            invalid_lines.emplace(invalid_line);
         }
     }
 
@@ -1235,8 +1240,12 @@ std::string LanguageServer::on_formatting(const std::string& id, const std::stri
             while (leading_closes < trimmed.size() && trimmed[leading_closes] == '}') ++leading_closes;
         }
         const int line_indent = std::max(0, indent - static_cast<int>(leading_closes));
-        if (!trimmed.empty()) formatted.append(static_cast<std::size_t>(line_indent) * 4, ' ');
-        formatted += trimmed;
+        if (invalid_lines.contains(line_count - 1)) {
+            formatted += line;
+        } else {
+            if (!trimmed.empty()) formatted.append(static_cast<std::size_t>(line_indent) * 4, ' ');
+            formatted += trimmed;
+        }
         formatted += '\n';
 
         bool in_string = false;
@@ -1291,6 +1300,12 @@ std::string LanguageServer::on_code_action(
         return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", actions}}.dump();
     }
     static const std::regex destination_pattern(R"(of type '([A-Za-z_][A-Za-z0-9_]*)')");
+    static const std::regex unresolved_pattern(R"(Unresolved identifier '([A-Za-z_][A-Za-z0-9_]*)')");
+    static const std::regex interface_pattern(
+        R"('([A-Za-z_][A-Za-z0-9_]*)' does not implement (method|property) '([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)')"
+    );
+    const std::string current_source_path = source_path_for_uri(uri);
+    const SourceFile* current_file = m_workspace.source_manager().get_file(current_source_path);
     for (const auto& diagnostic : params["context"].value("diagnostics", json::array())) {
         const std::string code = diagnostic.value("code", "");
         const std::string message = diagnostic.value("message", "");
@@ -1312,6 +1327,127 @@ std::string LanguageServer::on_code_action(
                 {"kind", "quickfix"},
                 {"diagnostics", json::array({diagnostic})},
                 {"edit", {{"changes", {{uri, std::move(conversion_edits)}}}}}
+            });
+            continue;
+        }
+
+        if (code == "E2030" && std::regex_search(message, match, unresolved_pattern)) {
+            const std::string symbol_name = match[1].str();
+            for (const WorkspaceExportedSymbol& symbol : m_workspace.workspace_symbols()) {
+                if (!symbol.is_exported || symbol.name != symbol_name || symbol.module_path == current_source_path) continue;
+                std::filesystem::path relative = std::filesystem::path(symbol.module_path).replace_extension();
+                const std::filesystem::path parent = std::filesystem::path(current_source_path).parent_path();
+                relative = relative.lexically_relative(parent);
+                std::string import_path = relative.generic_string();
+                if (!import_path.starts_with('.')) import_path = "./" + import_path;
+                const std::string import_text = std::format(
+                    "import {{ {} }} from \"{}\";\n", symbol_name, import_path);
+                actions.push_back({
+                    {"title", "Import " + symbol_name + " from " + import_path},
+                    {"kind", "quickfix"},
+                    {"diagnostics", json::array({diagnostic})},
+                    {"edit", {{"changes", {{uri, json::array({{
+                        {"range", {
+                            {"start", {{"line", 0}, {"character", 0}}},
+                            {"end", {{"line", 0}, {"character", 0}}}
+                        }},
+                        {"newText", import_text}
+                    }})}}}}}
+                });
+            }
+            continue;
+        }
+
+        if (code == "E3074" && current_file && std::regex_search(message, match, interface_pattern)) {
+            const std::string owner_name = match[1].str();
+            const std::string member_kind = match[2].str();
+            const std::string interface_name = match[3].str();
+            const std::string member_name = match[4].str();
+
+            std::shared_ptr<InterfaceDecl> interface_decl;
+            const InterfaceMember* required_member = nullptr;
+            for (const SourceFile& source : m_workspace.source_manager().all_files()) {
+                DiagnosticEngine recovery_diagnostics;
+                Lexer lexer(source.id, source.content, recovery_diagnostics);
+                Parser parser(source.id, source.path, lexer.tokenize_all(), recovery_diagnostics);
+                const auto module = parser.parse_module();
+                if (!module) continue;
+                for (const auto& declaration : module->declarations) {
+                    const auto candidate = std::dynamic_pointer_cast<InterfaceDecl>(declaration);
+                    if (!candidate || candidate->name != interface_name) continue;
+                    interface_decl = candidate;
+                    for (const InterfaceMember& member : candidate->members) {
+                        if (member.name == member_name && member.is_method == (member_kind == "method")) {
+                            required_member = &member;
+                            break;
+                        }
+                    }
+                    break;
+                }
+                if (required_member) break;
+            }
+            if (!required_member) continue;
+
+            const std::regex owner_pattern("(?:class|struct)\\s+" + owner_name + "\\b");
+            std::smatch owner_match;
+            if (!std::regex_search(current_file->content, owner_match, owner_pattern)) continue;
+            const std::size_t owner_offset = static_cast<std::size_t>(owner_match.position());
+            const std::size_t open_brace = current_file->content.find('{', owner_offset);
+            if (open_brace == std::string::npos) continue;
+            std::size_t close_brace = std::string::npos;
+            int depth = 0;
+            bool in_string = false;
+            bool escaped = false;
+            for (std::size_t index = open_brace; index < current_file->content.size(); ++index) {
+                const char character = current_file->content[index];
+                if (character == '"' && !escaped) in_string = !in_string;
+                if (!in_string) {
+                    if (character == '{') ++depth;
+                    else if (character == '}' && --depth == 0) {
+                        close_brace = index;
+                        break;
+                    }
+                }
+                escaped = character == '\\' && !escaped;
+                if (character != '\\') escaped = false;
+            }
+            if (close_brace == std::string::npos) continue;
+
+            std::string stub = "\n    " + member_name;
+            const std::string return_type = required_member->return_type.to_string();
+            if (!required_member->is_method) {
+                stub += ": " + return_type + ";\n";
+            } else {
+                stub += '(';
+                for (std::size_t index = 0; index < required_member->params.size(); ++index) {
+                    if (index != 0) stub += ", ";
+                    stub += required_member->params[index]->name + ": " +
+                        required_member->params[index]->type_annotation.to_string();
+                }
+                stub += "): " + return_type + " {";
+                if (return_type == "Void") {
+                    stub += "\n    }\n";
+                } else {
+                    std::string default_value = return_type.ends_with('?') ? "null" : return_type + "()";
+                    if (return_type == "Bool") default_value = "false";
+                    else if (return_type == "String") default_value = "\"\"";
+                    else if (numeric_type_for_name(return_type)) default_value = "0";
+                    stub += "\n        return " + default_value + ";\n    }\n";
+                }
+            }
+            const SourceLocation insertion = m_workspace.source_manager().get_location(
+                current_file->id, static_cast<uint32_t>(close_brace));
+            actions.push_back({
+                {"title", "Implement " + interface_name + "." + member_name},
+                {"kind", "quickfix"},
+                {"diagnostics", json::array({diagnostic})},
+                {"edit", {{"changes", {{uri, json::array({{
+                    {"range", {
+                        {"start", {{"line", insertion.line - 1}, {"character", insertion.column - 1}}},
+                        {"end", {{"line", insertion.line - 1}, {"character", insertion.column - 1}}}
+                    }},
+                    {"newText", stub}
+                }})}}}}}
             });
         }
     }
