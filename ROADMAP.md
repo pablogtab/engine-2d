@@ -418,6 +418,8 @@ Remaining language/backend work is tracked in
 - [x] Add physics overlays for colliders, contacts, velocities, centers of mass, and collision layers.
 - [x] Prefix runtime script errors with their entity ID and expose them in the Script Inspector.
 - [ ] Add precise runtime script source locations and structured log filtering.
+  - [x] Preserve compiler source path/line/column in script status and structured log records; filter the Console by severity, category, entity, and text without parsing messages.
+  - [ ] Propagate exact source spans from native EngineScript lifecycle/update/event callback failures.
 - [x] Add a bounded CPU frame profiler with runtime/render/script/event scopes, counters, captures, and unavailable GPU timing state.
 - [x] Add pause, deterministic step frame, clamped play timescale, and temporary runtime entity inspection edits discarded on Stop.
 - [x] Add data-configured stress budgets for entities, sprites, bodies, contacts, particles, scripts, lights, post-processing, and render targets.
@@ -647,6 +649,7 @@ These suites protect systems that already exist but do not yet have dedicated au
 ### Phases 8 and 9 — Performance and Export Suites
 
 - [x] `ProfilerInstrumentationTests` — counter scope, nested timings, frame reset, disabled overhead, ring buffer, percentiles, capture export, and entity/pass attribution.
+- [x] `StructuredLogTests` — structured severity/category/entity/asset/source attribution is delivered without editor dependencies.
 - [x] `StressRegressionTests` — deterministic execution and recorded correction budgets for entities, sprites, physics, particles, scripts, lighting, post-processing, allocations, and render targets.
 - [ ] `RuntimeBoundaryTests` — runtime targets do not link or initialize ImGui, editor panels, command history, or sandbox helpers.
 - [ ] `AssetPackagingTests` — dependency closure, shader variants, scene inclusion, missing-file failure, and deterministic package manifests.

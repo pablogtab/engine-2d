@@ -4,6 +4,7 @@
 #include <functional>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <sstream>
 
 namespace Engine {
@@ -18,9 +19,33 @@ enum class LogLevel {
     OFF
 };
 
+struct LogSourceLocation {
+    std::string path;
+    uint32_t line{0};
+    uint32_t column{0};
+
+    [[nodiscard]] bool is_valid() const { return !path.empty() && line != 0; }
+};
+
+struct LogMetadata {
+    std::string category;
+    std::string system;
+    std::string render_pass;
+    std::optional<uint32_t> entity;
+    std::optional<uint64_t> asset;
+    std::optional<LogSourceLocation> source;
+};
+
+struct LogRecord {
+    std::string timestamp;
+    LogLevel level{LogLevel::INFO};
+    std::string message;
+    LogMetadata metadata;
+};
+
 class Log {
 public:
-    using LogCallback = std::function<void(const std::string& timestamp, const std::string& level, const std::string& message)>;
+    using LogCallback = std::function<void(const LogRecord& record)>;
 
     static void init(const std::string& filename = "engine.log");
     static void shutdown();
@@ -32,6 +57,7 @@ public:
     static void info(const std::string& msg);
     static void warn(const std::string& msg);
     static void error(const std::string& msg);
+    static void error(std::string msg, LogMetadata metadata);
     static void critical(const std::string& msg);
 
     // Formatted helper for multiple arguments
@@ -61,7 +87,7 @@ public:
     }
 
 private:
-    static void log(LogLevel level, const std::string& message);
+    static void log(LogLevel level, const std::string& message, LogMetadata metadata = {});
     static std::string get_timestamp();
     static const char* level_to_string(LogLevel level);
 

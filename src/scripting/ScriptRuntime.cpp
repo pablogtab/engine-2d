@@ -1506,10 +1506,21 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         const std::string error = compilation.diagnostics.empty()
             ? "EngineScript project compilation failed"
             : compilation.diagnostics.front().message;
+        std::string source_path;
+        uint32_t line = 0;
+        uint32_t column = 0;
+        if (!compilation.diagnostics.empty()) {
+            const EngineScript::Diagnostic& diagnostic = compilation.diagnostics.front();
+            line = diagnostic.span.start_line;
+            column = diagnostic.span.start_column;
+            if (const EngineScript::SourceFile* source = m_native_workspace->source_manager().get_file(diagnostic.span.file_id)) {
+                source_path = source->path;
+            }
+        }
         entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
             if (!component.enabled) return;
             ++result.failed;
-            set_error(entity, error);
+            set_error(entity, error, source_path, line, column);
         });
         return result;
     }
@@ -2014,9 +2025,28 @@ void ScriptRuntime::shutdown() {
     m_pending_events.clear();
 }
 
-void ScriptRuntime::set_error(EntityID entity, std::string message) {
-    m_statuses[entity] = {ScriptExecutionState::Error, std::move(message)};
-    ENGINE_LOG_ERROR("[SCRIPT] Entity {}: {}", entity, m_statuses[entity].message);
+void ScriptRuntime::set_error(
+    EntityID entity,
+    std::string message,
+    std::string source_path,
+    uint32_t line,
+    uint32_t column
+) {
+    if (source_path.empty() && m_entity_manager && m_asset_database &&
+        m_entity_manager->is_alive(entity) &&
+        m_entity_manager->has_component<ScriptComponent>(entity)) {
+        const ScriptComponent& component = m_entity_manager->get_component<ScriptComponent>(entity);
+        if (const AssetRecord* asset = m_asset_database->find(component.script_handle)) {
+            source_path = asset->source_path;
+        }
+    }
+    m_statuses[entity] = {ScriptExecutionState::Error, std::move(message), source_path, line, column};
+    LogMetadata metadata;
+    metadata.category = "script";
+    metadata.system = "EngineScript";
+    metadata.entity = entity;
+    if (!source_path.empty()) metadata.source = LogSourceLocation{std::move(source_path), line, column};
+    Log::error(m_statuses[entity].message, std::move(metadata));
 }
 
 const ScriptExecutionStatus* ScriptRuntime::status(EntityID entity) const {

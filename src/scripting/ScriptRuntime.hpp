@@ -83,6 +83,11 @@ enum class ScriptExecutionState {
 struct ScriptExecutionStatus {
     ScriptExecutionState state{ScriptExecutionState::Running};
     std::string message;
+    std::string source_path;
+    uint32_t line{0};
+    uint32_t column{0};
+
+    [[nodiscard]] bool has_source_location() const { return !source_path.empty() && line != 0; }
 };
 
 struct ScriptInspectionResult {
@@ -166,7 +171,7 @@ private:
     void queue_custom_event(EntityID source, std::string name, std::string payload);
     void subscribe_to_events();
     void unsubscribe_from_events();
-    void set_error(EntityID entity, std::string message);
+    void set_error(EntityID entity, std::string message, std::string source_path = {}, uint32_t line = 0, uint32_t column = 0);
 
     EntityManager* m_entity_manager{nullptr};
     const AssetDatabase* m_asset_database{nullptr};

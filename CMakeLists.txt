@@ -1014,6 +1014,15 @@ target_include_directories(ProfilerInstrumentationTests PRIVATE
 )
 add_test(NAME ProfilerInstrumentationTests COMMAND ProfilerInstrumentationTests)
 
+add_executable(StructuredLogTests
+    tests/StructuredLogTests.cpp
+    src/core/Log.cpp
+)
+target_include_directories(StructuredLogTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME StructuredLogTests COMMAND StructuredLogTests)
+
 add_executable(StressRegressionTests tests/StressRegressionTests.cpp)
 target_include_directories(StressRegressionTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

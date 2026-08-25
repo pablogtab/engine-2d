@@ -320,6 +320,14 @@ void ScriptInspectorDrawer::draw(
             status && status->state == ScriptExecutionState::Error) {
             ImGui::Separator();
             ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.35f, 1.0f), "Runtime error");
+            if (status->has_source_location()) {
+                ImGui::TextDisabled(
+                    "%s:%u:%u",
+                    status->source_path.c_str(),
+                    status->line,
+                    status->column
+                );
+            }
             ImGui::TextWrapped("%s", status->message.c_str());
         }
     }

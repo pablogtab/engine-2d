@@ -6,16 +6,16 @@
 namespace Engine {
 
 ConsolePanel::ConsolePanel() {
-    add_log("00:00:00", "INFO", "Engine2D Live Editor Console ready.");
-    add_log("00:00:00", "INFO", "Type 'help' in the prompt below for in-game debug commands.");
+    add_log({"00:00:00", LogLevel::INFO, "Engine2D Live Editor Console ready.", {"editor"}});
+    add_log({"00:00:00", LogLevel::INFO, "Type 'help' in the prompt below for in-game debug commands.", {"editor"}});
 }
 
-void ConsolePanel::add_log(const std::string& timestamp, const std::string& level, const std::string& message) {
+void ConsolePanel::add_log(LogRecord record) {
     std::lock_guard lock(m_entries_mutex);
     if (m_entries.size() > 1000) {
         m_entries.erase(m_entries.begin(), m_entries.begin() + 100);
     }
-    m_entries.push_back({timestamp, level, message});
+    m_entries.push_back(std::move(record));
 }
 
 void ConsolePanel::clear() {
@@ -24,33 +24,33 @@ void ConsolePanel::clear() {
 }
 
 void ConsolePanel::execute_command(const std::string& cmd) {
-    add_log("CMD", "DEBUG", "> " + cmd);
+    add_log({"CMD", LogLevel::DEBUG, "> " + cmd, {"console"}});
 
     if (cmd == "help") {
-        add_log("HELP", "INFO", "Available commands:");
-        add_log("HELP", "INFO", "  help           - Show this help menu");
-        add_log("HELP", "INFO", "  clear          - Clear console buffer");
-        add_log("HELP", "INFO", "  timescale <v>  - Set simulation speed (e.g. timescale 0.5)");
-        add_log("HELP", "INFO", "  pause          - Freeze simulation");
-        add_log("HELP", "INFO", "  resume         - Resume normal 1.0x speed");
+        add_log({"HELP", LogLevel::INFO, "Available commands:", {"console"}});
+        add_log({"HELP", LogLevel::INFO, "  help           - Show this help menu", {"console"}});
+        add_log({"HELP", LogLevel::INFO, "  clear          - Clear console buffer", {"console"}});
+        add_log({"HELP", LogLevel::INFO, "  timescale <v>  - Set simulation speed (e.g. timescale 0.5)", {"console"}});
+        add_log({"HELP", LogLevel::INFO, "  pause          - Freeze simulation", {"console"}});
+        add_log({"HELP", LogLevel::INFO, "  resume         - Resume normal 1.0x speed", {"console"}});
     } else if (cmd == "clear") {
         clear();
     } else if (cmd == "pause") {
         Time::set_time_scale(0.0f);
-        add_log("TIME", "INFO", "Simulation paused.");
+        add_log({"TIME", LogLevel::INFO, "Simulation paused.", {"time"}});
     } else if (cmd == "resume") {
         Time::set_time_scale(1.0f);
-        add_log("TIME", "INFO", "Simulation resumed (1.0x).");
+        add_log({"TIME", LogLevel::INFO, "Simulation resumed (1.0x).", {"time"}});
     } else if (cmd.rfind("timescale ", 0) == 0) {
         try {
             float s = std::stof(cmd.substr(10));
             Time::set_time_scale(s);
-            add_log("TIME", "INFO", "Simulation timescale set to " + std::to_string(s) + "x");
+            add_log({"TIME", LogLevel::INFO, "Simulation timescale set to " + std::to_string(s) + "x", {"time"}});
         } catch (...) {
-            add_log("ERROR", "ERROR", "Invalid timescale value.");
+            add_log({"ERROR", LogLevel::ERR, "Invalid timescale value.", {"console"}});
         }
     } else {
-        add_log("ERROR", "ERROR", "Unknown command: '" + cmd + "'. Type 'help' for available commands.");
+        add_log({"ERROR", LogLevel::ERR, "Unknown command: '" + cmd + "'. Type 'help' for available commands.", {"console"}});
     }
 }
 
@@ -75,6 +75,12 @@ void ConsolePanel::on_gui() {
         ImGui::SameLine();
         ImGui::SetNextItemWidth(120.0f);
         ImGui::InputTextWithHint("##filter", "Filter...", m_filter_buffer, sizeof(m_filter_buffer));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(100.0f);
+        ImGui::InputTextWithHint("##category", "Category...", m_category_filter_buffer, sizeof(m_category_filter_buffer));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(70.0f);
+        ImGui::InputTextWithHint("##entity", "Entity...", m_entity_filter_buffer, sizeof(m_entity_filter_buffer));
 
         ImGui::Separator();
 
@@ -84,16 +90,24 @@ void ConsolePanel::on_gui() {
 
         std::string filter_str = m_filter_buffer;
         std::transform(filter_str.begin(), filter_str.end(), filter_str.begin(), ::tolower);
+        std::string category_filter = m_category_filter_buffer;
+        std::transform(category_filter.begin(), category_filter.end(), category_filter.begin(), ::tolower);
+        const std::string entity_filter = m_entity_filter_buffer;
 
-        std::vector<LogEntry> entries;
+        std::vector<LogRecord> entries;
         {
             std::lock_guard lock(m_entries_mutex);
             entries = m_entries;
         }
         for (const auto& entry : entries) {
-            if (entry.level == "INFO" && !m_show_info) continue;
-            if (entry.level == "WARN" && !m_show_warn) continue;
-            if (entry.level == "ERROR" && !m_show_error) continue;
+            if (entry.level == LogLevel::INFO && !m_show_info) continue;
+            if (entry.level == LogLevel::WARN && !m_show_warn) continue;
+            if ((entry.level == LogLevel::ERR || entry.level == LogLevel::CRITICAL) && !m_show_error) continue;
+
+            std::string category = entry.metadata.category;
+            std::transform(category.begin(), category.end(), category.begin(), ::tolower);
+            if (!category_filter.empty() && category.find(category_filter) == std::string::npos) continue;
+            if (!entity_filter.empty() && (!entry.metadata.entity || std::to_string(*entry.metadata.entity) != entity_filter)) continue;
 
             if (!filter_str.empty()) {
                 std::string full_line = entry.message;
@@ -104,17 +118,37 @@ void ConsolePanel::on_gui() {
             }
 
             ImVec4 col = ImVec4(0.85f, 0.85f, 0.88f, 1.0f);
-            if (entry.level == "WARN") {
+            if (entry.level == LogLevel::WARN) {
                 col = ImVec4(0.95f, 0.75f, 0.2f, 1.0f);
-            } else if (entry.level == "ERROR") {
+            } else if (entry.level == LogLevel::ERR || entry.level == LogLevel::CRITICAL) {
                 col = ImVec4(0.95f, 0.3f, 0.3f, 1.0f);
-            } else if (entry.level == "DEBUG" || entry.level == "CMD") {
+            } else if (entry.level == LogLevel::DEBUG || entry.level == LogLevel::TRACE) {
                 col = ImVec4(0.5f, 0.5f, 0.6f, 1.0f);
             }
 
+            const char* level = entry.level == LogLevel::ERR ? "ERROR" :
+                entry.level == LogLevel::CRITICAL ? "CRIT" :
+                entry.level == LogLevel::WARN ? "WARN" :
+                entry.level == LogLevel::DEBUG ? "DEBUG" :
+                entry.level == LogLevel::TRACE ? "TRACE" : "INFO";
+
             ImGui::TextColored(ImVec4(0.45f, 0.45f, 0.55f, 1.0f), "[%s]", entry.timestamp.c_str());
             ImGui::SameLine();
-            ImGui::TextColored(col, "[%s] %s", entry.level.c_str(), entry.message.c_str());
+            ImGui::TextColored(col, "[%s]", level);
+            if (!entry.metadata.category.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("[%s]", entry.metadata.category.c_str());
+            }
+            if (entry.metadata.entity) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("[entity=%u]", *entry.metadata.entity);
+            }
+            if (entry.metadata.source && entry.metadata.source->is_valid()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("[%s:%u:%u]", entry.metadata.source->path.c_str(), entry.metadata.source->line, entry.metadata.source->column);
+            }
+            ImGui::SameLine();
+            ImGui::TextUnformatted(entry.message.c_str());
         }
 
         if (m_auto_scroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
