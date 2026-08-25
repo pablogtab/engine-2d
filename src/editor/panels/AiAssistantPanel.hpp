@@ -5,6 +5,7 @@
 #include "../ai/CodexAppServerProvider.hpp"
 #include "../ai/EditorAiConversationStore.hpp"
 #include "../ai/EditorAiAuthoring.hpp"
+#include "../ai/EditorAiAuthoringSession.hpp"
 #include "../ai/EditorAiAttachmentStore.hpp"
 #include "../ai/EditorAiToolRegistry.hpp"
 #include "../ai/EditorAiViewportTools.hpp"
@@ -107,6 +108,17 @@ private:
         nlohmann::json before_asset_index{nlohmann::json::array()};
         nlohmann::json generated_texture_previews{nlohmann::json::object()};
         bool auto_apply{false};
+        bool iterative_continuation{false};
+        std::string original_prompt;
+        std::uint64_t session_revision_before{0};
+    };
+
+    struct IterativeAuthoringBinding {
+        EditorAiAuthoringSession session;
+        std::weak_ptr<Scene> target_scene;
+        std::weak_ptr<EditorCommandHistory> command_history;
+        std::weak_ptr<EditorEntityStateStore> entity_state_store;
+        std::weak_ptr<EditorSelection> selection;
     };
 
     struct AppliedAiSession {
@@ -141,7 +153,12 @@ private:
     };
 
     [[nodiscard]] std::string current_context_json() const;
-    void start_request();
+    void start_request(
+        std::string internal_prompt = {},
+        bool iterative_continuation = false
+    );
+    void continue_iterative_authoring();
+    void finalize_iterative_verification();
     void cancel_request();
     void start_new_conversation();
     void restore_conversation(const std::string& thread_id);
@@ -188,6 +205,7 @@ private:
     ProviderBackend m_backend{ProviderBackend::CodexSubscription};
     AuthoringMode m_authoring_mode{AuthoringMode::ConfirmBeforeApply};
     ReasoningEffort m_reasoning_effort{ReasoningEffort::Low};
+    int m_authoring_work_budget_minutes{10};
 
     mutable std::mutex m_request_mutex;
     std::mutex m_live_tool_mutex;
@@ -210,6 +228,7 @@ private:
     std::string m_conversation_action_thread_id;
     std::optional<PendingProposal> m_pending_proposal;
     std::optional<AppliedAiSession> m_last_applied_session;
+    std::optional<IterativeAuthoringBinding> m_iterative_authoring;
     std::vector<std::filesystem::path> m_pending_asset_context_paths;
     std::unique_ptr<Texture> m_generated_texture_preview;
     std::string m_loaded_texture_preview_id;
@@ -228,6 +247,11 @@ private:
     bool m_image_generation_requested{false};
     bool m_conversation_has_generated_image{false};
     bool m_compact_before_next_request{false};
+    bool m_iteration_continuation_requested{false};
+    bool m_iteration_verification_pending{false};
+    bool m_iteration_verification_inspected{false};
+    bool m_iteration_verification_time_budget_reached{false};
+    std::uint64_t m_iteration_verification_revision{0};
     std::atomic_bool m_cancel_requested{false};
     std::thread m_request_thread;
     std::uint64_t m_viewport_capture_sequence{0};

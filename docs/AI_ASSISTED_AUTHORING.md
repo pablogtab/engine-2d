@@ -23,9 +23,47 @@ undone by the editor.
    scene, editor session, play mode, or authoring revision changed since capture.
 5. The proposal is converted to one `EditorCommandGroup` and executed through the
    active `EditorCommandHistory`.
+6. After a successful application, the same conversation automatically starts a
+   verification pass against a new frozen snapshot. Codex must inspect the applied
+   scene and may either finish or queue one focused correction batch.
+7. Applied correction batches repeat the same validation path. The history
+   consolidates every batch from the original request into one reversible entry.
 
 The default mode is **Confirm before apply**. **Autonomous safe** skips the human
-confirmation click but uses exactly the same validation and command path.
+confirmation click but uses exactly the same validation and command path. In
+confirmation mode, every correction batch is reviewed separately. In autonomous
+mode, application and verification continue without an extra click.
+
+## Iterative authoring sessions
+
+An authoring request becomes an iterative session when its first proposal is
+applied. The session preserves the original user goal, the target editor session,
+the initial authoring revision, cumulative action usage, and the same provider
+thread. After each batch, the next pass receives the application receipt and a
+fresh scene snapshot. Request-local aliases are intentionally discarded, so the
+model must resolve applied entities again by stable ID.
+
+A verification pass must call at least one read-only editor tool. Visual or
+spatial tasks are instructed to capture the Scene Viewport. If inspection finds a
+concrete mismatch, Codex queues another bounded proposal; if no authoring actions
+are queued, the editor marks the session verified only when the scene revision is
+still the one that was inspected. Concurrent edits, scene switches, cancellation,
+provider failure, or a rejected correction stop the loop without discarding
+earlier applied batches.
+
+Each batch remains capped at 25 actions so one atomic transaction stays bounded.
+The complete session is governed by a configurable active AI work budget instead
+of an arbitrary batch or action count. It defaults to 10 minutes and can be set
+from 1 to 30 minutes in Session Settings. Provider execution counts; time waiting
+for human confirmation does not. If a correction consumes the remaining budget,
+the editor applies it normally and runs one final read-only inspection before
+stopping. The panel displays session status, informational batch/action counts,
+and used/budgeted AI time. Cancel or Dismiss stops the current pass.
+
+The command history consolidates already-applied batches by their stable starting
+revision. It does not execute them again. Undo reverses the complete iterative
+session in one step and Redo reapplies it transactionally. Direct Full Access
+filesystem or shell effects remain outside this editor transaction.
 
 ## Read API and entity identity
 
@@ -166,8 +204,9 @@ registered as assets and never dirty the scene.
 
 ## Safety and rollback
 
-- A proposal is capped at 25 authoring actions; bulk entity calls are capped at 20
-  unique IDs.
+- A proposal is capped at 25 authoring actions. The iterative session uses its
+  configurable active-work timer rather than a cumulative action cap. Bulk entity
+  calls are capped at 20 unique IDs.
 - Tool schemas reject unknown fields, unsupported components, invalid aliases,
   malformed or oversized component patches, non-finite values, zero scale,
   missing entities, and locked entities. Forward or stale aliases fail during the
@@ -178,7 +217,8 @@ registered as assets and never dirty the scene.
   not inserted into history.
 - Undo reverses children in reverse order. Redo is also transactional and restores
   the applied state only if every child succeeds.
-- One successful proposal creates one authoring revision and one Undo entry.
+- Each successful batch creates an authoring revision. All batches belonging to
+  the same iterative request are consolidated into one Undo entry.
 - Asset fields in component patches are checked against the frozen asset index for
   handle existence, ready status, and expected type before execution.
 - The panel shortcut for undoing the last AI session is available only while that
@@ -220,8 +260,9 @@ Every successful application also emits a structured receipt containing the
 request ID, before/after revisions, queued action summaries, and bounded lists of
 added, removed, and updated entities and assets. For a newly generated texture,
 the compact receipt includes its path and stable handle. The panel can display and
-copy this JSON, and its summary is supplied to the next turn so iterative requests
-know what the editor actually applied.
+copy this JSON. Iterative receipts also expose session status, applied batches,
+total actions, active work time, and configured work budget; their summary is
+supplied to the next pass so Codex knows what the editor actually applied.
 
 Interactive authoring defaults to low reasoning effort, keeps only the most recent
 bounded conversation history, limits tool rounds and invalid calls, and asks the

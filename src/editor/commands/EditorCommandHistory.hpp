@@ -26,6 +26,13 @@ public:
     // Pushes a command that was already executed interactively (e.g. Gizmo drag release)
     void push_executed_command(std::unique_ptr<IEditorCommand> command);
 
+    // Collapses every authoring command added after revision_before into one already-applied
+    // transaction without executing it again. Used by multi-pass authoring sessions.
+    [[nodiscard]] bool squash_commands_after_revision(
+        uint64_t revision_before,
+        std::string description
+    );
+
     // Reverses the top command
     void undo();
 

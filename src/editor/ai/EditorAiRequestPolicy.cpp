@@ -72,6 +72,26 @@ build_editor_ai_request_instructions(const EditorAiRequestPolicyInput &input) {
         " Autonomous safe mode is enabled, so the editor will apply the "
         "proposal automatically if every validation gate passes.";
   }
+  if (input.iterative_continuation) {
+    instructions +=
+        " This is an iterative verification pass after an editor batch was "
+        "applied. Inspect the current applied state with at least one read-only "
+        "editor tool before concluding. Use capture_viewport for visual or "
+        "spatial work. Do not repeat prior actions. Applied batches: " +
+        std::to_string(input.applied_batches) +
+        ". Active AI work time: " + std::to_string(input.work_time_ms / 1000) +
+        "/" + std::to_string(input.work_budget_ms / 1000) + " seconds.";
+    if (input.final_verification_only) {
+      instructions +=
+          " The configured work time has been used. This is the final read-only "
+          "inspection pass: do not request additional authoring changes and do "
+          "not modify the scene or project through Full Access.";
+    } else {
+      instructions +=
+          " Queue corrections only when inspection finds a concrete mismatch; "
+          "otherwise queue no authoring actions.";
+    }
+  }
   if (!input.previous_receipt.empty()) {
     instructions += " Previous editor result: " + input.previous_receipt;
   }

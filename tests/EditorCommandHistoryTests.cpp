@@ -127,6 +127,56 @@ void test_command_group_is_one_reversible_history_entry() {
     assert(value == 2);
 }
 
+void test_squash_applied_commands_preserves_one_undo_step() {
+    int value = 0;
+    EditorCommandHistory history;
+    assert(history.execute_command(
+        std::make_unique<SetIntegerCommand>(value, 0, 1, "First batch")
+    ));
+    assert(history.execute_command(
+        std::make_unique<SetIntegerCommand>(value, 1, 2, "Second batch")
+    ));
+    assert(history.get_undo_count() == 2);
+    assert(history.squash_commands_after_revision(0, "AI Iterative Session"));
+    assert(history.get_undo_count() == 1);
+    assert(history.get_undo_description() == "AI Iterative Session");
+    assert(history.get_current_revision() == 2);
+
+    history.undo();
+    assert(value == 0);
+    assert(history.get_current_revision() == 0);
+    history.redo();
+    assert(value == 2);
+    assert(history.get_current_revision() == 2);
+}
+
+void test_iterative_resquash_and_full_history_use_revision_anchor() {
+    int value = 0;
+    EditorCommandHistory history(2);
+    assert(history.execute_command(
+        std::make_unique<SetIntegerCommand>(value, 0, 1, "Existing one")
+    ));
+    assert(history.execute_command(
+        std::make_unique<SetIntegerCommand>(value, 1, 2, "Existing two")
+    ));
+    const std::uint64_t session_revision = history.get_current_revision();
+
+    assert(history.execute_command(
+        std::make_unique<SetIntegerCommand>(value, 2, 3, "AI batch one")
+    ));
+    assert(history.squash_commands_after_revision(session_revision, "AI iteration one"));
+    assert(history.execute_command(
+        std::make_unique<SetIntegerCommand>(value, 3, 4, "AI batch two")
+    ));
+    assert(history.squash_commands_after_revision(session_revision, "AI iteration two"));
+    assert(history.get_undo_description() == "AI iteration two");
+
+    history.undo();
+    assert(value == 2);
+    history.redo();
+    assert(value == 4);
+}
+
 void test_command_group_rolls_back_failed_execution() {
     int value = 0;
     auto group = std::make_unique<EditorCommandGroup>("Failing AI Session");
@@ -385,6 +435,8 @@ int main() {
     test_failing_undo_retains_command_in_undo_stack();
     test_failing_redo_retains_command_in_redo_stack();
     test_command_group_is_one_reversible_history_entry();
+    test_squash_applied_commands_preserves_one_undo_step();
+    test_iterative_resquash_and_full_history_use_revision_anchor();
     test_command_group_rolls_back_failed_execution();
     test_command_group_restores_applied_state_when_undo_fails();
     test_command_group_rolls_back_partial_redo();

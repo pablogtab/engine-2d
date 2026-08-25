@@ -475,6 +475,7 @@ Remaining language/backend work is tracked in
 - [x] Add authoring tools incrementally, beginning with entity creation, transforms, and registered component operations.
 - [x] Validate every proposed tool call before execution and present a human-readable preview requiring explicit confirmation by default, with an opt-in safe autonomous mode using the same gates.
 - [x] Execute an approved proposal as one atomic command group with exact Undo/Redo and rollback on partial failure.
+- [x] Continue applied authoring requests through bounded inspect/correct passes, require real read-only verification, and consolidate every applied batch into one Undo/Redo session.
 - [x] Add correlated AI audit logs and interactive latency controls: request/tool durations, usage, bounded history, low reasoning effort, model presets, and retry budgets without logging prompts or credentials.
 - [x] Stream Codex reasoning summaries into an Activity timeline and audit App Server item durations/event gaps without persisting private reasoning or conversation content.
 - [x] Generate PNG textures through the Codex subscription ImageGen skill, preview them, and import/assign them through the same atomic Undo/Redo transaction with stable asset receipts.
@@ -751,6 +752,7 @@ These items are useful but should not interrupt the architecture work above unle
    - [x] Add allowlisted on-demand context for engine-wide and renderer-specific contracts.
    - [x] Add bounded live viewport navigation, rendered PNG observation, and scene diagnostics through the same provider tool boundary.
    - [x] Add confirmed and opt-in autonomous authoring proposals through one atomic reversible command group.
+   - [x] Add bounded iterative apply/inspect/correct sessions with revision-safe verification and one consolidated Undo entry.
    - [x] Cover reasoning configuration, invalid-tool retry limits, 2D/3D Transform positions, and real Codex App Server transport with deterministic tests plus an opt-in live smoke.
    - [x] Add reversible import of locally generated WAV assets.
    - [ ] Add named command/build tools and audio analysis before expanding into material, prefab, scene, Tilemap, and animation authoring APIs.

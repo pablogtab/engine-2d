@@ -118,6 +118,7 @@ set(SOURCES
     src/editor/panels/AiAssistantPanel.cpp
     src/editor/panels/EditorAiAttachmentView.cpp
     src/editor/ai/EditorAiAttachmentStore.cpp
+    src/editor/ai/EditorAiAuthoringSession.cpp
     src/editor/ai/EditorAiRequestPolicy.cpp
     src/editor/ai/EditorAiProjectKnowledge.cpp
     src/editor/ai/EditorAiConversationStore.cpp
@@ -1042,6 +1043,15 @@ target_include_directories(EditorAiRequestPolicyTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
 )
 add_test(NAME EditorAiRequestPolicyTests COMMAND EditorAiRequestPolicyTests)
+
+add_executable(EditorAiAuthoringSessionTests
+    tests/EditorAiAuthoringSessionTests.cpp
+    src/editor/ai/EditorAiAuthoringSession.cpp
+)
+target_include_directories(EditorAiAuthoringSessionTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME EditorAiAuthoringSessionTests COMMAND EditorAiAuthoringSessionTests)
 
 add_executable(EditorAiAttachmentStoreTests
     tests/EditorAiAttachmentStoreTests.cpp

@@ -57,12 +57,44 @@ void test_image_generation_uses_bounded_policy_and_suppresses_viewport_capture()
   assert(!contains(instructions, "capture_viewport"));
 }
 
+void test_iterative_policy_requires_applied_state_inspection() {
+  Engine::EditorAiRequestPolicyInput input;
+  input.authoring_available = true;
+  input.viewport_available = true;
+  input.iterative_continuation = true;
+  input.applied_batches = 2;
+  input.work_time_ms = 120000;
+  input.work_budget_ms = 600000;
+
+  const std::string instructions =
+      Engine::build_editor_ai_request_instructions(input);
+  assert(contains(instructions, "iterative verification pass"));
+  assert(contains(instructions, "at least one read-only editor tool"));
+  assert(contains(instructions, "Applied batches: 2"));
+  assert(contains(instructions, "Active AI work time: 120/600 seconds"));
+}
+
+void test_final_verification_policy_is_read_only() {
+  Engine::EditorAiRequestPolicyInput input;
+  input.iterative_continuation = true;
+  input.final_verification_only = true;
+  input.work_time_ms = 601000;
+  input.work_budget_ms = 600000;
+
+  const std::string instructions =
+      Engine::build_editor_ai_request_instructions(input);
+  assert(contains(instructions, "final read-only inspection pass"));
+  assert(contains(instructions, "do not request additional authoring changes"));
+}
+
 } // namespace
 
 int main() {
   test_read_only_policy();
   test_confirmed_authoring_policy_includes_context();
   test_image_generation_uses_bounded_policy_and_suppresses_viewport_capture();
+  test_iterative_policy_requires_applied_state_inspection();
+  test_final_verification_policy_is_read_only();
   std::cout << "Editor AI request policy tests passed\n";
   return 0;
 }

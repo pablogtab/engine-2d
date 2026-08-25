@@ -35,7 +35,7 @@ namespace {
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
-constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 9;
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 10;
 constexpr std::size_t AUTO_COMPACT_INPUT_TOKEN_THRESHOLD = 24000;
 std::string project_root();
 
@@ -966,6 +966,9 @@ void AiAssistantPanel::start_new_conversation() {
     if (m_request_running || m_pending_proposal) return;
     m_attachments.clear_all();
     m_pending_asset_context_paths.clear();
+    m_iterative_authoring.reset();
+    m_iteration_continuation_requested = false;
+    m_iteration_verification_pending = false;
     m_attach_assets_requested = false;
     m_messages.clear();
     m_streamed_response.clear();
@@ -1010,6 +1013,9 @@ void AiAssistantPanel::restore_conversation(const std::string& thread_id) {
     }
     m_attachments.clear_all();
     m_pending_asset_context_paths.clear();
+    m_iterative_authoring.reset();
+    m_iteration_continuation_requested = false;
+    m_iteration_verification_pending = false;
     m_attach_assets_requested = false;
     if (conversation->tool_contract_version == EDITOR_AI_TOOL_CONTRACT_VERSION) {
         m_codex_thread_id = conversation->thread_id;
@@ -1182,6 +1188,8 @@ void AiAssistantPanel::persist_current_conversation_locked(const std::string& mo
 
 void AiAssistantPanel::dismiss_pending_proposal() {
     std::lock_guard lock(m_request_mutex);
+    const bool dismisses_iteration = m_pending_proposal &&
+        m_pending_proposal->iterative_continuation && m_iterative_authoring;
     if (m_pending_proposal) {
         ENGINE_LOG_INFO(
             "[AI AUDIT] request={} proposal=dismissed actions={} scene={} baseline_revision={}",
@@ -1197,8 +1205,19 @@ void AiAssistantPanel::dismiss_pending_proposal() {
     m_pending_proposal.reset();
     m_generated_texture_preview.reset();
     m_loaded_texture_preview_id.clear();
-    m_authoring_feedback = "AI proposal dismissed without changing the scene.";
-    m_last_receipt_summary = "The previous editor proposal was dismissed; no changes were applied.";
+    if (dismisses_iteration) {
+        m_iterative_authoring->session.finish_cancelled(
+            "The correction batch was dismissed; earlier applied batches were preserved."
+        );
+        m_iteration_continuation_requested = false;
+        m_iteration_verification_pending = false;
+        m_authoring_feedback = m_iterative_authoring->session.outcome();
+        m_last_receipt_summary = m_authoring_feedback;
+    } else {
+        m_authoring_feedback = "AI proposal dismissed without changing the scene.";
+        m_last_receipt_summary =
+            "The previous editor proposal was dismissed; no changes were applied.";
+    }
     m_messages.push_back({"editor", m_last_receipt_summary});
     m_scroll_chat_to_bottom = true;
     persist_current_conversation_locked(m_model.data());
@@ -1213,6 +1232,7 @@ void AiAssistantPanel::apply_pending_proposal() {
     }
 
     const auto reject = [this, request_id = proposal.request_id,
+                         iterative_continuation = proposal.iterative_continuation,
                          previews = proposal.generated_texture_previews](std::string message) {
         ENGINE_LOG_WARN("[AI AUDIT] request={} proposal=rejected reason={}", request_id, message);
         remove_cached_texture_previews(previews);
@@ -1220,9 +1240,19 @@ void AiAssistantPanel::apply_pending_proposal() {
         m_pending_proposal.reset();
         m_generated_texture_preview.reset();
         m_loaded_texture_preview_id.clear();
-        m_authoring_feedback = "Proposal rejected: " + message;
-        m_last_receipt_summary = "The previous editor proposal failed and was rolled back: " +
-            message + ". No scene changes were kept.";
+        if (iterative_continuation && m_iterative_authoring) {
+            m_iterative_authoring->session.finish_failed(
+                "A correction batch was rejected: " + message +
+                ". Earlier applied batches were preserved."
+            );
+            m_iteration_continuation_requested = false;
+            m_authoring_feedback = m_iterative_authoring->session.outcome();
+            m_last_receipt_summary = m_authoring_feedback;
+        } else {
+            m_authoring_feedback = "Proposal rejected: " + message;
+            m_last_receipt_summary = "The previous editor proposal failed and was rolled back: " +
+                message + ". No scene changes were kept.";
+        }
         m_messages.push_back({"editor", m_last_receipt_summary});
         m_scroll_chat_to_bottom = true;
         persist_current_conversation_locked(m_model.data());
@@ -1244,6 +1274,18 @@ void AiAssistantPanel::apply_pending_proposal() {
         proposal.selection != m_selection) {
         reject("the editor session changed after the proposal was generated");
         return;
+    }
+    if (proposal.iterative_continuation) {
+        bool session_valid = false;
+        {
+            std::lock_guard lock(m_request_mutex);
+            session_valid = m_iterative_authoring &&
+                m_iterative_authoring->session.active();
+        }
+        if (!session_valid) {
+            reject("the iterative authoring session is no longer valid");
+            return;
+        }
     }
     std::string error;
     std::string description;
@@ -1268,7 +1310,7 @@ void AiAssistantPanel::apply_pending_proposal() {
     const nlohmann::json after_snapshot = m_tool_registry.build_context_snapshot(
         scene.get(), proposal.selection.get(), m_serialization_context
     );
-    const nlohmann::json receipt = build_application_receipt(
+    nlohmann::json receipt = build_application_receipt(
         proposal.request_id,
         proposal.baseline_revision,
         proposal.command_history->get_current_revision(),
@@ -1282,12 +1324,59 @@ void AiAssistantPanel::apply_pending_proposal() {
     remove_cached_texture_previews(proposal.generated_texture_previews);
 
     std::lock_guard lock(m_request_mutex);
+    if (!proposal.iterative_continuation) {
+        m_iteration_verification_pending = false;
+        IterativeAuthoringBinding binding;
+        binding.session.begin(
+            proposal.request_id,
+            proposal.original_prompt,
+            proposal.session_revision_before,
+            std::chrono::minutes{m_authoring_work_budget_minutes}
+        );
+        binding.target_scene = scene;
+        binding.command_history = proposal.command_history;
+        binding.entity_state_store = proposal.entity_state_store;
+        binding.selection = proposal.selection;
+        m_iterative_authoring = std::move(binding);
+    }
+    std::string session_error;
+    if (!m_iterative_authoring ||
+        !m_iterative_authoring->session.record_applied_batch(
+            proposal.actions.size(), session_error
+        )) {
+        m_pending_proposal.reset();
+        m_authoring_feedback = "Applied batch could not join its iterative session: " + session_error;
+        m_request_error = m_authoring_feedback;
+        return;
+    }
+    const std::string session_description =
+        m_iterative_authoring->session.history_description();
+    if (!proposal.command_history->squash_commands_after_revision(
+        m_iterative_authoring->session.revision_before(), session_description
+    )) {
+        m_iterative_authoring->session.finish_failed(
+            "Applied batches could not be consolidated into one Undo transaction."
+        );
+        m_authoring_feedback = m_iterative_authoring->session.outcome();
+        m_request_error = m_authoring_feedback;
+        m_pending_proposal.reset();
+        return;
+    }
+    const bool should_continue = m_iterative_authoring->session.can_continue();
+    m_iteration_continuation_requested = should_continue;
+    receipt["session_status"] = should_continue ? "inspecting" : "stopped";
+    receipt["session_batches"] = m_iterative_authoring->session.applied_batches();
+    receipt["session_actions"] = m_iterative_authoring->session.total_actions();
+    receipt["session_work_time_ms"] = m_iterative_authoring->session.work_time().count();
+    receipt["session_work_budget_ms"] = m_iterative_authoring->session.work_budget().count();
     m_pending_proposal.reset();
     m_generated_texture_preview.reset();
     m_loaded_texture_preview_id.clear();
     m_last_application_receipt = receipt;
     m_last_receipt_summary = summary;
-    m_authoring_feedback = description + " applied. " + summary + " One Undo restores the previous state.";
+    m_authoring_feedback = should_continue
+        ? session_description + " applied. Inspecting the current result..."
+        : session_description + " applied. Iterative verification stopped.";
     m_messages.push_back({"editor", "Applied successfully. " + summary});
     m_scroll_chat_to_bottom = true;
     persist_current_conversation_locked(m_model.data());
@@ -1296,15 +1385,15 @@ void AiAssistantPanel::apply_pending_proposal() {
         proposal.request_id,
         proposal.actions.size(),
         proposal.command_history->get_current_revision(),
-        description
+        session_description
     );
     ENGINE_LOG_INFO("[AI AUDIT] receipt={}", receipt.dump());
     m_last_applied_session = AppliedAiSession{
-        .request_id = proposal.request_id,
+        .request_id = m_iterative_authoring->session.root_request_id(),
         .target_scene = scene,
         .command_history = proposal.command_history,
         .after_revision = proposal.command_history->get_current_revision(),
-        .description = description
+        .description = session_description
     };
 }
 
@@ -1324,6 +1413,9 @@ void AiAssistantPanel::undo_last_ai_session() {
         std::lock_guard lock(m_request_mutex);
         m_authoring_feedback = "AI session is no longer the latest scene edit; use the regular Undo history.";
         m_last_applied_session.reset();
+        m_iterative_authoring.reset();
+        m_iteration_continuation_requested = false;
+        m_iteration_verification_pending = false;
         return;
     }
     history->undo();
@@ -1346,7 +1438,75 @@ void AiAssistantPanel::undo_last_ai_session() {
     }
 }
 
-void AiAssistantPanel::start_request() {
+void AiAssistantPanel::continue_iterative_authoring() {
+    {
+        std::lock_guard lock(m_request_mutex);
+        if (!m_iteration_continuation_requested || m_request_running || m_pending_proposal ||
+            !m_iterative_authoring || !m_iterative_authoring->session.can_continue()) {
+            return;
+        }
+        m_iteration_continuation_requested = false;
+    }
+    start_request({}, true);
+}
+
+void AiAssistantPanel::finalize_iterative_verification() {
+    std::lock_guard lock(m_request_mutex);
+    if (!m_iteration_verification_pending || m_request_running ||
+        !m_iterative_authoring || !m_iterative_authoring->session.active()) {
+        return;
+    }
+    m_iteration_verification_pending = false;
+
+    const auto scene = m_iterative_authoring->target_scene.lock();
+    const auto history = m_iterative_authoring->command_history.lock();
+    const auto active_scene = m_scene_manager
+        ? m_scene_manager->get_active_scene_shared_ptr() : nullptr;
+    const bool current_state_matches = scene && scene == active_scene && history &&
+        history == m_command_history &&
+        history->get_current_revision() == m_iteration_verification_revision;
+    if (m_iteration_verification_inspected && current_state_matches) {
+        if (m_iteration_verification_time_budget_reached) {
+            m_iterative_authoring->session.finish_time_budget();
+            m_authoring_feedback =
+                "Iterative authoring completed its final inspection after using "
+                "the configured AI work time.";
+        } else {
+            m_iterative_authoring->session.finish_verified();
+            m_authoring_feedback =
+                "Iterative authoring verified after " +
+                std::to_string(m_iterative_authoring->session.applied_batches()) +
+                " applied batch(es).";
+        }
+        if (!m_last_application_receipt.empty()) {
+            m_last_application_receipt["session_status"] =
+                m_iteration_verification_time_budget_reached
+                    ? "time_budget_reached" : "verified";
+            m_last_application_receipt["session_batches"] =
+                m_iterative_authoring->session.applied_batches();
+            m_last_application_receipt["session_actions"] =
+                m_iterative_authoring->session.total_actions();
+            m_last_application_receipt["session_work_time_ms"] =
+                m_iterative_authoring->session.work_time().count();
+        }
+    } else {
+        const std::string reason = !m_iteration_verification_inspected
+            ? "Codex ended the verification pass without inspecting the applied scene."
+            : "The scene changed while Codex was verifying the applied result.";
+        m_iterative_authoring->session.finish_failed(reason);
+        m_authoring_feedback = reason;
+        m_request_error = reason;
+    }
+    m_last_receipt_summary = m_authoring_feedback;
+    m_messages.push_back({"editor", m_authoring_feedback});
+    m_scroll_chat_to_bottom = true;
+    persist_current_conversation_locked(m_model.data());
+}
+
+void AiAssistantPanel::start_request(
+    std::string internal_prompt,
+    bool iterative_continuation
+) {
     const bool using_codex = m_backend == ProviderBackend::CodexSubscription;
     IEditorAiProvider* provider = using_codex
         ? static_cast<IEditorAiProvider*>(m_codex_provider.get())
@@ -1364,7 +1524,34 @@ void AiAssistantPanel::start_request() {
         return;
     }
 
-    std::string prompt(m_prompt.data());
+    std::string prompt = iterative_continuation
+        ? std::move(internal_prompt)
+        : std::string(m_prompt.data());
+    std::string original_prompt = prompt;
+    std::size_t applied_batches = 0;
+    std::uint64_t session_work_time_ms = 0;
+    std::uint64_t session_work_budget_ms = 0;
+    bool final_verification_only = false;
+    std::uint64_t session_revision_before = 0;
+    if (iterative_continuation) {
+        std::lock_guard lock(m_request_mutex);
+        if (!m_iterative_authoring || !m_iterative_authoring->session.can_continue()) {
+            m_iteration_continuation_requested = false;
+            return;
+        }
+        prompt = m_iterative_authoring->session.continuation_prompt();
+        original_prompt = m_iterative_authoring->session.original_prompt();
+        applied_batches = m_iterative_authoring->session.applied_batches();
+        session_work_time_ms = static_cast<std::uint64_t>(
+            m_iterative_authoring->session.work_time().count()
+        );
+        session_work_budget_ms = static_cast<std::uint64_t>(
+            m_iterative_authoring->session.work_budget().count()
+        );
+        final_verification_only =
+            m_iterative_authoring->session.final_verification_only();
+        session_revision_before = m_iterative_authoring->session.revision_before();
+    }
     const std::string model(m_model.data());
     if (!has_visible_text(prompt.c_str()) && m_attachments.has_screenshots()) {
         prompt = "Inspect the attached screenshot(s).";
@@ -1383,7 +1570,8 @@ void AiAssistantPanel::start_request() {
             m_request_error = "Apply or dismiss the pending AI proposal before sending another request.";
             return;
         }
-        image_generation_requested = using_codex && !m_imagegen_skill_path.empty() &&
+        image_generation_requested = !iterative_continuation && using_codex &&
+            !m_imagegen_skill_path.empty() &&
             (m_image_generation_requested || prompt_requests_generated_image(prompt) ||
              (m_conversation_has_generated_image && prompt_refines_generated_image(prompt)));
         m_image_generation_requested = false;
@@ -1394,13 +1582,42 @@ void AiAssistantPanel::start_request() {
     const std::shared_ptr<EditorCommandHistory> command_history = m_command_history;
     const std::shared_ptr<EditorEntityStateStore> entity_state_store = m_entity_state_store;
     const std::shared_ptr<EditorSelection> selection = m_selection;
-    const bool authoring_available = active_scene && command_history && entity_state_store && selection &&
+    const bool editor_authoring_available = active_scene && command_history &&
+        entity_state_store && selection &&
         m_scene_manager && m_scene_manager->is_editing();
+    const bool authoring_available = editor_authoring_available && !final_verification_only;
     const bool viewport_available = active_scene && !m_viewport_panel.expired() && m_scene_manager &&
         m_scene_manager->is_editing();
     const std::uint64_t baseline_revision = command_history
         ? command_history->get_current_revision() : 0;
     const AuthoringMode authoring_mode = m_authoring_mode;
+    if (iterative_continuation) {
+        std::lock_guard lock(m_request_mutex);
+        const auto session_scene = m_iterative_authoring
+            ? m_iterative_authoring->target_scene.lock() : nullptr;
+        const auto session_history = m_iterative_authoring
+            ? m_iterative_authoring->command_history.lock() : nullptr;
+        const auto session_state_store = m_iterative_authoring
+            ? m_iterative_authoring->entity_state_store.lock() : nullptr;
+        const auto session_selection = m_iterative_authoring
+            ? m_iterative_authoring->selection.lock() : nullptr;
+        const bool history_is_latest = m_last_applied_session &&
+            m_last_applied_session->command_history.lock() == command_history &&
+            m_last_applied_session->after_revision == command_history->get_current_revision() &&
+            m_last_applied_session->description == command_history->get_undo_description();
+        if (!editor_authoring_available || session_scene != active_scene ||
+            session_history != command_history || session_state_store != entity_state_store ||
+            session_selection != selection || !history_is_latest) {
+            m_iteration_continuation_requested = false;
+            m_iterative_authoring->session.finish_failed(
+                "The editor session changed before iterative verification."
+            );
+            m_authoring_feedback = m_iterative_authoring->session.outcome();
+            return;
+        }
+    } else if (command_history) {
+        session_revision_before = command_history->get_current_revision();
+    }
     auto proposal_actions = std::make_shared<std::vector<EditorAiAuthoringAction>>();
     auto request_context = std::make_shared<nlohmann::json>(
         m_tool_registry.build_context_snapshot(active_scene.get(), selection.get(), m_serialization_context)
@@ -1445,14 +1662,21 @@ void AiAssistantPanel::start_request() {
         }
     }
     request.instructions = build_editor_ai_request_instructions({
-        image_generation_requested,
-        authoring_available,
-        authoring_mode == AuthoringMode::ConfirmBeforeApply,
-        viewport_available,
-        !request.images.empty(),
-        previous_receipt,
-        attached_contexts,
-        request_context->value("project_overview", nlohmann::json::object())
+        .image_generation_requested = image_generation_requested,
+        .authoring_available = authoring_available,
+        .confirm_before_apply = authoring_mode == AuthoringMode::ConfirmBeforeApply,
+        .viewport_available = viewport_available,
+        .has_images = !request.images.empty(),
+        .iterative_continuation = iterative_continuation,
+        .final_verification_only = final_verification_only,
+        .applied_batches = applied_batches,
+        .work_time_ms = session_work_time_ms,
+        .work_budget_ms = session_work_budget_ms,
+        .previous_receipt = previous_receipt,
+        .attached_contexts = attached_contexts,
+        .project_overview = request_context->value(
+            "project_overview", nlohmann::json::object()
+        )
     });
     request.project_root = project_root();
     request.codex_executable = m_codex_executable;
@@ -1477,14 +1701,18 @@ void AiAssistantPanel::start_request() {
             compaction_source = m_compact_before_next_request ? "manual" : "automatic";
             m_compact_before_next_request = false;
         }
-        m_messages.push_back({"user", prompt});
+        if (!iterative_continuation) m_messages.push_back({"user", prompt});
         m_streamed_response.clear();
         m_reasoning_summary.clear();
         m_request_error.clear();
         m_active_tool.clear();
         m_live_activity = "Connecting to Codex";
         m_activity_entries.clear();
-        m_activity_entries.push_back({"Request sent", model, 0});
+        m_activity_entries.push_back({
+            iterative_continuation ? "Verification pass started" : "Request sent",
+            model,
+            0
+        });
         m_request_started_at = request_started;
         m_authoring_feedback.clear();
         m_ui_feedback.clear();
@@ -1527,10 +1755,12 @@ void AiAssistantPanel::start_request() {
         compaction_source,
         previous_input_tokens
     );
+    auto inspection_tool_count = std::make_shared<std::size_t>(0);
     request.execute_tool = [
         this,
         request_context,
         proposal_actions,
+        inspection_tool_count,
         authoring_available,
         viewport_available,
         active_scene,
@@ -1577,11 +1807,17 @@ void AiAssistantPanel::start_request() {
             if (name == "capture_viewport" && ++*viewport_capture_count > 4) {
                 return audited({false, {}, "Codex exceeded the four-capture viewport limit"});
             }
-            return audited(execute_live_editor_tool(
+            EditorAiToolResult result = execute_live_editor_tool(
                 name, arguments, active_scene, baseline_revision
-            ));
+            );
+            if (result.success) ++*inspection_tool_count;
+            return audited(std::move(result));
         }
-        return audited(m_tool_registry.execute_snapshot(name, arguments, *request_context));
+        EditorAiToolResult result = m_tool_registry.execute_snapshot(
+            name, arguments, *request_context
+        );
+        if (result.success) ++*inspection_tool_count;
+        return audited(std::move(result));
     };
     m_prompt.fill('\0');
     m_attachments.clear_contexts();
@@ -1602,7 +1838,12 @@ void AiAssistantPanel::start_request() {
         before_entity_index,
         before_asset_index,
         request_context,
+        inspection_tool_count,
         authoring_mode,
+        iterative_continuation,
+        final_verification_only,
+        original_prompt,
+        session_revision_before,
         using_codex,
         model,
         request_id,
@@ -1821,6 +2062,11 @@ void AiAssistantPanel::start_request() {
                 std::chrono::steady_clock::now() - request_started
             ).count()
         );
+        if (iterative_continuation && m_iterative_authoring) {
+            m_iterative_authoring->session.record_work_time(
+                std::chrono::milliseconds{m_last_request_duration_ms}
+            );
+        }
         const char* status = result.status == EditorAiProviderStatus::Completed
             ? "completed"
             : (result.status == EditorAiProviderStatus::Cancelled ? "cancelled" : "failed");
@@ -1870,11 +2116,20 @@ void AiAssistantPanel::start_request() {
                     .generated_texture_previews = request_context->value(
                         "generated_texture_previews", nlohmann::json::object()
                     ),
-                    .auto_apply = authoring_mode == AuthoringMode::AutonomousSafe
+                    .auto_apply = authoring_mode == AuthoringMode::AutonomousSafe,
+                    .iterative_continuation = iterative_continuation,
+                    .original_prompt = original_prompt,
+                    .session_revision_before = session_revision_before
                 };
                 m_authoring_feedback = m_pending_proposal->auto_apply
                     ? "Proposal validated by the tool boundary; applying on the editor thread..."
                     : "Proposal ready for review. The scene has not changed yet.";
+            } else if (iterative_continuation && m_iterative_authoring) {
+                m_iteration_continuation_requested = false;
+                m_iteration_verification_pending = true;
+                m_iteration_verification_inspected = *inspection_tool_count > 0;
+                m_iteration_verification_time_budget_reached = final_verification_only;
+                m_iteration_verification_revision = baseline_revision;
             } else if (!request_context->at("generated_texture_previews").empty()) {
                 remove_cached_texture_previews(request_context->at("generated_texture_previews"));
                 m_authoring_feedback =
@@ -1886,11 +2141,35 @@ void AiAssistantPanel::start_request() {
             if (!proposal_actions->empty()) {
                 m_authoring_feedback = "Cancelled proposal discarded without changing the scene.";
             }
+            if (iterative_continuation && m_iterative_authoring) {
+                m_iteration_continuation_requested = false;
+                m_iteration_verification_pending = false;
+                m_iterative_authoring->session.finish_cancelled(
+                    "Iterative verification was cancelled; applied batches were preserved."
+                );
+                m_authoring_feedback = m_iterative_authoring->session.outcome();
+                m_last_receipt_summary = m_authoring_feedback;
+                if (!m_last_application_receipt.empty()) {
+                    m_last_application_receipt["session_status"] = "cancelled";
+                }
+            }
         } else {
             remove_cached_texture_previews(request_context->at("generated_texture_previews"));
             m_request_error = result.error;
             if (!proposal_actions->empty()) {
                 m_authoring_feedback = "Failed proposal discarded without changing the scene.";
+            }
+            if (iterative_continuation && m_iterative_authoring) {
+                m_iteration_continuation_requested = false;
+                m_iteration_verification_pending = false;
+                m_iterative_authoring->session.finish_failed(
+                    "Iterative verification failed; applied batches were preserved."
+                );
+                m_authoring_feedback = m_iterative_authoring->session.outcome();
+                m_last_receipt_summary = m_authoring_feedback;
+                if (!m_last_application_receipt.empty()) {
+                    m_last_application_receipt["session_status"] = "failed";
+                }
             }
         }
         if (using_codex && result.status == EditorAiProviderStatus::Completed &&
@@ -1913,6 +2192,15 @@ void AiAssistantPanel::on_gui() {
     } else {
         prune_attached_contexts();
     }
+    bool auto_apply_proposal = false;
+    {
+        std::lock_guard lock(m_request_mutex);
+        auto_apply_proposal = !m_request_running && m_pending_proposal &&
+            m_pending_proposal->auto_apply;
+    }
+    if (auto_apply_proposal) apply_pending_proposal();
+    finalize_iterative_verification();
+    continue_iterative_authoring();
     if (!is_open) return;
 
     bool window_request_running = false;
@@ -1931,14 +2219,6 @@ void AiAssistantPanel::on_gui() {
         ImGui::End();
         return;
     }
-
-    bool auto_apply_proposal = false;
-    {
-        std::lock_guard lock(m_request_mutex);
-        auto_apply_proposal = !m_request_running && m_pending_proposal &&
-            m_pending_proposal->auto_apply;
-    }
-    if (auto_apply_proposal) apply_pending_proposal();
 
     const bool codex_available = m_codex_provider && m_codex_provider->is_available() &&
         !m_codex_executable.empty();
@@ -1964,6 +2244,7 @@ void AiAssistantPanel::on_gui() {
     std::uint64_t request_duration_ms = 0;
     std::optional<PendingProposal> pending_proposal;
     std::optional<AppliedAiSession> last_applied_session;
+    std::optional<EditorAiAuthoringSession> iterative_session;
     std::string authoring_feedback;
     std::string ui_feedback;
     nlohmann::json application_receipt;
@@ -1992,6 +2273,7 @@ void AiAssistantPanel::on_gui() {
         request_duration_ms = m_last_request_duration_ms;
         pending_proposal = m_pending_proposal;
         last_applied_session = m_last_applied_session;
+        if (m_iterative_authoring) iterative_session = m_iterative_authoring->session;
         authoring_feedback = m_authoring_feedback;
         ui_feedback = m_ui_feedback;
         application_receipt = m_last_application_receipt;
@@ -2174,11 +2456,28 @@ void AiAssistantPanel::on_gui() {
                 ? "Autonomous safe mode enabled."
                 : "Changes now require confirmation.";
         }
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::SliderInt(
+            "AI work budget (min)",
+            &m_authoring_work_budget_minutes,
+            1,
+            30,
+            "%d min"
+        )) {
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = "Iterative AI work budget updated.";
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Counts provider work only; time waiting for confirmation is excluded"
+            );
+        }
         ImGui::Separator();
         if (ImGui::Button("Reset defaults")) {
             m_backend = ProviderBackend::CodexSubscription;
             m_reasoning_effort = ReasoningEffort::Low;
             m_authoring_mode = AuthoringMode::ConfirmBeforeApply;
+            m_authoring_work_budget_minutes = 10;
             std::snprintf(m_model.data(), m_model.size(), "%s", "gpt-5.6-sol");
             start_new_conversation();
             std::lock_guard lock(m_request_mutex);
@@ -2732,6 +3031,20 @@ void AiAssistantPanel::on_gui() {
             "%s",
             authoring_feedback.c_str()
         );
+    }
+    if (iterative_session && iterative_session->status() !=
+            EditorAiAuthoringSession::Status::Idle) {
+        ImGui::TextDisabled(
+            "Iteration: %s | %zu batches | %zu actions | %.1f/%.1f min AI time",
+            iterative_session->status_label().c_str(),
+            iterative_session->applied_batches(),
+            iterative_session->total_actions(),
+            static_cast<double>(iterative_session->work_time().count()) / 60000.0,
+            static_cast<double>(iterative_session->work_budget().count()) / 60000.0
+        );
+        if (!iterative_session->outcome().empty() && ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", iterative_session->outcome().c_str());
+        }
     }
     if (!application_receipt.empty() && ImGui::CollapsingHeader("Last application receipt")) {
         const std::string receipt_text = application_receipt.dump(2);
