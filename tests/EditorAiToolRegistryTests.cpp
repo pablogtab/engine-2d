@@ -50,7 +50,7 @@ void test_tool_schemas_are_read_only_and_strict() {
     const auto& schemas = registry.tool_schemas();
 
     assert(schemas.is_array());
-    assert(schemas.size() == 8);
+    assert(schemas.size() == 10);
     assert(schemas.at(0).at("name") == "get_scene_summary");
     assert(schemas.at(0).at("strict") == true);
     assert(schemas.at(0).at("parameters").at("additionalProperties") == false);
@@ -61,6 +61,8 @@ void test_tool_schemas_are_read_only_and_strict() {
     assert(schemas.at(5).at("name") == "get_asset_details");
     assert(schemas.at(6).at("name") == "list_engine_documents");
     assert(schemas.at(7).at("name") == "read_engine_document");
+    assert(schemas.at(8).at("name") == "get_build_status");
+    assert(schemas.at(9).at("name") == "run_project_command");
 }
 
 void test_viewport_tool_schemas_and_validation() {
@@ -163,7 +165,7 @@ void test_engine_documents_are_allowlisted() {
         "list_engine_documents", nlohmann::json::object(), nullptr, nullptr
     );
     assert(listed.success);
-    assert(listed.output.at("documents").size() == 6);
+    assert(listed.output.at("documents").size() == 7);
 
     const EditorAiToolResult renderer = registry.execute(
         "read_engine_document", nlohmann::json{{"document_id", "render_materials"}}, nullptr, nullptr

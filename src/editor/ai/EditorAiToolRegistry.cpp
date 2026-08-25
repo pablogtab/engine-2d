@@ -1,4 +1,5 @@
 #include "EditorAiToolRegistry.hpp"
+#include "ProjectCommandRegistry.hpp"
 
 #include "../EditorSelection.hpp"
 #include "../../ecs/EntityManager.hpp"
@@ -44,7 +45,9 @@ constexpr EngineDocumentDescriptor ENGINE_DOCUMENTS[] = {
     {"increment_checklist", "Increment completion checklist", "docs/INCREMENT_COMPLETION_CHECKLIST.md",
      "Undo, serialization, hierarchy, testing, repository hygiene, and delivery requirements."},
     {"ai_authoring", "AI-assisted authoring contract", "docs/AI_ASSISTED_AUTHORING.md",
-     "Proposal tools, validation gates, atomic execution, session isolation, and rollback behavior."}
+     "Proposal tools, validation gates, atomic execution, session isolation, and rollback behavior."},
+    {"project_commands", "Project command registry", "docs/PROJECT_COMMANDS.md",
+     "Allowlisted build, test, export, formatting, and log commands for the assistant."}
 };
 
 std::vector<EntityID> sorted_selection(const EditorSelection* selection) {
@@ -190,11 +193,29 @@ EditorAiToolRegistry::EditorAiToolRegistry(
                   {"properties", {
                       {"document_id", {
                           {"type", "string"},
-                          {"enum", {"engine_contracts", "roadmap", "render_materials", "runtime_display", "increment_checklist", "ai_authoring"}}
+                          {"enum", {"engine_contracts", "roadmap", "render_materials", "runtime_display", "increment_checklist", "ai_authoring", "project_commands"}}
                       }}
                   }},
                   {"required", {"document_id"}},
                   {"additionalProperties", false}
+              }},
+              {"strict", true}
+          },
+          {
+              {"type", "function"},
+              {"name", "get_build_status"},
+              {"description", "Lists project-defined, allowlisted build and validation commands and their stable status."},
+              {"parameters", empty_object_schema()},
+              {"strict", true}
+          },
+          {
+              {"type", "function"},
+              {"name", "run_project_command"},
+              {"description", "Runs exactly one named command from ProjectSettings/Commands.json. Shell strings and arbitrary commands are never accepted."},
+              {"parameters", {
+                  {"type", "object"},
+                  {"properties", {{"name", {{"type", "string"}}}}},
+                  {"required", {"name"}}, {"additionalProperties", false}
               }},
               {"strict", true}
           }
@@ -207,6 +228,19 @@ EditorAiToolResult EditorAiToolRegistry::execute(
     const EditorSelection* selection
 ) const {
     if (!arguments.is_object()) return {false, {}, "Tool arguments must be an object"};
+    if (tool_name == "get_build_status" || tool_name == "run_project_command") {
+        if ((tool_name == "get_build_status" && !arguments.empty()) ||
+            (tool_name == "run_project_command" && (arguments.size() != 1 || !arguments.contains("name") || !arguments.at("name").is_string()))) {
+            return {false, {}, "Invalid project command arguments"};
+        }
+        ProjectCommandRegistry commands(AssetDatabase::get().project_root().string(), m_project_root);
+        std::string error;
+        if (!commands.load(error)) return {false, {}, error};
+        if (tool_name == "get_build_status") return {true, commands.status(), {}};
+        nlohmann::json result;
+        if (!commands.run(arguments.at("name").get<std::string>(), result, error)) return {false, {}, error};
+        return {true, std::move(result), {}};
+    }
     if (tool_name == "read_engine_document") return read_engine_document(arguments);
     if (tool_name == "find_project_assets" || tool_name == "get_asset_details") {
         ComponentSerializationContext serialization;

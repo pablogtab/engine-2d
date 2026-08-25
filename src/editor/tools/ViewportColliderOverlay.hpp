@@ -3,6 +3,7 @@
 #include "../../ecs/EntityManager.hpp"
 #include "../../scene/Camera2D.hpp"
 #include "../EditorSelection.hpp"
+#include "../../physics/PhysicsDebugFrame.hpp"
 #include <imgui.h>
 
 namespace Engine {
@@ -16,6 +17,8 @@ public:
     void set_show_all(bool show) { m_show_all = show; }
     [[nodiscard]] bool show_all() const { return m_show_all; }
     void toggle_show_all() { m_show_all = !m_show_all; }
+    [[nodiscard]] PhysicsDebugOptions& debug_options() { return m_debug_options; }
+    [[nodiscard]] const PhysicsDebugOptions& debug_options() const { return m_debug_options; }
 
     void render(
         EntityManager& entity_manager,
@@ -30,6 +33,7 @@ public:
 
 private:
     bool m_show_all{false};
+    PhysicsDebugOptions m_debug_options{.colliders = true};
 };
 
 } // namespace Engine

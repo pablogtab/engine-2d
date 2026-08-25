@@ -265,7 +265,9 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     );
     inspector_panel->set_command_history(command_history);
     auto console_panel = std::make_shared<ConsolePanel>();
-    auto stats_panel = std::make_shared<StatsPanel>();
+    auto stats_panel = std::make_shared<StatsPanel>(
+        &m_scene_manager.frame_profiler(), m_project.root().string()
+    );
     stats_panel->is_open = false; // Closed by default at startup (accessible via Panels menu)
     auto diagnostics_panel = std::make_shared<SceneDiagnosticsPanel>(
         &m_scene_manager, &get_asset_database(), selection
@@ -685,6 +687,7 @@ void Application::run() {
 #endif
 
         // 3. Update Application logic & active Scene (scaled delta time)
+        m_scene_manager.frame_profiler().begin_frame();
         bool is_playing = true;
         bool game_view_active = true;
 #if ENGINE_WITH_EDITOR
@@ -767,6 +770,7 @@ void Application::run() {
 #endif
 
         m_renderer->present();
+        m_scene_manager.frame_profiler().end_frame();
     }
 
 #if ENGINE_WITH_EDITOR

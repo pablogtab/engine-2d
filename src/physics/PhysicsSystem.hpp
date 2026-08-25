@@ -3,6 +3,7 @@
 #include "../events/Event.hpp"
 #include "../events/EventDispatcher.hpp"
 #include "ColliderGeometry.hpp"
+#include "PhysicsDebugFrame.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/PhysicsComponents.hpp"
 #include "../ecs/EntityManager.hpp"
@@ -349,6 +350,10 @@ public:
 
   static const glm::vec2 &get_gravity() { return s_gravity; }
 
+  static void set_debug_options(const PhysicsDebugOptions& options) { s_debug_options = options; }
+  [[nodiscard]] static const PhysicsDebugOptions& debug_options() { return s_debug_options; }
+  [[nodiscard]] static const PhysicsDebugFrame& debug_frame() { return s_debug_frame; }
+
   static void clear() {
     s_b2_bodies.clear();
     s_b2_joints.clear();
@@ -692,6 +697,8 @@ public:
         }
       }
     }
+
+    capture_debug_frame();
   }
 
   static void set_angular_velocity(EntityManager &em, EntityID id, float degrees_per_sec) {
@@ -715,6 +722,60 @@ public:
   }
 
 private:
+  static void capture_debug_frame() {
+    if (!s_debug_options.enabled() || !s_b2_world) return;
+    PhysicsDebugFrame frame;
+    frame.revision = ++s_debug_revision;
+    for (const auto& [id, body] : s_b2_bodies) {
+      if (!body) continue;
+      const b2Vec2 pos = body->GetPosition();
+      const b2Vec2 com = body->GetWorldCenter();
+      const b2Vec2 velocity = body->GetLinearVelocity();
+      frame.bodies.push_back({id, static_cast<int>(body->GetType()),
+          {pos.x * k_m2p, pos.y * k_m2p}, {com.x * k_m2p, com.y * k_m2p},
+          {velocity.x * k_m2p, velocity.y * k_m2p}, -glm::degrees(body->GetAngularVelocity())});
+      for (b2Fixture* fixture = body->GetFixtureList(); fixture; fixture = fixture->GetNext()) {
+        const b2Filter filter = fixture->GetFilterData();
+        if (s_debug_options.category_filter && !(filter.categoryBits & s_debug_options.category_filter)) continue;
+        if (s_debug_options.mask_filter && !(filter.maskBits & s_debug_options.mask_filter)) continue;
+        PhysicsDebugCollider collider;
+        collider.entity = id; collider.trigger = fixture->IsSensor();
+        collider.one_way = fixture->GetUserData().pointer == 1;
+        collider.category = filter.categoryBits; collider.mask = filter.maskBits;
+        const b2Shape* shape = fixture->GetShape();
+        if (shape->GetType() == b2Shape::e_circle) {
+          const auto* circle = static_cast<const b2CircleShape*>(shape);
+          collider.type = PhysicsDebugShapeType::Circle;
+          const b2Vec2 center = body->GetWorldPoint(circle->m_p);
+          collider.points.push_back({center.x * k_m2p, center.y * k_m2p});
+          collider.radius = circle->m_radius * k_m2p;
+        } else if (shape->GetType() == b2Shape::e_polygon) {
+          const auto* polygon = static_cast<const b2PolygonShape*>(shape);
+          collider.type = PhysicsDebugShapeType::Polygon;
+          for (int i = 0; i < polygon->m_count; ++i) {
+            const b2Vec2 point = body->GetWorldPoint(polygon->m_vertices[i]);
+            collider.points.push_back({point.x * k_m2p, point.y * k_m2p});
+          }
+        }
+        frame.colliders.push_back(std::move(collider));
+      }
+    }
+    if (s_debug_options.contacts || s_debug_options.normals) {
+      for (const b2Contact* contact = s_b2_world->GetContactList(); contact; contact = contact->GetNext()) {
+        if (!contact->IsTouching()) continue;
+        b2WorldManifold manifold; contact->GetWorldManifold(&manifold);
+        const b2Fixture* a = contact->GetFixtureA(); const b2Fixture* b = contact->GetFixtureB();
+        frame.contacts.push_back({
+            static_cast<EntityID>(const_cast<b2Body*>(a->GetBody())->GetUserData().pointer),
+            static_cast<EntityID>(const_cast<b2Body*>(b->GetBody())->GetUserData().pointer),
+            {manifold.points[0].x * k_m2p, manifold.points[0].y * k_m2p},
+            {manifold.normal.x, manifold.normal.y}, a->IsSensor() || b->IsSensor()
+        });
+      }
+    }
+    s_debug_frame = std::move(frame);
+  }
+
   static b2Body *create_body(EntityManager &em, EntityID id) {
     if (!s_b2_world || !em.is_alive(id) ||
         !em.has_component<TransformComponent>(id) ||
@@ -793,6 +854,9 @@ private:
   static inline std::unordered_map<EntityID, b2Body *> s_b2_bodies;
   static inline std::unordered_map<EntityID, b2Joint *> s_b2_joints;
   static inline std::unordered_set<EntityID> s_ignore_one_way;
+  static inline PhysicsDebugOptions s_debug_options{};
+  static inline PhysicsDebugFrame s_debug_frame{};
+  static inline std::uint64_t s_debug_revision{0};
 };
 
 inline void PhysicsContactListener::PreSolve(b2Contact *contact, const b2Manifold *oldManifold) {

@@ -4,6 +4,7 @@
 #include "GameSession.hpp"
 #include "SceneExecutionContext.hpp"
 #include "../scripting/ScriptRuntime.hpp"
+#include "../debug/FrameProfiler.hpp"
 #include <vector>
 #include <memory>
 #include <string>
@@ -58,7 +59,10 @@ public:
     void start_play();
     void pause_play();
     void resume_play();
+    void step_play();
     void stop_play();
+    void set_play_time_scale(float scale);
+    [[nodiscard]] float play_time_scale() const { return m_play_time_scale; }
 
     [[nodiscard]] ScenePlayState get_play_state() const { return m_play_state; }
     [[nodiscard]] bool is_playing() const { return m_play_state == ScenePlayState::Play; }
@@ -69,6 +73,8 @@ public:
     [[nodiscard]] const std::string& runtime_scene_load_error() const { return m_game_session.error(); }
     [[nodiscard]] const SceneLoadProgress& play_load_progress() const { return m_play_load_progress; }
     [[nodiscard]] const ScriptRuntime& get_script_runtime() const { return m_script_runtime; }
+    [[nodiscard]] FrameProfiler& frame_profiler() { return m_frame_profiler; }
+    [[nodiscard]] const FrameProfiler& frame_profiler() const { return m_frame_profiler; }
     void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
     void set_asset_database(const AssetDatabase* asset_database) { m_asset_database = asset_database; }
     void set_script_runtime_services(ScriptRuntimeServices services) { m_script_services = std::move(services); }
@@ -76,6 +82,7 @@ public:
     void set_on_authoring_state_invalidated(std::function<void()> callback) { m_on_authoring_state_invalidated = std::move(callback); }
 
     void update(float delta_time);
+    void run_simulation_tick(float delta_time);
     void render(Renderer2D& renderer);
     void configure_view(RenderViewKind view, const RenderViewConfiguration& configuration);
     void invalidate_render_resources();
@@ -149,6 +156,8 @@ private:
     enum class PlayStartupPhase { None, Snapshot, PrepareRuntime, StartScripts };
     PlayStartupPhase m_play_startup_phase{PlayStartupPhase::None};
     SceneLoadProgress m_play_load_progress;
+    float m_play_time_scale{1.0f};
+    FrameProfiler m_frame_profiler;
 };
 
 } // namespace Engine

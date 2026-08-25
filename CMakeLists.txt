@@ -36,6 +36,7 @@ set(SOURCES
     src/core/AssetManager.cpp
     src/core/BinarySerializer.cpp
     src/core/DisplayManager.cpp
+    src/debug/FrameProfiler.cpp
     src/core/FileSystem.cpp
     src/core/Input.cpp
     src/core/Log.cpp
@@ -116,6 +117,7 @@ set(SOURCES
     src/editor/panels/AiAssistantPanel.cpp
     src/editor/ai/EditorAiConversationStore.cpp
     src/editor/ai/EditorAiToolRegistry.cpp
+    src/editor/ai/ProjectCommandRegistry.cpp
     src/editor/ai/EditorAiViewportTools.cpp
     src/editor/ai/EditorAiAuthoring.cpp
     src/editor/ai/CodexAppServerProvider.cpp
@@ -971,6 +973,7 @@ add_executable(EditorAiToolRegistryTests
     src/core/Log.cpp
     src/ecs/EntityManager.cpp
     src/editor/ai/EditorAiToolRegistry.cpp
+    src/editor/ai/ProjectCommandRegistry.cpp
     src/editor/ai/EditorAiViewportTools.cpp
 )
 target_include_directories(EditorAiToolRegistryTests PRIVATE
@@ -982,6 +985,16 @@ target_compile_definitions(EditorAiToolRegistryTests PRIVATE
 )
 target_link_libraries(EditorAiToolRegistryTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME EditorAiToolRegistryTests COMMAND EditorAiToolRegistryTests)
+
+add_executable(ProfilerInstrumentationTests
+    tests/ProfilerInstrumentationTests.cpp
+    src/debug/FrameProfiler.cpp
+)
+target_include_directories(ProfilerInstrumentationTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+add_test(NAME ProfilerInstrumentationTests COMMAND ProfilerInstrumentationTests)
 
 add_executable(OpenAiResponsesProviderTests
     tests/OpenAiResponsesProviderTests.cpp

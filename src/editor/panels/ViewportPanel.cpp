@@ -14,6 +14,7 @@
 #include "../../ecs/CameraSystem.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
+#include "../../physics/PhysicsSystem.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../renderer/Renderer2D.hpp"
@@ -639,8 +640,22 @@ void ViewportPanel::render_transform_toolbar() {
                 ? "Collider outlines: all (click to show selected only)"
                 : "Collider outlines: selected only (click to show all)",
             m_collider_overlay.show_all()
-        )) {
+    )) {
         m_collider_overlay.toggle_show_all();
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("Physics Overlay Settings");
+    if (ImGui::BeginPopup("Physics Overlay Settings")) {
+        auto& options = m_collider_overlay.debug_options();
+        ImGui::TextUnformatted("Physics debug overlay");
+        ImGui::Checkbox("Colliders", &options.colliders); ImGui::Checkbox("Contacts", &options.contacts);
+        ImGui::Checkbox("Normals", &options.normals); ImGui::Checkbox("Velocities", &options.velocities);
+        ImGui::Checkbox("Centers of mass", &options.centers_of_mass); ImGui::Checkbox("Layers", &options.layers);
+        ImGui::Checkbox("Selection only", &options.selection_only);
+        int category = options.category_filter, mask = options.mask_filter;
+        if (ImGui::InputInt("Category filter", &category)) options.category_filter = static_cast<std::uint16_t>(std::clamp(category, 0, 65535));
+        if (ImGui::InputInt("Mask filter", &mask)) options.mask_filter = static_cast<std::uint16_t>(std::clamp(mask, 0, 65535));
+        ImGui::TextDisabled("Green: solid  Cyan: trigger  Gold: one-way");
+        ImGui::EndPopup();
     }
     ImGui::SameLine(0.0f, 1.0f);
     if (editor_icon_button("settings", EditorIcon::Settings, "Configure snap increments")) {
@@ -1031,17 +1046,15 @@ void ViewportPanel::on_gui() {
                     }
                     ImGui::SameLine();
                     if (ImGui::Button(" >| Step ", ImVec2(75, 24))) {
-                        if (m_scene_manager) {
-                            m_scene_manager->update(1.0f / 60.0f);
-                        }
+                        if (m_scene_manager) m_scene_manager->step_play();
                     }
                 }
 
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(80.0f);
-                float ts = Time::get_time_scale();
-                if (ImGui::DragFloat("##TimeScale", &ts, 0.05f, 0.1f, 5.0f, "%.2fx")) {
-                    Time::set_time_scale(ts);
+                float ts = m_scene_manager ? m_scene_manager->play_time_scale() : Time::get_time_scale();
+                if (ImGui::DragFloat("##TimeScale", &ts, 0.05f, 0.0f, 2.0f, "%.2fx")) {
+                    if (m_scene_manager) m_scene_manager->set_play_time_scale(ts);
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Simulation Timescale (0.1x - 5.0x)");
@@ -1431,6 +1444,7 @@ void ViewportPanel::on_gui() {
             // scene in both Edit and Play. Selected entities are always shown;
             // the toolbar toggle reveals the complete physics layout.
             if (active_scene && active_cam) {
+                PhysicsSystem::set_debug_options(m_collider_overlay.debug_options());
                 m_collider_overlay.render(
                     active_scene->get_entity_manager(),
                     m_selection.get(),

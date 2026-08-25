@@ -1,10 +1,13 @@
 #include "StatsPanel.hpp"
 #include "../../core/Time.hpp"
+#include "../../debug/FrameProfiler.hpp"
 #include <imgui.h>
+#include <filesystem>
 
 namespace Engine {
 
-StatsPanel::StatsPanel() {
+StatsPanel::StatsPanel(FrameProfiler* profiler, std::string project_root)
+    : m_profiler(profiler), m_project_root(std::move(project_root)) {
     for (float& val : m_frametime_history) {
         val = 16.6f;
     }
@@ -37,6 +40,36 @@ void StatsPanel::on_gui() {
                          nullptr, 0.0f, 33.3f, ImVec2(ImGui::GetContentRegionAvail().x, 60.0f));
 
         ImGui::Spacing();
+
+        if (m_profiler) {
+            ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "FRAME PROFILER");
+            ImGui::Separator();
+            if (ImGui::Button(m_profiler->enabled() ? "Disable capture" : "Enable capture")) {
+                m_profiler->set_enabled(!m_profiler->enabled());
+            }
+            ImGui::SameLine(); ImGui::RadioButton("60", &m_history_window, 60);
+            ImGui::SameLine(); ImGui::RadioButton("120", &m_history_window, 120);
+            ImGui::SameLine(); ImGui::RadioButton("300", &m_history_window, 300);
+            const ProfileStatistics stats = m_profiler->statistics(static_cast<std::size_t>(m_history_window));
+            ImGui::Text("avg %.2f | min %.2f | max %.2f ms", stats.average, stats.minimum, stats.maximum);
+            ImGui::Text("p50 %.2f | p95 %.2f | p99 %.2f ms", stats.p50, stats.p95, stats.p99);
+            ImGui::TextDisabled("GPU timings: Unavailable");
+            if (ImGui::Button("Export capture") && !m_project_root.empty()) {
+                std::string error;
+                const auto path = std::filesystem::path(m_project_root) / "Library" / "ProfilerCaptures" / "latest.json";
+                if (!m_profiler->export_json(path.string(), error)) {
+                    ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "%s", error.c_str());
+                }
+            }
+            if (!m_profiler->frames().empty()) {
+                const ProfileFrame& frame = m_profiler->frames().back();
+                if (ImGui::TreeNode("Latest frame scopes")) {
+                    for (const auto& scope : frame.scopes) ImGui::BulletText("%s: %.2f ms", scope.name.c_str(), scope.milliseconds);
+                    ImGui::TreePop();
+                }
+            }
+            ImGui::Spacing();
+        }
 
         // --- 2. Global Time Scale ---
         ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "SIMULATION TIME SCALE");

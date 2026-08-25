@@ -415,11 +415,11 @@ Remaining language/backend work is tracked in
 
 **Implementation plan:** [`docs/DEBUGGING_PERFORMANCE_PLAN.md`](docs/DEBUGGING_PERFORMANCE_PLAN.md).
 
-- [ ] Add physics overlays for colliders, contacts, velocities, centers of mass, and collision layers.
+- [x] Add physics overlays for colliders, contacts, velocities, centers of mass, and collision layers.
 - [x] Prefix runtime script errors with their entity ID and expose them in the Script Inspector.
 - [ ] Add precise runtime script source locations and structured log filtering.
-- [ ] Add frame profiling for update, render, physics, editor UI, memory, draw calls, culling, and GPU passes.
-- [ ] Add pause, step frame, timescale, and runtime entity inspection.
+- [x] Add a bounded CPU frame profiler with runtime/render/script/event scopes, counters, captures, and unavailable GPU timing state.
+- [x] Add pause, deterministic step frame, and clamped play timescale. Runtime entity inspection remains pending.
 - [ ] Add stress scenes and budgets for entity count, sprites, physics bodies, particles, and render targets.
 - [ ] Move large header implementations into source files when compile time or ownership boundaries justify it.
 - [ ] Optimize only after profiling identifies a measurable bottleneck.

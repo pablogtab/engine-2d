@@ -207,7 +207,7 @@ void SceneManager::advance_play_startup() {
         }
         case PlayStartupPhase::StartScripts:
             m_play_state = ScenePlayState::Play;
-            Time::set_time_scale(1.0f);
+            set_play_time_scale(m_play_time_scale);
             start_scripts(*active_scene);
             m_play_startup_phase = PlayStartupPhase::None;
             m_play_load_progress = {};
@@ -347,8 +347,23 @@ void SceneManager::resume_play() {
     if (m_play_state != ScenePlayState::Pause) return;
 
     m_play_state = ScenePlayState::Play;
-    Time::set_time_scale(1.0f);
+    Time::set_time_scale(m_play_time_scale);
     ENGINE_LOG_INFO("[SCENE PLAY] Simulation Resumed.");
+}
+
+void SceneManager::set_play_time_scale(float scale) {
+    scale = std::clamp(scale, 0.0f, 2.0f);
+    if (scale > 0.0f) m_play_time_scale = scale;
+    Time::set_time_scale(scale);
+    if (m_play_state != ScenePlayState::Edit) {
+        m_play_state = scale == 0.0f ? ScenePlayState::Pause : ScenePlayState::Play;
+    }
+}
+
+void SceneManager::step_play() {
+    if (m_play_state != ScenePlayState::Pause || m_play_startup_phase != PlayStartupPhase::None) return;
+    run_simulation_tick(1.0f / 60.0f);
+    Time::set_time_scale(0.0f);
 }
 
 void SceneManager::stop_play() {
@@ -404,18 +419,38 @@ void SceneManager::update(float delta_time) {
         advance_play_startup();
         return;
     }
+    if (m_play_state != ScenePlayState::Play) {
+        // Custom scenes are editor previews, not SceneRuntime simulation.
+        // Preserve their established update contract in Edit/Pause mode.
+        if (Scene* active = get_active_scene()) {
+            if (auto* custom = dynamic_cast<CustomScene*>(active)) custom->on_update(delta_time);
+        }
+        return;
+    }
+    run_simulation_tick(delta_time);
+}
+
+void SceneManager::run_simulation_tick(float delta_time) {
     Scene* active = get_active_scene();
     if (active) {
-        if (m_play_state == ScenePlayState::Play && !dynamic_cast<CustomScene*>(active)) {
+        auto tick_scope = m_frame_profiler.scope("simulation.tick");
+        if (!dynamic_cast<CustomScene*>(active)) {
             execution_context(*active).runtime.particle_world().begin_frame();
         }
-        if (m_play_state == ScenePlayState::Play) {
+        {
+            auto scripts = m_frame_profiler.scope("scripts");
             static_cast<void>(m_script_runtime.reload_changed_scripts());
             m_script_runtime.update(delta_time);
         }
-        if (auto* custom = dynamic_cast<CustomScene*>(active)) custom->on_update(delta_time);
-        else execution_context(*active).runtime.update(*active, delta_time);
-        if (m_play_state == ScenePlayState::Play) {
+        if (auto* custom = dynamic_cast<CustomScene*>(active)) {
+            auto custom_update = m_frame_profiler.scope("scene.update");
+            custom->on_update(delta_time);
+        } else {
+            auto runtime = m_frame_profiler.scope("runtime.update");
+            execution_context(*active).runtime.update(*active, delta_time);
+        }
+        {
+            auto events = m_frame_profiler.scope("events");
             active->get_event_dispatcher().dispatch_queued();
             m_script_runtime.dispatch_events();
             activate_pending_runtime_scene();
@@ -425,6 +460,7 @@ void SceneManager::update(float delta_time) {
 }
 
 void SceneManager::render(Renderer2D& renderer) {
+    auto render_scope = m_frame_profiler.scope("render");
     renderer.clear_all_render_layer_effects();
     renderer.clear_all_entity_effect_profiles();
     Scene* active = get_active_scene();
