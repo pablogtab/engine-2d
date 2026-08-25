@@ -21,6 +21,7 @@
 namespace EngineScript {
 class EngineScriptWorkspace;
 class AsyncScheduler;
+class TypedEventBus;
 class GameModule;
 class NativeBehaviour;
 struct ParticleEmitOptions;
@@ -168,22 +169,18 @@ private:
         CollisionEnter,
         CollisionExit,
         ButtonClicked,
-        FocusChanged,
-        Custom
+        FocusChanged
     };
 
     struct PendingEvent {
-        PendingEventType type{PendingEventType::Custom};
+        PendingEventType type{PendingEventType::CollisionEnter};
         EntityID entity_a{0};
         EntityID entity_b{0};
         float normal_x{0.0f};
         float normal_y{0.0f};
         bool is_trigger{false};
-        std::string name;
-        std::string payload;
     };
 
-    void queue_custom_event(EntityID source, std::string name, std::string payload);
     void subscribe_to_events();
     void unsubscribe_from_events();
     void set_error(EntityID entity, std::string message, std::string source_path = {}, uint32_t line = 0, uint32_t column = 0);
@@ -197,6 +194,7 @@ private:
     std::list<Instance> m_instances;
     std::unique_ptr<EngineScript::EngineScriptWorkspace> m_native_workspace;
     std::unique_ptr<EngineScript::AsyncScheduler> m_native_async_scheduler;
+    std::unique_ptr<EngineScript::TypedEventBus> m_typed_event_bus;
     std::shared_ptr<EngineScript::GameModule> m_native_module;
     std::unordered_map<EntityID, ScriptExecutionStatus> m_statuses;
     std::unordered_map<AssetHandle, std::optional<std::uint64_t>> m_source_signatures;

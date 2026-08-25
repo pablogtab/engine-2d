@@ -46,7 +46,7 @@ private:
     std::shared_ptr<PropertyDecl> parse_property(AccessModifier access, bool is_override, std::vector<DecoratorNode> decorators);
 
     std::vector<std::shared_ptr<ParamDecl>> parse_param_list(bool allow_access_and_decorators = false);
-    std::vector<std::string> parse_generic_param_list();
+    std::vector<GenericParam> parse_generic_param_list();
 
     // Statements
     std::shared_ptr<BlockStmt> parse_block();

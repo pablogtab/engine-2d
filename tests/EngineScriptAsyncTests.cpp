@@ -1,7 +1,12 @@
 #include <cassert>
 #include <iostream>
+#include <chrono>
+#include <thread>
 #include "enginescript/async/Task.hpp"
 #include "enginescript/async/AsyncScheduler.hpp"
+#include "enginescript/async/Jobs.hpp"
+#include "enginescript/async/TaskScope.hpp"
+#include "enginescript/async/TypedEventBus.hpp"
 #include "enginescript/module/GameModule.hpp"
 
 using namespace EngineScript;
@@ -14,6 +19,15 @@ Task<void> delayed_action(AsyncScheduler& scheduler, bool& flag, uint32_t scope_
     co_await scheduler.delay(0.5f, scope_id);
     flag = true;
     co_return;
+}
+
+struct EnemyDefeated {
+    int score{0};
+};
+
+Task<int> next_score(Events& events) {
+    const EnemyDefeated event = co_await events.next<EnemyDefeated>();
+    co_return event.score;
 }
 
 int main() {
@@ -80,6 +94,53 @@ int main() {
     assert(reset_task.state() == TaskState::Cancelled);
     scheduler.step(1.0f, 1.0f);
     assert(!reset_flag);
+
+    // Type identity, rather than a string key, selects an event channel.
+    TypedEventBus event_bus;
+    Events events(&event_bus, 505);
+    auto event_task = next_score(events);
+    assert(!event_task.is_done());
+    assert(events.emit(EnemyDefeated{77}));
+    assert(event_task.is_done());
+    assert(event_task.get_result() == 77);
+
+    // Worker failures are structured Results and continuations resume through
+    // the main scheduler rather than on the worker thread.
+    Jobs jobs(&scheduler, 606);
+    auto job = jobs.run([] { return 21 * 2; });
+    for (int attempt = 0; attempt < 200 && !job.is_done(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        scheduler.step(0.0f, 0.0f);
+    }
+    assert(job.is_done());
+    assert(job.get_result().isOk());
+    assert(job.get_result().value() == 42);
+
+    auto failed_job = jobs.run([]() -> int { throw std::runtime_error("worker failure"); });
+    for (int attempt = 0; attempt < 200 && !failed_job.is_done(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        scheduler.step(0.0f, 0.0f);
+    }
+    assert(failed_job.is_done());
+    assert(failed_job.get_result().isError());
+    assert(failed_job.get_result().error() == "worker failure");
+
+    bool scoped_flag = false;
+    auto scoped_task = delayed_action(scheduler, scoped_flag, 707);
+    {
+        TaskScope scope(&scheduler, 707);
+        assert(!scope.isCancelled());
+    }
+    scheduler.step(1.0f, 1.0f);
+    assert(scoped_task.state() == TaskState::Cancelled);
+    assert(!scoped_flag);
+
+    std::vector<int> bounded{1, 2};
+    assert(checkedIndex(bounded, 1) == 2);
+    bool range_error = false;
+    try { static_cast<void>(checkedIndex(bounded, 2)); }
+    catch (const ScriptRuntimeError&) { range_error = true; }
+    assert(range_error);
 
     std::cout << "[PASS] EngineScriptAsyncTests passed!\n";
     return 0;

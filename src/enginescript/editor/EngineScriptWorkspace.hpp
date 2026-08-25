@@ -44,6 +44,7 @@ struct WorkspaceDocumentSymbol {
     SourceSpan declaration_span;
     SourceSpan scope_span;
     WorkspaceDocumentSymbolKind kind{WorkspaceDocumentSymbolKind::Variable};
+    bool is_inferred{false};
 };
 
 enum class WorkspaceExportedSymbolKind {
@@ -61,6 +62,14 @@ struct WorkspaceExportedSymbol {
     std::string name;
     SourceSpan declaration_span;
     WorkspaceExportedSymbolKind kind{WorkspaceExportedSymbolKind::Class};
+};
+
+struct WorkspaceSymbolOccurrence {
+    uint64_t symbol_id{0};
+    std::string name;
+    SourceSpan span;
+    bool is_declaration{false};
+    SymbolKind kind{SymbolKind::Variable};
 };
 
 class EngineScriptWorkspace {
@@ -90,7 +99,12 @@ public:
     std::optional<std::string> inferred_type_at(FileId file_id, uint32_t byte_offset) const;
     std::optional<std::string> symbol_type_at(FileId file_id, std::string_view name, uint32_t byte_offset) const;
     std::vector<WorkspaceDocumentSymbol> symbols_in_scope(FileId file_id, uint32_t byte_offset) const;
+    std::vector<WorkspaceDocumentSymbol> document_symbols(FileId file_id) const;
     std::vector<WorkspaceExportedSymbol> exports_from(std::string_view module_path) const;
+    const std::vector<WorkspaceExportedSymbol>& workspace_exports() const { return m_exported_symbols; }
+    std::optional<uint64_t> symbol_id_at(FileId file_id, uint32_t byte_offset) const;
+    std::optional<WorkspaceSymbolOccurrence> symbol_occurrence_at(FileId file_id, uint32_t byte_offset) const;
+    std::vector<WorkspaceSymbolOccurrence> occurrences_for_symbol(uint64_t symbol_id) const;
 
     // Serialization helper for scene files
     std::string serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const;
@@ -106,6 +120,7 @@ private:
     std::vector<WorkspaceInferredType> m_inferred_types;
     std::vector<WorkspaceDocumentSymbol> m_document_symbols;
     std::vector<WorkspaceExportedSymbol> m_exported_symbols;
+    std::vector<WorkspaceSymbolOccurrence> m_symbol_occurrences;
     std::vector<std::string> m_registered_files;
     std::string m_last_workspace_hash;
     std::optional<CompilationResult> m_last_result;

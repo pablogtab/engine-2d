@@ -5,6 +5,7 @@
 #include "../module/GameModule.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -13,6 +14,38 @@
 namespace EngineScript {
 
 using json = nlohmann::ordered_json;
+
+namespace {
+
+std::optional<SourceSpan> exact_symbol_span(
+    const SourceManager& source_manager,
+    const SourceSpan& containing_span,
+    std::string_view name
+) {
+    const SourceFile* file = source_manager.get_file(containing_span.file_id);
+    if (!file || name.empty() || containing_span.start_offset >= file->content.size()) return std::nullopt;
+    const std::size_t end = std::min<std::size_t>(containing_span.end_offset, file->content.size());
+    std::size_t position = containing_span.start_offset;
+    while ((position = file->content.find(name, position)) != std::string::npos && position < end) {
+        const std::size_t name_end = position + name.size();
+        const auto is_identifier = [](char value) {
+            return std::isalnum(static_cast<unsigned char>(value)) || value == '_';
+        };
+        const bool starts_word = position == 0 || !is_identifier(file->content[position - 1]);
+        const bool ends_word = name_end >= file->content.size() || !is_identifier(file->content[name_end]);
+        if (starts_word && ends_word && name_end <= end) {
+            return source_manager.get_span(
+                containing_span.file_id,
+                static_cast<uint32_t>(position),
+                static_cast<uint32_t>(name_end)
+            );
+        }
+        position = name_end;
+    }
+    return std::nullopt;
+}
+
+} // namespace
 
 EngineScriptWorkspace::EngineScriptWorkspace(std::string project_root)
     : m_source_manager(project_root), m_cache(project_root + "/Library/EngineScript/Cache") {
@@ -25,6 +58,7 @@ void EngineScriptWorkspace::set_project_root(std::string project_root) {
     m_inferred_types.clear();
     m_document_symbols.clear();
     m_exported_symbols.clear();
+    m_symbol_occurrences.clear();
     m_last_workspace_hash.clear();
     m_last_result.reset();
 }
@@ -53,6 +87,9 @@ void EngineScriptWorkspace::remove_source_file(const std::string& relative_path)
     });
     std::erase_if(m_exported_symbols, [file_id](const WorkspaceExportedSymbol& symbol) {
         return symbol.file_id == file_id;
+    });
+    std::erase_if(m_symbol_occurrences, [file_id](const WorkspaceSymbolOccurrence& occurrence) {
+        return occurrence.span.file_id == file_id;
     });
 }
 
@@ -116,6 +153,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     m_ir_modules.clear();
     m_inferred_types.clear();
     m_exported_symbols.clear();
+    m_symbol_occurrences.clear();
     m_manifest = {};
     m_dep_graph.clear();
     CompilationResult result;
@@ -300,6 +338,39 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     SymbolResolver resolver(m_source_manager, semantic_diagnostics);
     resolver.resolve_all(ast_modules);
 
+    // Retain the resolver's symbol identity for LSP definition, references,
+    // and rename. Textual matching is unsafe because unrelated scopes may use
+    // the same spelling.
+    for (const auto& [node, symbol] : resolver.resolved_symbols()) {
+        if (!node || !symbol || symbol->id == 0) continue;
+        const bool is_reference = dynamic_cast<const IdentifierExpr*>(node) != nullptr;
+        const SourceSpan containing_span = node->span.is_valid() ? node->span : symbol->span;
+        const auto occurrence_span = is_reference
+            ? std::optional<SourceSpan>{containing_span}
+            : exact_symbol_span(m_source_manager, containing_span, symbol->name);
+        if (!occurrence_span || !occurrence_span->is_valid()) continue;
+        m_symbol_occurrences.push_back({symbol->id, symbol->name, *occurrence_span, !is_reference, symbol->kind});
+    }
+    for (const auto& module : ast_modules) {
+        if (!module) continue;
+        const auto module_scope = resolver.get_module_scope(module->module_path);
+        if (!module_scope) continue;
+        for (const auto& declaration : module->declarations) {
+            const auto import_decl = std::dynamic_pointer_cast<ImportDecl>(declaration);
+            if (!import_decl) continue;
+            for (const ImportDecl::ImportItem& item : import_decl->items) {
+                const std::string local_name = item.alias ? *item.alias : item.name;
+                const auto imported_symbol = module_scope->lookup_local(local_name);
+                const auto occurrence_span = exact_symbol_span(m_source_manager, item.span, local_name);
+                if (imported_symbol && occurrence_span) {
+                    m_symbol_occurrences.push_back({
+                        imported_symbol->id, local_name, *occurrence_span, true, SymbolKind::Import
+                    });
+                }
+            }
+        }
+    }
+
     if (!has_parse_errors && semantic_diagnostics.has_errors()) {
         result.success = false;
         result.error_count = semantic_diagnostics.error_count();
@@ -343,7 +414,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
                                              WorkspaceDocumentSymbolKind kind) {
             const std::shared_ptr<Type> type = checker.get_type_of_node(node);
             if (!type || type->is_error()) return;
-            m_document_symbols.push_back({file_id, name, type->to_string(), declaration, scope, kind});
+            m_document_symbols.push_back({file_id, name, type->to_string(), declaration, scope, kind, true});
         };
         std::function<void(const std::shared_ptr<Statement>&, const SourceSpan&)> index_inferred_statement;
         index_inferred_statement = [&](const std::shared_ptr<Statement>& statement, const SourceSpan& scope) {
@@ -537,6 +608,17 @@ std::vector<WorkspaceDocumentSymbol> EngineScriptWorkspace::symbols_in_scope(
     return result;
 }
 
+std::vector<WorkspaceDocumentSymbol> EngineScriptWorkspace::document_symbols(FileId file_id) const {
+    std::vector<WorkspaceDocumentSymbol> result;
+    for (const WorkspaceDocumentSymbol& symbol : m_document_symbols) {
+        if (symbol.file_id == file_id) result.push_back(symbol);
+    }
+    std::sort(result.begin(), result.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.declaration_span.start_offset < rhs.declaration_span.start_offset;
+    });
+    return result;
+}
+
 std::vector<WorkspaceExportedSymbol> EngineScriptWorkspace::exports_from(std::string_view module_path) const {
     const std::string normalized = m_source_manager.normalize_path(std::string(module_path));
     std::vector<WorkspaceExportedSymbol> exports;
@@ -544,6 +626,38 @@ std::vector<WorkspaceExportedSymbol> EngineScriptWorkspace::exports_from(std::st
         if (m_source_manager.normalize_path(symbol.module_path) == normalized) exports.push_back(symbol);
     }
     return exports;
+}
+
+std::optional<uint64_t> EngineScriptWorkspace::symbol_id_at(FileId file_id, uint32_t byte_offset) const {
+    const auto occurrence = symbol_occurrence_at(file_id, byte_offset);
+    return occurrence ? std::optional<uint64_t>{occurrence->symbol_id} : std::nullopt;
+}
+
+std::optional<WorkspaceSymbolOccurrence> EngineScriptWorkspace::symbol_occurrence_at(
+    FileId file_id,
+    uint32_t byte_offset
+) const {
+    const WorkspaceSymbolOccurrence* best_match = nullptr;
+    for (const WorkspaceSymbolOccurrence& occurrence : m_symbol_occurrences) {
+        if (occurrence.span.file_id != file_id || byte_offset < occurrence.span.start_offset ||
+            byte_offset > occurrence.span.end_offset) {
+            continue;
+        }
+        if (!best_match || occurrence.span.length() < best_match->span.length()) best_match = &occurrence;
+    }
+    return best_match ? std::optional<WorkspaceSymbolOccurrence>{*best_match} : std::nullopt;
+}
+
+std::vector<WorkspaceSymbolOccurrence> EngineScriptWorkspace::occurrences_for_symbol(uint64_t symbol_id) const {
+    std::vector<WorkspaceSymbolOccurrence> occurrences;
+    for (const WorkspaceSymbolOccurrence& occurrence : m_symbol_occurrences) {
+        if (occurrence.symbol_id == symbol_id) occurrences.push_back(occurrence);
+    }
+    std::sort(occurrences.begin(), occurrences.end(), [](const auto& lhs, const auto& rhs) {
+        if (lhs.span.file_id != rhs.span.file_id) return lhs.span.file_id < rhs.span.file_id;
+        return lhs.span.start_offset < rhs.span.start_offset;
+    });
+    return occurrences;
 }
 
 std::string EngineScriptWorkspace::serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const {

@@ -23,6 +23,9 @@ public:
     std::shared_ptr<Scope> get_module_scope(const std::string& module_path) const;
     std::shared_ptr<Symbol> find_symbol_for_node(const ASTNode* node) const;
     std::shared_ptr<Scope> find_scope_for_node(const ASTNode* node) const;
+    const std::unordered_map<const ASTNode*, std::shared_ptr<Symbol>>& resolved_symbols() const {
+        return m_node_to_symbol;
+    }
 
     std::string compute_public_signature_hash(const ModuleNode& module) const;
 

@@ -1,4 +1,5 @@
 #include "IRLowering.hpp"
+#include <algorithm>
 
 namespace EngineScript {
 
@@ -21,6 +22,10 @@ IRModule IRLowering::lower_module(const ModuleNode& module) {
             ir_mod.classes.push_back(lower_class(*cls));
         } else if (auto st = dynamic_cast<const StructDecl*>(decl.get())) {
             ir_mod.structs.push_back(lower_struct(*st));
+        } else if (auto interface_decl = dynamic_cast<const InterfaceDecl*>(decl.get())) {
+            ir_mod.interfaces.push_back(lower_interface(*interface_decl));
+        } else if (auto enum_decl = dynamic_cast<const EnumDecl*>(decl.get())) {
+            ir_mod.enums.push_back(lower_enum(*enum_decl));
         } else if (auto fn = dynamic_cast<const FunctionDecl*>(decl.get())) {
             ir_mod.functions.push_back(lower_function(*fn));
         }
@@ -32,6 +37,9 @@ IRModule IRLowering::lower_module(const ModuleNode& module) {
 IRClass IRLowering::lower_class(const ClassDecl& cls) {
     IRClass ir_cls;
     ir_cls.name = cls.name;
+    for (const auto& parameter : cls.generic_params) {
+        ir_cls.generic_params.push_back({parameter.name, parameter.constraint ? parameter.constraint->name : std::string{}});
+    }
     if (cls.base_class) ir_cls.base_class = cls.base_class->name;
     for (const auto& iface : cls.interfaces) {
         ir_cls.interfaces.push_back(iface.name);
@@ -46,11 +54,20 @@ IRClass IRLowering::lower_class(const ClassDecl& cls) {
         for (const auto& p : cls.constructor_decl->params) {
             IRParam param;
             param.name = p->name;
-            param.type = m_type_checker.resolve_type_annotation(p->type_annotation);
+            param.type = m_type_checker.get_type_of_node(p.get());
+            if (!param.type || param.type->is_error()) param.type = m_type_checker.resolve_type_annotation(p->type_annotation);
             for (const auto& d : p->decorators) {
                 param.decorators.push_back(d.name);
             }
             ir_cls.constructor_params.push_back(param);
+        }
+        if (cls.constructor_decl->body) {
+            IRBlock constructor_block;
+            constructor_block.label = "constructor";
+            for (const auto& statement : cls.constructor_decl->body->statements) {
+                lower_statement(statement, constructor_block);
+            }
+            ir_cls.constructor_blocks.push_back(std::move(constructor_block));
         }
     }
 
@@ -68,6 +85,10 @@ IRClass IRLowering::lower_class(const ClassDecl& cls) {
 IRStruct IRLowering::lower_struct(const StructDecl& st) {
     IRStruct ir_st;
     ir_st.name = st.name;
+    for (const auto& parameter : st.generic_params) {
+        ir_st.generic_params.push_back({parameter.name, parameter.constraint ? parameter.constraint->name : std::string{}});
+    }
+    for (const auto& interface_type : st.interfaces) ir_st.interfaces.push_back(interface_type.name);
     for (const auto& prop : st.properties) {
         ir_st.properties.push_back(lower_property(*prop));
     }
@@ -77,11 +98,51 @@ IRStruct IRLowering::lower_struct(const StructDecl& st) {
     return ir_st;
 }
 
+IRInterface IRLowering::lower_interface(const InterfaceDecl& interface_decl) {
+    IRInterface result;
+    result.name = interface_decl.name;
+    for (const auto& parameter : interface_decl.generic_params) {
+        result.generic_params.push_back({parameter.name, parameter.constraint ? parameter.constraint->name : std::string{}});
+    }
+    for (const auto& extended : interface_decl.extended_interfaces) result.extended_interfaces.push_back(extended.name);
+    for (const auto& member : interface_decl.members) {
+        IRInterfaceMember lowered;
+        lowered.name = member.name;
+        for (const auto& parameter : member.generic_params) {
+            lowered.generic_params.push_back({parameter.name, parameter.constraint ? parameter.constraint->name : std::string{}});
+        }
+        lowered.is_method = member.is_method;
+        lowered.type = m_type_checker.resolve_type_annotation(member.return_type);
+        for (const auto& parameter : member.params) {
+            IRParam lowered_parameter;
+            lowered_parameter.name = parameter->name;
+            lowered_parameter.type = m_type_checker.resolve_type_annotation(parameter->type_annotation);
+            lowered.params.push_back(std::move(lowered_parameter));
+        }
+        result.members.push_back(std::move(lowered));
+    }
+    return result;
+}
+
+IREnum IRLowering::lower_enum(const EnumDecl& enum_decl) {
+    IREnum result;
+    result.name = enum_decl.name;
+    result.string_backed = std::any_of(enum_decl.entries.begin(), enum_decl.entries.end(),
+        [](const EnumEntry& entry) { return entry.string_value.has_value(); });
+    for (const auto& entry : enum_decl.entries) {
+        result.entries.push_back({entry.name, entry.int_value, entry.string_value});
+    }
+    return result;
+}
+
 IRProperty IRLowering::lower_property(const PropertyDecl& prop) {
     IRProperty ir_prop;
     ir_prop.name = prop.name;
     ir_prop.is_public = prop.access == AccessModifier::Public;
-    ir_prop.type = prop.type_annotation ? m_type_checker.resolve_type_annotation(*prop.type_annotation) : m_type_checker.get_type_of_node(&prop);
+    ir_prop.type = m_type_checker.get_type_of_node(&prop);
+    if (!ir_prop.type || ir_prop.type->is_error()) {
+        ir_prop.type = prop.type_annotation ? m_type_checker.resolve_type_annotation(*prop.type_annotation) : ir_prop.type;
+    }
 
     for (const auto& dec : prop.decorators) {
         ir_prop.decorators.push_back(dec.name);
@@ -105,10 +166,16 @@ IRProperty IRLowering::lower_property(const PropertyDecl& prop) {
 IRMethod IRLowering::lower_method(const MethodDecl& m) {
     IRMethod ir_m;
     ir_m.name = m.name;
+    for (const auto& parameter : m.generic_params) {
+        ir_m.generic_params.push_back({parameter.name, parameter.constraint ? parameter.constraint->name : std::string{}});
+    }
     ir_m.is_async = m.is_async;
     ir_m.is_override = m.is_override;
     ir_m.is_public = m.access == AccessModifier::Public;
-    ir_m.return_type = m.return_type ? m_type_checker.resolve_type_annotation(*m.return_type) : Type::make_primitive(TypeKind::Void);
+    ir_m.return_type = m_type_checker.get_type_of_node(&m);
+    if (!ir_m.return_type || ir_m.return_type->is_error()) {
+        ir_m.return_type = m.return_type ? m_type_checker.resolve_type_annotation(*m.return_type) : Type::make_primitive(TypeKind::Void);
+    }
 
     for (const auto& d : m.decorators) {
         ir_m.decorators.push_back(d.name);
@@ -117,7 +184,8 @@ IRMethod IRLowering::lower_method(const MethodDecl& m) {
     for (const auto& p : m.params) {
         IRParam param;
         param.name = p->name;
-        param.type = m_type_checker.resolve_type_annotation(p->type_annotation);
+        param.type = m_type_checker.get_type_of_node(p.get());
+        if (!param.type || param.type->is_error()) param.type = m_type_checker.resolve_type_annotation(p->type_annotation);
         ir_m.params.push_back(param);
     }
 
@@ -136,13 +204,20 @@ IRMethod IRLowering::lower_method(const MethodDecl& m) {
 IRFunction IRLowering::lower_function(const FunctionDecl& fn) {
     IRFunction ir_fn;
     ir_fn.name = fn.name;
+    for (const auto& parameter : fn.generic_params) {
+        ir_fn.generic_params.push_back({parameter.name, parameter.constraint ? parameter.constraint->name : std::string{}});
+    }
     ir_fn.is_async = fn.is_async;
-    ir_fn.return_type = fn.return_type ? m_type_checker.resolve_type_annotation(*fn.return_type) : Type::make_primitive(TypeKind::Void);
+    ir_fn.return_type = m_type_checker.get_type_of_node(&fn);
+    if (!ir_fn.return_type || ir_fn.return_type->is_error()) {
+        ir_fn.return_type = fn.return_type ? m_type_checker.resolve_type_annotation(*fn.return_type) : Type::make_primitive(TypeKind::Void);
+    }
 
     for (const auto& p : fn.params) {
         IRParam param;
         param.name = p->name;
-        param.type = m_type_checker.resolve_type_annotation(p->type_annotation);
+        param.type = m_type_checker.get_type_of_node(p.get());
+        if (!param.type || param.type->is_error()) param.type = m_type_checker.resolve_type_annotation(p->type_annotation);
         ir_fn.params.push_back(param);
     }
 
@@ -167,11 +242,15 @@ void IRLowering::lower_statement(const std::shared_ptr<Statement>& stmt, IRBlock
         }
     } else if (auto v = dynamic_cast<const VarDeclStmt*>(stmt.get())) {
         auto declaration = std::make_shared<IRVarDecl>();
+        declaration->kind = IROpKind::VarDecl;
         declaration->name = v->name;
         declaration->is_const = v->is_const;
-        declaration->declared_type = v->type_annotation
-            ? m_type_checker.resolve_type_annotation(*v->type_annotation)
-            : m_type_checker.get_type_of_node(v);
+        declaration->declared_type = m_type_checker.get_type_of_node(v);
+        if (!declaration->declared_type || declaration->declared_type->is_error()) {
+            declaration->declared_type = v->type_annotation
+                ? m_type_checker.resolve_type_annotation(*v->type_annotation)
+                : declaration->declared_type;
+        }
         declaration->initializer = lower_expression(v->initializer);
         declaration->result_type = declaration->declared_type;
         declaration->span = v->span;
@@ -190,6 +269,7 @@ void IRLowering::lower_statement(const std::shared_ptr<Statement>& stmt, IRBlock
         }
     } else if (auto ret = dynamic_cast<const ReturnStmt*>(stmt.get())) {
         auto ir_ret = std::make_shared<IRReturn>();
+        ir_ret->kind = IROpKind::Return;
         if (ret->value) {
             ir_ret->value = lower_expression(ret->value);
             ir_ret->result_type = ir_ret->value ? ir_ret->value->result_type : nullptr;
@@ -202,6 +282,7 @@ void IRLowering::lower_statement(const std::shared_ptr<Statement>& stmt, IRBlock
         current_block.statements.push_back(st);
     } else if (auto if_s = dynamic_cast<const IfStmt*>(stmt.get())) {
         auto branch = std::make_shared<IRIf>();
+        branch->kind = IROpKind::If;
         branch->condition = lower_expression(if_s->condition);
         branch->span = if_s->span;
 
@@ -222,6 +303,50 @@ void IRLowering::lower_statement(const std::shared_ptr<Statement>& stmt, IRBlock
         st.op = std::move(branch);
         st.span = if_s->span;
         current_block.statements.push_back(std::move(st));
+    } else if (auto loop = dynamic_cast<const WhileStmt*>(stmt.get())) {
+        auto operation = std::make_shared<IRWhile>();
+        operation->kind = IROpKind::While;
+        operation->condition = lower_expression(loop->condition);
+        operation->span = loop->span;
+        IRBlock body;
+        lower_statement(loop->body, body);
+        for (auto& statement : body.statements) operation->body.push_back(std::move(statement.op));
+        current_block.statements.push_back({operation, loop->span});
+    } else if (auto loop = dynamic_cast<const ForStmt*>(stmt.get())) {
+        auto operation = std::make_shared<IRFor>();
+        operation->kind = IROpKind::For;
+        if (loop->initializer) {
+            IRBlock initializer;
+            lower_statement(loop->initializer, initializer);
+            if (!initializer.statements.empty()) operation->initializer = std::move(initializer.statements.front().op);
+        }
+        operation->condition = lower_expression(loop->condition);
+        operation->update = lower_expression(loop->update);
+        operation->span = loop->span;
+        IRBlock body;
+        lower_statement(loop->body, body);
+        for (auto& statement : body.statements) operation->body.push_back(std::move(statement.op));
+        current_block.statements.push_back({operation, loop->span});
+    } else if (auto loop = dynamic_cast<const ForInStmt*>(stmt.get())) {
+        auto operation = std::make_shared<IRForIn>();
+        operation->kind = IROpKind::ForIn;
+        operation->variable_name = loop->var_name;
+        operation->collection = lower_expression(loop->collection);
+        operation->span = loop->span;
+        IRBlock body;
+        lower_statement(loop->body, body);
+        for (auto& statement : body.statements) operation->body.push_back(std::move(statement.op));
+        current_block.statements.push_back({operation, loop->span});
+    } else if (dynamic_cast<const BreakStmt*>(stmt.get())) {
+        auto operation = std::make_shared<IRBreak>();
+        operation->kind = IROpKind::Break;
+        operation->span = stmt->span;
+        current_block.statements.push_back({operation, stmt->span});
+    } else if (dynamic_cast<const ContinueStmt*>(stmt.get())) {
+        auto operation = std::make_shared<IRContinue>();
+        operation->kind = IROpKind::Continue;
+        operation->span = stmt->span;
+        current_block.statements.push_back({operation, stmt->span});
     }
 }
 
@@ -230,6 +355,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
 
     if (auto lit = dynamic_cast<const LiteralExpr*>(expr.get())) {
         auto c = std::make_shared<IRConstant>();
+        c->kind = IROpKind::Constant;
         c->span = lit->span;
         switch (lit->kind) {
             case LiteralExpr::Kind::Integer:
@@ -263,6 +389,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
 
     if (auto id = dynamic_cast<const IdentifierExpr*>(expr.get())) {
         auto v = std::make_shared<IRVarRef>();
+        v->kind = IROpKind::VarRef;
         v->name = id->name;
         v->result_type = m_type_checker.get_type_of_node(id);
         v->span = id->span;
@@ -271,6 +398,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
 
     if (auto bin = dynamic_cast<const BinaryExpr*>(expr.get())) {
         auto b = std::make_shared<IRBinary>();
+        b->kind = IROpKind::Binary;
         b->op = bin->op;
         b->left = lower_expression(bin->left);
         b->right = lower_expression(bin->right);
@@ -281,6 +409,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
 
     if (auto un = dynamic_cast<const UnaryExpr*>(expr.get())) {
         auto u = std::make_shared<IRUnary>();
+        u->kind = IROpKind::Unary;
         u->op = un->op;
         u->operand = lower_expression(un->operand);
         u->result_type = m_type_checker.get_type_of_node(un);
@@ -291,6 +420,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
     if (auto assign = dynamic_cast<const AssignmentExpr*>(expr.get())) {
         if (auto mem = dynamic_cast<const MemberAccessExpr*>(assign->target.get())) {
             auto m_set = std::make_shared<IRMemberSet>();
+            m_set->kind = IROpKind::MemberSet;
             m_set->target = lower_expression(mem->object);
             m_set->member_name = mem->member_name;
             m_set->assignment_op = assign->op;
@@ -301,12 +431,23 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
         }
         if (auto id = dynamic_cast<const IdentifierExpr*>(assign->target.get())) {
             auto a = std::make_shared<IRAssign>();
+            a->kind = IROpKind::Assign;
             a->target_name = id->name;
             a->assignment_op = assign->op;
             a->value = lower_expression(assign->value);
             a->result_type = a->value ? a->value->result_type : nullptr;
             a->span = assign->span;
             return a;
+        }
+        if (auto index = dynamic_cast<const IndexExpr*>(assign->target.get())) {
+            auto set = std::make_shared<IRIndexSet>();
+            set->kind = IROpKind::IndexSet;
+            set->target = lower_expression(index->object);
+            set->index = lower_expression(index->index);
+            set->value = lower_expression(assign->value);
+            set->result_type = m_type_checker.get_type_of_node(assign);
+            set->span = assign->span;
+            return set;
         }
     }
 
@@ -315,6 +456,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
         if (auto mem = dynamic_cast<const MemberAccessExpr*>(call->callee.get())) {
             if (mem->is_optional) {
                 auto opt = std::make_shared<IROptionalChain>();
+                opt->kind = IROpKind::OptionalChain;
                 opt->target = lower_expression(mem->object);
                 opt->member_name = mem->member_name;
                 opt->is_method_call = true;
@@ -325,7 +467,46 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
                 opt->span = call->span;
                 return opt;
             } else {
+                const auto target_type = m_type_checker.get_type_of_node(mem->object.get());
+                if (target_type && target_type->name == "Events" && mem->member_name == "emit") {
+                    auto event_emit = std::make_shared<IRTypedEventEmit>();
+                    event_emit->kind = IROpKind::TypedEventEmit;
+                    event_emit->target = lower_expression(mem->object);
+                    if (!call->arguments.empty()) event_emit->event = lower_expression(call->arguments.front());
+                    event_emit->result_type = m_type_checker.get_type_of_node(call);
+                    event_emit->span = call->span;
+                    return event_emit;
+                }
+                if (target_type && target_type->name == "Events" && mem->member_name == "next") {
+                    auto event_next = std::make_shared<IRTypedEventNext>();
+                    event_next->kind = IROpKind::TypedEventNext;
+                    event_next->target = lower_expression(mem->object);
+                    if (!call->type_arguments.empty()) event_next->event_type = call->type_arguments.front().to_string();
+                    event_next->result_type = m_type_checker.get_type_of_node(call);
+                    event_next->span = call->span;
+                    return event_next;
+                }
+                if (target_type && target_type->name == "Assets" && mem->member_name == "load") {
+                    auto asset_load = std::make_shared<IRAssetLoad>();
+                    asset_load->kind = IROpKind::AssetLoad;
+                    asset_load->target = lower_expression(mem->object);
+                    if (!call->type_arguments.empty()) asset_load->asset_type = call->type_arguments.front().to_string();
+                    if (!call->arguments.empty()) asset_load->path = lower_expression(call->arguments.front());
+                    asset_load->result_type = m_type_checker.get_type_of_node(call);
+                    asset_load->span = call->span;
+                    return asset_load;
+                }
+                if (target_type && target_type->name == "Jobs" && mem->member_name == "run") {
+                    auto job_run = std::make_shared<IRJobRun>();
+                    job_run->kind = IROpKind::JobRun;
+                    job_run->target = lower_expression(mem->object);
+                    if (!call->arguments.empty()) job_run->work = lower_expression(call->arguments.front());
+                    job_run->result_type = m_type_checker.get_type_of_node(call);
+                    job_run->span = call->span;
+                    return job_run;
+                }
                 auto mc = std::make_shared<IRMethodCall>();
+                mc->kind = IROpKind::MethodCall;
                 mc->target = lower_expression(mem->object);
                 mc->method_name = mem->member_name;
                 for (const auto& type_argument : call->type_arguments) {
@@ -362,9 +543,31 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
                 construction->span = call->span;
                 return construction;
             }
+            if (id->name == "Weak") {
+                auto construction = std::make_shared<IRWeakConstruct>();
+                construction->kind = IROpKind::WeakConstruct;
+                if (!call->arguments.empty()) construction->value = lower_expression(call->arguments.front());
+                construction->result_type = m_type_checker.get_type_of_node(call);
+                construction->span = call->span;
+                return construction;
+            }
+            const auto call_type = m_type_checker.get_type_of_node(call);
+            const auto callee_type = m_type_checker.get_type_of_node(id);
+            if (call_type && callee_type && call_type->kind == TypeKind::Class && callee_type->kind == TypeKind::Class) {
+                auto construction = std::make_shared<IRClassConstruct>();
+                construction->kind = IROpKind::ClassConstruct;
+                construction->class_name = call_type->name;
+                for (const auto& argument : call->arguments) construction->args.push_back(lower_expression(argument));
+                construction->result_type = call_type;
+                construction->span = call->span;
+                return construction;
+            }
             auto fc = std::make_shared<IRCall>();
             fc->kind = IROpKind::Call;
             fc->callee_name = id->name;
+            for (const auto& type_argument : call->type_arguments) {
+                fc->type_arguments.push_back(m_type_checker.resolve_type_annotation(type_argument));
+            }
             for (const auto& a : call->arguments) {
                 fc->args.push_back(lower_expression(a));
             }
@@ -377,6 +580,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
     if (auto mem = dynamic_cast<const MemberAccessExpr*>(expr.get())) {
         if (mem->is_optional) {
             auto opt = std::make_shared<IROptionalChain>();
+            opt->kind = IROpKind::OptionalChain;
             opt->target = lower_expression(mem->object);
             opt->member_name = mem->member_name;
             opt->is_method_call = false;
@@ -385,6 +589,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
             return opt;
         } else {
             auto mg = std::make_shared<IRMemberGet>();
+            mg->kind = IROpKind::MemberGet;
             mg->target = lower_expression(mem->object);
             mg->member_name = mem->member_name;
             mg->result_type = m_type_checker.get_type_of_node(mem);
@@ -395,6 +600,7 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
 
     if (auto idx = dynamic_cast<const IndexExpr*>(expr.get())) {
         auto get = std::make_shared<IRIndexGet>();
+        get->kind = IROpKind::IndexGet;
         get->target = lower_expression(idx->object);
         get->index = lower_expression(idx->index);
         get->result_type = m_type_checker.get_type_of_node(idx);
@@ -403,16 +609,65 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
     }
 
     if (auto arr = dynamic_cast<const ArrayLiteralExpr*>(expr.get())) {
-        auto call = std::make_shared<IRCall>();
-        call->callee_name = "__array_literal";
-        for (const auto& element : arr->elements) call->args.push_back(lower_expression(element));
-        call->result_type = m_type_checker.get_type_of_node(arr);
-        call->span = arr->span;
-        return call;
+        auto literal = std::make_shared<IRArrayLiteral>();
+        literal->kind = IROpKind::ArrayLiteral;
+        for (const auto& element : arr->elements) literal->elements.push_back(lower_expression(element));
+        literal->result_type = m_type_checker.get_type_of_node(arr);
+        literal->span = arr->span;
+        return literal;
+    }
+
+    if (auto collection = dynamic_cast<const CollectionLiteralExpr*>(expr.get())) {
+        auto literal = std::make_shared<IRCollectionLiteral>();
+        literal->kind = IROpKind::CollectionLiteral;
+        literal->result_type = m_type_checker.get_type_of_node(collection);
+        literal->collection_kind = literal->result_type ? literal->result_type->kind : TypeKind::Error;
+        for (const auto& [key, value] : collection->map_entries) {
+            literal->map_entries.emplace_back(lower_expression(key), lower_expression(value));
+        }
+        for (const auto& element : collection->elements) literal->elements.push_back(lower_expression(element));
+        literal->span = collection->span;
+        return literal;
+    }
+
+    if (auto object = dynamic_cast<const ObjectLiteralExpr*>(expr.get())) {
+        auto literal = std::make_shared<IRStructLiteral>();
+        literal->kind = IROpKind::StructLiteral;
+        literal->result_type = m_type_checker.get_type_of_node(object);
+        literal->struct_name = literal->result_type ? literal->result_type->name : std::string{};
+        for (const auto& entry : object->entries) literal->fields.emplace_back(entry.key, lower_expression(entry.value));
+        literal->span = object->span;
+        return literal;
+    }
+
+    if (auto self = dynamic_cast<const ThisExpr*>(expr.get())) {
+        auto reference = std::make_shared<IRThisRef>();
+        reference->kind = IROpKind::ThisRef;
+        reference->result_type = m_type_checker.get_type_of_node(self);
+        reference->span = self->span;
+        return reference;
+    }
+
+    if (auto arrow = dynamic_cast<const ArrowFunctionExpr*>(expr.get())) {
+        auto closure = std::make_shared<IRClosure>();
+        closure->kind = IROpKind::Closure;
+        closure->result_type = m_type_checker.get_type_of_node(arrow);
+        for (const auto& parameter : arrow->params) {
+            closure->params.push_back({parameter->name, m_type_checker.resolve_type_annotation(parameter->type_annotation)});
+        }
+        if (arrow->body_expr) closure->body_expression = lower_expression(arrow->body_expr);
+        if (arrow->body_stmt) {
+            IRBlock body;
+            lower_statement(arrow->body_stmt, body);
+            for (auto& statement : body.statements) closure->body_operations.push_back(std::move(statement.op));
+        }
+        closure->span = arrow->span;
+        return closure;
     }
 
     if (auto aw = dynamic_cast<const AwaitExpr*>(expr.get())) {
         auto ir_aw = std::make_shared<IRAwait>();
+        ir_aw->kind = IROpKind::Await;
         ir_aw->operand = lower_expression(aw->operand);
         ir_aw->result_type = m_type_checker.get_type_of_node(aw);
         ir_aw->span = aw->span;

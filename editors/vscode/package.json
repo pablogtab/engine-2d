@@ -2,7 +2,7 @@
   "name": "enginescript-vscode",
   "displayName": "EngineScript Language Support",
   "description": "Language support, syntax highlighting, and LSP tooling for EngineScript (.e2s)",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "publisher": "Engine2D",
   "icon": "media/enginescript-icon.png",
   "engines": {

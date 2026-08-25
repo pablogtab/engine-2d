@@ -5,6 +5,7 @@
 #include "../symbols/SymbolResolver.hpp"
 #include "../core/DiagnosticEngine.hpp"
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 
 namespace EngineScript {
@@ -32,12 +33,34 @@ private:
     void check_function_decl(const FunctionDecl& fn, const std::shared_ptr<Scope>& scope);
     void check_statement(const std::shared_ptr<Statement>& stmt, const std::shared_ptr<Scope>& scope, const std::shared_ptr<Type>& expected_return, bool is_async);
     std::shared_ptr<Type> check_expression(const std::shared_ptr<Expression>& expr, const std::shared_ptr<Scope>& scope);
+    std::shared_ptr<Type> check_expression_expected(
+        const std::shared_ptr<Expression>& expr,
+        const std::shared_ptr<Scope>& scope,
+        const std::shared_ptr<Type>& expected
+    );
+    std::shared_ptr<Type> check_object_literal(
+        const ObjectLiteralExpr& literal,
+        const std::shared_ptr<Scope>& scope,
+        const std::shared_ptr<Type>& expected
+    );
+    void check_interface_implementation(
+        const std::string& owner_name,
+        const std::vector<TypeAnnotation>& interfaces,
+        const std::vector<std::shared_ptr<PropertyDecl>>& properties,
+        const std::vector<std::shared_ptr<MethodDecl>>& methods,
+        const std::shared_ptr<Scope>& scope
+    );
 
     bool check_statement_returns(const std::shared_ptr<Statement>& stmt);
 
     const SymbolResolver& m_resolver;
     DiagnosticEngine& m_diagnostics;
     std::unordered_map<const ASTNode*, std::shared_ptr<Type>> m_node_types;
+    mutable std::unordered_set<std::uint64_t> m_reported_type_contracts;
+    mutable std::unordered_set<std::uint64_t> m_reported_constraint_contracts;
+    std::shared_ptr<Type> m_current_self_type;
+    std::unordered_set<std::string> m_narrowed_nonnull;
+    std::size_t m_loop_depth = 0;
 
     // Cached primitive types
     std::shared_ptr<Type> m_type_void;

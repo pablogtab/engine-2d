@@ -2,8 +2,136 @@
 #include "../api/ApiCatalog.hpp"
 #include <algorithm>
 #include <format>
+#include <charconv>
 
 namespace EngineScript {
+
+namespace {
+
+TypeAnnotation parse_type_text(std::string text) {
+    const auto trim = [](std::string value) {
+        const std::size_t first = value.find_first_not_of(" \t\r\n");
+        const std::size_t last = value.find_last_not_of(" \t\r\n");
+        return first == std::string::npos ? std::string{} : value.substr(first, last - first + 1);
+    };
+    text = trim(std::move(text));
+    TypeAnnotation annotation;
+    if (!text.empty() && text.back() == '?') {
+        annotation.is_nullable = true;
+        text.pop_back();
+        text = trim(std::move(text));
+    }
+    const std::size_t generic_start = text.find('<');
+    if (generic_start == std::string::npos || text.back() != '>') {
+        annotation.name = text;
+        return annotation;
+    }
+    annotation.name = trim(text.substr(0, generic_start));
+    const std::string arguments = text.substr(generic_start + 1, text.size() - generic_start - 2);
+    std::size_t start = 0;
+    int depth = 0;
+    for (std::size_t index = 0; index <= arguments.size(); ++index) {
+        const bool at_end = index == arguments.size();
+        if (!at_end && arguments[index] == '<') ++depth;
+        else if (!at_end && arguments[index] == '>') --depth;
+        if (at_end || (arguments[index] == ',' && depth == 0)) {
+            std::string argument = trim(arguments.substr(start, index - start));
+            TypeAnnotation parsed;
+            std::int64_t constant = 0;
+            const auto [pointer, error] = std::from_chars(argument.data(), argument.data() + argument.size(), constant);
+            if (error == std::errc{} && pointer == argument.data() + argument.size()) parsed.constant_value = constant;
+            else parsed = parse_type_text(std::move(argument));
+            annotation.generic_args.push_back(std::move(parsed));
+            start = index + 1;
+        }
+    }
+    return annotation;
+}
+
+struct ClosureCaptureScan {
+    std::unordered_set<std::string> local_names;
+    std::vector<const IdentifierExpr*> identifiers;
+    bool captures_this{false};
+};
+
+void scan_capture_expression(const std::shared_ptr<Expression>& expression, ClosureCaptureScan& scan);
+
+void scan_capture_statement(const std::shared_ptr<Statement>& statement, ClosureCaptureScan& scan) {
+    if (!statement) return;
+    if (const auto block = dynamic_cast<const BlockStmt*>(statement.get())) {
+        for (const auto& nested : block->statements) scan_capture_statement(nested, scan);
+    } else if (const auto declaration = dynamic_cast<const VarDeclStmt*>(statement.get())) {
+        scan.local_names.insert(declaration->name);
+        scan_capture_expression(declaration->initializer, scan);
+    } else if (const auto expression = dynamic_cast<const ExprStmt*>(statement.get())) {
+        scan_capture_expression(expression->expr, scan);
+    } else if (const auto branch = dynamic_cast<const IfStmt*>(statement.get())) {
+        scan_capture_expression(branch->condition, scan);
+        scan_capture_statement(branch->then_branch, scan);
+        scan_capture_statement(branch->else_branch, scan);
+    } else if (const auto loop = dynamic_cast<const WhileStmt*>(statement.get())) {
+        scan_capture_expression(loop->condition, scan);
+        scan_capture_statement(loop->body, scan);
+    } else if (const auto loop = dynamic_cast<const ForStmt*>(statement.get())) {
+        scan_capture_statement(loop->initializer, scan);
+        scan_capture_expression(loop->condition, scan);
+        scan_capture_expression(loop->update, scan);
+        scan_capture_statement(loop->body, scan);
+    } else if (const auto loop = dynamic_cast<const ForInStmt*>(statement.get())) {
+        scan.local_names.insert(loop->var_name);
+        scan_capture_expression(loop->collection, scan);
+        scan_capture_statement(loop->body, scan);
+    } else if (const auto returned = dynamic_cast<const ReturnStmt*>(statement.get())) {
+        scan_capture_expression(returned->value, scan);
+    }
+}
+
+void scan_capture_expression(const std::shared_ptr<Expression>& expression, ClosureCaptureScan& scan) {
+    if (!expression) return;
+    if (const auto identifier = dynamic_cast<const IdentifierExpr*>(expression.get())) {
+        scan.identifiers.push_back(identifier);
+    } else if (dynamic_cast<const ThisExpr*>(expression.get())) {
+        scan.captures_this = true;
+    } else if (const auto binary = dynamic_cast<const BinaryExpr*>(expression.get())) {
+        scan_capture_expression(binary->left, scan); scan_capture_expression(binary->right, scan);
+    } else if (const auto unary = dynamic_cast<const UnaryExpr*>(expression.get())) {
+        scan_capture_expression(unary->operand, scan);
+    } else if (const auto assignment = dynamic_cast<const AssignmentExpr*>(expression.get())) {
+        scan_capture_expression(assignment->target, scan); scan_capture_expression(assignment->value, scan);
+    } else if (const auto call = dynamic_cast<const CallExpr*>(expression.get())) {
+        scan_capture_expression(call->callee, scan);
+        for (const auto& argument : call->arguments) scan_capture_expression(argument, scan);
+    } else if (const auto member = dynamic_cast<const MemberAccessExpr*>(expression.get())) {
+        scan_capture_expression(member->object, scan);
+    } else if (const auto index = dynamic_cast<const IndexExpr*>(expression.get())) {
+        scan_capture_expression(index->object, scan); scan_capture_expression(index->index, scan);
+    } else if (const auto array = dynamic_cast<const ArrayLiteralExpr*>(expression.get())) {
+        for (const auto& element : array->elements) scan_capture_expression(element, scan);
+    } else if (const auto collection = dynamic_cast<const CollectionLiteralExpr*>(expression.get())) {
+        for (const auto& [key, value] : collection->map_entries) {
+            scan_capture_expression(key, scan); scan_capture_expression(value, scan);
+        }
+        for (const auto& element : collection->elements) scan_capture_expression(element, scan);
+    } else if (const auto object = dynamic_cast<const ObjectLiteralExpr*>(expression.get())) {
+        for (const auto& entry : object->entries) scan_capture_expression(entry.value, scan);
+    } else if (const auto awaited = dynamic_cast<const AwaitExpr*>(expression.get())) {
+        scan_capture_expression(awaited->operand, scan);
+    }
+}
+
+bool is_send_type(const std::shared_ptr<Type>& type) {
+    if (!type || type->is_error() || type->is_nullable) return false;
+    if (type->is_numeric() || type->is_bool() || type->is_string() || type->kind == TypeKind::Enum ||
+        type->kind == TypeKind::Struct || type->kind == TypeKind::Duration || type->kind == TypeKind::Vec2 ||
+        type->kind == TypeKind::Vec3 || type->kind == TypeKind::Vec4 || type->kind == TypeKind::Color) return true;
+    if (type->kind == TypeKind::Array || type->kind == TypeKind::FixedArray || type->kind == TypeKind::Set ||
+        type->kind == TypeKind::Optional || type->kind == TypeKind::Map || type->kind == TypeKind::Result) {
+        return !type->type_args.empty() && std::all_of(type->type_args.begin(), type->type_args.end(), is_send_type);
+    }
+    return false;
+}
+
+} // namespace
 
 TypeChecker::TypeChecker(const SymbolResolver& resolver, DiagnosticEngine& diagnostics)
     : m_resolver(resolver), m_diagnostics(diagnostics) {
@@ -35,6 +163,52 @@ std::vector<InferredTypeInfo> TypeChecker::inferred_types() const {
 }
 
 std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation& annot, const Scope* scope) const {
+    if (annot.span.is_valid()) {
+        const std::uint64_t diagnostic_key =
+            (static_cast<std::uint64_t>(annot.span.file_id) << 32U) | annot.span.start_offset;
+        if (m_reported_type_contracts.emplace(diagnostic_key).second) {
+            const auto require_arity = [&](std::size_t expected) {
+                if (annot.generic_args.size() != expected) {
+                    m_diagnostics.report_error(
+                        "E3089",
+                        std::format("Type '{}' expects {} type argument{}, got {}", annot.name, expected,
+                            expected == 1 ? "" : "s", annot.generic_args.size()),
+                        annot.span
+                    );
+                    return false;
+                }
+                return true;
+            };
+            if (annot.name == "FixedArray") {
+                if (require_arity(2) && (!annot.generic_args[1].constant_value ||
+                    *annot.generic_args[1].constant_value <= 0)) {
+                    m_diagnostics.report_error(
+                        "E3090",
+                        "FixedArray<T, N> requires N to be a positive integer constant",
+                        annot.generic_args[1].span.is_valid() ? annot.generic_args[1].span : annot.span
+                    );
+                }
+            } else if (annot.name == "Array" || annot.name == "Set" || annot.name == "Optional" ||
+                       annot.name == "Weak" || annot.name == "Task") {
+                require_arity(1);
+            } else if (annot.name == "Map" || annot.name == "Result") {
+                require_arity(2);
+            } else if (scope) {
+                if (const auto symbol = scope->lookup(annot.name)) {
+                    std::size_t expected = 0;
+                    bool authored_generic = false;
+                    if (const auto* declaration = dynamic_cast<const ClassDecl*>(symbol->ast_node.get())) {
+                        expected = declaration->generic_params.size(); authored_generic = true;
+                    } else if (const auto* declaration = dynamic_cast<const StructDecl*>(symbol->ast_node.get())) {
+                        expected = declaration->generic_params.size(); authored_generic = true;
+                    } else if (const auto* declaration = dynamic_cast<const InterfaceDecl*>(symbol->ast_node.get())) {
+                        expected = declaration->generic_params.size(); authored_generic = true;
+                    }
+                    if (authored_generic) require_arity(expected);
+                }
+            }
+        }
+    }
     std::shared_ptr<Type> t;
     if (annot.name == "Void") t = m_type_void;
     else if (annot.name == "Bool") t = m_type_bool;
@@ -48,6 +222,17 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
     else if (annot.name == "Color") t = Type::make_primitive(TypeKind::Color);
     else if (annot.name == "Duration") t = m_type_duration;
     else if (annot.name == "Entity") t = m_type_entity;
+    else if (annot.name == "FixedArray") {
+        std::vector<std::shared_ptr<Type>> args;
+        if (!annot.generic_args.empty() && !annot.generic_args[0].constant_value) {
+            args.push_back(resolve_type_annotation(annot.generic_args[0], scope));
+        }
+        t = Type::make_generic(TypeKind::FixedArray, "FixedArray", std::move(args));
+        if (annot.generic_args.size() >= 2 && annot.generic_args[1].constant_value &&
+            *annot.generic_args[1].constant_value > 0) {
+            t->fixed_array_size = static_cast<std::size_t>(*annot.generic_args[1].constant_value);
+        }
+    }
     else if (annot.name == "Array") {
         std::vector<std::shared_ptr<Type>> args;
         for (const auto& a : annot.generic_args) {
@@ -66,6 +251,16 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
             args.push_back(resolve_type_annotation(a, scope));
         }
         t = Type::make_generic(TypeKind::Set, "Set", args);
+    } else if (annot.name == "Optional") {
+        std::vector<std::shared_ptr<Type>> args;
+        for (const auto& a : annot.generic_args) args.push_back(resolve_type_annotation(a, scope));
+        t = Type::make_generic(TypeKind::Optional, "Optional", std::move(args));
+    } else if (annot.name == "Weak") {
+        std::vector<std::shared_ptr<Type>> args;
+        for (const auto& a : annot.generic_args) args.push_back(resolve_type_annotation(a, scope));
+        t = Type::make_generic(TypeKind::Weak, "Weak", std::move(args));
+    } else if (annot.name == "TaskScope") {
+        t = Type::make_custom(TypeKind::TaskScope, "TaskScope");
     } else if (annot.name == "Result") {
         std::vector<std::shared_ptr<Type>> args;
         for (const auto& a : annot.generic_args) {
@@ -79,12 +274,75 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
         }
         t = Type::make_generic(TypeKind::Task, "Task", args);
     } else {
-        // User class / struct / interface / enum
+        // User class / struct / interface / enum / type parameter.
         std::vector<std::shared_ptr<Type>> args;
         for (const auto& a : annot.generic_args) {
             args.push_back(resolve_type_annotation(a, scope));
         }
-        t = Type::make_generic(TypeKind::Class, annot.name, args);
+        TypeKind kind = TypeKind::Class;
+        bool is_behaviour = false;
+        std::vector<std::string> interfaces;
+        if (scope) {
+            if (const auto symbol = scope->lookup(annot.name)) {
+                if (symbol->kind == SymbolKind::Struct || dynamic_cast<StructDecl*>(symbol->ast_node.get())) kind = TypeKind::Struct;
+                else if (symbol->kind == SymbolKind::Interface || dynamic_cast<InterfaceDecl*>(symbol->ast_node.get())) kind = TypeKind::Interface;
+                else if (symbol->kind == SymbolKind::Enum || dynamic_cast<EnumDecl*>(symbol->ast_node.get())) kind = TypeKind::Enum;
+                else if (symbol->kind == SymbolKind::TypeParameter) kind = TypeKind::TypeParameter;
+                is_behaviour = symbol->is_behaviour;
+                if (const auto* cls = dynamic_cast<ClassDecl*>(symbol->ast_node.get())) {
+                    for (const auto& interface_type : cls->interfaces) interfaces.push_back(interface_type.name);
+                } else if (const auto* st = dynamic_cast<StructDecl*>(symbol->ast_node.get())) {
+                    for (const auto& interface_type : st->interfaces) interfaces.push_back(interface_type.name);
+                }
+            }
+        }
+        t = Type::make_generic(kind, annot.name, args);
+        t->is_behaviour = is_behaviour;
+        t->interfaces = std::move(interfaces);
+    }
+
+    if (scope && !t->type_args.empty()) {
+        if (const auto symbol = scope->lookup(annot.name)) {
+            const std::vector<GenericParam>* parameters = nullptr;
+            if (const auto* declaration = dynamic_cast<const ClassDecl*>(symbol->ast_node.get())) {
+                parameters = &declaration->generic_params;
+            } else if (const auto* declaration = dynamic_cast<const StructDecl*>(symbol->ast_node.get())) {
+                parameters = &declaration->generic_params;
+            } else if (const auto* declaration = dynamic_cast<const InterfaceDecl*>(symbol->ast_node.get())) {
+                parameters = &declaration->generic_params;
+            }
+            const std::uint64_t diagnostic_key = annot.span.is_valid()
+                ? ((static_cast<std::uint64_t>(annot.span.file_id) << 32U) | annot.span.start_offset)
+                : 0;
+            if (parameters && parameters->size() == t->type_args.size() &&
+                (!annot.span.is_valid() || m_reported_constraint_contracts.emplace(diagnostic_key).second)) {
+                for (std::size_t index = 0; index < parameters->size(); ++index) {
+                    const auto& parameter = (*parameters)[index];
+                    if (!parameter.constraint) continue;
+                    const auto& concrete = t->type_args[index];
+                    const std::string& constraint = parameter.constraint->name;
+                    bool satisfied = std::find(
+                        concrete->interfaces.begin(), concrete->interfaces.end(), constraint
+                    ) != concrete->interfaces.end();
+                    if (constraint == "Send") satisfied = satisfied || is_send_type(concrete);
+                    if (constraint == "Equatable") {
+                        satisfied = satisfied || concrete->is_numeric() || concrete->is_bool() ||
+                            concrete->is_string() || concrete->kind == TypeKind::Enum;
+                    }
+                    if (constraint == "Ordered") {
+                        satisfied = satisfied || concrete->is_numeric() || concrete->is_string() ||
+                            concrete->kind == TypeKind::Enum;
+                    }
+                    if (!satisfied) {
+                        m_diagnostics.report_error(
+                            "E3078",
+                            std::format("Type '{}' does not satisfy constraint '{}'", concrete->to_string(), constraint),
+                            annot.span
+                        );
+                    }
+                }
+            }
+        }
     }
 
     if (annot.is_nullable) {
@@ -117,11 +375,49 @@ bool TypeChecker::check_all(const std::vector<std::shared_ptr<ModuleNode>>& modu
 void TypeChecker::check_declaration(const std::shared_ptr<Declaration>& decl, const std::shared_ptr<Scope>& scope) {
     if (!decl) return;
 
+    const auto check_constraints = [&](const std::vector<GenericParam>& parameters) {
+        std::unordered_set<std::string> names;
+        for (const auto& parameter : parameters) {
+            if (!names.emplace(parameter.name).second) {
+                m_diagnostics.report_error("E3080", std::format("Duplicate generic parameter '{}'", parameter.name), parameter.span);
+            }
+            if (parameter.constraint) {
+                const auto constraint = scope->lookup(parameter.constraint->name);
+                if (!constraint || constraint->kind != SymbolKind::Interface) {
+                    m_diagnostics.report_error("E3081", std::format("Generic constraint '{}' must name an interface",
+                        parameter.constraint->name), parameter.constraint->span);
+                }
+            }
+        }
+    };
+
     if (auto cls = dynamic_cast<const ClassDecl*>(decl.get())) {
+        check_constraints(cls->generic_params);
+        for (const auto& method : cls->methods) check_constraints(method->generic_params);
         check_class_decl(*cls, scope);
     } else if (auto st = dynamic_cast<const StructDecl*>(decl.get())) {
+        check_constraints(st->generic_params);
+        for (const auto& method : st->methods) check_constraints(method->generic_params);
         check_struct_decl(*st, scope);
+    } else if (auto interface_decl = dynamic_cast<const InterfaceDecl*>(decl.get())) {
+        check_constraints(interface_decl->generic_params);
+        for (const auto& member : interface_decl->members) check_constraints(member.generic_params);
+    } else if (auto enum_decl = dynamic_cast<const EnumDecl*>(decl.get())) {
+        bool has_integer = false;
+        bool has_string = false;
+        std::unordered_set<std::string> names;
+        for (const auto& entry : enum_decl->entries) {
+            has_integer = has_integer || entry.int_value.has_value();
+            has_string = has_string || entry.string_value.has_value();
+            if (!names.emplace(entry.name).second) {
+                m_diagnostics.report_error("E3082", std::format("Duplicate enum member '{}'", entry.name), entry.span);
+            }
+        }
+        if (has_integer && has_string) {
+            m_diagnostics.report_error("E3083", std::format("Enum '{}' mixes integer and String backing values", enum_decl->name), enum_decl->span);
+        }
     } else if (auto fn = dynamic_cast<const FunctionDecl*>(decl.get())) {
+        check_constraints(fn->generic_params);
         check_function_decl(*fn, scope);
     } else if (auto cn = dynamic_cast<const ConstDecl*>(decl.get())) {
         if (cn->initializer) {
@@ -142,13 +438,24 @@ void TypeChecker::check_declaration(const std::shared_ptr<Declaration>& decl, co
 void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<Scope>& scope) {
     auto cls_scope = m_resolver.find_scope_for_node(&cls);
     if (!cls_scope) return;
+    const auto previous_self = m_current_self_type;
+    TypeAnnotation self_annotation{cls.name};
+    m_current_self_type = resolve_type_annotation(self_annotation, cls_scope.get());
+
+    if (cls.constructor_decl) {
+        for (const auto& parameter : cls.constructor_decl->params) {
+            m_node_types[parameter.get()] = resolve_type_annotation(parameter->type_annotation, cls_scope.get());
+        }
+    }
 
     for (const auto& prop : cls.properties) {
         if (prop->type_annotation) {
             m_node_types[prop.get()] = resolve_type_annotation(*prop->type_annotation, cls_scope.get());
         }
         if (prop->initializer) {
-            auto init_t = check_expression(prop->initializer, cls_scope);
+            auto init_t = prop->type_annotation
+                ? check_expression_expected(prop->initializer, cls_scope, resolve_type_annotation(*prop->type_annotation, cls_scope.get()))
+                : check_expression(prop->initializer, cls_scope);
             if (prop->type_annotation) {
                 auto decl_t = resolve_type_annotation(*prop->type_annotation, cls_scope.get());
                 if (!init_t->is_assignable_to(decl_t)) {
@@ -168,8 +475,19 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
 
     for (const auto& m : cls.methods) {
         if (m->body) {
-            std::shared_ptr<Type> ret_t = m->return_type ? resolve_type_annotation(*m->return_type, cls_scope.get()) : m_type_void;
             auto m_scope = std::make_shared<Scope>(ScopeKind::Function, cls_scope);
+            for (const auto& generic : m->generic_params) {
+                auto symbol = std::make_shared<Symbol>();
+                symbol->name = generic.name;
+                symbol->kind = SymbolKind::TypeParameter;
+                symbol->type_string = generic.name;
+                m_scope->define(symbol);
+            }
+            for (const auto& parameter : m->params) {
+                m_node_types[parameter.get()] = resolve_type_annotation(parameter->type_annotation, m_scope.get());
+            }
+            std::shared_ptr<Type> ret_t = m->return_type ? resolve_type_annotation(*m->return_type, m_scope.get()) : m_type_void;
+            m_node_types[m.get()] = ret_t;
             check_statement(m->body, m_scope, ret_t, m->is_async);
 
             if (!ret_t->is_void() && !m->is_async) {
@@ -179,18 +497,25 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
             }
         }
     }
+    check_interface_implementation(cls.name, cls.interfaces, cls.properties, cls.methods, cls_scope);
+    m_current_self_type = previous_self;
 }
 
 void TypeChecker::check_struct_decl(const StructDecl& st, const std::shared_ptr<Scope>& scope) {
     auto st_scope = m_resolver.find_scope_for_node(&st);
     if (!st_scope) return;
+    const auto previous_self = m_current_self_type;
+    TypeAnnotation self_annotation{st.name};
+    m_current_self_type = resolve_type_annotation(self_annotation, st_scope.get());
 
     for (const auto& prop : st.properties) {
         if (prop->type_annotation) {
             m_node_types[prop.get()] = resolve_type_annotation(*prop->type_annotation, st_scope.get());
         }
         if (prop->initializer) {
-            auto init_t = check_expression(prop->initializer, st_scope);
+            auto init_t = prop->type_annotation
+                ? check_expression_expected(prop->initializer, st_scope, resolve_type_annotation(*prop->type_annotation, st_scope.get()))
+                : check_expression(prop->initializer, st_scope);
             if (prop->type_annotation) {
                 auto decl_t = resolve_type_annotation(*prop->type_annotation, st_scope.get());
                 if (!init_t->is_assignable_to(decl_t)) {
@@ -199,12 +524,45 @@ void TypeChecker::check_struct_decl(const StructDecl& st, const std::shared_ptr<
             }
         }
     }
+    for (const auto& method : st.methods) {
+        auto method_scope = std::make_shared<Scope>(ScopeKind::Function, st_scope);
+        for (const auto& generic : method->generic_params) {
+            auto symbol = std::make_shared<Symbol>();
+            symbol->name = generic.name;
+            symbol->kind = SymbolKind::TypeParameter;
+            symbol->type_string = generic.name;
+            method_scope->define(symbol);
+        }
+        for (const auto& parameter : method->params) {
+            m_node_types[parameter.get()] = resolve_type_annotation(parameter->type_annotation, method_scope.get());
+        }
+        const auto return_type = method->return_type
+            ? resolve_type_annotation(*method->return_type, method_scope.get()) : m_type_void;
+        m_node_types[method.get()] = return_type;
+        check_statement(method->body, method_scope, return_type, method->is_async);
+        if (!return_type->is_void() && !method->is_async && !check_statement_returns(method->body)) {
+            m_diagnostics.report_error("E3003", std::format("Method '{}' does not return a value on all code paths", method->name), method->span);
+        }
+    }
+    check_interface_implementation(st.name, st.interfaces, st.properties, st.methods, st_scope);
+    m_current_self_type = previous_self;
 }
 
 void TypeChecker::check_function_decl(const FunctionDecl& fn, const std::shared_ptr<Scope>& scope) {
     if (fn.body) {
-        std::shared_ptr<Type> ret_t = fn.return_type ? resolve_type_annotation(*fn.return_type, scope.get()) : m_type_void;
         auto fn_scope = std::make_shared<Scope>(ScopeKind::Function, scope);
+        for (const auto& generic : fn.generic_params) {
+            auto symbol = std::make_shared<Symbol>();
+            symbol->name = generic.name;
+            symbol->kind = SymbolKind::TypeParameter;
+            symbol->type_string = generic.name;
+            fn_scope->define(symbol);
+        }
+        for (const auto& parameter : fn.params) {
+            m_node_types[parameter.get()] = resolve_type_annotation(parameter->type_annotation, fn_scope.get());
+        }
+        std::shared_ptr<Type> ret_t = fn.return_type ? resolve_type_annotation(*fn.return_type, fn_scope.get()) : m_type_void;
+        m_node_types[&fn] = ret_t;
         check_statement(fn.body, fn_scope, ret_t, fn.is_async);
 
         if (!ret_t->is_void() && !fn.is_async) {
@@ -240,15 +598,24 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
 
     if (auto blk = dynamic_cast<BlockStmt*>(stmt.get())) {
         auto blk_scope = std::make_shared<Scope>(ScopeKind::Block, scope);
+        bool terminated = false;
         for (const auto& s : blk->statements) {
+            if (terminated) {
+                m_diagnostics.report_warning("W3001", "Unreachable statement", s->span);
+            }
             check_statement(s, blk_scope, expected_return, is_async);
+            terminated = terminated || dynamic_cast<ReturnStmt*>(s.get()) ||
+                dynamic_cast<BreakStmt*>(s.get()) || dynamic_cast<ContinueStmt*>(s.get()) ||
+                check_statement_returns(s);
         }
     } else if (auto v = dynamic_cast<VarDeclStmt*>(stmt.get())) {
         if (v->type_annotation) {
             m_node_types[v] = resolve_type_annotation(*v->type_annotation, scope.get());
         }
         if (v->initializer) {
-            auto init_t = check_expression(v->initializer, scope);
+            auto init_t = v->type_annotation
+                ? check_expression_expected(v->initializer, scope, resolve_type_annotation(*v->type_annotation, scope.get()))
+                : check_expression(v->initializer, scope);
             if (v->type_annotation) {
                 auto decl_t = resolve_type_annotation(*v->type_annotation, scope.get());
                 if (!init_t->is_assignable_to(decl_t)) {
@@ -258,6 +625,8 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
             } else {
                 m_node_types[v] = init_t;
             }
+        } else {
+            m_diagnostics.report_error("E3017", std::format("Variable '{}' must be initialized", v->name), v->span);
         }
     } else if (auto e = dynamic_cast<ExprStmt*>(stmt.get())) {
         check_expression(e->expr, scope);
@@ -266,14 +635,36 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
         if (!cond_t->is_bool() && !cond_t->is_error()) {
             m_diagnostics.report_error("E3011", std::format("If condition must be of type Bool, got '{}'", cond_t->to_string()), if_s->condition->span);
         }
+        const auto previous_narrowing = m_narrowed_nonnull;
+        const auto* condition = dynamic_cast<const BinaryExpr*>(if_s->condition.get());
+        const IdentifierExpr* nullable_identifier = nullptr;
+        bool true_branch_nonnull = false;
+        if (condition && (condition->op == TokenType::EqualsEquals || condition->op == TokenType::ExclamationEquals)) {
+            if (dynamic_cast<const LiteralExpr*>(condition->right.get()) &&
+                dynamic_cast<const LiteralExpr*>(condition->right.get())->kind == LiteralExpr::Kind::Null) {
+                nullable_identifier = dynamic_cast<const IdentifierExpr*>(condition->left.get());
+            } else if (dynamic_cast<const LiteralExpr*>(condition->left.get()) &&
+                dynamic_cast<const LiteralExpr*>(condition->left.get())->kind == LiteralExpr::Kind::Null) {
+                nullable_identifier = dynamic_cast<const IdentifierExpr*>(condition->right.get());
+            }
+            true_branch_nonnull = condition->op == TokenType::ExclamationEquals;
+        }
+        if (nullable_identifier && true_branch_nonnull) m_narrowed_nonnull.insert(nullable_identifier->name);
         check_statement(if_s->then_branch, scope, expected_return, is_async);
-        if (if_s->else_branch) check_statement(if_s->else_branch, scope, expected_return, is_async);
+        m_narrowed_nonnull = previous_narrowing;
+        if (if_s->else_branch) {
+            if (nullable_identifier && !true_branch_nonnull) m_narrowed_nonnull.insert(nullable_identifier->name);
+            check_statement(if_s->else_branch, scope, expected_return, is_async);
+            m_narrowed_nonnull = previous_narrowing;
+        }
     } else if (auto w = dynamic_cast<WhileStmt*>(stmt.get())) {
         auto cond_t = check_expression(w->condition, scope);
         if (!cond_t->is_bool() && !cond_t->is_error()) {
             m_diagnostics.report_error("E3012", std::format("While condition must be of type Bool, got '{}'", cond_t->to_string()), w->condition->span);
         }
+        ++m_loop_depth;
         check_statement(w->body, scope, expected_return, is_async);
+        --m_loop_depth;
     } else if (auto f = dynamic_cast<ForStmt*>(stmt.get())) {
         auto for_scope = std::make_shared<Scope>(ScopeKind::Block, scope);
         check_statement(f->initializer, for_scope, expected_return, is_async);
@@ -284,14 +675,19 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
             }
         }
         if (f->update) check_expression(f->update, for_scope);
+        ++m_loop_depth;
         check_statement(f->body, for_scope, expected_return, is_async);
+        --m_loop_depth;
     } else if (auto for_in = dynamic_cast<ForInStmt*>(stmt.get())) {
         auto for_scope = std::make_shared<Scope>(ScopeKind::Block, scope);
         auto coll_t = check_expression(for_in->collection, for_scope);
-        if (coll_t->kind != TypeKind::Array && coll_t->kind != TypeKind::Set && !coll_t->is_error()) {
+        if (coll_t->kind != TypeKind::Array && coll_t->kind != TypeKind::FixedArray &&
+            coll_t->kind != TypeKind::Map && coll_t->kind != TypeKind::Set && !coll_t->is_error()) {
             m_diagnostics.report_error("E3014", std::format("Type '{}' is not iterable in for-in", coll_t->to_string()), for_in->collection->span);
         }
+        ++m_loop_depth;
         check_statement(for_in->body, for_scope, expected_return, is_async);
+        --m_loop_depth;
     } else if (auto ret = dynamic_cast<ReturnStmt*>(stmt.get())) {
         if (ret->value) {
             auto val_t = check_expression(ret->value, scope);
@@ -312,6 +708,187 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
                     // Task<Void> returning nothing is fine
                 } else {
                     m_diagnostics.report_error("E3016", std::format("Return statement must return a value of type '{}'", expected_return->to_string()), ret->span);
+                }
+            }
+        }
+    } else if (dynamic_cast<BreakStmt*>(stmt.get()) || dynamic_cast<ContinueStmt*>(stmt.get())) {
+        if (m_loop_depth == 0) {
+            m_diagnostics.report_error("E3019", dynamic_cast<BreakStmt*>(stmt.get())
+                ? "'break' is only valid inside a loop"
+                : "'continue' is only valid inside a loop", stmt->span);
+        }
+    }
+}
+
+std::shared_ptr<Type> TypeChecker::check_expression_expected(
+    const std::shared_ptr<Expression>& expr,
+    const std::shared_ptr<Scope>& scope,
+    const std::shared_ptr<Type>& expected
+) {
+    if (const auto* object = dynamic_cast<const ObjectLiteralExpr*>(expr.get())) {
+        return check_object_literal(*object, scope, expected);
+    }
+    if (const auto* array = dynamic_cast<const ArrayLiteralExpr*>(expr.get());
+        array && expected && expected->kind == TypeKind::Array && expected->type_args.size() == 1) {
+        for (const auto& element : array->elements) {
+            const auto element_type = check_expression_expected(element, scope, expected->type_args[0]);
+            if (!element_type->is_assignable_to(expected->type_args[0])) {
+                m_diagnostics.report_error("E3072", std::format("Array element type '{}' is not assignable to '{}'",
+                    element_type->to_string(), expected->type_args[0]->to_string()), element->span);
+            }
+        }
+        m_node_types[array] = expected;
+        return expected;
+    }
+    if (const auto* collection = dynamic_cast<const CollectionLiteralExpr*>(expr.get()); collection && expected) {
+        const auto actual = check_expression(expr, scope);
+        if (!actual->is_assignable_to(expected)) {
+            m_diagnostics.report_error("E3073", std::format("Collection literal of type '{}' is not assignable to '{}'",
+                actual->to_string(), expected->to_string()), expr->span);
+        }
+        m_node_types[collection] = expected;
+        return expected;
+    }
+    if (dynamic_cast<const CallExpr*>(expr.get()) && expected &&
+        (expected->kind == TypeKind::Class || expected->kind == TypeKind::Struct) && !expected->type_args.empty()) {
+        const auto actual = check_expression(expr, scope);
+        if (actual->kind == expected->kind && actual->name == expected->name && actual->type_args.empty()) {
+            m_node_types[expr.get()] = expected;
+            return expected;
+        }
+        return actual;
+    }
+    return check_expression(expr, scope);
+}
+
+std::shared_ptr<Type> TypeChecker::check_object_literal(
+    const ObjectLiteralExpr& literal,
+    const std::shared_ptr<Scope>& scope,
+    const std::shared_ptr<Type>& expected
+) {
+    const ApiTypeDescriptor* api_value = expected && expected->kind == TypeKind::Class
+        ? ApiCatalog::instance().find_available_type(expected->name) : nullptr;
+    if (api_value && api_value->value_type) {
+        std::unordered_set<std::string> present;
+        for (const auto& entry : literal.entries) {
+            if (!present.emplace(entry.key).second) {
+                m_diagnostics.report_error("E3071", std::format("Duplicate value field '{}'", entry.key), entry.span);
+                continue;
+            }
+            const ApiPropertyDescriptor* property = ApiCatalog::instance().find_available_property(expected->name, entry.key);
+            if (!property || !property->writable) {
+                m_diagnostics.report_error("E3071", std::format("Value type '{}' has no writable field '{}'", expected->name, entry.key), entry.span);
+                check_expression(entry.value, scope);
+                continue;
+            }
+            const auto field_type = resolve_type_annotation(parse_type_text(property->type), scope.get());
+            const auto value_type = check_expression_expected(entry.value, scope, field_type);
+            if (!value_type->is_assignable_to(field_type)) {
+                m_diagnostics.report_error("E3071", std::format("Field '{}' expects '{}', got '{}'", entry.key,
+                    field_type->to_string(), value_type->to_string()), entry.value->span);
+            }
+        }
+        m_node_types[&literal] = expected;
+        return expected;
+    }
+    if (!expected || expected->kind != TypeKind::Struct) {
+        m_diagnostics.report_error("E3070", "Object literals require a contextually known struct type", literal.span);
+        m_node_types[&literal] = m_type_error;
+        for (const auto& entry : literal.entries) check_expression(entry.value, scope);
+        return m_type_error;
+    }
+
+    const auto symbol = scope->lookup(expected->name);
+    const auto* declaration = symbol ? dynamic_cast<const StructDecl*>(symbol->ast_node.get()) : nullptr;
+    if (!declaration) {
+        m_diagnostics.report_error("E3070", std::format("'{}' is not an authored struct", expected->name), literal.span);
+        m_node_types[&literal] = m_type_error;
+        return m_type_error;
+    }
+
+    std::unordered_map<std::string, std::shared_ptr<Type>> struct_bindings;
+    for (std::size_t index = 0;
+         index < declaration->generic_params.size() && index < expected->type_args.size(); ++index) {
+        struct_bindings[declaration->generic_params[index].name] = expected->type_args[index];
+    }
+    std::function<std::shared_ptr<Type>(const TypeAnnotation&)> resolve_struct_type =
+        [&](const TypeAnnotation& annotation) {
+            if (const auto bound = struct_bindings.find(annotation.name);
+                bound != struct_bindings.end() && annotation.generic_args.empty()) {
+                auto result = std::make_shared<Type>(*bound->second);
+                result->is_nullable = annotation.is_nullable;
+                return result;
+            }
+            auto result = resolve_type_annotation(annotation, scope.get());
+            if (!annotation.generic_args.empty()) {
+                result = std::make_shared<Type>(*result);
+                result->type_args.clear();
+                for (const auto& argument : annotation.generic_args) {
+                    if (!argument.constant_value) result->type_args.push_back(resolve_struct_type(argument));
+                }
+            }
+            return result;
+        };
+
+    std::unordered_set<std::string> present;
+    for (const auto& entry : literal.entries) {
+        if (!present.emplace(entry.key).second) {
+            m_diagnostics.report_error("E3071", std::format("Duplicate struct field '{}'", entry.key), entry.span);
+            continue;
+        }
+        const auto property = std::find_if(declaration->properties.begin(), declaration->properties.end(),
+            [&entry](const auto& candidate) { return candidate->name == entry.key; });
+        if (property == declaration->properties.end()) {
+            m_diagnostics.report_error("E3071", std::format("Struct '{}' has no field '{}'", expected->name, entry.key), entry.span);
+            check_expression(entry.value, scope);
+            continue;
+        }
+        const auto field_type = (*property)->type_annotation
+            ? resolve_struct_type(*(*property)->type_annotation)
+            : get_type_of_node(property->get());
+        const auto value_type = check_expression_expected(entry.value, scope, field_type);
+        if (!value_type->is_assignable_to(field_type)) {
+            m_diagnostics.report_error("E3071", std::format("Field '{}' expects '{}', got '{}'", entry.key,
+                field_type->to_string(), value_type->to_string()), entry.value->span);
+        }
+    }
+    for (const auto& property : declaration->properties) {
+        if (!property->initializer && !present.contains(property->name)) {
+            m_diagnostics.report_error("E3071", std::format("Struct literal is missing required field '{}'", property->name), literal.span);
+        }
+    }
+    m_node_types[&literal] = expected;
+    return expected;
+}
+
+void TypeChecker::check_interface_implementation(
+    const std::string& owner_name,
+    const std::vector<TypeAnnotation>& interfaces,
+    const std::vector<std::shared_ptr<PropertyDecl>>& properties,
+    const std::vector<std::shared_ptr<MethodDecl>>& methods,
+    const std::shared_ptr<Scope>& scope
+) {
+    for (const auto& interface_type : interfaces) {
+        const auto symbol = scope->lookup(interface_type.name);
+        const auto* declaration = symbol ? dynamic_cast<const InterfaceDecl*>(symbol->ast_node.get()) : nullptr;
+        if (!declaration) continue;
+        for (const auto& required : declaration->members) {
+            if (required.is_method) {
+                const auto implementation = std::find_if(methods.begin(), methods.end(),
+                    [&required](const auto& candidate) { return candidate->name == required.name; });
+                if (implementation == methods.end() || (*implementation)->params.size() != required.params.size() ||
+                    !(*implementation)->return_type ||
+                    (*implementation)->return_type->to_string() != required.return_type.to_string()) {
+                    m_diagnostics.report_error("E3074", std::format("'{}' does not implement method '{}.{}'",
+                        owner_name, interface_type.name, required.name), interface_type.span);
+                }
+            } else {
+                const auto implementation = std::find_if(properties.begin(), properties.end(),
+                    [&required](const auto& candidate) { return candidate->name == required.name; });
+                if (implementation == properties.end() || !(*implementation)->type_annotation ||
+                    (*implementation)->type_annotation->to_string() != required.return_type.to_string()) {
+                    m_diagnostics.report_error("E3074", std::format("'{}' does not implement property '{}.{}'",
+                        owner_name, interface_type.name, required.name), interface_type.span);
                 }
             }
         }
@@ -365,18 +942,37 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 return t;
             }
 
+            if (sym->kind == SymbolKind::Class || sym->kind == SymbolKind::Struct ||
+                sym->kind == SymbolKind::Interface || sym->kind == SymbolKind::Enum ||
+                sym->kind == SymbolKind::TypeParameter || sym->kind == SymbolKind::Import) {
+                TypeAnnotation annotation = parse_type_text(sym->type_string);
+                auto type = resolve_type_annotation(annotation, scope.get());
+                m_node_types[id] = type;
+                return type;
+            }
+
             if (sym->kind == SymbolKind::Function) {
                 if (const ApiFunctionDescriptor* function =
                         ApiCatalog::instance().find_available_function(id->name)) {
                     auto t = Type::make_custom(TypeKind::Function, function->name);
-                    TypeAnnotation return_annotation{function->return_type};
+                    TypeAnnotation return_annotation = parse_type_text(function->return_type);
                     t->return_type = resolve_type_annotation(return_annotation, scope.get());
                     for (const ApiParameterDescriptor& parameter : function->parameters) {
-                        TypeAnnotation parameter_annotation{parameter.type};
+                        TypeAnnotation parameter_annotation = parse_type_text(parameter.type);
                         t->param_types.push_back(resolve_type_annotation(parameter_annotation, scope.get()));
                     }
                     m_node_types[id] = t;
                     return t;
+                }
+                if (const auto* function = dynamic_cast<const FunctionDecl*>(sym->ast_node.get())) {
+                    auto type = Type::make_custom(TypeKind::Function, function->name);
+                    type->return_type = function->return_type
+                        ? resolve_type_annotation(*function->return_type, scope.get()) : m_type_void;
+                    for (const auto& parameter : function->params) {
+                        type->param_types.push_back(resolve_type_annotation(parameter->type_annotation, scope.get()));
+                    }
+                    m_node_types[id] = type;
+                    return type;
                 }
             }
 
@@ -408,9 +1004,12 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 return t;
             }
 
-            TypeAnnotation annot;
-            annot.name = sym->type_string;
+            TypeAnnotation annot = parse_type_text(sym->type_string);
             auto t = resolve_type_annotation(annot, scope.get());
+            if (m_narrowed_nonnull.contains(id->name) && t->is_nullable) {
+                t = std::make_shared<Type>(*t);
+                t->is_nullable = false;
+            }
             m_node_types[id] = t;
             return t;
         }
@@ -423,7 +1022,12 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Arithmetic
         if (bin->op == TokenType::Plus || bin->op == TokenType::Minus || bin->op == TokenType::Star || bin->op == TokenType::Slash || bin->op == TokenType::Percent) {
-            if (left_t->is_string() && bin->op == TokenType::Plus) {
+            if ((left_t->is_string() || right_t->is_string()) && bin->op == TokenType::Plus) {
+                if (!left_t->is_string() || !right_t->is_string()) {
+                    m_diagnostics.report_error("E3063", "String concatenation requires String operands; EngineScript has no implicit text conversion", bin->span);
+                    m_node_types[bin] = m_type_error;
+                    return m_type_error;
+                }
                 m_node_types[bin] = m_type_string;
                 return m_type_string;
             }
@@ -476,14 +1080,24 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Logical
         if (bin->op == TokenType::AmpAmp || bin->op == TokenType::PipePipe) {
+            if ((!left_t->is_bool() && !left_t->is_error()) || (!right_t->is_bool() && !right_t->is_error())) {
+                m_diagnostics.report_error("E3064", "Logical operators require Bool operands", bin->span);
+            }
             m_node_types[bin] = m_type_bool;
             return m_type_bool;
         }
 
         // Null coalescing (a ?? b)
         if (bin->op == TokenType::QuestionQuestion) {
+            if (!left_t->is_nullable && !left_t->is_error()) {
+                m_diagnostics.report_error("E3065", "Left operand of the null-coalescing operator must be nullable", bin->left->span);
+            }
             auto unwrapped = std::make_shared<Type>(*left_t);
             unwrapped->is_nullable = false;
+            if (!right_t->is_assignable_to(unwrapped)) {
+                m_diagnostics.report_error("E3066", std::format("Fallback type '{}' is not assignable to '{}'",
+                    right_t->to_string(), unwrapped->to_string()), bin->right->span);
+            }
             m_node_types[bin] = unwrapped;
             return unwrapped;
         }
@@ -503,13 +1117,15 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
     }
 
     if (auto assign = dynamic_cast<AssignmentExpr*>(expr.get())) {
-        if (!dynamic_cast<IdentifierExpr*>(assign->target.get()) && !dynamic_cast<MemberAccessExpr*>(assign->target.get())) {
-            m_diagnostics.report_error("E3043", "Only variables and properties are assignable in the native EngineScript backend", assign->target->span);
+        if (!dynamic_cast<IdentifierExpr*>(assign->target.get()) &&
+            !dynamic_cast<MemberAccessExpr*>(assign->target.get()) &&
+            !dynamic_cast<IndexExpr*>(assign->target.get())) {
+            m_diagnostics.report_error("E3043", "Only variables, properties, and indexed collection elements are assignable", assign->target->span);
             m_node_types[assign] = m_type_error;
             return m_type_error;
         }
         auto target_t = check_expression(assign->target, scope);
-        auto val_t = check_expression(assign->value, scope);
+        auto val_t = check_expression_expected(assign->value, scope, target_t);
         if (auto member = dynamic_cast<MemberAccessExpr*>(assign->target.get())) {
             const auto owner_t = get_type_of_node(member->object.get());
             std::string owner_name = owner_t ? owner_t->name : "";
@@ -604,8 +1220,116 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     if (call->arguments.size() != 1 || !get_type_of_node(call->arguments.front().get())->is_string()) {
                         m_diagnostics.report_error("E3037", "Assets.load requires one String path", call->span);
                     }
-                    auto asset_type = Type::make_generic(TypeKind::Class, "Asset", {});
-                    auto task_type = Type::make_generic(TypeKind::Task, "Task", {asset_type});
+                    std::vector<std::shared_ptr<Type>> asset_arguments;
+                    if (!call->type_arguments.empty()) {
+                        asset_arguments.push_back(resolve_type_annotation(call->type_arguments.front(), scope.get()));
+                    }
+                    auto asset_type = Type::make_generic(TypeKind::Class, "Asset", std::move(asset_arguments));
+                    auto result_type = Type::make_generic(TypeKind::Result, "Result", {asset_type, m_type_string});
+                    auto task_type = Type::make_generic(TypeKind::Task, "Task", {result_type});
+                    m_node_types[call] = task_type;
+                    return task_type;
+                }
+                if (target_t->name == "Events" && mem->member_name == "emit") {
+                    if (!call->type_arguments.empty() || call->arguments.size() != 1) {
+                        m_diagnostics.report_error("E3060", "Events.emit expects exactly one typed event value", call->span);
+                    } else {
+                        const auto event_type = get_type_of_node(call->arguments.front().get());
+                        if (!event_type || event_type->kind != TypeKind::Struct) {
+                            m_diagnostics.report_error("E3061", "Events.emit only accepts an authored struct event", call->span);
+                        }
+                    }
+                    m_node_types[call] = m_type_bool;
+                    return m_type_bool;
+                }
+                if (target_t->name == "Events" && mem->member_name == "next") {
+                    if (call->type_arguments.size() != 1 || !call->arguments.empty()) {
+                        m_diagnostics.report_error("E3062", "Events.next<T>() requires one struct type and no value arguments", call->span);
+                    }
+                    auto event_type = call->type_arguments.empty()
+                        ? m_type_error
+                        : resolve_type_annotation(call->type_arguments.front(), scope.get());
+                    if (!event_type->is_error() && event_type->kind != TypeKind::Struct) {
+                        m_diagnostics.report_error("E3063", "Events.next<T>() requires T to be an authored struct", call->span);
+                    }
+                    auto task_type = Type::make_generic(TypeKind::Task, "Task", {event_type});
+                    m_node_types[call] = task_type;
+                    return task_type;
+                }
+                if (target_t->name == "Jobs" && mem->member_name == "run") {
+                    if (call->type_arguments.size() > 1 || call->arguments.size() != 1) {
+                        m_diagnostics.report_error("E3064", "Jobs.run expects exactly one value-producing closure", call->span);
+                    }
+                    auto work_type = call->arguments.empty()
+                        ? m_type_error
+                        : get_type_of_node(call->arguments.front().get());
+                    if (!work_type || work_type->kind != TypeKind::Function || !work_type->return_type ||
+                        work_type->return_type->kind == TypeKind::Void) {
+                        m_diagnostics.report_error("E3065", "Jobs.run requires a closure that produces a Send value", call->span);
+                        work_type = Type::make_custom(TypeKind::Function, "job");
+                        work_type->return_type = m_type_error;
+                    }
+                    if (work_type->return_type && !work_type->return_type->is_error() &&
+                        !is_send_type(work_type->return_type)) {
+                        m_diagnostics.report_error(
+                            "E3085",
+                            std::format("Jobs.run result type '{}' does not implement Send", work_type->return_type->to_string()),
+                            call->arguments.empty() ? call->span : call->arguments.front()->span
+                        );
+                    }
+                    if (!call->arguments.empty()) {
+                        if (const auto* closure = dynamic_cast<const ArrowFunctionExpr*>(call->arguments.front().get())) {
+                            ClosureCaptureScan capture_scan;
+                            for (const auto& parameter : closure->params) capture_scan.local_names.insert(parameter->name);
+                            scan_capture_expression(closure->body_expr, capture_scan);
+                            scan_capture_statement(closure->body_stmt, capture_scan);
+                            if (capture_scan.captures_this) {
+                                m_diagnostics.report_error(
+                                    "E3086",
+                                    "Jobs.run cannot capture 'this' or ECS-owned state",
+                                    closure->span
+                                );
+                            }
+
+                            std::unordered_set<std::uint64_t> reported_symbols;
+                            for (const IdentifierExpr* identifier : capture_scan.identifiers) {
+                                if (!identifier || capture_scan.local_names.contains(identifier->name)) continue;
+                                const auto symbol = m_resolver.find_symbol_for_node(identifier);
+                                if (!symbol || (symbol->kind != SymbolKind::Variable &&
+                                                symbol->kind != SymbolKind::Parameter &&
+                                                symbol->kind != SymbolKind::Field)) {
+                                    continue;
+                                }
+                                if (!reported_symbols.emplace(symbol->id).second) continue;
+
+                                const auto capture_type = get_type_of_node(identifier);
+                                const bool immutable = symbol->kind == SymbolKind::Parameter || symbol->is_const;
+                                if (symbol->kind == SymbolKind::Field || !immutable || !is_send_type(capture_type)) {
+                                    m_diagnostics.report_error(
+                                        "E3087",
+                                        std::format(
+                                            "Jobs.run capture '{}' must be an immutable Send value; '{}' is not worker-safe",
+                                            identifier->name,
+                                            capture_type ? capture_type->to_string() : std::string{"<unknown>"}
+                                        ),
+                                        identifier->span
+                                    );
+                                }
+                            }
+                        } else {
+                            m_diagnostics.report_error(
+                                "E3088",
+                                "Jobs.run requires an inline closure so captures can be validated",
+                                call->arguments.front()->span
+                            );
+                        }
+                    }
+                    auto result_type = Type::make_generic(
+                        TypeKind::Result,
+                        "Result",
+                        {work_type->return_type, m_type_string}
+                    );
+                    auto task_type = Type::make_generic(TypeKind::Task, "Task", {result_type});
                     m_node_types[call] = task_type;
                     return task_type;
                 }
@@ -613,6 +1337,9 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 if (target_t->kind == TypeKind::String) catalog_owner = "String";
                 if (target_t->kind == TypeKind::Entity) catalog_owner = "Entity";
                 if (target_t->kind == TypeKind::Array) catalog_owner = "Array";
+                if (target_t->kind == TypeKind::FixedArray) catalog_owner = "FixedArray";
+                if (target_t->kind == TypeKind::Map) catalog_owner = "Map";
+                if (target_t->kind == TypeKind::Set) catalog_owner = "Set";
                 if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(
                         catalog_owner, mem->member_name)) {
                     if (call->arguments.size() < method->min_arguments ||
@@ -631,7 +1358,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                         );
                     }
                     for (std::size_t index = 0; index < call->arguments.size() && index < method->parameters.size(); ++index) {
-                        TypeAnnotation parameter_annotation{method->parameters[index].type};
+                        TypeAnnotation parameter_annotation = parse_type_text(method->parameters[index].type);
                         const auto parameter_type = resolve_type_annotation(parameter_annotation, scope.get());
                         const auto argument_type = get_type_of_node(call->arguments[index].get());
                         if (argument_type && !argument_type->is_assignable_to(parameter_type)) {
@@ -718,9 +1445,106 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 return m_type_void;
             }
 
-            if (mem->member_name == "push" || mem->member_name == "insert" || mem->member_name == "remove") {
-                m_node_types[call] = m_type_void;
-                return m_type_void;
+            if (target_t && (target_t->kind == TypeKind::Array || target_t->kind == TypeKind::Set) &&
+                !target_t->type_args.empty()) {
+                const auto& element_type = target_t->type_args[0];
+                const bool inserts_element =
+                    (target_t->kind == TypeKind::Array && mem->member_name == "push") ||
+                    (target_t->kind == TypeKind::Set && mem->member_name == "add");
+                if (inserts_element) {
+                    if (call->arguments.size() != 1 ||
+                        (call->arguments.size() == 1 && !get_type_of_node(call->arguments[0].get())->is_assignable_to(element_type))) {
+                        m_diagnostics.report_error("E3080", std::format("{}.{} expects one '{}' value",
+                            target_t->name, mem->member_name, element_type->to_string()), call->span);
+                    }
+                    m_node_types[call] = m_type_void;
+                    return m_type_void;
+                }
+                if (mem->member_name == "contains" || mem->member_name == "remove") {
+                    if (call->arguments.size() != 1 ||
+                        (call->arguments.size() == 1 &&
+                         !get_type_of_node(call->arguments[0].get())->is_assignable_to(element_type))) {
+                        m_diagnostics.report_error("E3080", std::format("{}.{} expects one '{}' value",
+                            target_t->name, mem->member_name, element_type->to_string()), call->span);
+                    }
+                    m_node_types[call] = m_type_bool;
+                    return m_type_bool;
+                }
+                if (target_t->kind == TypeKind::Array && mem->member_name == "pop") {
+                    if (!call->arguments.empty()) {
+                        m_diagnostics.report_error("E3080", "Array.pop expects no arguments", call->span);
+                    }
+                    auto result = std::make_shared<Type>(*element_type);
+                    result->is_nullable = true;
+                    m_node_types[call] = result;
+                    return result;
+                }
+                if (mem->member_name == "clear") {
+                    if (!call->arguments.empty()) m_diagnostics.report_error("E3080", std::format("{}.clear expects no arguments", target_t->name), call->span);
+                    m_node_types[call] = m_type_void;
+                    return m_type_void;
+                }
+            }
+            if (target_t && target_t->kind == TypeKind::Map && target_t->type_args.size() == 2) {
+                const auto& key_type = target_t->type_args[0];
+                const auto& value_type = target_t->type_args[1];
+                if (mem->member_name == "set") {
+                    const bool valid_arguments = call->arguments.size() == 2 &&
+                        get_type_of_node(call->arguments[0].get())->is_assignable_to(key_type) &&
+                        get_type_of_node(call->arguments[1].get())->is_assignable_to(value_type);
+                    if (!valid_arguments) {
+                        m_diagnostics.report_error("E3081", std::format("Map.set expects '{}' key and '{}' value",
+                            key_type->to_string(), value_type->to_string()), call->span);
+                    }
+                    m_node_types[call] = m_type_void;
+                    return m_type_void;
+                }
+                if (mem->member_name == "get") {
+                    if (call->arguments.size() != 1 ||
+                        (call->arguments.size() == 1 &&
+                         !get_type_of_node(call->arguments[0].get())->is_assignable_to(key_type))) {
+                        m_diagnostics.report_error("E3081", std::format("Map.get expects one '{}' key",
+                            key_type->to_string()), call->span);
+                    }
+                    auto result = std::make_shared<Type>(*value_type);
+                    result->is_nullable = true;
+                    m_node_types[call] = result;
+                    return result;
+                }
+                if (mem->member_name == "containsKey" || mem->member_name == "remove") {
+                    if (call->arguments.size() != 1 ||
+                        (call->arguments.size() == 1 &&
+                         !get_type_of_node(call->arguments[0].get())->is_assignable_to(key_type))) {
+                        m_diagnostics.report_error("E3081", std::format("Map.{} expects one '{}' key",
+                            mem->member_name, key_type->to_string()), call->span);
+                    }
+                    m_node_types[call] = m_type_bool;
+                    return m_type_bool;
+                }
+                if (mem->member_name == "keys" || mem->member_name == "values") {
+                    if (!call->arguments.empty()) {
+                        m_diagnostics.report_error("E3081", std::format("Map.{} expects no arguments",
+                            mem->member_name), call->span);
+                    }
+                    auto result = Type::make_generic(TypeKind::Array, "Array",
+                        {target_t->type_args[mem->member_name == "keys" ? 0 : 1]});
+                    m_node_types[call] = result;
+                    return result;
+                }
+                if (mem->member_name == "clear") {
+                    if (!call->arguments.empty()) {
+                        m_diagnostics.report_error("E3081", "Map.clear expects no arguments", call->span);
+                    }
+                    m_node_types[call] = m_type_void;
+                    return m_type_void;
+                }
+            }
+            if (target_t && target_t->kind == TypeKind::Weak && mem->member_name == "lock" &&
+                target_t->type_args.size() == 1) {
+                auto result = std::make_shared<Type>(*target_t->type_args[0]);
+                result->is_nullable = true;
+                m_node_types[call] = result;
+                return result;
             }
             if (target_t && target_t->name == "Result" &&
                 (mem->member_name == "success" || mem->member_name == "failure")) {
@@ -824,6 +1648,169 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 m_node_types[call] = callee_t;
                 return callee_t;
             }
+            if (id->name == "Weak") {
+                if (call->type_arguments.size() != 1 || call->arguments.size() != 1) {
+                    m_diagnostics.report_error("E3084", "Weak<T>(value) requires one class type and one strong handle", call->span);
+                }
+                auto value_type = call->type_arguments.empty()
+                    ? m_type_error : resolve_type_annotation(call->type_arguments.front(), scope.get());
+                if (!value_type->is_error() && (value_type->kind != TypeKind::Class || value_type->is_behaviour)) {
+                    m_diagnostics.report_error("E3084", "Weak<T> only supports non-Behaviour class handles", call->span);
+                }
+                if (!call->arguments.empty()) {
+                    const auto actual = get_type_of_node(call->arguments.front().get());
+                    if (actual && !actual->is_assignable_to(value_type)) {
+                        m_diagnostics.report_error("E3084", std::format("Weak<{}> cannot be built from '{}'",
+                            value_type->to_string(), actual->to_string()), call->span);
+                    }
+                }
+                auto weak_type = Type::make_generic(TypeKind::Weak, "Weak", {value_type});
+                m_node_types[call] = weak_type;
+                return weak_type;
+            }
+            const auto called_symbol = scope->lookup(id->name);
+            if (called_symbol) {
+                if (const auto* function = dynamic_cast<const FunctionDecl*>(called_symbol->ast_node.get())) {
+                    std::unordered_map<std::string, std::shared_ptr<Type>> bindings;
+                    if (!call->type_arguments.empty() && call->type_arguments.size() != function->generic_params.size()) {
+                        m_diagnostics.report_error("E3077", std::format("Generic function '{}' expects {} type arguments, got {}",
+                            function->name, function->generic_params.size(), call->type_arguments.size()), call->span);
+                    }
+                    for (std::size_t index = 0; index < call->type_arguments.size() && index < function->generic_params.size(); ++index) {
+                        bindings[function->generic_params[index].name] = resolve_type_annotation(call->type_arguments[index], scope.get());
+                    }
+                    for (std::size_t index = 0; index < call->arguments.size() && index < function->params.size(); ++index) {
+                        const auto& annotation = function->params[index]->type_annotation;
+                        if (std::any_of(function->generic_params.begin(), function->generic_params.end(),
+                            [&annotation](const GenericParam& parameter) { return parameter.name == annotation.name; })) {
+                            const auto argument_type = get_type_of_node(call->arguments[index].get());
+                            const auto [it, inserted] = bindings.emplace(annotation.name, argument_type);
+                            if (!inserted && argument_type && !argument_type->is_assignable_to(it->second)) {
+                                m_diagnostics.report_error("E3077", std::format("Cannot infer one '{}' type for generic call", annotation.name), call->arguments[index]->span);
+                            }
+                        }
+                    }
+                    for (const auto& parameter : function->generic_params) {
+                        const auto concrete = bindings.find(parameter.name);
+                        if (concrete == bindings.end()) {
+                            m_diagnostics.report_error("E3077", std::format("Cannot infer generic type '{}' for '{}'", parameter.name, function->name), call->span);
+                            continue;
+                        }
+                        if (parameter.constraint) {
+                            const std::string constraint = parameter.constraint->name;
+                            const auto& type = concrete->second;
+                            bool satisfied = std::find(type->interfaces.begin(), type->interfaces.end(), constraint) != type->interfaces.end();
+                            if (constraint == "Equatable") satisfied = satisfied || type->is_numeric() || type->is_bool() || type->is_string() || type->kind == TypeKind::Enum;
+                            if (constraint == "Ordered") satisfied = satisfied || type->is_numeric() || type->is_string() || type->kind == TypeKind::Enum;
+                            if (constraint == "Send") satisfied = satisfied || type->is_numeric() || type->is_bool() || type->is_string() ||
+                                type->kind == TypeKind::Enum || type->kind == TypeKind::Struct || type->kind == TypeKind::Array ||
+                                type->kind == TypeKind::FixedArray || type->kind == TypeKind::Map || type->kind == TypeKind::Set;
+                            if (!satisfied) {
+                                m_diagnostics.report_error("E3078", std::format("Type '{}' does not satisfy constraint '{}'",
+                                    type->to_string(), constraint), call->span);
+                            }
+                        }
+                    }
+                    std::function<std::shared_ptr<Type>(const TypeAnnotation&)> resolve_bound = [&](const TypeAnnotation& annotation) {
+                        const auto bound = bindings.find(annotation.name);
+                        if (bound != bindings.end() && annotation.generic_args.empty()) return bound->second;
+                        auto resolved = resolve_type_annotation(annotation, scope.get());
+                        if (!annotation.generic_args.empty()) {
+                            resolved = std::make_shared<Type>(*resolved);
+                            resolved->type_args.clear();
+                            for (const auto& argument : annotation.generic_args) {
+                                if (!argument.constant_value) resolved->type_args.push_back(resolve_bound(argument));
+                            }
+                        }
+                        return resolved;
+                    };
+                    for (std::size_t index = 0; index < call->arguments.size() && index < function->params.size(); ++index) {
+                        const auto expected = resolve_bound(function->params[index]->type_annotation);
+                        const auto actual = get_type_of_node(call->arguments[index].get());
+                        if (actual && !actual->is_assignable_to(expected)) {
+                            m_diagnostics.report_error("E3049", std::format("{} argument '{}' expects '{}', got '{}'", function->name,
+                                function->params[index]->name, expected->to_string(), actual->to_string()), call->arguments[index]->span);
+                        }
+                    }
+                    const auto result = function->return_type ? resolve_bound(*function->return_type) : m_type_void;
+                    m_node_types[call] = result;
+                    return result;
+                }
+                if (const auto* class_decl = dynamic_cast<const ClassDecl*>(called_symbol->ast_node.get())) {
+                    if (class_decl->is_behaviour()) {
+                        m_diagnostics.report_error("E3079", std::format("Behaviour '{}' is entity-owned and cannot be constructed", class_decl->name), call->span);
+                    }
+                    const auto& parameters = class_decl->constructor_decl
+                        ? class_decl->constructor_decl->params : std::vector<std::shared_ptr<ParamDecl>>{};
+                    if (call->arguments.size() != parameters.size()) {
+                        m_diagnostics.report_error("E3079", std::format("{} constructor expects {} arguments, got {}",
+                            class_decl->name, parameters.size(), call->arguments.size()), call->span);
+                    }
+                    for (std::size_t index = 0; index < call->arguments.size() && index < parameters.size(); ++index) {
+                        const bool generic_parameter = std::any_of(class_decl->generic_params.begin(), class_decl->generic_params.end(),
+                            [&parameters, index](const GenericParam& candidate) {
+                                return candidate.name == parameters[index]->type_annotation.name;
+                            });
+                        const auto expected = resolve_type_annotation(parameters[index]->type_annotation, scope.get());
+                        const auto actual = get_type_of_node(call->arguments[index].get());
+                        if (!generic_parameter && actual && !actual->is_assignable_to(expected)) {
+                            m_diagnostics.report_error("E3079", std::format("Constructor argument '{}' expects '{}', got '{}'",
+                                parameters[index]->name, expected->to_string(), actual->to_string()), call->arguments[index]->span);
+                        }
+                    }
+                    if (!call->type_arguments.empty() && call->type_arguments.size() != class_decl->generic_params.size()) {
+                        m_diagnostics.report_error("E3077", std::format("Generic class '{}' expects {} type arguments, got {}",
+                            class_decl->name, class_decl->generic_params.size(), call->type_arguments.size()), call->span);
+                    }
+                    TypeAnnotation constructed_annotation{class_decl->name};
+                    constructed_annotation.generic_args = call->type_arguments;
+                    if (constructed_annotation.generic_args.empty() && !class_decl->generic_params.empty()) {
+                        std::unordered_map<std::string, TypeAnnotation> inferred;
+                        for (std::size_t index = 0; index < call->arguments.size() && index < parameters.size(); ++index) {
+                            const std::string& parameter_name = parameters[index]->type_annotation.name;
+                            const auto generic = std::find_if(class_decl->generic_params.begin(), class_decl->generic_params.end(),
+                                [&parameter_name](const GenericParam& candidate) { return candidate.name == parameter_name; });
+                            if (generic == class_decl->generic_params.end()) continue;
+                            const auto argument_type = get_type_of_node(call->arguments[index].get());
+                            if (argument_type) inferred.emplace(parameter_name, parse_type_text(argument_type->to_string()));
+                        }
+                        for (const auto& generic : class_decl->generic_params) {
+                            if (const auto found = inferred.find(generic.name); found != inferred.end()) {
+                                constructed_annotation.generic_args.push_back(found->second);
+                            }
+                        }
+                    }
+                    auto result = resolve_type_annotation(constructed_annotation, scope.get());
+                    for (std::size_t index = 0;
+                         index < class_decl->generic_params.size() && index < result->type_args.size(); ++index) {
+                        const auto& parameter = class_decl->generic_params[index];
+                        if (!parameter.constraint) continue;
+                        const auto& concrete = result->type_args[index];
+                        const std::string& constraint = parameter.constraint->name;
+                        bool satisfied = std::find(
+                            concrete->interfaces.begin(), concrete->interfaces.end(), constraint
+                        ) != concrete->interfaces.end();
+                        if (constraint == "Send") satisfied = satisfied || is_send_type(concrete);
+                        if (constraint == "Equatable") {
+                            satisfied = satisfied || concrete->is_numeric() || concrete->is_bool() ||
+                                concrete->is_string() || concrete->kind == TypeKind::Enum;
+                        }
+                        if (constraint == "Ordered") {
+                            satisfied = satisfied || concrete->is_numeric() || concrete->is_string() ||
+                                concrete->kind == TypeKind::Enum;
+                        }
+                        if (!satisfied) {
+                            m_diagnostics.report_error(
+                                "E3078",
+                                std::format("Type '{}' does not satisfy constraint '{}'", concrete->to_string(), constraint),
+                                call->span
+                            );
+                        }
+                    }
+                    m_node_types[call] = result;
+                    return result;
+                }
+            }
             if (callee_t && callee_t->name == "Log") {
                 if (call->arguments.size() != 1) {
                     m_diagnostics.report_error(
@@ -861,7 +1848,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 }
                 for (std::size_t index = 0;
                      index < call->arguments.size() && index < function->parameters.size(); ++index) {
-                    TypeAnnotation parameter_annotation{function->parameters[index].type};
+                    TypeAnnotation parameter_annotation = parse_type_text(function->parameters[index].type);
                     const auto parameter_type = resolve_type_annotation(parameter_annotation, scope.get());
                     const auto argument_type = get_type_of_node(call->arguments[index].get());
                     if (argument_type && !argument_type->is_assignable_to(parameter_type)) {
@@ -876,7 +1863,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 }
                 if (id->name != "delay" && id->name != "realDelay" &&
                     id->name != "nextFrame" && id->name != "fixedUpdate") {
-                    TypeAnnotation return_annotation{function->return_type};
+                    TypeAnnotation return_annotation = parse_type_text(function->return_type);
                     auto return_type = resolve_type_annotation(return_annotation, scope.get());
                     m_node_types[call] = return_type;
                     return return_type;
@@ -916,15 +1903,33 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
     if (auto mem = dynamic_cast<MemberAccessExpr*>(expr.get())) {
         auto obj_t = check_expression(mem->object, scope);
 
+        if (obj_t->is_nullable && !mem->is_optional && !obj_t->is_error()) {
+            m_diagnostics.report_error("E3067", std::format("Nullable value '{}' requires optional access '?.' or a null check",
+                obj_t->to_string()), mem->span);
+        }
+
         std::string catalog_owner = obj_t->name;
         if (obj_t->kind == TypeKind::String) catalog_owner = "String";
         if (obj_t->kind == TypeKind::Entity) catalog_owner = "Entity";
+        if (obj_t->kind == TypeKind::Vec2) catalog_owner = "Vec2";
+        if (obj_t->kind == TypeKind::Vec3) catalog_owner = "Vec3";
+        if (obj_t->kind == TypeKind::Vec4) catalog_owner = "Vec4";
+        if (obj_t->kind == TypeKind::Color) catalog_owner = "Color";
         if (obj_t->kind == TypeKind::Array) catalog_owner = "Array";
+        if (obj_t->kind == TypeKind::FixedArray) catalog_owner = "FixedArray";
+        if (obj_t->kind == TypeKind::Map) catalog_owner = "Map";
+        if (obj_t->kind == TypeKind::Set) catalog_owner = "Set";
+        if ((obj_t->kind == TypeKind::Array || obj_t->kind == TypeKind::FixedArray ||
+             obj_t->kind == TypeKind::Map || obj_t->kind == TypeKind::Set) &&
+            (mem->member_name == "length" || mem->member_name == "size")) {
+            m_node_types[mem] = m_type_int;
+            return m_type_int;
+        }
         if (const ApiPropertyDescriptor* property = ApiCatalog::instance().find_available_property(catalog_owner, mem->member_name)) {
             if (!property->readable) {
                 m_diagnostics.report_error("E3046", std::format("{}.{} is write-only", catalog_owner, mem->member_name), mem->span);
             }
-            TypeAnnotation annotation{property->type};
+            TypeAnnotation annotation = parse_type_text(property->type);
             auto property_type = resolve_type_annotation(annotation, scope.get());
             property_type->is_nullable = property->nullable;
             m_node_types[mem] = property_type;
@@ -935,11 +1940,11 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         // instead of reporting them as missing class fields.
         if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(catalog_owner, mem->member_name)) {
             auto function_type = Type::make_custom(TypeKind::Function, mem->member_name);
-            TypeAnnotation return_annotation{method->return_type};
+            TypeAnnotation return_annotation = parse_type_text(method->return_type);
             function_type->return_type = resolve_type_annotation(return_annotation, scope.get());
             function_type->return_type->is_nullable = method->nullable_return;
             for (const auto& parameter : method->parameters) {
-                TypeAnnotation parameter_annotation{parameter.type};
+                TypeAnnotation parameter_annotation = parse_type_text(parameter.type);
                 function_type->param_types.push_back(resolve_type_annotation(parameter_annotation, scope.get()));
             }
             m_node_types[mem] = function_type;
@@ -962,18 +1967,94 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             m_node_types[mem] = function_type;
             return function_type;
         }
+        const bool collection_method =
+            (obj_t->kind == TypeKind::Array &&
+             (mem->member_name == "push" || mem->member_name == "contains" ||
+              mem->member_name == "remove" || mem->member_name == "pop" || mem->member_name == "clear")) ||
+            (obj_t->kind == TypeKind::Set &&
+             (mem->member_name == "add" || mem->member_name == "contains" ||
+              mem->member_name == "remove" || mem->member_name == "clear")) ||
+            (obj_t->kind == TypeKind::Map &&
+             (mem->member_name == "set" || mem->member_name == "get" ||
+              mem->member_name == "containsKey" || mem->member_name == "remove" ||
+              mem->member_name == "keys" || mem->member_name == "values" ||
+              mem->member_name == "clear"));
+        if (collection_method) {
+            auto function_type = Type::make_custom(TypeKind::Function, mem->member_name);
+            function_type->return_type = m_type_void;
+            m_node_types[mem] = function_type;
+            return function_type;
+        }
         if (obj_t->name == "Assets" && mem->member_name == "load") {
             auto function_type = Type::make_custom(TypeKind::Function, "load");
             auto asset_type = Type::make_custom(TypeKind::Class, "Asset");
-            function_type->return_type = Type::make_generic(TypeKind::Task, "Task", {asset_type});
+            auto result_type = Type::make_generic(TypeKind::Result, "Result", {asset_type, m_type_string});
+            function_type->return_type = Type::make_generic(TypeKind::Task, "Task", {result_type});
             function_type->param_types.push_back(m_type_string);
             m_node_types[mem] = function_type;
             return function_type;
         }
+        if (obj_t->name == "Events" && (mem->member_name == "emit" || mem->member_name == "next")) {
+            auto function_type = Type::make_custom(TypeKind::Function, mem->member_name);
+            function_type->return_type = mem->member_name == "emit"
+                ? m_type_bool
+                : Type::make_generic(TypeKind::Task, "Task", {m_type_error});
+            m_node_types[mem] = function_type;
+            return function_type;
+        }
+        if (obj_t->name == "Jobs" && mem->member_name == "run") {
+            auto function_type = Type::make_custom(TypeKind::Function, "run");
+            function_type->return_type = Type::make_generic(TypeKind::Task, "Task", {m_type_error});
+            m_node_types[mem] = function_type;
+            return function_type;
+        }
 
-        if (obj_t->kind == TypeKind::Class) {
+        if (obj_t->kind == TypeKind::Enum) {
+            const auto owner = scope->lookup(obj_t->name);
+            if (owner && std::any_of(owner->members.begin(), owner->members.end(),
+                [mem](const auto& member) { return member && member->name == mem->member_name; })) {
+                m_node_types[mem] = obj_t;
+                return obj_t;
+            }
+            m_diagnostics.report_error("E3057", std::format("Enum '{}' has no member '{}'", obj_t->name, mem->member_name), mem->span);
+            m_node_types[mem] = m_type_error;
+            return m_type_error;
+        }
+
+        if (obj_t->kind == TypeKind::Class || obj_t->kind == TypeKind::Struct || obj_t->kind == TypeKind::Interface) {
             const auto owner = scope->lookup(obj_t->name);
             if (owner) {
+                std::unordered_map<std::string, std::shared_ptr<Type>> owner_bindings;
+                const auto bind_owner_parameters = [&](const auto& parameters) {
+                    for (std::size_t index = 0; index < parameters.size() && index < obj_t->type_args.size(); ++index) {
+                        owner_bindings[parameters[index].name] = obj_t->type_args[index];
+                    }
+                };
+                if (const auto* declaration = dynamic_cast<const ClassDecl*>(owner->ast_node.get())) {
+                    bind_owner_parameters(declaration->generic_params);
+                } else if (const auto* declaration = dynamic_cast<const StructDecl*>(owner->ast_node.get())) {
+                    bind_owner_parameters(declaration->generic_params);
+                } else if (const auto* declaration = dynamic_cast<const InterfaceDecl*>(owner->ast_node.get())) {
+                    bind_owner_parameters(declaration->generic_params);
+                }
+                std::function<std::shared_ptr<Type>(const TypeAnnotation&)> resolve_owner_type =
+                    [&](const TypeAnnotation& annotation) {
+                        if (const auto bound = owner_bindings.find(annotation.name);
+                            bound != owner_bindings.end() && annotation.generic_args.empty()) {
+                            auto result = std::make_shared<Type>(*bound->second);
+                            result->is_nullable = annotation.is_nullable;
+                            return result;
+                        }
+                        auto result = resolve_type_annotation(annotation, scope.get());
+                        if (!annotation.generic_args.empty()) {
+                            result = std::make_shared<Type>(*result);
+                            result->type_args.clear();
+                            for (const auto& argument : annotation.generic_args) {
+                                if (!argument.constant_value) result->type_args.push_back(resolve_owner_type(argument));
+                            }
+                        }
+                        return result;
+                    };
                 const auto member = std::find_if(
                     owner->members.begin(), owner->members.end(),
                     [mem](const std::shared_ptr<Symbol>& candidate) {
@@ -992,16 +2073,16 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                         auto function_type = Type::make_custom(TypeKind::Function, mem->member_name);
                         if (const auto* method = dynamic_cast<const MethodDecl*>((*member)->ast_node.get())) {
                             function_type->return_type = method->return_type
-                                ? resolve_type_annotation(*method->return_type, scope.get())
+                                ? resolve_owner_type(*method->return_type)
                                 : m_type_void;
                             for (const auto& parameter : method->params) {
                                 function_type->param_types.push_back(
-                                    resolve_type_annotation(parameter->type_annotation, scope.get())
+                                    resolve_owner_type(parameter->type_annotation)
                                 );
                             }
                         } else {
-                            TypeAnnotation annotation{(*member)->type_string};
-                            function_type->return_type = resolve_type_annotation(annotation, scope.get());
+                            TypeAnnotation annotation = parse_type_text((*member)->type_string);
+                            function_type->return_type = resolve_owner_type(annotation);
                         }
                         m_node_types[mem] = function_type;
                         return function_type;
@@ -1009,12 +2090,12 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     std::shared_ptr<Type> field_type;
                     if (const auto* property = dynamic_cast<const PropertyDecl*>((*member)->ast_node.get())) {
                         field_type = property->type_annotation
-                            ? resolve_type_annotation(*property->type_annotation, scope.get())
+                            ? resolve_owner_type(*property->type_annotation)
                             : get_type_of_node(property);
                     }
                     if (!field_type || field_type->is_error()) {
-                        TypeAnnotation annotation{(*member)->type_string};
-                        field_type = resolve_type_annotation(annotation, scope.get());
+                        TypeAnnotation annotation = parse_type_text((*member)->type_string);
+                        field_type = resolve_owner_type(annotation);
                     }
                     if (mem->is_optional) {
                         field_type = std::make_shared<Type>(*field_type);
@@ -1033,48 +2114,124 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             return m_type_error;
         }
 
-        auto field_t = m_type_float;
-        if (mem->is_optional) {
-            auto opt_t = std::make_shared<Type>(*field_t);
-            opt_t->is_nullable = true;
-            m_node_types[mem] = opt_t;
-            return opt_t;
-        }
-        m_node_types[mem] = field_t;
-        return field_t;
+        m_diagnostics.report_error("E3057", std::format("Type '{}' has no member '{}'", obj_t->to_string(), mem->member_name), mem->span);
+        m_node_types[mem] = m_type_error;
+        return m_type_error;
     }
 
     if (auto idx = dynamic_cast<IndexExpr*>(expr.get())) {
         auto obj_t = check_expression(idx->object, scope);
         auto idx_t = check_expression(idx->index, scope);
 
-        if (obj_t->kind == TypeKind::Array && !obj_t->type_args.empty()) {
+        if ((obj_t->kind == TypeKind::Array || obj_t->kind == TypeKind::FixedArray) && !obj_t->type_args.empty()) {
+            if (!idx_t->is_integer() && !idx_t->is_error()) {
+                m_diagnostics.report_error("E3075", "Array indices must be integers", idx->index->span);
+            }
             m_node_types[idx] = obj_t->type_args[0];
             return obj_t->type_args[0];
         }
         if (obj_t->kind == TypeKind::Map && obj_t->type_args.size() == 2) {
-            m_node_types[idx] = obj_t->type_args[1];
-            return obj_t->type_args[1];
+            if (!idx_t->is_assignable_to(obj_t->type_args[0])) {
+                m_diagnostics.report_error("E3075", std::format("Map key expects '{}', got '{}'",
+                    obj_t->type_args[0]->to_string(), idx_t->to_string()), idx->index->span);
+            }
+            auto value = std::make_shared<Type>(*obj_t->type_args[1]);
+            value->is_nullable = true;
+            m_node_types[idx] = value;
+            return value;
         }
         m_node_types[idx] = m_type_error;
         return m_type_error;
     }
 
     if (auto arr = dynamic_cast<ArrayLiteralExpr*>(expr.get())) {
-        std::shared_ptr<Type> elem_t = m_type_void;
+        std::shared_ptr<Type> elem_t = m_type_error;
         for (const auto& el : arr->elements) {
-            elem_t = check_expression(el, scope);
+            const auto current = check_expression(el, scope);
+            if (elem_t->is_error()) elem_t = current;
+            else if (!current->is_assignable_to(elem_t) && !elem_t->is_assignable_to(current)) {
+                m_diagnostics.report_error("E3072", std::format("Array literal mixes incompatible element types '{}' and '{}'",
+                    elem_t->to_string(), current->to_string()), el->span);
+                elem_t = m_type_error;
+            } else if (elem_t->is_assignable_to(current)) {
+                elem_t = current;
+            }
         }
         auto arr_t = Type::make_generic(TypeKind::Array, "Array", {elem_t});
         m_node_types[arr] = arr_t;
         return arr_t;
     }
 
-    if (dynamic_cast<ObjectLiteralExpr*>(expr.get()) ||
-        dynamic_cast<ArrowFunctionExpr*>(expr.get()) || dynamic_cast<ThisExpr*>(expr.get())) {
-        m_diagnostics.report_error("E3042", "This expression is parsed but not supported by the native EngineScript backend", expr->span);
-        m_node_types[expr.get()] = m_type_error;
-        return m_type_error;
+    if (auto collection = dynamic_cast<CollectionLiteralExpr*>(expr.get())) {
+        if (collection->kind == CollectionLiteralExpr::Kind::Map) {
+            std::shared_ptr<Type> key_type = m_type_error;
+            std::shared_ptr<Type> value_type = m_type_error;
+            for (const auto& [key, value] : collection->map_entries) {
+                const auto current_key = check_expression(key, scope);
+                const auto current_value = check_expression(value, scope);
+                if (key_type->is_error()) key_type = current_key;
+                else if (!current_key->is_assignable_to(key_type)) {
+                    m_diagnostics.report_error("E3073", "Map literal keys must have one compatible type", key->span);
+                }
+                if (value_type->is_error()) value_type = current_value;
+                else if (!current_value->is_assignable_to(value_type)) {
+                    m_diagnostics.report_error("E3073", "Map literal values must have one compatible type", value->span);
+                }
+            }
+            auto type = Type::make_generic(TypeKind::Map, "Map", {key_type, value_type});
+            m_node_types[collection] = type;
+            return type;
+        }
+        std::shared_ptr<Type> element_type = m_type_error;
+        for (const auto& element : collection->elements) {
+            const auto current = check_expression(element, scope);
+            if (element_type->is_error()) element_type = current;
+            else if (!current->is_assignable_to(element_type)) {
+                m_diagnostics.report_error("E3073", "Collection literal elements must have one compatible type", element->span);
+            }
+        }
+        const TypeKind kind = collection->kind == CollectionLiteralExpr::Kind::Set
+            ? TypeKind::Set : TypeKind::FixedArray;
+        auto type = Type::make_generic(kind, kind == TypeKind::Set ? "Set" : "FixedArray", {element_type});
+        if (kind == TypeKind::FixedArray) type->fixed_array_size = collection->elements.size();
+        m_node_types[collection] = type;
+        return type;
+    }
+
+    if (auto object = dynamic_cast<ObjectLiteralExpr*>(expr.get())) {
+        return check_object_literal(*object, scope, nullptr);
+    }
+
+    if (auto arrow = dynamic_cast<ArrowFunctionExpr*>(expr.get())) {
+        auto type = Type::make_custom(TypeKind::Function, "<closure>");
+        auto function_scope = std::make_shared<Scope>(ScopeKind::Function, scope);
+        for (const auto& parameter : arrow->params) {
+            const auto parameter_type = resolve_type_annotation(parameter->type_annotation, scope.get());
+            type->param_types.push_back(parameter_type);
+            auto symbol = std::make_shared<Symbol>();
+            symbol->name = parameter->name;
+            symbol->kind = SymbolKind::Parameter;
+            symbol->type_string = parameter->type_annotation.to_string();
+            function_scope->define(symbol);
+        }
+        if (arrow->body_expr) type->return_type = check_expression(arrow->body_expr, function_scope);
+        else {
+            type->return_type = arrow->return_type
+                ? resolve_type_annotation(*arrow->return_type, scope.get()) : m_type_void;
+            check_statement(arrow->body_stmt, function_scope, type->return_type, false);
+        }
+        m_node_types[arrow] = type;
+        return type;
+    }
+
+    if (auto self = dynamic_cast<ThisExpr*>(expr.get())) {
+        if (!m_current_self_type) {
+            m_diagnostics.report_error("E3042", "'this' is only valid in an instance member", self->span);
+            m_node_types[self] = m_type_error;
+            return m_type_error;
+        }
+        m_node_types[self] = m_current_self_type;
+        return m_current_self_type;
     }
 
     if (auto aw = dynamic_cast<AwaitExpr*>(expr.get())) {
@@ -1083,8 +2240,9 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             m_node_types[aw] = op_t->type_args[0];
             return op_t->type_args[0];
         }
-        m_node_types[aw] = m_type_void;
-        return m_type_void;
+        if (!op_t->is_error()) m_diagnostics.report_error("E3076", std::format("Type '{}' is not awaitable", op_t->to_string()), aw->span);
+        m_node_types[aw] = m_type_error;
+        return m_type_error;
     }
 
     return m_type_error;

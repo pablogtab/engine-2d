@@ -24,6 +24,13 @@ public:
     std::string on_hover(const std::string& id, const std::string& uri, uint32_t line, uint32_t character);
     std::string on_definition(const std::string& id, const std::string& uri, uint32_t line, uint32_t character);
     std::string on_signature_help(const std::string& id, const std::string& uri, uint32_t line, uint32_t character);
+    std::string on_references(const std::string& id, const std::string& uri, uint32_t line, uint32_t character);
+    std::string on_rename(const std::string& id, const std::string& uri, uint32_t line, uint32_t character, const std::string& new_name);
+    std::string on_formatting(const std::string& id, const std::string& uri);
+    std::string on_code_action(const std::string& id, const std::string& uri, const std::string& params_json);
+    std::string on_workspace_symbol(const std::string& id, const std::string& query);
+    std::string on_semantic_tokens(const std::string& id, const std::string& uri);
+    std::string on_inlay_hints(const std::string& id, const std::string& uri);
     void on_watched_files_changed(const std::string& params_json);
 
     const EngineScriptWorkspace& workspace() const { return m_workspace; }

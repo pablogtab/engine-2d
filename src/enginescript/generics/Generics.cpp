@@ -1,5 +1,6 @@
 #include "Generics.hpp"
 #include <sstream>
+#include <algorithm>
 
 namespace EngineScript {
 
@@ -17,13 +18,26 @@ std::string GenericsManager::mangle_name(const std::string& template_name, const
     return ss.str();
 }
 
-std::string GenericsManager::request_instantiation(const std::string& template_name, const std::vector<std::string>& type_args) {
+std::string GenericsManager::instantiation_key(const std::string& template_name, const std::vector<std::string>& type_args) {
     std::string key = template_name + "<";
     for (size_t i = 0; i < type_args.size(); ++i) {
         key += type_args[i];
         if (i + 1 < type_args.size()) key += ",";
     }
     key += ">";
+    return key;
+}
+
+bool GenericsManager::begin_instantiation(const std::string& template_name, const std::vector<std::string>& type_args) {
+    return m_active_instantiations.emplace(instantiation_key(template_name, type_args)).second;
+}
+
+void GenericsManager::end_instantiation(const std::string& template_name, const std::vector<std::string>& type_args) {
+    m_active_instantiations.erase(instantiation_key(template_name, type_args));
+}
+
+std::string GenericsManager::request_instantiation(const std::string& template_name, const std::vector<std::string>& type_args) {
+    const std::string key = instantiation_key(template_name, type_args);
 
     auto it = m_instantiation_map.find(key);
     if (it != m_instantiation_map.end()) {
@@ -37,6 +51,10 @@ std::string GenericsManager::request_instantiation(const std::string& template_n
     inst.mangled_name = mangled;
 
     m_instantiations.push_back(inst);
+    std::sort(m_instantiations.begin(), m_instantiations.end(), [](const auto& left, const auto& right) {
+        if (left.template_name != right.template_name) return left.template_name < right.template_name;
+        return left.type_args < right.type_args;
+    });
     m_instantiation_map[key] = mangled;
     return mangled;
 }

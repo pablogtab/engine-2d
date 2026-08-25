@@ -39,7 +39,10 @@ enum class TypeKind {
     Optional,
     Result,
     Task,
+    Weak,
+    TaskScope,
     Function,
+    TypeParameter,
     Null,
     Error
 };

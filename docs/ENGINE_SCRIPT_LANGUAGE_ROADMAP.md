@@ -1,9 +1,11 @@
 # EngineScript Language and Compiler Roadmap
 
-> **Status:** active implementation. EngineScript is the selected gameplay
-> architecture. The compiler frontend, TypedIR, C++ emitter, Play Mode adapter,
-> metadata, cache, LSP, and local platformer gates are implemented. Native
-> export and cross-platform validation remain open.
+> **Status:** EngineScript 2.0 implementation increment. The public contract is
+> language version 2, ABI/SDK 25, and compiler cache identity
+> `enginescript_codegen_v2`. Frontend, structured TypedIR, C++ emission,
+> runtime services, deterministic collections, typed events, scoped async work,
+> LSP, and the VS Code 2.0 extension advance through one macOS acceptance gate.
+> Windows and iOS validation remain separate non-blocking platform work.
 
 `EngineScript` and the `.e2s` extension are the current product contract.
 
@@ -282,8 +284,10 @@ syntax are intentionally excluded; `as` remains an import-alias keyword.
   references.
 - Raw pointers and manual allocation are excluded from the initial language.
 
-The exact class ownership model is an R0 decision and must be proven against
-cycles, hot reload, and module unload before syntax is finalized.
+Authored classes are strong reference-counted handles. `Weak<T>` breaks cycles
+and `lock()` returns `T?`; behaviours remain entity-owned and cannot be
+constructed. Hot reload and module unload cancel behaviour task scopes before
+releasing script instances.
 
 ### 4.3 Collections
 

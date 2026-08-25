@@ -15,6 +15,7 @@ struct ApiTypeDescriptor {
     std::string name;
     std::string documentation;
     bool value_type{false};
+    bool is_interface{false};
     ApiAvailability availability{ApiAvailability::Available};
 };
 

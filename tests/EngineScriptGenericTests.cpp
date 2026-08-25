@@ -26,6 +26,17 @@ int main() {
     assert(m4.find("Result_Array_ItemSlot__String") != std::string::npos);
     assert(manager.instantiation_count() == 3);
 
+    // Emission order is independent of request order and recursive expansion
+    // reports a cycle before unbounded monomorphization.
+    GenericsManager deterministic;
+    deterministic.request_instantiation("Zed", {"Int"});
+    deterministic.request_instantiation("Alpha", {"String"});
+    assert(deterministic.all_instantiations().front().template_name == "Alpha");
+    assert(deterministic.begin_instantiation("Node", {"Int"}));
+    assert(!deterministic.begin_instantiation("Node", {"Int"}));
+    deterministic.end_instantiation("Node", {"Int"});
+    assert(deterministic.begin_instantiation("Node", {"Int"}));
+
     std::cout << "[PASS] EngineScriptGenericTests passed!\n";
     return 0;
 }

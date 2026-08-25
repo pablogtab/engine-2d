@@ -19,11 +19,12 @@ enum class AccessModifier {
 struct TypeAnnotation {
     std::string name;
     std::vector<TypeAnnotation> generic_args;
+    std::optional<int64_t> constant_value;
     bool is_nullable = false;
     SourceSpan span;
 
     std::string to_string() const {
-        std::string s = name;
+        std::string s = constant_value ? std::to_string(*constant_value) : name;
         if (!generic_args.empty()) {
             s += "<";
             for (size_t i = 0; i < generic_args.size(); ++i) {
@@ -109,6 +110,13 @@ struct ArrayLiteralExpr : public Expression {
     std::vector<std::shared_ptr<Expression>> elements;
 };
 
+struct CollectionLiteralExpr : public Expression {
+    enum class Kind { Map, Set, FixedArray };
+    Kind kind = Kind::Set;
+    std::vector<std::pair<std::shared_ptr<Expression>, std::shared_ptr<Expression>>> map_entries;
+    std::vector<std::shared_ptr<Expression>> elements;
+};
+
 struct ObjectEntry {
     std::string key;
     std::shared_ptr<Expression> value;
@@ -125,6 +133,12 @@ struct AwaitExpr : public Expression {
 
 struct ParamDecl;
 struct Statement;
+
+struct GenericParam {
+    std::string name;
+    std::optional<TypeAnnotation> constraint;
+    SourceSpan span;
+};
 
 struct ArrowFunctionExpr : public Expression {
     std::vector<std::shared_ptr<ParamDecl>> params;
@@ -231,7 +245,7 @@ struct MethodDecl : public Declaration {
     bool is_override = false;
     bool is_async = false;
     std::string name;
-    std::vector<std::string> generic_params;
+    std::vector<GenericParam> generic_params;
     std::vector<std::shared_ptr<ParamDecl>> params;
     std::optional<TypeAnnotation> return_type;
     std::shared_ptr<BlockStmt> body;
@@ -244,7 +258,7 @@ struct ConstructorDecl : public Declaration {
 
 struct ClassDecl : public Declaration {
     std::string name;
-    std::vector<std::string> generic_params;
+    std::vector<GenericParam> generic_params;
     std::optional<TypeAnnotation> base_class;
     std::vector<TypeAnnotation> interfaces;
 
@@ -262,14 +276,15 @@ struct ClassDecl : public Declaration {
 
 struct StructDecl : public Declaration {
     std::string name;
-    std::vector<std::string> generic_params;
+    std::vector<GenericParam> generic_params;
+    std::vector<TypeAnnotation> interfaces;
     std::vector<std::shared_ptr<PropertyDecl>> properties;
     std::vector<std::shared_ptr<MethodDecl>> methods;
 };
 
 struct InterfaceMember : public ASTNode {
     std::string name;
-    std::vector<std::string> generic_params;
+    std::vector<GenericParam> generic_params;
     std::vector<std::shared_ptr<ParamDecl>> params;
     TypeAnnotation return_type;
     bool is_method = false;
@@ -277,7 +292,7 @@ struct InterfaceMember : public ASTNode {
 
 struct InterfaceDecl : public Declaration {
     std::string name;
-    std::vector<std::string> generic_params;
+    std::vector<GenericParam> generic_params;
     std::vector<TypeAnnotation> extended_interfaces;
     std::vector<InterfaceMember> members;
 };
@@ -297,7 +312,7 @@ struct EnumDecl : public Declaration {
 struct FunctionDecl : public Declaration {
     bool is_async = false;
     std::string name;
-    std::vector<std::string> generic_params;
+    std::vector<GenericParam> generic_params;
     std::vector<std::shared_ptr<ParamDecl>> params;
     std::optional<TypeAnnotation> return_type;
     std::shared_ptr<BlockStmt> body;

@@ -236,12 +236,19 @@ std::shared_ptr<ImportDecl> Parser::parse_import() {
     return imp;
 }
 
-std::vector<std::string> Parser::parse_generic_param_list() {
-    std::vector<std::string> params;
+std::vector<GenericParam> Parser::parse_generic_param_list() {
+    std::vector<GenericParam> params;
     if (match(TokenType::Less)) {
         while (!check(TokenType::Greater) && !is_at_end()) {
             Token p = consume(TokenType::Identifier, "E1030", "Expected generic type parameter name");
-            params.push_back(p.text);
+            GenericParam parameter;
+            parameter.name = p.text;
+            parameter.span = p.span;
+            if (match(TokenType::Extends)) {
+                parameter.constraint = parse_type_annotation();
+                parameter.span = parameter.span.merge(parameter.constraint->span);
+            }
+            params.push_back(std::move(parameter));
             if (!match(TokenType::Comma)) break;
         }
         consume(TokenType::Greater, "E1031", "Expected '>' to close generic parameter list");
@@ -257,7 +264,15 @@ TypeAnnotation Parser::parse_type_annotation() {
 
     if (match(TokenType::Less)) {
         while (!check(TokenType::Greater) && !is_at_end()) {
-            type_annot.generic_args.push_back(parse_type_annotation());
+            if (check(TokenType::IntegerLiteral)) {
+                TypeAnnotation constant;
+                const Token value = advance();
+                constant.constant_value = value.int_value;
+                constant.span = value.span;
+                type_annot.generic_args.push_back(std::move(constant));
+            } else {
+                type_annot.generic_args.push_back(parse_type_annotation());
+            }
             if (!match(TokenType::Comma)) break;
         }
         Token gt = consume(TokenType::Greater, "E1041", "Expected '>' to close generic type arguments");
@@ -436,6 +451,13 @@ std::shared_ptr<StructDecl> Parser::parse_struct(bool is_exported, std::vector<D
     st->name = name_tok.text;
     st->span = struct_tok.span.merge(name_tok.span);
     st->generic_params = parse_generic_param_list();
+
+    if (match(TokenType::Implements)) {
+        while (!is_at_end()) {
+            st->interfaces.push_back(parse_type_annotation());
+            if (!match(TokenType::Comma)) break;
+        }
+    }
 
     consume(TokenType::OpenBrace, "E1102", "Expected '{' before struct body");
 
@@ -896,9 +918,49 @@ std::shared_ptr<Expression> Parser::parse_primary() {
         return th;
     }
     if (match(TokenType::Identifier)) {
+        const Token identifier = previous();
+        if (identifier.text == "Map" && match(TokenType::OpenBrace)) {
+            auto literal = std::make_shared<CollectionLiteralExpr>();
+            literal->kind = CollectionLiteralExpr::Kind::Map;
+            literal->span = identifier.span.merge(previous().span);
+            while (!check(TokenType::CloseBrace) && !is_at_end()) {
+                auto key = parse_expression();
+                consume(TokenType::Arrow, "E1223", "Expected '=>' between Map key and value");
+                auto value = parse_expression();
+                literal->map_entries.emplace_back(std::move(key), std::move(value));
+                if (!match(TokenType::Comma)) break;
+            }
+            const Token close = consume(TokenType::CloseBrace, "E1224", "Expected '}' after Map literal");
+            literal->span = literal->span.merge(close.span);
+            return literal;
+        }
+        if (identifier.text == "Set" && match(TokenType::OpenBrace)) {
+            auto literal = std::make_shared<CollectionLiteralExpr>();
+            literal->kind = CollectionLiteralExpr::Kind::Set;
+            literal->span = identifier.span.merge(previous().span);
+            while (!check(TokenType::CloseBrace) && !is_at_end()) {
+                literal->elements.push_back(parse_expression());
+                if (!match(TokenType::Comma)) break;
+            }
+            const Token close = consume(TokenType::CloseBrace, "E1225", "Expected '}' after Set literal");
+            literal->span = literal->span.merge(close.span);
+            return literal;
+        }
+        if (identifier.text == "FixedArray" && match(TokenType::OpenBracket)) {
+            auto literal = std::make_shared<CollectionLiteralExpr>();
+            literal->kind = CollectionLiteralExpr::Kind::FixedArray;
+            literal->span = identifier.span.merge(previous().span);
+            while (!check(TokenType::CloseBracket) && !is_at_end()) {
+                literal->elements.push_back(parse_expression());
+                if (!match(TokenType::Comma)) break;
+            }
+            const Token close = consume(TokenType::CloseBracket, "E1226", "Expected ']' after FixedArray literal");
+            literal->span = literal->span.merge(close.span);
+            return literal;
+        }
         auto id = std::make_shared<IdentifierExpr>();
-        id->name = previous().text;
-        id->span = previous().span;
+        id->name = identifier.text;
+        id->span = identifier.span;
         return id;
     }
     if (match(TokenType::OpenBracket)) {
@@ -935,42 +997,33 @@ std::shared_ptr<Expression> Parser::parse_primary() {
         return obj;
     }
     if (match(TokenType::OpenParen)) {
-        // Could be grouped expression (a + b) or arrow function () => ...
+        // Could be grouped expression or an arrow function parameter list.
         Token open_tok = previous();
 
-        // Check if next is ')' followed by '=>'
-        if (match(TokenType::CloseParen)) {
-            if (match(TokenType::Arrow)) {
-                auto arrow = std::make_shared<ArrowFunctionExpr>();
-                arrow->span = open_tok.span;
-                if (check(TokenType::OpenBrace)) {
-                    arrow->body_stmt = parse_block();
-                    arrow->span = arrow->span.merge(arrow->body_stmt->span);
-                } else {
-                    arrow->body_expr = parse_expression();
-                    arrow->span = arrow->span.merge(arrow->body_expr ? arrow->body_expr->span : open_tok.span);
-                }
-                return arrow;
-            }
+        std::size_t cursor = m_current;
+        int depth = 1;
+        while (cursor < m_tokens.size() && depth > 0) {
+            if (m_tokens[cursor].is(TokenType::OpenParen)) ++depth;
+            else if (m_tokens[cursor].is(TokenType::CloseParen)) --depth;
+            ++cursor;
+        }
+        const bool is_arrow = depth == 0 && cursor < m_tokens.size() && m_tokens[cursor].is(TokenType::Arrow);
+        if (is_arrow) {
+            auto arrow = std::make_shared<ArrowFunctionExpr>();
+            arrow->span = open_tok.span;
+            if (!check(TokenType::CloseParen)) arrow->params = parse_param_list(false);
+            consume(TokenType::CloseParen, "E1230", "Expected ')' after arrow parameters");
+            consume(TokenType::Arrow, "E1231", "Expected '=>' after arrow parameters");
+            if (check(TokenType::OpenBrace)) arrow->body_stmt = parse_block();
+            else arrow->body_expr = parse_expression();
+            const SourceSpan end = arrow->body_stmt ? arrow->body_stmt->span :
+                (arrow->body_expr ? arrow->body_expr->span : open_tok.span);
+            arrow->span = arrow->span.merge(end);
+            return arrow;
         }
 
         auto inner = parse_expression();
         Token close_tok = consume(TokenType::CloseParen, "E1230", "Expected ')'");
-
-        // Check for arrow function with params (x: Float) => ...
-        if (match(TokenType::Arrow)) {
-            auto arrow = std::make_shared<ArrowFunctionExpr>();
-            arrow->span = open_tok.span;
-            if (check(TokenType::OpenBrace)) {
-                arrow->body_stmt = parse_block();
-                arrow->span = arrow->span.merge(arrow->body_stmt->span);
-            } else {
-                arrow->body_expr = parse_expression();
-                arrow->span = arrow->span.merge(arrow->body_expr ? arrow->body_expr->span : open_tok.span);
-            }
-            return arrow;
-        }
-
         if (inner) inner->span = open_tok.span.merge(close_tok.span);
         return inner;
     }
@@ -1044,7 +1097,8 @@ std::shared_ptr<Expression> Parser::parse_postfix(std::shared_ptr<Expression> ex
             Token close_tok = consume(TokenType::CloseParen, "E1252", "Expected ')'");
             call->span = call->span.merge(close_tok.span);
             expr = call;
-        } else if (check(TokenType::Less) && dynamic_cast<MemberAccessExpr*>(expr.get()) != nullptr &&
+        } else if (check(TokenType::Less) &&
+                   (dynamic_cast<MemberAccessExpr*>(expr.get()) != nullptr || dynamic_cast<IdentifierExpr*>(expr.get()) != nullptr) &&
                    looks_like_generic_call()) {
             // Generic call arguments are only unambiguous in postfix position
             // when immediately followed by a call, e.g. assets.load<Texture>(path).

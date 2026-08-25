@@ -5,6 +5,8 @@
 #include <functional>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <atomic>
 #include <type_traits>
 
 namespace EngineScript {
@@ -30,6 +32,17 @@ public:
     uint64_t schedule_real_delay(float seconds, std::function<void()> callback, uint32_t scope_id = 0);
     uint64_t schedule_next_frame(std::function<void()> callback, uint32_t scope_id = 0);
     uint64_t schedule_fixed_update(std::function<void()> callback, uint32_t scope_id = 0);
+
+    uint64_t post_next_frame(std::function<void()> callback, uint32_t scope_id = 0) {
+        ScheduledAction action;
+        action.id = next_action_id();
+        action.scope_id = scope_id;
+        action.is_next_frame = true;
+        action.callback = std::move(callback);
+        const uint64_t id = action.id;
+        enqueue_action(std::move(action));
+        return id;
+    }
 
     void cancel_scope(uint32_t scope_id);
     void cancel_all();
@@ -59,7 +72,7 @@ public:
             action.is_real_time = is_real_time;
             action.coroutine_handle = h;
             action.coroutine_control = h.promise().control;
-            scheduler->m_actions.push_back(std::move(action));
+            scheduler->enqueue_action(std::move(action));
         }
         void await_resume() const noexcept {}
     };
@@ -79,7 +92,7 @@ public:
             action.is_next_frame = true;
             action.coroutine_handle = h;
             action.coroutine_control = h.promise().control;
-            scheduler->m_actions.push_back(std::move(action));
+            scheduler->enqueue_action(std::move(action));
         }
         void await_resume() const noexcept {}
     };
@@ -99,7 +112,7 @@ public:
             action.is_fixed_update = true;
             action.coroutine_handle = h;
             action.coroutine_control = h.promise().control;
-            scheduler->m_actions.push_back(std::move(action));
+            scheduler->enqueue_action(std::move(action));
         }
         void await_resume() const noexcept {}
     };
@@ -122,8 +135,13 @@ public:
 
 private:
     uint64_t next_action_id() { return ++m_id_counter; }
+    void enqueue_action(ScheduledAction action) {
+        std::scoped_lock lock(m_actions_mutex);
+        m_actions.push_back(std::move(action));
+    }
 
-    uint64_t m_id_counter = 0;
+    std::atomic_uint64_t m_id_counter{0};
+    mutable std::mutex m_actions_mutex;
     std::vector<ScheduledAction> m_actions;
 };
 

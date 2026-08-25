@@ -16,6 +16,8 @@ public:
 private:
     IRClass lower_class(const ClassDecl& cls);
     IRStruct lower_struct(const StructDecl& st);
+    IRInterface lower_interface(const InterfaceDecl& interface_decl);
+    IREnum lower_enum(const EnumDecl& enum_decl);
     IRFunction lower_function(const FunctionDecl& fn);
     IRMethod lower_method(const MethodDecl& m);
     IRProperty lower_property(const PropertyDecl& prop);

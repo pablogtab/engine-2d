@@ -57,6 +57,7 @@ ApiCatalog::ApiCatalog() {
             type.at("name").get<std::string>(),
             type.value("documentation", ""),
             type.value("valueType", false),
+            type.value("interface", false),
             parse_availability(type)
         });
     }

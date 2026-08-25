@@ -6,6 +6,8 @@
 #include <vector>
 #include <memory>
 #include <format>
+#include <algorithm>
+#include <optional>
 
 namespace EngineScript {
 
@@ -15,6 +17,9 @@ struct Type : public std::enable_shared_from_this<Type> {
     std::vector<std::shared_ptr<Type>> type_args;
     std::shared_ptr<Type> return_type; // For functions
     std::vector<std::shared_ptr<Type>> param_types; // For functions
+    std::optional<std::size_t> fixed_array_size;
+    std::vector<std::string> interfaces;
+    bool is_behaviour = false;
     bool is_nullable = false;
 
     bool is_numeric() const {
@@ -49,11 +54,22 @@ struct Type : public std::enable_shared_from_this<Type> {
             return false;
         }
 
-        if (kind == target->kind) {
-            if (kind == TypeKind::Class || kind == TypeKind::Struct || kind == TypeKind::Interface || kind == TypeKind::Enum) {
-                return name == target->name;
+        const auto is_nominal = [](TypeKind candidate) {
+            return candidate == TypeKind::Class || candidate == TypeKind::Struct ||
+                candidate == TypeKind::Interface || candidate == TypeKind::Enum;
+        };
+        if (is_nominal(kind) && is_nominal(target->kind) && kind == target->kind && name == target->name) {
+            if (target->type_args.empty()) return true;
+            if (type_args.size() != target->type_args.size()) return false;
+            for (std::size_t index = 0; index < type_args.size(); ++index) {
+                if (!type_args[index]->is_assignable_to(target->type_args[index])) return false;
             }
-            if (kind == TypeKind::Array || kind == TypeKind::Set || kind == TypeKind::Task || kind == TypeKind::Optional) {
+            return true;
+        }
+
+        if (kind == target->kind) {
+            if (kind == TypeKind::Array || kind == TypeKind::Set || kind == TypeKind::Task ||
+                kind == TypeKind::Optional || kind == TypeKind::Weak) {
                 if (type_args.size() == target->type_args.size() && !type_args.empty()) {
                     return type_args[0]->is_assignable_to(target->type_args[0]);
                 }
@@ -64,11 +80,20 @@ struct Type : public std::enable_shared_from_this<Type> {
                            type_args[1]->is_assignable_to(target->type_args[1]);
                 }
             }
+            if (kind == TypeKind::FixedArray) {
+                return fixed_array_size == target->fixed_array_size && type_args.size() == 1 &&
+                    target->type_args.size() == 1 && type_args[0]->is_assignable_to(target->type_args[0]);
+            }
             return true;
         }
 
         if (is_numeric() && target->is_numeric()) {
             return is_implicit_numeric_conversion(kind, target->kind);
+        }
+
+        if (target->kind == TypeKind::Interface &&
+            std::find(interfaces.begin(), interfaces.end(), target->name) != interfaces.end()) {
+            return true;
         }
 
         return false;
@@ -94,12 +119,13 @@ struct Type : public std::enable_shared_from_this<Type> {
             default:                   s = name; break;
         }
 
-        if (!type_args.empty()) {
+        if (!type_args.empty() || (kind == TypeKind::FixedArray && fixed_array_size)) {
             s += "<";
             for (size_t i = 0; i < type_args.size(); ++i) {
                 s += type_args[i]->to_string();
-                if (i + 1 < type_args.size()) s += ", ";
+                if (i + 1 < type_args.size() || fixed_array_size) s += ", ";
             }
+            if (kind == TypeKind::FixedArray && fixed_array_size) s += std::to_string(*fixed_array_size);
             s += ">";
         }
 

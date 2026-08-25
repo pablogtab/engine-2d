@@ -1,6 +1,12 @@
 #pragma once
 
 #include "../async/AsyncScheduler.hpp"
+#include "../async/Jobs.hpp"
+#include "../async/Result.hpp"
+#include "../async/TaskScope.hpp"
+#include "../async/TypedEventBus.hpp"
+#include "../core/LanguageVersion.hpp"
+#include "../runtime/Collections.hpp"
 
 #include <glm/glm.hpp>
 
@@ -21,6 +27,12 @@
 #include <utility>
 
 namespace EngineScript {
+
+template <typename Interface, typename Value>
+[[nodiscard]] std::shared_ptr<Interface> boxInterface(Value value) {
+    static_assert(std::is_base_of_v<Interface, Value>);
+    return std::make_shared<Value>(std::move(value));
+}
 
 namespace StringOps {
 
@@ -58,10 +70,6 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-inline std::string toString(int value) {
-    return std::to_string(value);
-}
-
 template <typename Target, typename Source>
 requires (std::is_arithmetic_v<Target> && std::is_arithmetic_v<Source> &&
           !std::is_same_v<Target, bool> && !std::is_same_v<Source, bool>)
@@ -95,9 +103,6 @@ requires (std::is_arithmetic_v<Target> && std::is_arithmetic_v<Source> &&
         return static_cast<Target>(value);
     }
 }
-
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 24;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v24";
 
 class Input {
 public:
@@ -413,13 +418,6 @@ public:
     [[nodiscard]] virtual std::string lastError() const = 0;
 };
 
-class Events {
-public:
-    virtual ~Events() = default;
-    virtual bool emit(const std::string& name, const std::string& payload = {}) = 0;
-    virtual bool subscribe(const std::string& name) = 0;
-};
-
 class PlayerPrefs {
 public:
     virtual ~PlayerPrefs() = default;
@@ -484,58 +482,16 @@ public:
     virtual ~Assets() = default;
     [[nodiscard]] virtual Asset* find(const std::string& path) = 0;
     [[nodiscard]] virtual bool exists(const std::string& path) const = 0;
-    virtual bool request(const std::string& path) = 0;
-    virtual Task<Asset*> load_resource(const std::string& path, ResourceType type) = 0;
+    virtual Task<Result<Asset*, std::string>> load_resource(const std::string& path, ResourceType type) = 0;
 
     template <typename T>
-    Task<Asset*> load(const std::string& path) {
-        return load_resource(path, resource_type_for<T>);
-    }
+    Task<Result<Asset*, std::string>> load(const std::string& path);
 };
 
-template <typename T, typename E = std::string>
-class Result {
-public:
-    static Result success(T value) {
-        Result result;
-        result.m_value = std::move(value);
-        return result;
-    }
-
-    static Result failure(E error) {
-        Result result;
-        result.m_error = std::move(error);
-        return result;
-    }
-
-    [[nodiscard]] bool isOk() const { return m_value.has_value(); }
-    [[nodiscard]] bool isError() const { return !isOk(); }
-    // Callers must check isOk()/isError() before reading the matching value.
-    [[nodiscard]] T value() const { return m_value.value_or(T{}); }
-    [[nodiscard]] E error() const { return m_error.value_or(E{}); }
-
-private:
-    std::optional<T> m_value;
-    std::optional<E> m_error;
-};
-
-template <typename E>
-class Result<void, E> {
-public:
-    static Result success() { return Result{}; }
-    static Result failure(E error) {
-        Result result;
-        result.m_error = std::move(error);
-        return result;
-    }
-
-    [[nodiscard]] bool isOk() const { return !m_error.has_value(); }
-    [[nodiscard]] bool isError() const { return !isOk(); }
-    [[nodiscard]] E error() const { return m_error.value_or(E{}); }
-
-private:
-    std::optional<E> m_error;
-};
+template <typename T>
+Task<Result<Asset*, std::string>> Assets::load(const std::string& path) {
+    return load_resource(path, resource_type_for<T>);
+}
 
 class UI {
 public:
@@ -560,10 +516,6 @@ public:
     virtual void on_start() {}
     virtual void on_destroy() {}
     virtual void on_collision_enter(const Entity& other) { static_cast<void>(other); }
-    virtual void on_event(const std::string& name, const std::string& payload) {
-        static_cast<void>(name);
-        static_cast<void>(payload);
-    }
     virtual bool set_exposed_property(const std::string& name, const ExposedPropertyValue& value) {
         static_cast<void>(name);
         static_cast<void>(value);

@@ -32,6 +32,13 @@ int main() {
     std::string init_res = server.handle_message(init_req);
     json j_init = json::parse(init_res);
     assert(j_init["result"]["capabilities"]["completionProvider"].is_object());
+    assert(j_init["result"]["capabilities"]["referencesProvider"] == true);
+    assert(j_init["result"]["capabilities"]["renameProvider"].is_object());
+    assert(j_init["result"]["capabilities"]["documentFormattingProvider"] == true);
+    assert(j_init["result"]["capabilities"]["codeActionProvider"].is_object());
+    assert(j_init["result"]["capabilities"]["workspaceSymbolProvider"] == true);
+    assert(j_init["result"]["capabilities"]["semanticTokensProvider"].is_object());
+    assert(j_init["result"]["capabilities"]["inlayHintProvider"] == true);
 
     // Test 2: DidOpen valid file
     std::string open_req = R"({
@@ -87,8 +94,7 @@ int main() {
         if (item["label"] == "behaviour class") {
             has_behaviour_template = item["insertTextFormat"] == 2;
         }
-        has_to_string |= item["label"] == "toString" &&
-            item.value("detail", "").find("value: Int") != std::string::npos;
+        has_to_string |= item["label"] == "toString";
         has_int_conversion |= item["label"] == "Int" &&
             item.value("detail", "") == "Int(value: Numeric) -> Int";
         has_uint8_conversion |= item["label"] == "UInt8" &&
@@ -97,7 +103,7 @@ int main() {
             item.value("detail", "") == "Float64(value: Numeric) -> Float64";
     }
     assert(has_behaviour_template);
-    assert(has_to_string);
+    assert(!has_to_string);
     assert(has_int_conversion && has_uint8_conversion && has_float64_conversion);
 
     // Definitions resolve to the declaration span instead of a placeholder range.
@@ -568,12 +574,13 @@ int main() {
     // The request is valid even while its document contains an incomplete edit.
     assert(signature_help.contains("result"));
 
-    const std::array<std::string, 6> conversion_lines{{
+    const std::array<std::string, 7> conversion_lines{{
         "function conversions(score: Int, speed: Float64): Void {",
         "  let a: Int = Int(score);",
         "  let b: UInt8 = UInt8(score);",
         "  let c: Float64 = Float64(speed);",
         "  let d: Float = Float(score);",
+        "  let inferred = 1;",
         "}"
     }};
     std::string conversion_document;
@@ -619,6 +626,145 @@ int main() {
     const std::string numeric_hover_text = numeric_hover["result"]["contents"]["value"];
     assert(numeric_hover_text.find("Float64(value: Numeric) -> Float64") != std::string::npos);
     assert(numeric_hover_text.find("IEEE-754") != std::string::npos);
+
+    const std::size_t score_character = conversion_lines[0].find("score") + 1;
+    const json references = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 26}, {"method", "textDocument/references"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 0}, {"character", score_character}}},
+            {"context", {{"includeDeclaration", true}}}
+        }}
+    }.dump()));
+    assert(references["result"].is_array() && references["result"].size() >= 3);
+
+    const json rename = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 27}, {"method", "textDocument/rename"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 0}, {"character", score_character}}},
+            {"newName", "points"}
+        }}
+    }.dump()));
+    assert(rename["result"]["changes"]["file:///workspace/My%20Game/Source/Player.e2s"].size() >= 3);
+
+    const json formatting = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":28, "method":"textDocument/formatting",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"options":{"tabSize":4,"insertSpaces":true}}
+    })"));
+    assert(formatting["result"].size() == 1);
+    assert(formatting["result"][0]["newText"].get<std::string>().find("    let a") != std::string::npos);
+
+    const json workspace_symbols = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":29, "method":"workspace/symbol", "params":{"query":"Shared"}
+    })"));
+    assert(!workspace_symbols["result"].empty());
+    assert(workspace_symbols["result"][0]["name"] == "SharedConfig");
+
+    const json semantic_tokens = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":30, "method":"textDocument/semanticTokens/full",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"}}
+    })"));
+    assert(!semantic_tokens["result"]["data"].empty());
+
+    const json inlay_hints = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":31, "method":"textDocument/inlayHint",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"range":{"start":{"line":0,"character":0},"end":{"line":7,"character":0}}}
+    })"));
+    assert(!inlay_hints["result"].empty());
+    assert(inlay_hints["result"][0]["label"] == ": Int");
+
+    const json numeric_diagnostic = {
+        {"code", "E3010"},
+        {"message", "Cannot initialize variable 'n' of type 'Int' with value of type 'Float'"},
+        {"range", {{"start", {{"line", 1}, {"character", 15}}}, {"end", {{"line", 1}, {"character", 20}}}}}
+    };
+    const json string_diagnostic = {
+        {"code", "E3010"},
+        {"message", "Cannot initialize variable 's' of type 'String' with value of type 'Int'"},
+        {"range", {{"start", {{"line", 1}, {"character", 15}}}, {"end", {{"line", 1}, {"character", 20}}}}}
+    };
+    const json code_actions = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 32}, {"method", "textDocument/codeAction"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"range", numeric_diagnostic["range"]},
+            {"context", {{"diagnostics", json::array({numeric_diagnostic, string_diagnostic})}}}
+        }}
+    }.dump()));
+    assert(code_actions["result"].size() == 1);
+    assert(code_actions["result"][0]["title"] == "Convert explicitly to Int");
+
+    const json removed_change = {
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 31}}},
+            {"contentChanges", json::array({{{"text", "function removed(): Void { toString(1); }"}}})}
+        }}
+    };
+    static_cast<void>(server.handle_message(removed_change.dump()));
+    const json removed_hover = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":33, "method":"textDocument/hover",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"position":{"line":0,"character":31}}
+    })"));
+    assert(removed_hover["result"].is_null());
+    const json removed_signature = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":34, "method":"textDocument/signatureHelp",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"position":{"line":0,"character":37}}
+    })"));
+    assert(removed_signature["result"].is_null());
+
+    // References, definition, and rename use resolver symbol identity. A
+    // homonymous local in another function must never be included.
+    const std::array<std::string, 8> scoped_reference_lines{{
+        "function first(): Int {",
+        "    let score: Int = 1;",
+        "    return score;",
+        "}",
+        "function second(): Int {",
+        "    let score: Int = 2;",
+        "    return score;",
+        "}"
+    }};
+    std::string scoped_reference_document;
+    for (const std::string& source_line : scoped_reference_lines) scoped_reference_document += source_line + "\n";
+    static_cast<void>(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 32}}},
+            {"contentChanges", json::array({{{"text", scoped_reference_document}}})}
+        }}
+    }.dump()));
+    const uint32_t first_score = static_cast<uint32_t>(scoped_reference_lines[2].find("score") + 1);
+    const json scoped_references = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 35}, {"method", "textDocument/references"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 2}, {"character", first_score}}},
+            {"context", {{"includeDeclaration", true}}}
+        }}
+    }.dump()));
+    assert(scoped_references["result"].size() == 2);
+    for (const auto& location : scoped_references["result"]) {
+        assert(location["range"]["start"]["line"].get<uint32_t>() < 4);
+    }
+    const json scoped_definition = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 36}, {"method", "textDocument/definition"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 2}, {"character", first_score}}}
+        }}
+    }.dump()));
+    assert(scoped_definition["result"]["range"]["start"]["line"] == 1);
+    const json scoped_rename = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 37}, {"method", "textDocument/rename"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 2}, {"character", first_score}}},
+            {"newName", "points"}
+        }}
+    }.dump()));
+    assert(scoped_rename["result"]["changes"]["file:///workspace/My%20Game/Source/Player.e2s"].size() == 2);
     fs::remove_all(discovery_root);
 
     std::cout << "[PASS] EngineScriptLspTests passed!\n";

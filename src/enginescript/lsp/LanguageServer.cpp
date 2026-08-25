@@ -46,49 +46,26 @@ std::string decode_uri_path(std::string_view encoded) {
     return decoded;
 }
 
-struct DeclarationLocation {
-    std::string source_path;
-    uint32_t line = 0;
-    uint32_t character = 0;
-    uint32_t length = 0;
-};
-
-std::optional<DeclarationLocation> find_declaration(
+std::optional<uint32_t> byte_offset_at(
     const SourceManager& source_manager,
-    const std::string& name
+    FileId file_id,
+    uint32_t line,
+    uint32_t character
 ) {
-    if (name.empty()) return std::nullopt;
+    const SourceFile* file = source_manager.get_file(file_id);
+    if (!file || line >= file->line_offsets.size()) return std::nullopt;
+    const uint32_t line_start = file->line_offsets[line];
+    const uint32_t line_end = line + 1 < file->line_offsets.size()
+        ? file->line_offsets[line + 1]
+        : static_cast<uint32_t>(file->content.size());
+    return line_start + std::min(character, line_end - line_start);
+}
 
-    const std::regex declaration_pattern(
-        R"(^\s*(?:export\s+)?(?:class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*))"
-    );
-    const std::regex method_pattern(
-        R"(^\s*(?:async\s+)?(?:override\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\()"
-    );
-    const std::regex property_pattern(
-        R"(^\s*(?:public|private|protected|readonly|static\s+)*([A-Za-z_][A-Za-z0-9_]*)\s*:)"
-    );
-
-    for (const SourceFile& file : source_manager.all_files()) {
-        std::istringstream lines(file.content);
-        std::string line;
-        uint32_t line_number = 0;
-        while (std::getline(lines, line)) {
-            std::smatch match;
-            for (const std::regex* pattern : {&declaration_pattern, &method_pattern, &property_pattern}) {
-                if (std::regex_search(line, match, *pattern) && match[1].str() == name) {
-                    return DeclarationLocation{
-                        .source_path = file.path,
-                        .line = line_number,
-                        .character = static_cast<uint32_t>(match.position(1)),
-                        .length = static_cast<uint32_t>(match.length(1))
-                    };
-                }
-            }
-            ++line_number;
-        }
-    }
-    return std::nullopt;
+json lsp_range(const SourceSpan& span) {
+    return {
+        {"start", {{"line", span.start_line - 1}, {"character", span.start_column - 1}}},
+        {"end", {{"line", span.end_line - 1}, {"character", span.end_column - 1}}}
+    };
 }
 
 std::string base_type_name(std::string type_name) {
@@ -326,6 +303,7 @@ std::optional<std::string> infer_receiver_type(
 LanguageServer::LanguageServer(std::string project_root)
     : m_workspace(std::move(project_root)) {
     m_workspace.discover_project_sources();
+    static_cast<void>(m_workspace.compile());
 }
 
 std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
@@ -392,6 +370,30 @@ std::string LanguageServer::handle_message(const std::string& json_rpc_msg) {
             uint32_t char_pos = j["params"]["position"].value("character", 0);
             return on_signature_help(id, uri, line, char_pos);
         }
+        if (method == "textDocument/references") {
+            return on_references(id, j["params"]["textDocument"].value("uri", ""),
+                j["params"]["position"].value("line", 0), j["params"]["position"].value("character", 0));
+        }
+        if (method == "textDocument/rename") {
+            return on_rename(id, j["params"]["textDocument"].value("uri", ""),
+                j["params"]["position"].value("line", 0), j["params"]["position"].value("character", 0),
+                j["params"].value("newName", ""));
+        }
+        if (method == "textDocument/formatting") {
+            return on_formatting(id, j["params"]["textDocument"].value("uri", ""));
+        }
+        if (method == "textDocument/codeAction") {
+            return on_code_action(id, j["params"]["textDocument"].value("uri", ""), j["params"].dump());
+        }
+        if (method == "workspace/symbol") {
+            return on_workspace_symbol(id, j["params"].value("query", ""));
+        }
+        if (method == "textDocument/semanticTokens/full") {
+            return on_semantic_tokens(id, j["params"]["textDocument"].value("uri", ""));
+        }
+        if (method == "textDocument/inlayHint") {
+            return on_inlay_hints(id, j["params"]["textDocument"].value("uri", ""));
+        }
     } catch (...) {}
     return "";
 }
@@ -417,6 +419,19 @@ std::string LanguageServer::on_initialize(const std::string& id) {
     caps["definitionProvider"] = true;
     caps["signatureHelpProvider"] = {{"triggerCharacters", {"(", ",", "<"}}};
     caps["documentSymbolProvider"] = true;
+    caps["referencesProvider"] = true;
+    caps["renameProvider"] = { {"prepareProvider", false} };
+    caps["documentFormattingProvider"] = true;
+    caps["codeActionProvider"] = { {"codeActionKinds", {"quickfix"}} };
+    caps["workspaceSymbolProvider"] = true;
+    caps["semanticTokensProvider"] = {
+        {"legend", {
+            {"tokenTypes", {"namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter", "variable", "property", "enumMember", "function", "method", "keyword", "string", "number", "comment", "decorator"}},
+            {"tokenModifiers", {"declaration", "readonly", "async", "static"}}
+        }},
+        {"full", true}
+    };
+    caps["inlayHintProvider"] = true;
 
     resp["result"] = {{"capabilities", caps}};
     return resp.dump();
@@ -881,6 +896,13 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
     );
     std::string word = extract_word_at(line_content, character);
 
+    // Removed EngineScript 1.x APIs must behave exactly like unknown symbols.
+    // Returning a generic hover here would make the deleted helper look valid.
+    if (word == "toString") {
+        resp["result"] = nullptr;
+        return resp.dump();
+    }
+
     std::string markdown = "";
 
     // 1. Decorators
@@ -1013,22 +1035,28 @@ std::string LanguageServer::on_definition(const std::string& id, const std::stri
     resp["id"] = parse_id(id);
 
     const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
-    const std::string line_content = m_workspace.source_manager().get_line_content(file_id, line + 1);
-    const std::string word = extract_word_at(line_content, character);
-    const auto declaration = find_declaration(m_workspace.source_manager(), word);
-    if (!declaration) {
+    const auto byte_offset = byte_offset_at(m_workspace.source_manager(), file_id, line, character);
+    const auto symbol_id = byte_offset ? m_workspace.symbol_id_at(file_id, *byte_offset) : std::nullopt;
+    const auto occurrences = symbol_id
+        ? m_workspace.occurrences_for_symbol(*symbol_id)
+        : std::vector<WorkspaceSymbolOccurrence>{};
+    const auto declaration = std::find_if(occurrences.begin(), occurrences.end(), [](const auto& occurrence) {
+        return occurrence.is_declaration;
+    });
+    if (declaration == occurrences.end()) {
         resp["result"] = nullptr;
         return resp.dump();
     }
 
-    const std::string target_uri = uri_for_source_path(declaration->source_path);
+    const SourceFile* target_file = m_workspace.source_manager().get_file(declaration->span.file_id);
+    if (!target_file) {
+        resp["result"] = nullptr;
+        return resp.dump();
+    }
 
     resp["result"] = {
-        {"uri", target_uri},
-        {"range", {
-            {"start", {{"line", declaration->line}, {"character", declaration->character}}},
-            {"end", {{"line", declaration->line}, {"character", declaration->character + declaration->length}}}
-        }}
+        {"uri", uri_for_source_path(target_file->path)},
+        {"range", lsp_range(declaration->span)}
     };
     return resp.dump();
 }
@@ -1077,6 +1105,237 @@ std::string LanguageServer::on_signature_help(
         return response.dump();
     }
     return response.dump();
+}
+
+std::string LanguageServer::on_references(
+    const std::string& id, const std::string& uri, uint32_t line, uint32_t character
+) {
+    json result = json::array();
+    const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
+    const auto byte_offset = byte_offset_at(m_workspace.source_manager(), file_id, line, character);
+    const auto symbol_id = byte_offset ? m_workspace.symbol_id_at(file_id, *byte_offset) : std::nullopt;
+    if (symbol_id) {
+        for (const WorkspaceSymbolOccurrence& occurrence : m_workspace.occurrences_for_symbol(*symbol_id)) {
+            const SourceFile* file = m_workspace.source_manager().get_file(occurrence.span.file_id);
+            if (!file) continue;
+            result.push_back({
+                {"uri", uri_for_source_path(file->path)},
+                {"range", lsp_range(occurrence.span)}
+            });
+        }
+    }
+    return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", std::move(result)}}.dump();
+}
+
+std::string LanguageServer::on_rename(
+    const std::string& id,
+    const std::string& uri,
+    uint32_t line,
+    uint32_t character,
+    const std::string& new_name
+) {
+    static const std::regex valid_identifier(R"(^[A-Za-z_][A-Za-z0-9_]*$)");
+    json response{{"jsonrpc", "2.0"}, {"id", parse_id(id)}};
+    if (!std::regex_match(new_name, valid_identifier)) {
+        response["error"] = {{"code", -32602}, {"message", "The rename target is not a valid EngineScript identifier."}};
+        return response.dump();
+    }
+    const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
+    const auto byte_offset = byte_offset_at(m_workspace.source_manager(), file_id, line, character);
+    const auto symbol_id = byte_offset ? m_workspace.symbol_id_at(file_id, *byte_offset) : std::nullopt;
+    json changes = json::object();
+    if (symbol_id) {
+        for (const WorkspaceSymbolOccurrence& occurrence : m_workspace.occurrences_for_symbol(*symbol_id)) {
+            const SourceFile* file = m_workspace.source_manager().get_file(occurrence.span.file_id);
+            if (!file) continue;
+            const std::string occurrence_uri = uri_for_source_path(file->path);
+            if (!changes.contains(occurrence_uri)) changes[occurrence_uri] = json::array();
+            changes[occurrence_uri].push_back({
+                {"range", lsp_range(occurrence.span)},
+                {"newText", new_name}
+            });
+        }
+    }
+    response["result"] = {{"changes", std::move(changes)}};
+    return response.dump();
+}
+
+std::string LanguageServer::on_formatting(const std::string& id, const std::string& uri) {
+    json edits = json::array();
+    const SourceFile* file = m_workspace.source_manager().get_file(source_path_for_uri(uri));
+    if (!file) return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", edits}}.dump();
+
+    std::istringstream input(file->content);
+    std::string line;
+    std::string formatted;
+    int indent = 0;
+    uint32_t line_count = 0;
+    while (std::getline(input, line)) {
+        ++line_count;
+        const std::size_t first = line.find_first_not_of(" \t\r");
+        std::string trimmed = first == std::string::npos ? std::string{} : line.substr(first);
+        if (!trimmed.empty() && trimmed.front() == '}') indent = std::max(0, indent - 1);
+        if (!trimmed.empty()) formatted.append(static_cast<std::size_t>(indent) * 4, ' ');
+        formatted += trimmed;
+        formatted += '\n';
+
+        bool in_string = false;
+        bool escaped = false;
+        int delta = 0;
+        for (std::size_t index = 0; index < trimmed.size(); ++index) {
+            const char character_value = trimmed[index];
+            if (!in_string && character_value == '/' && index + 1 < trimmed.size() && trimmed[index + 1] == '/') break;
+            if (character_value == '"' && !escaped) in_string = !in_string;
+            if (!in_string) {
+                if (character_value == '{') ++delta;
+                else if (character_value == '}') --delta;
+            }
+            escaped = character_value == '\\' && !escaped;
+            if (character_value != '\\') escaped = false;
+        }
+        indent = std::max(0, indent + delta + (!trimmed.empty() && trimmed.front() == '}' ? 1 : 0));
+    }
+    if (!file->content.ends_with('\n') && !formatted.empty()) formatted.pop_back();
+    if (formatted != file->content) {
+        edits.push_back({
+            {"range", {
+                {"start", {{"line", 0}, {"character", 0}}},
+                {"end", {{"line", line_count + 1}, {"character", 0}}}
+            }},
+            {"newText", formatted}
+        });
+    }
+    return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", std::move(edits)}}.dump();
+}
+
+std::string LanguageServer::on_code_action(
+    const std::string& id, const std::string& uri, const std::string& params_json
+) {
+    json actions = json::array();
+    json params;
+    try { params = json::parse(params_json); } catch (...) {
+        return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", actions}}.dump();
+    }
+    static const std::regex destination_pattern(R"(of type '([A-Za-z_][A-Za-z0-9_]*)')");
+    for (const auto& diagnostic : params["context"].value("diagnostics", json::array())) {
+        const std::string code = diagnostic.value("code", "");
+        const std::string message = diagnostic.value("message", "");
+        std::smatch match;
+        if (code == "E3010" && std::regex_search(message, match, destination_pattern) && match[1].str() != "String" &&
+            numeric_type_for_name(match[1].str())) {
+            const json range = diagnostic["range"];
+            json conversion_edits = json::array();
+            conversion_edits.push_back({
+                {"range", {{"start", range["start"]}, {"end", range["start"]}}},
+                {"newText", match[1].str() + "("}
+            });
+            conversion_edits.push_back({
+                {"range", {{"start", range["end"]}, {"end", range["end"]}}},
+                {"newText", ")"}
+            });
+            actions.push_back({
+                {"title", "Convert explicitly to " + match[1].str()},
+                {"kind", "quickfix"},
+                {"diagnostics", json::array({diagnostic})},
+                {"edit", {{"changes", {{uri, std::move(conversion_edits)}}}}}
+            });
+        }
+    }
+    return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", std::move(actions)}}.dump();
+}
+
+std::string LanguageServer::on_workspace_symbol(const std::string& id, const std::string& query) {
+    json symbols = json::array();
+    const std::regex declaration_pattern(
+        R"(^\s*(?:export\s+)?(class|struct|interface|enum)\s+([A-Za-z_][A-Za-z0-9_]*))"
+    );
+    for (const SourceFile& file : m_workspace.source_manager().all_files()) {
+        std::istringstream lines(file.content);
+        std::string source_line;
+        uint32_t line_number = 0;
+        while (std::getline(lines, source_line)) {
+            std::smatch match;
+            if (std::regex_search(source_line, match, declaration_pattern) &&
+                (query.empty() || match[2].str().find(query) != std::string::npos)) {
+                const std::string kind = match[1].str();
+                const int symbol_kind = kind == "class" ? 5 : kind == "interface" ? 11 : kind == "enum" ? 10 : 23;
+                const uint32_t start = static_cast<uint32_t>(match.position(2));
+                symbols.push_back({
+                    {"name", match[2].str()}, {"kind", symbol_kind},
+                    {"location", {{"uri", uri_for_source_path(file.path)}, {"range", {
+                        {"start", {{"line", line_number}, {"character", start}}},
+                        {"end", {{"line", line_number}, {"character", start + match[2].length()}}}
+                    }}}}
+                });
+            }
+            ++line_number;
+        }
+    }
+    return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", std::move(symbols)}}.dump();
+}
+
+std::string LanguageServer::on_semantic_tokens(const std::string& id, const std::string& uri) {
+    json data = json::array();
+    const SourceFile* file = m_workspace.source_manager().get_file(source_path_for_uri(uri));
+    if (file) {
+        static const std::unordered_set<std::string> keywords = {
+            "import", "from", "as", "export", "class", "struct", "interface", "enum", "extends", "implements",
+            "let", "const", "private", "public", "protected", "static", "readonly", "async", "await", "return",
+            "if", "else", "while", "for", "in", "break", "continue", "true", "false", "null", "this", "override"
+        };
+        const std::regex token_pattern(R"(@[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*|[0-9]+(?:\.[0-9]+)?)");
+        uint32_t previous_line = 0;
+        uint32_t previous_start = 0;
+        std::istringstream lines(file->content);
+        std::string source_line;
+        uint32_t line_number = 0;
+        while (std::getline(lines, source_line)) {
+            const std::size_t comment = source_line.find("//");
+            const std::string_view code(source_line.data(), comment == std::string::npos ? source_line.size() : comment);
+            const std::string code_string(code);
+            for (std::sregex_iterator it(code_string.begin(), code_string.end(), token_pattern), end; it != end; ++it) {
+                const std::string token = it->str();
+                uint32_t type = 8;
+                if (token.starts_with('@')) type = 17;
+                else if (keywords.contains(token)) type = 13;
+                else if (std::isdigit(static_cast<unsigned char>(token.front()))) type = 15;
+                else if (std::isupper(static_cast<unsigned char>(token.front()))) type = 1;
+                const uint32_t start = static_cast<uint32_t>(it->position());
+                const uint32_t delta_line = line_number - previous_line;
+                const uint32_t delta_start = delta_line == 0 ? start - previous_start : start;
+                data.push_back(delta_line); data.push_back(delta_start); data.push_back(token.size()); data.push_back(type); data.push_back(0);
+                previous_line = line_number;
+                previous_start = start;
+            }
+            ++line_number;
+        }
+    }
+    return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", {{"data", std::move(data)}}}}.dump();
+}
+
+std::string LanguageServer::on_inlay_hints(const std::string& id, const std::string& uri) {
+    json hints = json::array();
+    const SourceFile* file = m_workspace.source_manager().get_file(source_path_for_uri(uri));
+    if (file) {
+        const std::regex inferred_pattern(R"(\blet\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(true|false|"[^"]*"|-?[0-9]+(?:\.[0-9]+)?))");
+        std::istringstream lines(file->content);
+        std::string source_line;
+        uint32_t line_number = 0;
+        while (std::getline(lines, source_line)) {
+            std::smatch match;
+            if (std::regex_search(source_line, match, inferred_pattern)) {
+                const std::string value = match[2].str();
+                const std::string type = value == "true" || value == "false" ? "Bool" :
+                    value.starts_with('"') ? "String" : value.find('.') != std::string::npos ? "Float" : "Int";
+                hints.push_back({
+                    {"position", {{"line", line_number}, {"character", match.position(1) + match.length(1)}}},
+                    {"label", ": " + type}, {"kind", 1}, {"paddingLeft", false}, {"paddingRight", true}
+                });
+            }
+            ++line_number;
+        }
+    }
+    return json{{"jsonrpc", "2.0"}, {"id", parse_id(id)}, {"result", std::move(hints)}}.dump();
 }
 
 } // namespace EngineScript

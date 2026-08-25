@@ -119,6 +119,36 @@ int main() {
     }
     assert(rejected_conversion && rejected_construction);
 
+    DiagnosticEngine service_diags;
+    const std::string service_code = R"(
+        struct Ping { value: Int; }
+        function services(events: Events, assets: Assets, jobs: Jobs, ping: Ping, seed: Int): Void {
+            events.emit(ping);
+            events.next<Ping>();
+            assets.load<Texture>("Assets/ping.png");
+            jobs.run(() => seed + 1);
+        }
+    )";
+    const FileId f2 = sm.register_source("Source/Services.e2s", service_code);
+    Lexer l2(f2, service_code, service_diags);
+    Parser p2(f2, "Source/Services.e2s", l2.tokenize_all(), service_diags);
+    const auto m2 = p2.parse_module();
+    SymbolResolver service_resolver(sm, service_diags);
+    service_resolver.resolve_module(m2);
+    TypeChecker service_checker(service_resolver, service_diags);
+    assert(service_checker.check_module(m2));
+    IRLowering service_lowering(service_checker);
+    const IRModule service_ir = service_lowering.lower_module(*m2);
+    assert(service_ir.functions.size() == 1);
+    const auto& service_statements = service_ir.functions[0].blocks[0].statements;
+    assert(dynamic_cast<const IRTypedEventEmit*>(service_statements[0].op.get()));
+    assert(dynamic_cast<const IRTypedEventNext*>(service_statements[1].op.get()));
+    assert(dynamic_cast<const IRAssetLoad*>(service_statements[2].op.get()));
+    assert(dynamic_cast<const IRJobRun*>(service_statements[3].op.get()));
+    IRVerifier service_verifier(service_diags);
+    assert(service_verifier.verify_module(service_ir));
+    assert(!service_diags.has_errors());
+
     std::cout << "[PASS] EngineScriptIRTests passed!\n";
     return 0;
 }

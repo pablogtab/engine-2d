@@ -7,6 +7,8 @@
 #include <vector>
 #include <memory>
 #include <optional>
+#include <unordered_map>
+#include <utility>
 
 namespace EngineScript {
 
@@ -19,6 +21,17 @@ enum class IROpKind {
     Unary,
     NumericConvert,
     ValueConstruct,
+    ClassConstruct,
+    WeakConstruct,
+    ArrayLiteral,
+    CollectionLiteral,
+    StructLiteral,
+    ThisRef,
+    Closure,
+    TypedEventEmit,
+    TypedEventNext,
+    AssetLoad,
+    JobRun,
     Call,
     MethodCall,
     MemberGet,
@@ -28,6 +41,11 @@ enum class IROpKind {
     IndexSet,
     Return,
     If,
+    While,
+    For,
+    ForIn,
+    Break,
+    Continue,
     Branch,
     Jump,
     Await
@@ -86,8 +104,67 @@ struct IRValueConstruct : public IROperation {
     std::vector<std::shared_ptr<IROperation>> args;
 };
 
+struct IRClassConstruct : public IROperation {
+    std::string class_name;
+    std::vector<std::shared_ptr<IROperation>> args;
+};
+
+struct IRWeakConstruct : public IROperation {
+    std::shared_ptr<IROperation> value;
+};
+
+struct IRArrayLiteral : public IROperation {
+    std::vector<std::shared_ptr<IROperation>> elements;
+};
+
+struct IRCollectionLiteral : public IROperation {
+    TypeKind collection_kind = TypeKind::Error;
+    std::vector<std::pair<std::shared_ptr<IROperation>, std::shared_ptr<IROperation>>> map_entries;
+    std::vector<std::shared_ptr<IROperation>> elements;
+};
+
+struct IRStructLiteral : public IROperation {
+    std::string struct_name;
+    std::vector<std::pair<std::string, std::shared_ptr<IROperation>>> fields;
+};
+
+struct IRThisRef : public IROperation {};
+
+struct IRClosureParam {
+    std::string name;
+    std::shared_ptr<Type> type;
+};
+
+struct IRClosure : public IROperation {
+    std::vector<IRClosureParam> params;
+    std::vector<std::shared_ptr<IROperation>> body_operations;
+    std::shared_ptr<IROperation> body_expression;
+};
+
+struct IRTypedEventEmit : public IROperation {
+    std::shared_ptr<IROperation> target;
+    std::shared_ptr<IROperation> event;
+};
+
+struct IRTypedEventNext : public IROperation {
+    std::shared_ptr<IROperation> target;
+    std::string event_type;
+};
+
+struct IRAssetLoad : public IROperation {
+    std::shared_ptr<IROperation> target;
+    std::string asset_type;
+    std::shared_ptr<IROperation> path;
+};
+
+struct IRJobRun : public IROperation {
+    std::shared_ptr<IROperation> target;
+    std::shared_ptr<IROperation> work;
+};
+
 struct IRCall : public IROperation {
     std::string callee_name;
+    std::vector<std::shared_ptr<Type>> type_arguments;
     std::vector<std::shared_ptr<IROperation>> args;
 };
 
@@ -138,6 +215,27 @@ struct IRIf : public IROperation {
     std::vector<std::shared_ptr<IROperation>> else_operations;
 };
 
+struct IRWhile : public IROperation {
+    std::shared_ptr<IROperation> condition;
+    std::vector<std::shared_ptr<IROperation>> body;
+};
+
+struct IRFor : public IROperation {
+    std::shared_ptr<IROperation> initializer;
+    std::shared_ptr<IROperation> condition;
+    std::shared_ptr<IROperation> update;
+    std::vector<std::shared_ptr<IROperation>> body;
+};
+
+struct IRForIn : public IROperation {
+    std::string variable_name;
+    std::shared_ptr<IROperation> collection;
+    std::vector<std::shared_ptr<IROperation>> body;
+};
+
+struct IRBreak : public IROperation {};
+struct IRContinue : public IROperation {};
+
 struct IRAwait : public IROperation {
     std::shared_ptr<IROperation> operand;
 };
@@ -158,10 +256,16 @@ struct IRParam {
     std::vector<std::string> decorators;
 };
 
+struct IRGenericParam {
+    std::string name;
+    std::string constraint;
+};
+
 struct IRMethod {
     std::string name;
     std::shared_ptr<Type> return_type;
     std::vector<IRParam> params;
+    std::vector<IRGenericParam> generic_params;
     std::vector<IRBlock> blocks;
     bool is_async = false;
     bool is_override = false;
@@ -180,9 +284,11 @@ struct IRProperty {
 
 struct IRClass {
     std::string name;
+    std::vector<IRGenericParam> generic_params;
     std::string base_class;
     std::vector<std::string> interfaces;
     std::vector<IRParam> constructor_params;
+    std::vector<IRBlock> constructor_blocks;
     std::vector<IRProperty> properties;
     std::vector<IRMethod> methods;
     bool is_behaviour = false;
@@ -191,12 +297,42 @@ struct IRClass {
 
 struct IRStruct {
     std::string name;
+    std::vector<IRGenericParam> generic_params;
+    std::vector<std::string> interfaces;
     std::vector<IRProperty> properties;
     std::vector<IRMethod> methods;
 };
 
+struct IRInterfaceMember {
+    std::string name;
+    std::vector<IRGenericParam> generic_params;
+    std::shared_ptr<Type> type;
+    std::vector<IRParam> params;
+    bool is_method = false;
+};
+
+struct IRInterface {
+    std::string name;
+    std::vector<IRGenericParam> generic_params;
+    std::vector<std::string> extended_interfaces;
+    std::vector<IRInterfaceMember> members;
+};
+
+struct IREnumEntry {
+    std::string name;
+    std::optional<int64_t> int_value;
+    std::optional<std::string> string_value;
+};
+
+struct IREnum {
+    std::string name;
+    bool string_backed = false;
+    std::vector<IREnumEntry> entries;
+};
+
 struct IRFunction {
     std::string name;
+    std::vector<IRGenericParam> generic_params;
     std::shared_ptr<Type> return_type;
     std::vector<IRParam> params;
     std::vector<IRBlock> blocks;
@@ -210,6 +346,8 @@ struct IRModule {
     std::unordered_map<std::string, std::string> import_aliases;
     std::vector<IRClass> classes;
     std::vector<IRStruct> structs;
+    std::vector<IRInterface> interfaces;
+    std::vector<IREnum> enums;
     std::vector<IRFunction> functions;
 };
 

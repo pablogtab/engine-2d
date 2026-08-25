@@ -109,6 +109,30 @@ int main() {
     assert(err_diags.has_errors());
     assert(mod4 != nullptr); // Parser recovered and produced AST
 
+    DiagnosticEngine v2_diags;
+    const std::string v2_code = R"(
+        interface Factory<T extends Send> { make(value: T): T; }
+        struct Box<T extends Send> implements Factory<T> {
+            value: T;
+            make(value: T): T { return value; }
+        }
+        function literals(): Void {
+            let map = Map { "one" => 1 };
+            let set = Set { "one" };
+            let fixed = FixedArray [1, 2];
+            let closure = (value: Int) => value + 1;
+        }
+    )";
+    Lexer v2_lexer(6, v2_code, v2_diags);
+    Parser v2_parser(6, "V2.e2s", v2_lexer.tokenize_all(), v2_diags);
+    const auto v2_module = v2_parser.parse_module();
+    assert(v2_module != nullptr);
+    assert(!v2_diags.has_errors());
+    const auto* interface_decl = dynamic_cast<InterfaceDecl*>(v2_module->declarations[0].get());
+    const auto* struct_decl = dynamic_cast<StructDecl*>(v2_module->declarations[1].get());
+    assert(interface_decl && interface_decl->generic_params.front().constraint->name == "Send");
+    assert(struct_decl && struct_decl->interfaces.front().name == "Factory");
+
     std::cout << "[PASS] EngineScriptParserTests passed!\n";
     return 0;
 }

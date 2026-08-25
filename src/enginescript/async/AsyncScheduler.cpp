@@ -10,7 +10,7 @@ uint64_t AsyncScheduler::schedule_delay(float seconds, std::function<void()> cal
     act.time_remaining = seconds;
     act.is_real_time = false;
     act.callback = std::move(callback);
-    m_actions.push_back(std::move(act));
+    enqueue_action(std::move(act));
     return act.id;
 }
 
@@ -21,18 +21,12 @@ uint64_t AsyncScheduler::schedule_real_delay(float seconds, std::function<void()
     act.time_remaining = seconds;
     act.is_real_time = true;
     act.callback = std::move(callback);
-    m_actions.push_back(std::move(act));
+    enqueue_action(std::move(act));
     return act.id;
 }
 
 uint64_t AsyncScheduler::schedule_next_frame(std::function<void()> callback, uint32_t scope_id) {
-    ScheduledAction act;
-    act.id = next_action_id();
-    act.scope_id = scope_id;
-    act.is_next_frame = true;
-    act.callback = std::move(callback);
-    m_actions.push_back(std::move(act));
-    return act.id;
+    return post_next_frame(std::move(callback), scope_id);
 }
 
 uint64_t AsyncScheduler::schedule_fixed_update(std::function<void()> callback, uint32_t scope_id) {
@@ -41,11 +35,12 @@ uint64_t AsyncScheduler::schedule_fixed_update(std::function<void()> callback, u
     act.scope_id = scope_id;
     act.is_fixed_update = true;
     act.callback = std::move(callback);
-    m_actions.push_back(std::move(act));
+    enqueue_action(std::move(act));
     return act.id;
 }
 
 void AsyncScheduler::cancel_scope(uint32_t scope_id) {
+    std::scoped_lock lock(m_actions_mutex);
     for (auto& act : m_actions) {
         if (act.scope_id == scope_id) {
             act.is_cancelled = true;
@@ -58,6 +53,7 @@ void AsyncScheduler::cancel_scope(uint32_t scope_id) {
 }
 
 void AsyncScheduler::cancel_all() {
+    std::scoped_lock lock(m_actions_mutex);
     for (auto& act : m_actions) {
         act.is_cancelled = true;
         if (auto control = act.coroutine_control.lock()) {
@@ -70,10 +66,11 @@ void AsyncScheduler::cancel_all() {
 
 void AsyncScheduler::reset() {
     cancel_all();
-    m_id_counter = 0;
+    m_id_counter.store(0);
 }
 
 size_t AsyncScheduler::pending_tasks_count() const {
+    std::scoped_lock lock(m_actions_mutex);
     size_t count = 0;
     for (const auto& act : m_actions) {
         if (act.is_cancelled) continue;
@@ -88,7 +85,8 @@ size_t AsyncScheduler::pending_tasks_count() const {
 
 void AsyncScheduler::step(float game_delta_time, float real_delta_time) {
     std::vector<ScheduledAction> to_run;
-
+    {
+    std::scoped_lock lock(m_actions_mutex);
     for (auto& act : m_actions) {
         if (act.is_cancelled) continue;
         if (act.coroutine_handle) {
@@ -117,6 +115,7 @@ void AsyncScheduler::step(float game_delta_time, float real_delta_time) {
         std::remove_if(m_actions.begin(), m_actions.end(), [](const ScheduledAction& a) { return a.is_cancelled; }),
         m_actions.end()
     );
+    }
 
     // Execute triggered callbacks and resume coroutines
     for (auto& act : to_run) {
@@ -132,7 +131,8 @@ void AsyncScheduler::step(float game_delta_time, float real_delta_time) {
 
 void AsyncScheduler::step_fixed_update() {
     std::vector<ScheduledAction> to_run;
-
+    {
+    std::scoped_lock lock(m_actions_mutex);
     for (auto& act : m_actions) {
         auto control = act.coroutine_control.lock();
         if (act.coroutine_handle && (!control || control->cancelled)) {
@@ -149,6 +149,7 @@ void AsyncScheduler::step_fixed_update() {
         std::remove_if(m_actions.begin(), m_actions.end(), [](const ScheduledAction& a) { return a.is_cancelled; }),
         m_actions.end()
     );
+    }
 
     for (auto& act : to_run) {
         if (act.callback) {

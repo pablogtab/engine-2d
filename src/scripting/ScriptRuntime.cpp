@@ -24,6 +24,7 @@
 #include "../enginescript/async/AsyncScheduler.hpp"
 #include "../enginescript/module/GameModule.hpp"
 #include "../enginescript/module/NativeModuleBuilder.hpp"
+#include "../enginescript/runtime/Collections.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -48,6 +49,7 @@ struct ScriptRuntimeBinding {
     ScriptSlotID slot_id{0};
     const ScriptRuntimeServices* services{nullptr};
     EngineScript::AsyncScheduler* async_scheduler{nullptr};
+    EngineScript::TypedEventBus* typed_event_bus{nullptr};
 };
 
 void bind_dynamic_component_access(EngineScript::Entity& entity, const ScriptRuntimeBinding& binding) {
@@ -75,7 +77,11 @@ void bind_dynamic_component_access(EngineScript::Entity& entity, const ScriptRun
 class NativeBehaviourHost {
 public:
     explicit NativeBehaviourHost(ScriptRuntimeBinding& binding)
-        : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding), m_events(binding), m_prefs(), m_assets(binding), m_particles(binding), m_ui(binding), m_tilemap(binding), m_display(binding), m_physics(binding), m_animator(binding) {}
+        : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding),
+          m_events(binding.typed_event_bus, binding.slot_id), m_prefs(), m_assets(binding),
+          m_particles(binding), m_ui(binding), m_tilemap(binding), m_display(binding),
+          m_physics(binding), m_animator(binding), m_jobs(binding.async_scheduler, binding.slot_id),
+          m_task_scope(binding.async_scheduler, binding.slot_id) {}
 
     bool prepare(const EngineScript::BehaviourTypeRegistration& registration, std::string& error) {
         m_component_references.reserve(registration.constructor_dependencies.size());
@@ -86,6 +92,8 @@ public:
             else if (type == "Audio") m_arguments.push_back(&m_audio);
             else if (type == "Scene") m_arguments.push_back(&m_scene);
             else if (type == "Events") m_arguments.push_back(&m_events);
+            else if (type == "Jobs") m_arguments.push_back(&m_jobs);
+            else if (type == "TaskScope") m_arguments.push_back(&m_task_scope);
             else if (type == "PlayerPrefs") m_arguments.push_back(&m_prefs);
             else if (type == "Assets") m_arguments.push_back(&m_assets);
             else if (type == "Particles") m_arguments.push_back(&m_particles);
@@ -171,8 +179,6 @@ public:
 
     void** arguments() { return m_arguments.empty() ? nullptr : m_arguments.data(); }
     [[nodiscard]] EngineScript::Entities* entities() { return &m_entities; }
-    [[nodiscard]] bool is_subscribed_to(const std::string& name) const { return m_events.is_subscribed_to(name); }
-
 private:
     void bind_rigid_body(EngineScript::RigidBody2D& body, EntityID entity) {
         body.runtime_context = m_binding.entity_manager;
@@ -222,26 +228,6 @@ private:
         bool isLoading() const override { return m_binding.services && m_binding.services->is_scene_loading && m_binding.services->is_scene_loading(); }
         std::string lastError() const override { return m_binding.services && m_binding.services->scene_load_error ? m_binding.services->scene_load_error() : std::string{}; }
     private: const ScriptRuntimeBinding& m_binding; };
-    class Events final : public EngineScript::Events {
-    public:
-        explicit Events(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
-        bool emit(const std::string& name, const std::string& payload) override {
-            if (!m_binding.event_dispatcher || name.empty()) return false;
-            m_binding.event_dispatcher->queue(ScriptEvent{m_binding.entity, name, payload});
-            return true;
-        }
-        bool subscribe(const std::string& name) override {
-            if (name.empty()) return false;
-            m_subscriptions.insert(name);
-            return true;
-        }
-        [[nodiscard]] bool is_subscribed_to(const std::string& name) const {
-            return m_subscriptions.contains(name);
-        }
-    private:
-        const ScriptRuntimeBinding& m_binding;
-        std::unordered_set<std::string> m_subscriptions;
-    };
     class PlayerPrefs final : public EngineScript::PlayerPrefs {
     public:
         bool has(const std::string& key) const override { return Engine::PlayerPrefs::has_key(key); }
@@ -273,38 +259,42 @@ private:
             return &m_asset;
         }
         bool exists(const std::string& path) const override { return record_for(path) != nullptr; }
-        bool request(const std::string& path) override {
+        EngineScript::Task<EngineScript::Result<EngineScript::Asset*, std::string>> load_resource(
+            const std::string& path,
+            EngineScript::ResourceType type
+        ) override {
             const AssetRecord* record = record_for(path);
-            if (!record || record->status != AssetStatus::Ready || !m_binding.async_scheduler || !m_binding.event_dispatcher) return false;
-            const AssetHandle handle = record->handle;
-            const std::string source_path = record->source_path;
-            const EntityID entity = m_binding.entity;
-            const AssetDatabase* database = m_binding.asset_database;
-            EventDispatcher* dispatcher = m_binding.event_dispatcher;
-            const ScriptRuntimeServices* services = m_binding.services;
-            m_binding.async_scheduler->schedule_next_frame([database, dispatcher, services, entity, handle, source_path]() {
-                std::string error;
-                const bool available = database && dispatcher && services && services->preload_asset &&
-                    services->preload_asset(handle, error);
-                dispatcher->queue(ScriptEvent{
-                    entity,
-                    available ? "AssetLoaded" : "AssetLoadFailed",
-                    available ? source_path : source_path + ": " + error
-                });
-            }, entity);
-            return true;
-        }
-        EngineScript::Task<EngineScript::Asset*> load_resource(const std::string& path, EngineScript::ResourceType type) override {
-            const AssetRecord* record = record_for(path);
-            if (!record || record->status != AssetStatus::Ready || !matches(type, record->type) ||
-                !m_binding.async_scheduler || !m_binding.services || !m_binding.services->preload_asset) co_return nullptr;
+            if (!record) {
+                co_return EngineScript::Result<EngineScript::Asset*, std::string>::failure(
+                    "asset does not exist: " + path
+                );
+            }
+            if (record->status != AssetStatus::Ready) {
+                co_return EngineScript::Result<EngineScript::Asset*, std::string>::failure(
+                    "asset is not ready: " + path
+                );
+            }
+            if (!matches(type, record->type)) {
+                co_return EngineScript::Result<EngineScript::Asset*, std::string>::failure(
+                    "asset type does not match the requested resource type: " + path
+                );
+            }
+            if (!m_binding.async_scheduler || !m_binding.services || !m_binding.services->preload_asset) {
+                co_return EngineScript::Result<EngineScript::Asset*, std::string>::failure(
+                    "asset loading service is unavailable"
+                );
+            }
             const AssetHandle handle = record->handle;
             const std::string source_path = record->source_path;
             co_await m_binding.async_scheduler->next_frame(m_binding.entity);
             std::string error;
-            if (!m_binding.services->preload_asset(handle, error)) co_return nullptr;
+            if (!m_binding.services->preload_asset(handle, error)) {
+                co_return EngineScript::Result<EngineScript::Asset*, std::string>::failure(
+                    error.empty() ? "failed to load asset: " + path : std::move(error)
+                );
+            }
             m_asset = EngineScript::Asset{handle.value, source_path, AssetDatabase::type_name(record->type), "ready", true};
-            co_return &m_asset;
+            co_return EngineScript::Result<EngineScript::Asset*, std::string>::success(&m_asset);
         }
     private:
         static bool matches(EngineScript::ResourceType requested, AssetType actual) {
@@ -763,7 +753,7 @@ private:
     Log m_log;
     Audio m_audio;
     Scene m_scene;
-    Events m_events;
+    EngineScript::Events m_events;
     PlayerPrefs m_prefs;
     Assets m_assets;
     Particles m_particles;
@@ -777,6 +767,8 @@ private:
     EngineScript::SpriteRenderer2D m_sprite;
     EngineScript::Transform2D m_transform;
     EngineScript::Time m_time;
+    EngineScript::Jobs m_jobs;
+    EngineScript::TaskScope m_task_scope;
     std::vector<void*> m_arguments;
 };
 
@@ -798,6 +790,9 @@ struct RuntimeObjectRef {
     bool available{true};
 };
 
+struct RuntimeCollection;
+using RuntimeCollectionRef = std::shared_ptr<RuntimeCollection>;
+
 using RuntimeValue = std::variant<
     std::monostate,
     double,
@@ -805,8 +800,15 @@ using RuntimeValue = std::variant<
     std::string,
     EntityID,
     EngineScript::Entity,
-    RuntimeObjectRef
+    RuntimeObjectRef,
+    RuntimeCollectionRef
 >;
+struct RuntimeCollection {
+    enum class Kind { Array, Map, Set };
+    Kind kind{Kind::Array};
+    std::vector<RuntimeValue> values;
+    std::map<std::string, RuntimeValue> mapped_values;
+};
 using RuntimeEnvironment = std::unordered_map<std::string, RuntimeValue>;
 
 double runtime_number(const RuntimeValue& value) {
@@ -819,6 +821,7 @@ bool runtime_boolean(const RuntimeValue& value) {
     if (const auto* boolean = std::get_if<bool>(&value)) return *boolean;
     if (const auto* number = std::get_if<double>(&value)) return *number != 0.0;
     if (const auto* object = std::get_if<RuntimeObjectRef>(&value)) return object->available;
+    if (const auto* collection = std::get_if<RuntimeCollectionRef>(&value)) return *collection != nullptr;
     return !std::holds_alternative<std::monostate>(value);
 }
 
@@ -1017,6 +1020,39 @@ private:
         if (const auto* variable = dynamic_cast<const IRVarRef*>(operation)) {
             return read_identifier(variable->name, environment);
         }
+        if (const auto* literal = dynamic_cast<const IRArrayLiteral*>(operation)) {
+            auto collection = std::make_shared<RuntimeCollection>();
+            for (const auto& element : literal->elements) collection->values.push_back(evaluate(element.get(), environment));
+            return collection;
+        }
+        if (const auto* literal = dynamic_cast<const IRCollectionLiteral*>(operation)) {
+            auto collection = std::make_shared<RuntimeCollection>();
+            if (literal->collection_kind == TypeKind::Map) {
+                collection->kind = RuntimeCollection::Kind::Map;
+                for (const auto& [key, value] : literal->map_entries) {
+                    collection->mapped_values[runtime_string(evaluate(key.get(), environment))] = evaluate(value.get(), environment);
+                }
+            } else {
+                collection->kind = literal->collection_kind == TypeKind::Set
+                    ? RuntimeCollection::Kind::Set : RuntimeCollection::Kind::Array;
+                for (const auto& element : literal->elements) collection->values.push_back(evaluate(element.get(), environment));
+            }
+            return collection;
+        }
+        if (const auto* index = dynamic_cast<const IRIndexGet*>(operation)) {
+            const RuntimeValue target = evaluate(index->target.get(), environment);
+            const auto* collection = std::get_if<RuntimeCollectionRef>(&target);
+            if (!collection || !*collection) return {};
+            if ((*collection)->kind == RuntimeCollection::Kind::Map) {
+                const auto found = (*collection)->mapped_values.find(runtime_string(evaluate(index->index.get(), environment)));
+                return found == (*collection)->mapped_values.end() ? RuntimeValue{} : found->second;
+            }
+            const double raw_index = runtime_number(evaluate(index->index.get(), environment));
+            if (raw_index < 0.0 || raw_index >= static_cast<double>((*collection)->values.size())) {
+                throw ScriptRuntimeError("collection index is out of range");
+            }
+            return (*collection)->values[static_cast<std::size_t>(raw_index)];
+        }
         if (const auto* call = dynamic_cast<const IRCall*>(operation)) {
             const auto parameter = std::find_if(
                 m_definition->constructor_params.begin(),
@@ -1128,6 +1164,28 @@ private:
         }
         if (const auto* method = dynamic_cast<const IRMethodCall*>(operation)) {
             const RuntimeValue target = evaluate(method->target.get(), environment);
+
+            if (const auto* collection_ref = std::get_if<RuntimeCollectionRef>(&target); collection_ref && *collection_ref) {
+                auto& collection = **collection_ref;
+                if (method->method_name == "push" || method->method_name == "add") {
+                    if (!method->args.empty()) collection.values.push_back(evaluate(method->args[0].get(), environment));
+                    return {};
+                }
+                if (method->method_name == "clear") {
+                    collection.values.clear();
+                    collection.mapped_values.clear();
+                    return {};
+                }
+                if (collection.kind == RuntimeCollection::Kind::Map && method->method_name == "set" && method->args.size() == 2) {
+                    collection.mapped_values[runtime_string(evaluate(method->args[0].get(), environment))] =
+                        evaluate(method->args[1].get(), environment);
+                    return {};
+                }
+                if (collection.kind == RuntimeCollection::Kind::Map && method->method_name == "get" && !method->args.empty()) {
+                    const auto found = collection.mapped_values.find(runtime_string(evaluate(method->args[0].get(), environment)));
+                    return found == collection.mapped_values.end() ? RuntimeValue{} : found->second;
+                }
+            }
 
             // String methods (e.g. other.name.includes("Coin"))
             if (const auto* str = std::get_if<std::string>(&target)) {
@@ -1254,15 +1312,18 @@ private:
         return {};
     }
 
-    bool execute(const EngineScript::IROperation* operation, RuntimeEnvironment& environment) const {
+    enum class ExecutionSignal { None, Return, Break, Continue };
+
+    ExecutionSignal execute(const EngineScript::IROperation* operation, RuntimeEnvironment& environment) const {
         using namespace EngineScript;
-        if (!operation) return false;
+        if (!operation) return ExecutionSignal::None;
         if (const auto* ret = dynamic_cast<const IRReturn*>(operation)) {
-            return true;
+            static_cast<void>(ret);
+            return ExecutionSignal::Return;
         }
         if (const auto* declaration = dynamic_cast<const IRVarDecl*>(operation)) {
             environment[declaration->name] = evaluate(declaration->initializer.get(), environment);
-            return false;
+            return ExecutionSignal::None;
         }
         if (const auto* assignment = dynamic_cast<const IRAssign*>(operation)) {
             RuntimeValue value = evaluate(assignment->value.get(), environment);
@@ -1272,7 +1333,7 @@ private:
             else if (assignment->assignment_op == TokenType::MinusEquals) value = runtime_number(current) - runtime_number(value);
             if (local != environment.end()) local->second = value;
             else write_property(assignment->target_name, value);
-            return false;
+            return ExecutionSignal::None;
         }
         if (const auto* member_set = dynamic_cast<const IRMemberSet*>(operation)) {
             const RuntimeValue target = evaluate(member_set->target.get(), environment);
@@ -1292,19 +1353,83 @@ private:
                 m_binding->entity_manager->get_component<SpriteComponent>(m_binding->entity).flip_x =
                     runtime_boolean(evaluate(member_set->value.get(), environment));
             }
-            return false;
+            return ExecutionSignal::None;
+        }
+        if (const auto* index_set = dynamic_cast<const IRIndexSet*>(operation)) {
+            const RuntimeValue target = evaluate(index_set->target.get(), environment);
+            const auto* collection_ref = std::get_if<RuntimeCollectionRef>(&target);
+            if (collection_ref && *collection_ref) {
+                auto& collection = **collection_ref;
+                const RuntimeValue value = evaluate(index_set->value.get(), environment);
+                if (collection.kind == RuntimeCollection::Kind::Map) {
+                    collection.mapped_values[runtime_string(evaluate(index_set->index.get(), environment))] = value;
+                } else {
+                    const double raw_index = runtime_number(evaluate(index_set->index.get(), environment));
+                    if (raw_index < 0.0 || raw_index >= static_cast<double>(collection.values.size())) {
+                        throw ScriptRuntimeError("collection index is out of range");
+                    }
+                    collection.values[static_cast<std::size_t>(raw_index)] = value;
+                }
+            }
+            return ExecutionSignal::None;
         }
         if (const auto* branch = dynamic_cast<const IRIf*>(operation)) {
             const auto& selected = runtime_boolean(evaluate(branch->condition.get(), environment))
                 ? branch->then_operations
                 : branch->else_operations;
             for (const auto& nested : selected) {
-                if (execute(nested.get(), environment)) return true;
+                const ExecutionSignal signal = execute(nested.get(), environment);
+                if (signal != ExecutionSignal::None) return signal;
             }
-            return false;
+            return ExecutionSignal::None;
         }
+        if (const auto* loop = dynamic_cast<const IRWhile*>(operation)) {
+            while (runtime_boolean(evaluate(loop->condition.get(), environment))) {
+                for (const auto& nested : loop->body) {
+                    const ExecutionSignal signal = execute(nested.get(), environment);
+                    if (signal == ExecutionSignal::Return) return signal;
+                    if (signal == ExecutionSignal::Break) return ExecutionSignal::None;
+                    if (signal == ExecutionSignal::Continue) break;
+                }
+            }
+            return ExecutionSignal::None;
+        }
+        if (const auto* loop = dynamic_cast<const IRFor*>(operation)) {
+            if (loop->initializer) static_cast<void>(execute(loop->initializer.get(), environment));
+            while (!loop->condition || runtime_boolean(evaluate(loop->condition.get(), environment))) {
+                bool should_break = false;
+                for (const auto& nested : loop->body) {
+                    const ExecutionSignal signal = execute(nested.get(), environment);
+                    if (signal == ExecutionSignal::Return) return signal;
+                    if (signal == ExecutionSignal::Break) { should_break = true; break; }
+                    if (signal == ExecutionSignal::Continue) break;
+                }
+                if (should_break) break;
+                if (loop->update) static_cast<void>(execute(loop->update.get(), environment));
+            }
+            return ExecutionSignal::None;
+        }
+        if (const auto* loop = dynamic_cast<const IRForIn*>(operation)) {
+            const RuntimeValue target = evaluate(loop->collection.get(), environment);
+            const auto* collection_ref = std::get_if<RuntimeCollectionRef>(&target);
+            if (!collection_ref || !*collection_ref) return ExecutionSignal::None;
+            for (const RuntimeValue& value : (*collection_ref)->values) {
+                environment[loop->variable_name] = value;
+                bool should_break = false;
+                for (const auto& nested : loop->body) {
+                    const ExecutionSignal signal = execute(nested.get(), environment);
+                    if (signal == ExecutionSignal::Return) return signal;
+                    if (signal == ExecutionSignal::Break) { should_break = true; break; }
+                    if (signal == ExecutionSignal::Continue) break;
+                }
+                if (should_break) break;
+            }
+            return ExecutionSignal::None;
+        }
+        if (dynamic_cast<const IRBreak*>(operation)) return ExecutionSignal::Break;
+        if (dynamic_cast<const IRContinue*>(operation)) return ExecutionSignal::Continue;
         static_cast<void>(evaluate(operation, environment));
-        return false;
+        return ExecutionSignal::None;
     }
 
     void execute_method(const std::string& name, std::vector<RuntimeValue> arguments) const {
@@ -1322,7 +1447,7 @@ private:
         }
         for (const auto& block : found->blocks) {
             for (const auto& statement : block.statements) {
-                if (execute(statement.op.get(), environment)) return;
+                if (execute(statement.op.get(), environment) == ExecutionSignal::Return) return;
             }
         }
     }
@@ -1552,6 +1677,7 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     m_instances = std::move(other.m_instances);
     m_native_workspace = std::move(other.m_native_workspace);
     m_native_async_scheduler = std::move(other.m_native_async_scheduler);
+    m_typed_event_bus = std::move(other.m_typed_event_bus);
     m_native_module = std::move(other.m_native_module);
     m_statuses = std::move(other.m_statuses);
     m_source_signatures = std::move(other.m_source_signatures);
@@ -1568,6 +1694,7 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     other.m_instances.clear();
     other.m_native_workspace.reset();
     other.m_native_async_scheduler.reset();
+    other.m_typed_event_bus.reset();
     other.m_native_module.reset();
     other.m_statuses.clear();
     other.m_source_signatures.clear();
@@ -1606,6 +1733,7 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         m_native_workspace = std::make_unique<EngineScript::EngineScriptWorkspace>(asset_database.project_root().string());
     }
     m_native_async_scheduler = std::make_unique<EngineScript::AsyncScheduler>();
+    m_typed_event_bus = std::make_unique<EngineScript::TypedEventBus>();
     subscribe_to_events();
 
     ScriptRuntimeStartResult result;
@@ -1833,6 +1961,7 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
     instance.binding->slot_id = slot.id;
     instance.binding->services = &m_services;
     instance.binding->async_scheduler = m_native_async_scheduler.get();
+    instance.binding->typed_event_bus = m_typed_event_bus.get();
 
     const auto registration = std::find_if(
         m_native_module->descriptor().behaviour_types.begin(),
@@ -1856,20 +1985,19 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
     instance.behaviour->async_scheduler = m_native_async_scheduler.get();
     instance.behaviour->entities = instance.native_host->entities();
     push_exposed_properties(*instance.behaviour, slot, *m_entity_manager);
-    instance.behaviour->on_start();
+    try {
+        instance.behaviour->on_start();
+    } catch (const std::exception& runtime_error) {
+        error = std::string{"EngineScript runtime error in on_start: "} + runtime_error.what();
+        return false;
+    } catch (...) {
+        error = "EngineScript runtime error in on_start: unknown exception";
+        return false;
+    }
     instance.native_host->sync_after();
     pull_exposed_properties(*instance.behaviour, slot);
     m_instances.push_back(std::move(instance));
     return true;
-}
-
-void ScriptRuntime::queue_custom_event(EntityID source, std::string name, std::string payload) {
-    PendingEvent event;
-    event.type = PendingEventType::Custom;
-    event.entity_a = source;
-    event.name = std::move(name);
-    event.payload = std::move(payload);
-    m_pending_events.push_back(std::move(event));
 }
 
 void ScriptRuntime::subscribe_to_events() {
@@ -1917,16 +2045,6 @@ void ScriptRuntime::subscribe_to_events() {
             m_pending_events.push_back(std::move(pending));
         })
     );
-    m_event_subscriptions.push_back(
-        m_event_dispatcher->subscribe<ScriptEvent>([this](const ScriptEvent& event) {
-            queue_custom_event(event.source, event.name, event.payload);
-        })
-    );
-    m_event_subscriptions.push_back(
-        m_event_dispatcher->subscribe<GameSessionEvent>([this](const GameSessionEvent& event) {
-            queue_custom_event(0, event.name, event.error.empty() ? event.path : event.error);
-        })
-    );
 }
 
 void ScriptRuntime::unsubscribe_from_events() {
@@ -1968,7 +2086,21 @@ void ScriptRuntime::dispatch_events() {
                     };
                     if (instance.binding) bind_dynamic_component_access(other, *instance.binding);
                     if (instance.native_host) instance.native_host->sync_before();
-                    instance.behaviour->on_collision_enter(other);
+                    try {
+                        instance.behaviour->on_collision_enter(other);
+                    } catch (const std::exception& runtime_error) {
+                        set_error(instance.entity,
+                            std::string{"EngineScript runtime error in on_collision_enter: "} + runtime_error.what(),
+                            instance.script_path);
+                        if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(instance.behaviour->task_scope_id);
+                        if (m_typed_event_bus) m_typed_event_bus->cancel_scope(instance.behaviour->task_scope_id);
+                        instance.behaviour->cancel_owned_tasks();
+                        continue;
+                    } catch (...) {
+                        set_error(instance.entity, "EngineScript runtime error in on_collision_enter: unknown exception",
+                            instance.script_path);
+                        continue;
+                    }
                     if (instance.native_host) instance.native_host->sync_after();
                     if (ScriptBehaviourSlot* slot = find_script_slot(
                             *m_entity_manager, instance.entity, instance.slot_id)) {
@@ -1977,21 +2109,6 @@ void ScriptRuntime::dispatch_events() {
                             *slot
                         );
                     }
-                }
-            }
-        }
-        if (event.type == PendingEventType::Custom) {
-            for (auto& instance : m_instances) {
-                if (!instance.behaviour || !instance.native_host || !instance.native_host->is_subscribed_to(event.name)) continue;
-                instance.native_host->sync_before();
-                instance.behaviour->on_event(event.name, event.payload);
-                instance.native_host->sync_after();
-                if (ScriptBehaviourSlot* slot = find_script_slot(
-                        *m_entity_manager, instance.entity, instance.slot_id)) {
-                    pull_exposed_properties(
-                        *instance.behaviour,
-                        *slot
-                    );
                 }
             }
         }
@@ -2127,11 +2244,21 @@ void ScriptRuntime::update(float delta_time) {
         if (component && component->enabled && inst.behaviour) {
             if (inst.native_host) inst.native_host->sync_before();
             push_exposed_properties(*inst.behaviour, *component, *m_entity_manager);
-            inst.behaviour->update(delta_time);
-            if (inst.native_host) inst.native_host->sync_after();
-            if (ScriptBehaviourSlot* live_slot = find_script_slot(
-                    *m_entity_manager, inst.entity, inst.slot_id)) {
-                pull_exposed_properties(*inst.behaviour, *live_slot);
+            try {
+                inst.behaviour->update(delta_time);
+                if (inst.native_host) inst.native_host->sync_after();
+                if (ScriptBehaviourSlot* live_slot = find_script_slot(
+                        *m_entity_manager, inst.entity, inst.slot_id)) {
+                    pull_exposed_properties(*inst.behaviour, *live_slot);
+                }
+            } catch (const std::exception& runtime_error) {
+                set_error(inst.entity, std::string{"EngineScript runtime error in update: "} + runtime_error.what(),
+                    inst.script_path);
+                if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(inst.behaviour->task_scope_id);
+                if (m_typed_event_bus) m_typed_event_bus->cancel_scope(inst.behaviour->task_scope_id);
+                inst.behaviour->cancel_owned_tasks();
+            } catch (...) {
+                set_error(inst.entity, "EngineScript runtime error in update: unknown exception", inst.script_path);
             }
         }
     }
@@ -2143,6 +2270,7 @@ void ScriptRuntime::shutdown() {
     for (auto& inst : m_instances) {
         if (inst.behaviour) {
             if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(inst.behaviour->task_scope_id);
+            if (m_typed_event_bus) m_typed_event_bus->cancel_scope(inst.behaviour->task_scope_id);
             inst.behaviour->cancel_owned_tasks();
             inst.behaviour->on_destroy();
         }
@@ -2152,6 +2280,8 @@ void ScriptRuntime::shutdown() {
     if (m_services.stop_music) m_services.stop_music();
     m_instances.clear();
     m_native_module.reset();
+    if (m_typed_event_bus) m_typed_event_bus->clear();
+    m_typed_event_bus.reset();
     m_native_async_scheduler.reset();
 
     m_entity_manager = nullptr;
@@ -2339,6 +2469,7 @@ void ScriptRuntime::flush_pending_component_removals() {
         if (found == m_instances.end()) continue;
         if (found->behaviour) {
             if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(found->behaviour->task_scope_id);
+            if (m_typed_event_bus) m_typed_event_bus->cancel_scope(found->behaviour->task_scope_id);
             found->behaviour->cancel_owned_tasks();
             found->behaviour->on_destroy();
         }
