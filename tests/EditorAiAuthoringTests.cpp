@@ -190,6 +190,32 @@ void test_alias_session_executes_as_one_undoable_transaction() {
     assert(session.entities.has_component<ColliderComponent>(created));
 }
 
+void test_gameplay_tags_are_ai_configurable_and_undoable() {
+  TestSession session;
+  const EntityID entity = create_basic_entity(session, "Player");
+  EditorAiAuthoringRegistry registry;
+  std::vector<EditorAiAuthoringAction> actions;
+  queue(registry, actions, "propose_add_component",
+        {{"entity_id", entity}, {"component_key", "gameplay_tags"}});
+  queue(registry, actions, "propose_configure_component",
+        {{"entity_id", entity},
+         {"component_key", "gameplay_tags"},
+         {"patch_json", R"({"tags":["character.controllable","player"]})"}});
+
+  std::string error;
+  auto group = registry.build_command_group(actions, session.context(), error);
+  assert(group && error.empty());
+  assert(session.history.execute_command(std::move(group)));
+  assert(session.entities.get_component<GameplayTagsComponent>(entity).tags ==
+         std::vector<std::string>({"character.controllable", "player"}));
+
+  session.history.undo();
+  assert(!session.entities.has_component<GameplayTagsComponent>(entity));
+  session.history.redo();
+  assert(session.entities.get_component<GameplayTagsComponent>(entity).contains(
+      "player"));
+}
+
 void test_component_data_can_be_configured_and_replayed() {
     TestSession session;
     EditorAiAuthoringRegistry registry;
@@ -676,7 +702,8 @@ void test_proposal_rejects_a_stale_scene_revision() {
 int main() {
     test_tool_validation_and_limits();
     test_alias_session_executes_as_one_undoable_transaction();
-    test_component_data_can_be_configured_and_replayed();
+  test_gameplay_tags_are_ai_configurable_and_undoable();
+  test_component_data_can_be_configured_and_replayed();
     test_2d_positions_default_or_preserve_depth();
     test_ai_created_sprite_resolves_white_runtime_texture();
     test_created_alias_hierarchy_survives_undo_redo();

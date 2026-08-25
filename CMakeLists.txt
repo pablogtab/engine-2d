@@ -119,6 +119,7 @@ set(SOURCES
     src/editor/panels/EditorAiAttachmentView.cpp
     src/editor/ai/EditorAiAttachmentStore.cpp
     src/editor/ai/EditorAiRequestPolicy.cpp
+    src/editor/ai/EditorAiProjectKnowledge.cpp
     src/editor/ai/EditorAiConversationStore.cpp
     src/editor/ai/EditorAiToolRegistry.cpp
     src/editor/ai/ProjectCommandRegistry.cpp
@@ -137,6 +138,7 @@ set(SOURCES
     src/editor/inspector/ScriptInspectorDrawer.cpp
     src/editor/inspector/RigidBodyInspectorDrawer.cpp
     src/editor/inspector/ColliderInspectorDrawer.cpp
+    src/editor/inspector/GameplayTagsInspectorDrawer.cpp
     src/editor/inspector/LightingInspectorDrawer.cpp
     src/editor/inspector/UIInspectorDrawer.cpp
     src/editor/inspector/TilemapInspectorDrawer.cpp
@@ -986,11 +988,8 @@ add_test(NAME ComponentRegistryTests COMMAND ComponentRegistryTests)
 
 add_executable(EditorAiToolRegistryTests
     tests/EditorAiToolRegistryTests.cpp
-    src/core/AssetDatabase.cpp
-    src/core/FileSystem.cpp
-    src/core/Log.cpp
-    src/ecs/EntityManager.cpp
     src/editor/ai/EditorAiToolRegistry.cpp
+    src/editor/ai/EditorAiProjectKnowledge.cpp
     src/editor/ai/ProjectCommandRegistry.cpp
     src/editor/ai/EditorAiViewportTools.cpp
 )
@@ -1001,7 +1000,7 @@ target_include_directories(EditorAiToolRegistryTests PRIVATE
 target_compile_definitions(EditorAiToolRegistryTests PRIVATE
     ENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
 )
-target_link_libraries(EditorAiToolRegistryTests PRIVATE SDL3::SDL3 glm::glm)
+target_link_libraries(EditorAiToolRegistryTests PRIVATE EngineRuntime SDL3::SDL3 glm::glm)
 add_test(NAME EditorAiToolRegistryTests COMMAND EditorAiToolRegistryTests)
 
 add_executable(ProfilerInstrumentationTests

@@ -187,6 +187,40 @@ int main() {
     assert(check6.check_module(m6));
     assert(!particle_diags.has_errors());
 
-    std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
+  // Test 7: Nullable catalog results do not mutate the shared Entity type.
+  DiagnosticEngine nullable_diags;
+  std::string nullable_code = R"(
+        function inspect(entities: Entities, source: Entity): Void {
+            let plain = entities.findByName("Status");
+            let nullable = entities.parent(source);
+        }
+    )";
+  FileId f7 = sm.register_source("Source/NullableCatalog.e2s", nullable_code);
+  Lexer l7(f7, nullable_code, nullable_diags);
+  Parser p7(f7, "Source/NullableCatalog.e2s", l7.tokenize_all(),
+            nullable_diags);
+  auto m7 = p7.parse_module();
+  SymbolResolver res7(sm, nullable_diags);
+  res7.resolve_module(m7);
+  TypeChecker check7(res7, nullable_diags);
+  assert(check7.check_module(m7));
+  assert(!nullable_diags.has_errors());
+  bool found_plain_call = false;
+  bool found_nullable_call = false;
+  for (const InferredTypeInfo &inferred : check7.inferred_types()) {
+    const std::string expression = nullable_code.substr(
+        inferred.span.start_offset, inferred.span.length());
+    if (expression == "entities.findByName(\"Status\")") {
+      found_plain_call = true;
+      assert(inferred.type_name == "Entity");
+    }
+    if (expression == "entities.parent(source)") {
+      found_nullable_call = true;
+      assert(inferred.type_name == "Entity?");
+    }
+  }
+  assert(found_plain_call && found_nullable_call);
+
+  std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;
 }

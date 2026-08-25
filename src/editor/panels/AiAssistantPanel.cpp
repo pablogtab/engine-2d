@@ -35,7 +35,7 @@ namespace {
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
-constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 8;
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 9;
 constexpr std::size_t AUTO_COMPACT_INPUT_TOKEN_THRESHOLD = 24000;
 std::string project_root();
 
@@ -1451,7 +1451,8 @@ void AiAssistantPanel::start_request() {
         viewport_available,
         !request.images.empty(),
         previous_receipt,
-        attached_contexts
+        attached_contexts,
+        request_context->value("project_overview", nlohmann::json::object())
     });
     request.project_root = project_root();
     request.codex_executable = m_codex_executable;

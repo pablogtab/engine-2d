@@ -91,6 +91,26 @@ connected execution surface includes:
   SpriteRenderer, Time, Display, physics hit, asset, particle, and joint properties;
 - optional `Animator2D.play` and runtime entity hierarchy operations through `Entities`.
 
+`GameplayTagsComponent` provides stable semantic identity independently of the
+author-facing entity name. Tags use lowercase dotted names such as `player`,
+`camera.main`, and `collectible.coin`. They are serialized in scenes and prefabs,
+editable in the Inspector, and available to scripts through `Entities`:
+
+```enginescript
+let player: Entity = entities.findByGameplayTag("player");
+let coins: Array<Entity> = entities.findAllByGameplayTag("collectible.coin");
+if (entities.hasGameplayTag(other, "platform.trampoline")) {
+    body.velocity.y = trampolineSpeed;
+}
+```
+
+Runtime-created entities can use `addGameplayTag` and `removeGameplayTag`;
+`gameplayTags(entity)` returns the current sorted list. Missing queries return an
+invalid `Entity` for which `entities.exists(...)` is `false`; invalid or destroyed
+references otherwise return `false` or an empty array rather than exposing stale
+ECS storage. Display-name queries remain available for authoring-oriented lookups,
+but gameplay behavior should prefer semantic tags.
+
 `@inject` can also request the following gameplay services:
 
 - `Audio`: `playSound`, `playMusic`, music transport, and master/music/SFX

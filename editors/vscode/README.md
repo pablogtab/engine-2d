@@ -7,7 +7,8 @@ The language server reads the versioned EngineScript API catalog, so available
 types, global functions, and service methods stay aligned with the compiler.
 This includes contextual component methods such as
 `RigidBody2D.setIgnoreOneWay`, particle authoring through `Particles` and
-`ParticleEmitter2D`, and typed global helpers such as `toString(Int)`.
+`ParticleEmitter2D`, semantic entity lookup and mutation through the
+`Entities` gameplay-tag methods, and typed global helpers such as `toString(Int)`.
 The `EngineScript: Compile Project` command builds `.e2s` files. Its status-bar item
 shows language-server availability and the result of the latest project build;
 click it to compile the active Engine2D project.

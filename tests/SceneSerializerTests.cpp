@@ -171,6 +171,27 @@ void test_all_project_scenes_match_the_registered_schema() {
     assert(SceneSerializer(&destination).deserialize_from_string(document));
 }
 
+void test_gameplay_tags_round_trip_deterministically() {
+  TestScene source;
+  EntityManager &entities = source.get_entity_manager();
+  const EntityID entity = entities.create_entity();
+  entities.add_component<TagComponent>(entity, TagComponent{"Tagged"});
+  entities.add_component<TransformComponent>(entity, TransformComponent{});
+  entities.add_component<GameplayTagsComponent>(
+      entity, GameplayTagsComponent{{"player.controllable", "player"}});
+
+  SceneSerializer serializer(&source);
+  const std::string snapshot = serializer.serialize_to_string();
+  const auto document = nlohmann::json::parse(snapshot);
+  assert(document["entities"][0]["gameplay_tags"]["tags"] ==
+         nlohmann::json::array({"player", "player.controllable"}));
+
+  assert(serializer.deserialize_from_string(snapshot));
+  const auto &restored = entities.get_component<GameplayTagsComponent>(entity);
+  assert(restored.tags ==
+         std::vector<std::string>({"player", "player.controllable"}));
+}
+
 void test_serialization_is_deterministic_and_excludes_runtime_state() {
     TestScene scene;
     EntityManager& em = scene.get_entity_manager();
@@ -539,7 +560,8 @@ int main() {
     test_forward_parent_reference_is_order_independent();
     test_sprite_outline_authoring_round_trips();
     test_all_project_scenes_match_the_registered_schema();
-    test_serialization_is_deterministic_and_excludes_runtime_state();
+  test_gameplay_tags_round_trip_deterministically();
+  test_serialization_is_deterministic_and_excludes_runtime_state();
     test_failed_load_is_transactional();
     test_future_scene_version_is_rejected_transactionally();
     test_v1_scene_migrates_to_current_schema();

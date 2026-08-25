@@ -1,4 +1,5 @@
 #include "EditorAiToolRegistry.hpp"
+#include "EditorAiProjectKnowledge.hpp"
 #include "ProjectCommandRegistry.hpp"
 
 #include "../EditorSelection.hpp"
@@ -47,7 +48,17 @@ constexpr EngineDocumentDescriptor ENGINE_DOCUMENTS[] = {
     {"ai_authoring", "AI-assisted authoring contract", "docs/AI_ASSISTED_AUTHORING.md",
      "Proposal tools, validation gates, atomic execution, session isolation, and rollback behavior."},
     {"project_commands", "Project command registry", "docs/PROJECT_COMMANDS.md",
-     "Allowlisted build, test, export, formatting, and log commands for the assistant."}
+     "Allowlisted build, test, export, formatting, and log commands for the assistant."},
+    {"scripting", "EngineScript SDK", "docs/SCRIPTING.md",
+     "EngineScript language, gameplay API, component injection, compilation, "
+     "and runtime behavior."},
+    {"projects", "External project contract", "docs/PROJECTS.md",
+     "External project layout, ownership, startup scenes, asset database, and "
+     "export boundaries."},
+    {"debugging", "Debugging and performance",
+     "docs/DEBUGGING_PERFORMANCE_PLAN.md",
+     "Physics overlays, play transport, runtime inspection, profiler, stress "
+     "scenarios, and commands."}
 };
 
 std::vector<EntityID> sorted_selection(const EditorSelection* selection) {
@@ -118,6 +129,29 @@ EditorAiToolRegistry::EditorAiToolRegistry(
               {"name", "get_selection_context"},
               {"description", "Returns read-only entity, hierarchy, and component context for the current editor selection."},
               {"parameters", empty_object_schema()},
+            {"strict", true}},
+           {{"type", "function"},
+            {"name", "get_project_overview"},
+            {"description",
+             "Builds a compact project overview from project.engine2d, the "
+             "asset database, active scene, gameplay tags, scripts, input "
+             "mappings, and normal project documents."},
+            {"parameters", empty_object_schema()},
+            {"strict", true}},
+           {{"type", "function"},
+            {"name", "find_entities_by_gameplay_tag"},
+            {"description",
+             "Finds scene entities by semantic gameplay tag such as player, "
+             "camera.main, or collectible.coin."},
+            {"parameters",
+             {{"type", "object"},
+              {"properties",
+               {{"tag",
+                 {{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}},
+                {"limit",
+                 {{"type", "integer"}, {"minimum", 1}, {"maximum", 100}}}}},
+              {"required", {"tag", "limit"}},
+              {"additionalProperties", false}}},
               {"strict", true}
           },
           {
@@ -193,12 +227,51 @@ EditorAiToolRegistry::EditorAiToolRegistry(
                   {"properties", {
                       {"document_id", {
                           {"type", "string"},
-                          {"enum", {"engine_contracts", "roadmap", "render_materials", "runtime_display", "increment_checklist", "ai_authoring", "project_commands"}}
+                          {"enum", {"engine_contracts", "roadmap", "render_materials", "runtime_display", "increment_checklist", "ai_authoring", "project_commands", "scripting", "projects",
+                    "debugging"}}
                       }}
                   }},
                   {"required", {"document_id"}},
                   {"additionalProperties", false}
               }},
+            {"strict", true}},
+           {{"type", "function"},
+            {"name", "list_project_documents"},
+            {"description", "Lists bounded Markdown documents from the project "
+                            "root and Docs directory. These documents describe "
+                            "game intent rather than engine state."},
+            {"parameters", empty_object_schema()},
+            {"strict", true}},
+           {{"type", "function"},
+            {"name", "read_project_document"},
+            {"description",
+             "Reads one project document returned by list_project_documents."},
+            {"parameters",
+             {{"type", "object"},
+              {"properties", {{"document_id", {{"type", "string"}}}}},
+              {"required", {"document_id"}},
+              {"additionalProperties", false}}},
+            {"strict", true}},
+           {{"type", "function"},
+            {"name", "search_project_documents"},
+            {"description", "Searches normal project Markdown documents and "
+                            "returns bounded matching snippets."},
+            {"parameters",
+             {{"type", "object"},
+              {"properties",
+               {{"query",
+                 {{"type", "string"}, {"minLength", 2}, {"maxLength", 128}}},
+                {"limit",
+                 {{"type", "integer"}, {"minimum", 1}, {"maximum", 20}}}}},
+              {"required", {"query", "limit"}},
+              {"additionalProperties", false}}},
+            {"strict", true}},
+           {{"type", "function"},
+            {"name", "get_engine_capabilities"},
+            {"description",
+             "Reports compiled EngineScript ABI, registered components, editor "
+             "AI tools, input mappings, and runtime diagnostic capabilities."},
+            {"parameters", empty_object_schema()},
               {"strict", true}
           },
           {
@@ -228,7 +301,24 @@ EditorAiToolResult EditorAiToolRegistry::execute(
     const EditorSelection* selection
 ) const {
     if (!arguments.is_object()) return {false, {}, "Tool arguments must be an object"};
-    if (tool_name == "get_build_status" || tool_name == "run_project_command") {
+  EditorAiProjectKnowledge project_knowledge;
+  if (tool_name == "list_project_documents") {
+    if (!arguments.empty())
+      return {false, {}, "list_project_documents takes no arguments"};
+    return project_knowledge.list_project_documents();
+  }
+  if (tool_name == "read_project_document") {
+    return project_knowledge.read_project_document(arguments);
+  }
+  if (tool_name == "search_project_documents") {
+    return project_knowledge.search_project_documents(arguments);
+  }
+  if (tool_name == "get_engine_capabilities") {
+    if (!arguments.empty())
+      return {false, {}, "get_engine_capabilities takes no arguments"};
+    return project_knowledge.get_engine_capabilities(m_tool_schemas);
+  }
+  if (tool_name == "get_build_status" || tool_name == "run_project_command") {
         if ((tool_name == "get_build_status" && !arguments.empty()) ||
             (tool_name == "run_project_command" && (arguments.size() != 1 || !arguments.contains("name") || !arguments.at("name").is_string()))) {
             return {false, {}, "Invalid project command arguments"};
@@ -257,7 +347,21 @@ EditorAiToolResult EditorAiToolRegistry::execute(
             ? find_scene_entities(arguments, entity_index)
             : get_entity_details(arguments, entity_index);
     }
-    if (!arguments.empty()) return {false, {}, "Tool arguments must be an empty object"};
+    if (tool_name == "find_entities_by_gameplay_tag") {
+    if (!active_scene)
+      return {false, {}, "No active scene is loaded"};
+    return project_knowledge.find_entities_by_gameplay_tag(
+        arguments, build_entity_index(active_scene, selection));
+  }
+  if (tool_name == "get_project_overview") {
+    if (!arguments.empty())
+      return {false, {}, "get_project_overview takes no arguments"};
+    ComponentSerializationContext serialization;
+    serialization.asset_database = &AssetDatabase::get();
+    return project_knowledge.get_project_overview(
+        build_context_snapshot(active_scene, selection, serialization));
+  }
+  if (!arguments.empty()) return {false, {}, "Tool arguments must be an empty object"};
     if (tool_name == "get_scene_summary") {
         return get_scene_summary(active_scene, selection);
     }
@@ -288,7 +392,13 @@ nlohmann::json EditorAiToolRegistry::build_context_snapshot(
     snapshot["entity_index"] = build_entity_index(active_scene, selection, serialization);
     snapshot["asset_index"] = build_asset_index(serialization);
     snapshot["engine_documents"] = list_engine_documents().output;
-    return snapshot;
+  EditorAiProjectKnowledge knowledge;
+  snapshot["project_documents"] = knowledge.list_project_documents().output;
+  const EditorAiToolResult overview = knowledge.get_project_overview(snapshot);
+  snapshot["project_overview"] =
+      overview.success ? overview.output
+                       : nlohmann::json{{"error", overview.error}};
+  return snapshot;
 }
 
 EditorAiToolResult EditorAiToolRegistry::execute_snapshot(
@@ -297,7 +407,31 @@ EditorAiToolResult EditorAiToolRegistry::execute_snapshot(
     const nlohmann::json& snapshot
 ) const {
     if (!arguments.is_object()) return {false, {}, "Tool arguments must be an object"};
-    if (tool_name == "get_scene_summary" || tool_name == "get_selection_context") {
+  EditorAiProjectKnowledge project_knowledge;
+  if (tool_name == "get_project_overview") {
+    if (!arguments.empty())
+      return {false, {}, "get_project_overview takes no arguments"};
+    if (!snapshot.contains("project_overview") ||
+        !snapshot.at("project_overview").is_object()) {
+      return {false, {}, "Frozen project overview is unavailable"};
+    }
+    if (snapshot.at("project_overview").contains("error")) {
+      return {false,
+              {},
+              snapshot.at("project_overview")
+                  .value("error", "Frozen project overview is unavailable")};
+    }
+    return {true, snapshot.at("project_overview"), {}};
+  }
+  if (tool_name == "find_entities_by_gameplay_tag") {
+    if (!snapshot.contains("entity_index") ||
+        !snapshot.at("entity_index").is_array()) {
+      return {false, {}, "Frozen entity index is unavailable"};
+    }
+    return project_knowledge.find_entities_by_gameplay_tag(
+        arguments, snapshot.at("entity_index"));
+  }
+  if (tool_name == "get_scene_summary" || tool_name == "get_selection_context") {
         if (!arguments.empty()) return {false, {}, "Tool arguments must be an empty object"};
         const char* key = tool_name == "get_scene_summary" ? "scene" : "selection";
         if (!snapshot.contains(key) || !snapshot.at(key).is_object()) {

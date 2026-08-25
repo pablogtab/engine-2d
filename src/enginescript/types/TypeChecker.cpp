@@ -578,8 +578,11 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     TypeAnnotation return_annotation;
                     return_annotation.name = method->return_type;
                     auto return_type = resolve_type_annotation(return_annotation, scope.get());
-                    return_type->is_nullable = method->nullable_return;
-                    m_node_types[call] = return_type;
+          if (method->nullable_return) {
+            return_type = std::make_shared<Type>(*return_type);
+            return_type->is_nullable = true;
+          }
+          m_node_types[call] = return_type;
                     return return_type;
                 }
             }
@@ -794,8 +797,11 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             }
             TypeAnnotation annotation{property->type};
             auto property_type = resolve_type_annotation(annotation, scope.get());
-            property_type->is_nullable = property->nullable;
-            m_node_types[mem] = property_type;
+      if (property->nullable) {
+        property_type = std::make_shared<Type>(*property_type);
+        property_type->is_nullable = true;
+      }
+      m_node_types[mem] = property_type;
             return property_type;
         }
 

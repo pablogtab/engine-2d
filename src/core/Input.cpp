@@ -86,7 +86,24 @@ void Input::set_game_input_enabled(bool enabled) {
 }
 
 bool Input::is_game_input_enabled() {
-    return s_game_input_enabled;
+    return s_game_input_enabled; }
+
+std::vector<std::string> Input::action_names() {
+  std::vector<std::string> names;
+  names.reserve(s_actions.size());
+  for (const auto &[name, _] : s_actions)
+    names.push_back(name);
+  std::sort(names.begin(), names.end());
+  return names;
+}
+
+std::vector<std::string> Input::axis_names() {
+  std::vector<std::string> names;
+  names.reserve(s_axes.size());
+  for (const auto &[name, _] : s_axes)
+    names.push_back(name);
+  std::sort(names.begin(), names.end());
+  return names;
 }
 
 void Input::set_custom_mouse_position(const glm::vec2& pos) {

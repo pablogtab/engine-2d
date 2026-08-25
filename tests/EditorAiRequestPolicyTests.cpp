@@ -26,12 +26,18 @@ void test_confirmed_authoring_policy_includes_context() {
   input.previous_receipt = "1 entity added";
   input.attached_contexts = nlohmann::json::array(
       {{{"kind", "entity"}, {"data", {{"entity_id", 42}}}}});
+  input.project_overview = {
+      {"name", "Crystal Cavern"},
+      {"gameplay_roles",
+       {{"player", nlohmann::json::array({{{"entity_id", 42}}})}}}};
 
   const std::string instructions =
       Engine::build_editor_ai_request_instructions(input);
   assert(contains(instructions, "confirm the proposal"));
   assert(contains(instructions, "Previous editor result: 1 entity added"));
   assert(contains(instructions, "\"entity_id\":42"));
+  assert(contains(instructions, "Crystal Cavern"));
+  assert(contains(instructions, "generated automatically"));
   assert(contains(instructions, "attached screenshot images"));
   assert(contains(instructions, "capture_viewport"));
 }

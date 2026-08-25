@@ -2,10 +2,12 @@
 
 #include "../../core/AssetHandle.hpp"
 #include "../EcsTypes.hpp"
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <cmath>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -83,6 +85,38 @@ struct TagComponent {
     TagComponent() = default;
     explicit TagComponent(const std::string& name) : tag(name) {}
 };
+
+// Semantic gameplay identity shared by runtime queries, editor tooling, tests,
+// and AI project discovery. Tags are canonical lowercase dotted identifiers
+// such as "player" or "collectible.coin".
+struct GameplayTagsComponent {
+  std::vector<std::string> tags;
+
+  [[nodiscard]] bool contains(const std::string &tag) const {
+    return std::find(tags.begin(), tags.end(), tag) != tags.end();
+  }
+
+  bool operator==(const GameplayTagsComponent &) const = default;
+};
+
+[[nodiscard]] inline bool is_valid_gameplay_tag(std::string_view tag) {
+  if (tag.empty() || tag.size() > 64 || tag.front() == '.' || tag.back() == '.')
+    return false;
+  bool previous_dot = false;
+  for (const char character : tag) {
+    const bool dot = character == '.';
+    if (dot && previous_dot)
+      return false;
+    const bool lowercase_letter = character >= 'a' && character <= 'z';
+    const bool digit = character >= '0' && character <= '9';
+    if (!dot && character != '_' && character != '-' && !lowercase_letter &&
+        !digit) {
+      return false;
+    }
+    previous_dot = dot;
+  }
+  return true;
+}
 
 struct BehaviorComponent {
     std::function<void(EntityID, float)> update_fn;

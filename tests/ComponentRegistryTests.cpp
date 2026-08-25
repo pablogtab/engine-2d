@@ -308,8 +308,9 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 20);
+    assert(registry.descriptors().size() == 21);
     assert(registry.find_by_type(typeid(TagComponent)));
+  assert(registry.find_by_type(typeid(GameplayTagsComponent)));
     assert(registry.find_by_type(typeid(GroupComponent)));
     assert(registry.find_by_type(typeid(RenderEffectComponent)));
     assert(registry.find_by_type(typeid(Light2DComponent)));
@@ -534,11 +535,13 @@ void test_builtin_components_round_trip_through_registry() {
     emitter.effect_handle = AssetHandle{0x5555};
     emitter.active = true;
     em.add_component<ParticleEmitter2DComponent>(source, emitter);
+  const GameplayTagsComponent gameplay_tags{{"player", "player.controllable"}};
+  em.add_component<GameplayTagsComponent>(source, gameplay_tags);
 
-    nlohmann::json value;
+  nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
-    for (const char* key : {"tag", "group", "render_effect", "light_2d", "shadow_caster_2d",
+    for (const char* key : {"tag", "gameplay_tags", "group", "render_effect", "light_2d", "shadow_caster_2d",
                             "camera", "canvas", "ui_layout", "ui_text", "ui_image", "ui_button",
                             "animation", "rigidbody", "collider", "tilemap", "script", "particle_emitter_2d"}) {
         assert(value.contains(key));
@@ -553,6 +556,7 @@ void test_builtin_components_round_trip_through_registry() {
         error
     ));
     assert(em.get_component<TagComponent>(target).tag == "RegistryEntity");
+  assert(em.get_component<GameplayTagsComponent>(target) == gameplay_tags);
     assert(em.has_component<GroupComponent>(target));
     assert(em.get_component<RenderEffectComponent>(target) == RenderEffectComponent(AssetHandle{0x1234}, false));
     assert(em.get_component<Light2DComponent>(target) == light);
@@ -583,6 +587,7 @@ void test_builtin_components_round_trip_through_registry() {
     ));
     assert(snapshot.size() + 1 == default_component_registry().descriptors().size());
     assert(em.get_component<TagComponent>(restored).tag == "RegistryEntity");
+  assert(em.get_component<GameplayTagsComponent>(restored) == gameplay_tags);
     assert(em.has_component<GroupComponent>(restored));
     assert(em.get_component<RenderEffectComponent>(restored) == RenderEffectComponent(AssetHandle{0x1234}, false));
     assert(em.get_component<Light2DComponent>(restored) == light);

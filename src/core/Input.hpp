@@ -90,8 +90,10 @@ public:
     // Axis Mappings ("Horizontal", "Vertical") -> returns [-1.0f, +1.0f]
     static void map_axis(const std::string& axis_name, const AxisBinding& binding);
     static float get_axis(const std::string& axis_name);
+  [[nodiscard]] static std::vector<std::string> action_names();
+  [[nodiscard]] static std::vector<std::string> axis_names();
 
-    // Input Enable / Viewport Isolation Control (For Editor Integration)
+  // Input Enable / Viewport Isolation Control (For Editor Integration)
     static void set_game_input_enabled(bool enabled);
     static bool is_game_input_enabled();
     static void set_custom_mouse_position(const glm::vec2& pos);

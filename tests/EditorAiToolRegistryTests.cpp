@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 
 namespace {
 
@@ -41,8 +42,17 @@ EditorAiToolRegistry make_registry() {
                     {"position", {transform.position.x, transform.position.y, transform.position.z}}
                 };
             }
-        }
-    }, ENGINE_SOURCE_DIR);
+        },
+       {"gameplay_tags",
+        [](const EntityManager &entities, EntityID entity) {
+          return entities.has_component<GameplayTagsComponent>(entity);
+        },
+        [](const EntityManager &entities, EntityID entity,
+           const ComponentSerializationContext &) {
+          return nlohmann::json{
+              {"tags",
+               entities.get_component<GameplayTagsComponent>(entity).tags}};
+        }}}, ENGINE_SOURCE_DIR);
 }
 
 void test_tool_schemas_are_read_only_and_strict() {
@@ -50,19 +60,25 @@ void test_tool_schemas_are_read_only_and_strict() {
     const auto& schemas = registry.tool_schemas();
 
     assert(schemas.is_array());
-    assert(schemas.size() == 10);
+    assert(schemas.size() == 16);
     assert(schemas.at(0).at("name") == "get_scene_summary");
     assert(schemas.at(0).at("strict") == true);
     assert(schemas.at(0).at("parameters").at("additionalProperties") == false);
     assert(schemas.at(1).at("name") == "get_selection_context");
-    assert(schemas.at(2).at("name") == "find_scene_entities");
-    assert(schemas.at(3).at("name") == "get_entity_details");
-    assert(schemas.at(4).at("name") == "find_project_assets");
-    assert(schemas.at(5).at("name") == "get_asset_details");
-    assert(schemas.at(6).at("name") == "list_engine_documents");
-    assert(schemas.at(7).at("name") == "read_engine_document");
-    assert(schemas.at(8).at("name") == "get_build_status");
-    assert(schemas.at(9).at("name") == "run_project_command");
+    assert(schemas.at(2).at("name") == "get_project_overview");
+    assert(schemas.at(3).at("name") == "find_entities_by_gameplay_tag");
+    assert(schemas.at(4).at("name") == "find_scene_entities");
+    assert(schemas.at(5).at("name") == "get_entity_details");
+    assert(schemas.at(6).at("name") == "find_project_assets");
+    assert(schemas.at(7).at("name") == "get_asset_details");
+    assert(schemas.at(8).at("name") == "list_engine_documents");
+  assert(schemas.at(9).at("name") == "read_engine_document");
+  assert(schemas.at(10).at("name") == "list_project_documents");
+  assert(schemas.at(11).at("name") == "read_project_document");
+  assert(schemas.at(12).at("name") == "search_project_documents");
+  assert(schemas.at(13).at("name") == "get_engine_capabilities");
+  assert(schemas.at(14).at("name") == "get_build_status");
+    assert(schemas.at(15).at("name") == "run_project_command");
 }
 
 void test_viewport_tool_schemas_and_validation() {
@@ -165,7 +181,7 @@ void test_engine_documents_are_allowlisted() {
         "list_engine_documents", nlohmann::json::object(), nullptr, nullptr
     );
     assert(listed.success);
-    assert(listed.output.at("documents").size() == 7);
+    assert(listed.output.at("documents").size() == 10);
 
     const EditorAiToolResult renderer = registry.execute(
         "read_engine_document", nlohmann::json{{"document_id", "render_materials"}}, nullptr, nullptr
@@ -183,6 +199,138 @@ void test_engine_documents_are_allowlisted() {
         "read_engine_document", nlohmann::json{{"document_id", "../../.ssh/id_rsa"}}, nullptr, nullptr
     );
     assert(!disallowed.success);
+}
+
+void test_gameplay_tags_drive_semantic_discovery() {
+  TestScene scene;
+  EntityManager &entities = scene.get_entity_manager();
+  const EntityID player = entities.create_entity();
+  entities.add_component<TagComponent>(player, TagComponent{"Player Knight"});
+  entities.add_component<GameplayTagsComponent>(
+      player, GameplayTagsComponent{{"character.controllable", "player"}});
+  const EntityID camera = entities.create_entity();
+  entities.add_component<TagComponent>(camera, TagComponent{"Main Camera"});
+  entities.add_component<GameplayTagsComponent>(
+      camera, GameplayTagsComponent{{"camera.main"}});
+
+  const EditorAiToolRegistry registry = make_registry();
+  const nlohmann::json snapshot =
+      registry.build_context_snapshot(&scene, nullptr);
+  const EditorAiToolResult found =
+      registry.execute_snapshot("find_entities_by_gameplay_tag",
+                                {{"tag", "player"}, {"limit", 10}}, snapshot);
+  assert(found.success);
+  assert(found.output.at("total_matches") == 1);
+  assert(found.output.at("matches").at(0).at("entity_id") == player);
+  assert(found.output.at("matches").at(0).at("gameplay_tags") ==
+         nlohmann::json::array({"character.controllable", "player"}));
+
+  const EditorAiToolResult overview = registry.execute_snapshot(
+      "get_project_overview", nlohmann::json::object(), snapshot);
+  assert(overview.success);
+  assert(
+      overview.output.at("gameplay_roles").at("player").at(0).at("entity_id") ==
+      player);
+  assert(overview.output.at("gameplay_roles")
+             .at("camera.main")
+             .at(0)
+             .at("entity_id") == camera);
+
+  const EditorAiToolResult invalid =
+      registry.execute_snapshot("find_entities_by_gameplay_tag",
+                                {{"tag", "Player"}, {"limit", 10}}, snapshot);
+  assert(!invalid.success);
+}
+
+void test_project_documents_are_bounded_and_cannot_traverse() {
+  const std::filesystem::path root = std::filesystem::temp_directory_path() /
+                                     "engine2d_ai_project_knowledge_test";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root / "Docs");
+  {
+    std::ofstream file(root / "AGENTS.md");
+    file << "# Crystal Cavern\nThe player collects coins.\n";
+  }
+    {
+        std::ofstream file(root / "Docs" / "GAMEPLAY.md");
+        file << "# Gameplay\nA moving platform crosses the cavern.\n";
+    }
+    const std::filesystem::path outside = root.parent_path() /
+        "engine2d_ai_project_knowledge_secret.md";
+    {
+        std::ofstream file(outside);
+        file << "This must not be exposed.";
+    }
+    std::error_code symlink_error;
+    std::filesystem::create_symlink(outside, root / "README.md", symlink_error);
+    assert(!symlink_error);
+  const std::filesystem::path previous_root =
+      AssetDatabase::get().project_root();
+  AssetDatabase::get().set_project_root(root);
+
+  const EditorAiToolRegistry registry = make_registry();
+  const EditorAiToolResult listed = registry.execute(
+      "list_project_documents", nlohmann::json::object(), nullptr, nullptr);
+  assert(listed.success);
+  std::set<std::string> document_ids;
+  for (const nlohmann::json &document : listed.output.at("documents")) {
+    document_ids.insert(document.at("document_id").get<std::string>());
+  }
+  assert(document_ids.size() == listed.output.at("documents").size());
+    assert(document_ids.contains("AGENTS.md"));
+    assert(document_ids.contains("Docs/GAMEPLAY.md"));
+    assert(!document_ids.contains("README.md"));
+
+  const EditorAiToolResult read =
+      registry.execute("read_project_document",
+                       {{"document_id", "Docs/GAMEPLAY.md"}}, nullptr, nullptr);
+  assert(read.success);
+  assert(read.output.at("content").get<std::string>().find("moving platform") !=
+         std::string::npos);
+
+  const EditorAiToolResult searched = registry.execute(
+      "search_project_documents", {{"query", "collects coins"}, {"limit", 5}},
+      nullptr, nullptr);
+  assert(searched.success);
+  assert(searched.output.at("matches").size() == 1);
+
+  const EditorAiToolResult traversal =
+      registry.execute("read_project_document",
+                       {{"document_id", "../CLAUDE.md"}}, nullptr, nullptr);
+  assert(!traversal.success);
+  const EditorAiToolResult bad_limit =
+      registry.execute("search_project_documents",
+                       {{"query", "coins"}, {"limit", 21}}, nullptr, nullptr);
+  assert(!bad_limit.success);
+
+  const nlohmann::json snapshot =
+      registry.build_context_snapshot(nullptr, nullptr);
+  const auto &previews =
+      snapshot.at("project_overview").at("project_document_previews");
+  assert(std::any_of(
+      previews.begin(), previews.end(), [](const nlohmann::json &preview) {
+        return preview.value("preview", "").find("player collects coins") !=
+               std::string::npos;
+      }));
+
+    AssetDatabase::get().set_project_root(previous_root);
+    std::filesystem::remove_all(root);
+    std::filesystem::remove(outside);
+}
+
+void test_engine_capabilities_report_the_compiled_contract() {
+  const EditorAiToolResult result = make_registry().execute(
+      "get_engine_capabilities", nlohmann::json::object(), nullptr, nullptr);
+  assert(result.success);
+  assert(result.output.at("engine_script").at("abi_version") == 23);
+  assert(result.output.at("engine_script").at("sdk_hash") ==
+         "engine2d_abi_v23");
+  const auto &components = result.output.at("registered_components");
+  assert(std::any_of(components.begin(), components.end(),
+                     [](const nlohmann::json &component) {
+                       return component.value("key", "") == "gameplay_tags";
+                     }));
+  assert(result.output.at("runtime").at("runtime_editing_ephemeral") == true);
 }
 
 void test_scene_summary_reports_active_selection() {
@@ -306,7 +454,10 @@ int main() {
     test_scene_summary_reports_active_selection();
     test_selection_context_is_deterministic_and_component_aware();
     test_existing_entities_can_be_found_and_inspected_by_stable_id();
-    test_project_assets_are_frozen_and_queried_by_handle();
+  test_gameplay_tags_drive_semantic_discovery();
+  test_project_assets_are_frozen_and_queried_by_handle();
+  test_project_documents_are_bounded_and_cannot_traverse();
+  test_engine_capabilities_report_the_compiled_contract();
     test_invalid_calls_fail_without_touching_scene();
     test_context_snapshot_handles_missing_scene();
     test_engine_documents_are_allowlisted();

@@ -29,6 +29,18 @@ confirmation click but uses exactly the same validation and command path.
 
 ## Read API and entity identity
 
+- Every request starts with a compact `get_project_overview` result generated
+  from `project.engine2d`, the current asset database, active scene, serialized
+  gameplay tags, input mappings, and the project's normal Markdown documents.
+  It is discovered state rather than a separately maintained AI context file.
+- `find_entities_by_gameplay_tag` resolves semantic roles such as `player`,
+  `camera.main`, or `collectible.coin` without relying on display-name guesses.
+- `list_project_documents`, `read_project_document`, and
+  `search_project_documents` expose bounded `AGENTS.md`, `README.md`, and
+  `Docs/**/*.md` content. Paths are selected from a scanned allowlist; traversal,
+  symlinks, oversized documents, and arbitrary files are rejected.
+- `get_engine_capabilities` reports the compiled EngineScript ABI, registered ECS
+  components, available editor tools, input mappings, and runtime diagnostics.
 - `get_scene_summary` returns bounded scene and selection counts.
 - `find_scene_entities` searches the frozen scene by case-insensitive name and/or
   registered component key. Results contain the stable numeric `entity_id` needed
@@ -47,6 +59,10 @@ may use the alias only after its create action. Aliases never cross conversation
 turns and never become persisted asset or entity identity. On every new turn,
 Codex resolves targets again from the latest frozen scene state. This makes the
 workflow iterative without allowing stale aliases to point at the wrong entity.
+Gameplay roles are separate from the author-facing Tag name. A
+`GameplayTagsComponent` stores up to 32 validated, lowercase semantic tags and
+is serialized, prefab-safe, editable through Undo/Redo, visible to EngineScript,
+and automatically included in AI entity snapshots.
 Persistent Codex threads record the editor tool-contract version. When that
 contract or Full Access policy changes, the editor starts a compatible replacement
 thread and injects the bounded local conversation history because App Server only

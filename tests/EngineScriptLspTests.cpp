@@ -436,6 +436,36 @@ int main() {
     assert(has_particle_play && has_particle_burst && has_particle_stop && has_particle_state);
     assert(!leaked_audio_method);
 
+    // Gameplay-tag discovery and mutation complete from the catalog on Entities.
+    std::string entities_change_req = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":12},
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  constructor(@inject private entities: Entities) {}\n  override update(deltaTime: Float): Void {\n    entities.\n  }\n}"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(entities_change_req));
+    std::string entities_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":13,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":4,"character":13}
+        }
+    })";
+    json entities_completion = json::parse(server.handle_message(entities_completion_req));
+    bool has_find_gameplay_tag = false;
+    bool has_add_gameplay_tag = false;
+    bool has_gameplay_tags = false;
+    for (const auto& item : entities_completion["result"]) {
+        has_find_gameplay_tag |= item["label"] == "findByGameplayTag";
+        has_add_gameplay_tag |= item["label"] == "addGameplayTag";
+        has_gameplay_tags |= item["label"] == "gameplayTags";
+    }
+    assert(has_find_gameplay_tag && has_add_gameplay_tag && has_gameplay_tags);
+
     std::cout << "[PASS] EngineScriptLspTests passed!\n";
     return 0;
 }

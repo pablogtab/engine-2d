@@ -14,6 +14,7 @@ struct EditorAiRequestPolicyInput {
   bool has_images{false};
   std::string previous_receipt;
   nlohmann::json attached_contexts;
+  nlohmann::json project_overview;
 };
 
 [[nodiscard]] std::string

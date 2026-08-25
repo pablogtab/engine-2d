@@ -57,8 +57,8 @@ inline std::string toString(int value) {
     return std::to_string(value);
 }
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 22;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v22";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 23;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v23";
 
 class Input {
 public:
@@ -216,6 +216,17 @@ public:
     [[nodiscard]] virtual Entity findByTag(const std::string& tag) const = 0;
     [[nodiscard]] virtual bool exists(const Entity& entity) const = 0;
     [[nodiscard]] virtual std::vector<Entity> findAllByTag(const std::string& tag) const = 0;
+  [[nodiscard]] virtual Entity
+  findByGameplayTag(const std::string &tag) const = 0;
+  [[nodiscard]] virtual std::vector<Entity>
+  findAllByGameplayTag(const std::string &tag) const = 0;
+  [[nodiscard]] virtual bool hasGameplayTag(const Entity &entity,
+                                            const std::string &tag) const = 0;
+  virtual bool addGameplayTag(const Entity &entity, const std::string &tag) = 0;
+  virtual bool removeGameplayTag(const Entity &entity,
+                                 const std::string &tag) = 0;
+  [[nodiscard]] virtual std::vector<std::string>
+  gameplayTags(const Entity &entity) const = 0;
     [[nodiscard]] virtual std::vector<Entity> findAllWithTransform() const = 0;
     [[nodiscard]] virtual bool hasTransform(const Entity& entity) const = 0;
     [[nodiscard]] virtual Transform2D* transform(const Entity& entity) = 0;

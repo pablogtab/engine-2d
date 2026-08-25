@@ -3,6 +3,7 @@
 #include "AnimationInspectorDrawer.hpp"
 #include "CameraInspectorDrawer.hpp"
 #include "ColliderInspectorDrawer.hpp"
+#include "GameplayTagsInspectorDrawer.hpp"
 #include "LightingInspectorDrawer.hpp"
 #include "RigidBodyInspectorDrawer.hpp"
 #include "ParticleEmitterInspectorDrawer.hpp"
@@ -51,8 +52,24 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         .category = EditorComponentCategory::Core,
         .icon = EditorIcon::Component,
         .show_in_inspector = false,
-        .addable = false
-    });
+        .addable = false});
+  register_or_throw(
+      registry,
+      {.component_key = "gameplay_tags",
+       .drawer_key = "GameplayTagsHeader",
+       .display_name = "Gameplay Tags",
+       .category = EditorComponentCategory::Core,
+       .icon = EditorIcon::Component,
+       .draw =
+           [](EntityManager &em, EntityID entity,
+              const EditorInspectorContext &context) {
+             GameplayTagsInspectorDrawer::draw(em, entity, context);
+           },
+       .create_default =
+           [](EntityManager &, EntityID, const EditorInspectorContext &,
+              ComponentSnapshotSet &snapshot) {
+             snapshot.set(GameplayTagsComponent{});
+           }});
     register_or_throw(registry, {
         .component_key = "prefab_link",
         .display_name = "Prefab Link",
