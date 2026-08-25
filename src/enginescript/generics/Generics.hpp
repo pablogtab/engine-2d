@@ -46,11 +46,15 @@ public:
     const std::string& failed_instantiation() const { return m_failed_instantiation; }
     bool has_failed() const { return m_last_failure != GenericInstantiationFailure::None; }
     void analyze_module(const IRModule& module);
+    void analyze_modules(const std::vector<IRModule>& modules);
 
     void clear() {
         m_instantiations.clear();
         m_instantiation_map.clear();
         m_active_instantiations.clear();
+        m_expanded_instantiations.clear();
+        m_generic_functions.clear();
+        m_type_bindings.clear();
         m_last_failure = GenericInstantiationFailure::None;
         m_failed_instantiation.clear();
     }
@@ -61,10 +65,17 @@ private:
     void record_type(const std::shared_ptr<Type>& type);
     void analyze_operation(const IROperation* operation);
     void analyze_blocks(const std::vector<IRBlock>& blocks);
+    void register_module(const IRModule& module);
+    void scan_module(const IRModule& module);
+    std::optional<std::string> resolve_type_name(const std::shared_ptr<Type>& type) const;
+    void expand_function(const std::string& name, const std::vector<std::string>& type_args);
 
     std::vector<GenericInstantiation> m_instantiations;
     std::unordered_map<std::string, std::string> m_instantiation_map;
     std::unordered_set<std::string> m_active_instantiations;
+    std::unordered_set<std::string> m_expanded_instantiations;
+    std::unordered_map<std::string, const IRFunction*> m_generic_functions;
+    std::unordered_map<std::string, std::string> m_type_bindings;
     GenericInstantiationLimits m_limits;
     GenericInstantiationFailure m_last_failure{GenericInstantiationFailure::None};
     std::string m_failed_instantiation;

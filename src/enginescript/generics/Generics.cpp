@@ -1,19 +1,8 @@
 #include "Generics.hpp"
 #include <sstream>
 #include <algorithm>
-#include <functional>
 
 namespace EngineScript {
-
-namespace {
-
-bool contains_type_parameter(const std::shared_ptr<Type>& type) {
-    if (!type) return false;
-    if (type->kind == TypeKind::TypeParameter) return true;
-    return std::any_of(type->type_args.begin(), type->type_args.end(), contains_type_parameter);
-}
-
-} // namespace
 
 std::string GenericsManager::mangle_name(const std::string& template_name, const std::vector<std::string>& type_args) const {
     std::ostringstream ss;
@@ -97,12 +86,62 @@ std::optional<std::string> GenericsManager::try_request_instantiation(
 void GenericsManager::record_type(const std::shared_ptr<Type>& type) {
     if (!type) return;
     for (const auto& argument : type->type_args) record_type(argument);
-    if (type->type_args.empty() || contains_type_parameter(type)) return;
+    if (type->type_args.empty()) return;
     std::vector<std::string> arguments;
     arguments.reserve(type->type_args.size() + (type->fixed_array_size ? 1U : 0U));
-    for (const auto& argument : type->type_args) arguments.push_back(argument->to_string());
+    for (const auto& argument : type->type_args) {
+        const auto resolved = resolve_type_name(argument);
+        if (!resolved) return;
+        arguments.push_back(*resolved);
+    }
     if (type->fixed_array_size) arguments.push_back(std::to_string(*type->fixed_array_size));
     static_cast<void>(try_request_instantiation(type->name, arguments));
+}
+
+std::optional<std::string> GenericsManager::resolve_type_name(const std::shared_ptr<Type>& type) const {
+    if (!type) return std::nullopt;
+    if (type->kind == TypeKind::TypeParameter) {
+        const auto found = m_type_bindings.find(type->name);
+        return found == m_type_bindings.end() ? std::nullopt : std::optional<std::string>{found->second};
+    }
+    if (type->type_args.empty()) return type->to_string();
+
+    std::string result = type->name;
+    if (result.empty()) {
+        result = type->to_string();
+        if (const std::size_t generic = result.find('<'); generic != std::string::npos) result.resize(generic);
+    }
+    result += '<';
+    for (std::size_t index = 0; index < type->type_args.size(); ++index) {
+        const auto argument = resolve_type_name(type->type_args[index]);
+        if (!argument) return std::nullopt;
+        if (index != 0) result += ", ";
+        result += *argument;
+    }
+    if (type->fixed_array_size) {
+        if (!type->type_args.empty()) result += ", ";
+        result += std::to_string(*type->fixed_array_size);
+    }
+    result += '>';
+    if (type->is_nullable) result += '?';
+    return result;
+}
+
+void GenericsManager::expand_function(const std::string& name, const std::vector<std::string>& type_args) {
+    const auto function = m_generic_functions.find(name);
+    if (function == m_generic_functions.end() || function->second->generic_params.size() != type_args.size()) return;
+    const std::string key = instantiation_key(name, type_args);
+    if (m_expanded_instantiations.contains(key)) return;
+    if (!begin_instantiation(name, type_args)) return;
+
+    const auto previous_bindings = m_type_bindings;
+    for (std::size_t index = 0; index < type_args.size(); ++index) {
+        m_type_bindings[function->second->generic_params[index].name] = type_args[index];
+    }
+    analyze_blocks(function->second->blocks);
+    m_type_bindings = previous_bindings;
+    end_instantiation(name, type_args);
+    if (!has_failed()) m_expanded_instantiations.emplace(key);
 }
 
 void GenericsManager::analyze_blocks(const std::vector<IRBlock>& blocks) {
@@ -166,12 +205,20 @@ void GenericsManager::analyze_operation(const IROperation* operation) {
         analyze_operation(value->work.get());
     } else if (const auto* value = dynamic_cast<const IRCall*>(operation)) {
         for (const auto& argument : value->type_arguments) record_type(argument);
-        if (!value->type_arguments.empty() &&
-            std::none_of(value->type_arguments.begin(), value->type_arguments.end(), contains_type_parameter)) {
+        if (!value->type_arguments.empty()) {
             std::vector<std::string> arguments;
             arguments.reserve(value->type_arguments.size());
-            for (const auto& argument : value->type_arguments) arguments.push_back(argument->to_string());
-            static_cast<void>(try_request_instantiation(value->callee_name, arguments));
+            for (const auto& argument : value->type_arguments) {
+                const auto resolved = resolve_type_name(argument);
+                if (!resolved) {
+                    arguments.clear();
+                    break;
+                }
+                arguments.push_back(*resolved);
+            }
+            if (!arguments.empty() && try_request_instantiation(value->callee_name, arguments)) {
+                expand_function(value->callee_name, arguments);
+            }
         }
         analyze_all(value->args);
     } else if (const auto* value = dynamic_cast<const IRMethodCall*>(operation)) {
@@ -217,7 +264,13 @@ void GenericsManager::analyze_operation(const IROperation* operation) {
     }
 }
 
-void GenericsManager::analyze_module(const IRModule& module) {
+void GenericsManager::register_module(const IRModule& module) {
+    for (const IRFunction& value : module.functions) {
+        if (!value.generic_params.empty()) m_generic_functions[value.name] = &value;
+    }
+}
+
+void GenericsManager::scan_module(const IRModule& module) {
     const auto record_parameters = [this](const auto& parameters) {
         for (const auto& parameter : parameters) record_type(parameter.type);
     };
@@ -255,6 +308,17 @@ void GenericsManager::analyze_module(const IRModule& module) {
         record_parameters(value.params);
         analyze_blocks(value.blocks);
     }
+}
+
+void GenericsManager::analyze_module(const IRModule& module) {
+    register_module(module);
+    scan_module(module);
+}
+
+void GenericsManager::analyze_modules(const std::vector<IRModule>& modules) {
+    m_generic_functions.clear();
+    for (const IRModule& module : modules) register_module(module);
+    for (const IRModule& module : modules) scan_module(module);
 }
 
 } // namespace EngineScript

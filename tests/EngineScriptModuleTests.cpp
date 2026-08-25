@@ -115,10 +115,14 @@ void test_generated_module_build_and_load() {
     fs::remove_all(root, error);
     fs::create_directories(root);
     EngineScriptWorkspace workspace(root.string());
+    workspace.add_source_file("Assets/Scripts/Utils.e2s", R"(
+export function identity<T extends Send>(value: T): T { return value; }
+)");
     workspace.add_source_file("Assets/Scripts/Probe.e2s", R"(
+import { identity } from "./Utils";
 @behaviour
 export class Probe extends Behaviour {
-    @expose speed: Float = 42.0;
+    @expose speed: Float = identity<Float>(42.0);
     override update(deltaTime: Float): Void { speed = speed + deltaTime; }
 }
 )");
