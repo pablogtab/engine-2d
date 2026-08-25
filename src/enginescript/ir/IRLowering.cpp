@@ -340,7 +340,30 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
             }
         }
         if (auto id = dynamic_cast<const IdentifierExpr*>(call->callee.get())) {
+            if (const auto target_kind = numeric_type_for_name(id->name)) {
+                auto conversion = std::make_shared<IRNumericConvert>();
+                conversion->kind = IROpKind::NumericConvert;
+                conversion->target_kind = *target_kind;
+                if (call->arguments.size() == 1) {
+                    conversion->operand = lower_expression(call->arguments.front());
+                }
+                conversion->result_type = m_type_checker.get_type_of_node(call);
+                conversion->span = call->span;
+                return conversion;
+            }
+            if (value_constructor_width(id->name)) {
+                auto construction = std::make_shared<IRValueConstruct>();
+                construction->kind = IROpKind::ValueConstruct;
+                construction->target_kind = m_type_checker.get_type_of_node(call)->kind;
+                for (const auto& argument : call->arguments) {
+                    construction->args.push_back(lower_expression(argument));
+                }
+                construction->result_type = m_type_checker.get_type_of_node(call);
+                construction->span = call->span;
+                return construction;
+            }
             auto fc = std::make_shared<IRCall>();
+            fc->kind = IROpKind::Call;
             fc->callee_name = id->name;
             for (const auto& a : call->arguments) {
                 fc->args.push_back(lower_expression(a));

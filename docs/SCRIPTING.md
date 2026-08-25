@@ -153,6 +153,17 @@ Use `toString(Int)` when composing numeric HUD or log text. For example,
 `ui.setText(hud, "Coins: " + toString(coins))` remains statically typed and
 generates a native string conversion.
 
+Numeric types use their type name as an explicit conversion: `Int(speed)`
+truncates a floating value toward zero and saturates to the `Int32` range, while
+`Float(score)` converts an integer using IEEE-754 rounding. The same syntax is
+available for `Int8` through `Int64`, `UInt8` through `UInt64`, `Float32`, and
+`Float64`. Integer narrowing and signedness changes saturate; NaN converts to
+zero for integer destinations, and infinities convert to the corresponding
+limit. `Int`, `UInt`, and `Float` remain aliases of `Int32`, `UInt32`, and
+`Float32`. `Vec2(...)`, `Vec3(...)`, `Vec4(...)`, and `Color(...)` are value
+constructors, not casts. Components remain typed ECS queries through
+`entity.getComponent<T>()`.
+
 The external platformer demo keeps gameplay in project-owned EngineScript
 behaviours: player movement, coyote time, jump buffering, double jump,
 drop-through platforms, trampoline bounce, coin destruction, persistent high
@@ -232,10 +243,11 @@ fully checked before native code generation.
 ## Expression support
 
 The native backend supports literals, arithmetic and boolean expressions,
-property access, calls, `await`, typed `Result` operations, array literals, and
-array/map indexing. Object literals, casts, arrow functions, `this`, and indexed
+explicit numeric conversions, value construction, property access, calls,
+`await`, typed `Result` operations, array literals, and array/map indexing.
+Object literals, reference casts, arrow functions, `this`, and indexed
 assignment are diagnosed by EngineScript as unsupported instead of reaching the
-C++ compiler with partial output.
+C++ compiler with partial output. `as` is reserved for import aliases.
 
 ## Compiler cache and generated content
 

@@ -50,6 +50,45 @@ void require_generated_cpp_compiles(const CppOutput& output, const std::string& 
     fs::remove_all(root, error);
 }
 
+void require_generated_cpp_runs(const CppOutput& output, const std::string& driver_content) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_codegen_numeric_runtime";
+    std::error_code error;
+    fs::remove_all(root, error);
+    fs::create_directories(root);
+
+    const fs::path header = root / output.header_filename;
+    const fs::path source = root / output.source_filename;
+    const fs::path driver = root / "NumericDriver.cpp";
+#if defined(_WIN32)
+    const fs::path executable = root / "NumericDriver.exe";
+#else
+    const fs::path executable = root / "NumericDriver";
+#endif
+    std::ofstream(header) << output.header_content;
+    std::ofstream(source) << output.source_content;
+    std::ofstream(driver) << driver_content;
+
+#if defined(_MSC_VER)
+    const std::string command = quote_argument(ENGINE_TEST_CXX_COMPILER) +
+        " /nologo /EHsc /std:c++20 /I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "src") +
+        " /I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "vendor") +
+        " /I" + quote_argument(root) + " " + quote_argument(source) + " " + quote_argument(driver) +
+        " /Fe" + quote_argument(executable);
+#else
+    const std::string command = quote_argument(ENGINE_TEST_CXX_COMPILER) +
+        " -std=c++20 -I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "src") +
+        " -I" + quote_argument(fs::path(ENGINE_TEST_SOURCE_DIR) / "vendor") +
+        " -I" + quote_argument(ENGINE_TEST_GLM_INCLUDE_DIR) +
+        " -I" + quote_argument(root) + " " + quote_argument(source) + " " + quote_argument(driver) +
+        " -o " + quote_argument(executable);
+#endif
+
+    assert(std::system(command.c_str()) == 0);
+    assert(std::system(quote_argument(executable).c_str()) == 0);
+    fs::remove_all(root, error);
+}
+
 } // namespace
 
 int main() {
@@ -144,6 +183,54 @@ int main() {
     assert(output.source_content.find("co_await this->delay(0.5f)") != std::string::npos);
     assert(output.source_content.find("#line") != std::string::npos);
     require_generated_cpp_compiles(output, entrypoint);
+
+    DiagnosticEngine numeric_diags;
+    const std::string numeric_code = R"(
+        export class NumericRuntime {
+            convertFloatToInt(value: Float64): Int { return Int(value); }
+            convertToByte(value: Int64): UInt8 { return UInt8(value); }
+            convertToUnsigned(value: Float64): UInt { return UInt(value); }
+            intToFloat(value: Int): Float { return Float(value); }
+            narrowFloat(value: Float64): Float { return Float(value); }
+            identity(value: Float): Float { return Float(value); }
+        }
+    )";
+    const FileId numeric_file = sm.register_source("Source/NumericRuntime.e2s", numeric_code);
+    Lexer numeric_lexer(numeric_file, numeric_code, numeric_diags);
+    Parser numeric_parser(numeric_file, "Source/NumericRuntime.e2s", numeric_lexer.tokenize_all(), numeric_diags);
+    const auto numeric_module = numeric_parser.parse_module();
+    SymbolResolver numeric_resolver(sm, numeric_diags);
+    numeric_resolver.resolve_module(numeric_module);
+    TypeChecker numeric_checker(numeric_resolver, numeric_diags);
+    assert(numeric_checker.check_module(numeric_module));
+    IRLowering numeric_lowering(numeric_checker);
+    const IRModule numeric_ir = numeric_lowering.lower_module(*numeric_module);
+    CppOutput numeric_output = emitter.emit_module(numeric_ir);
+    assert(numeric_output.source_content.find("EngineScript::numericConvert<int32_t>(value)") != std::string::npos);
+    assert(numeric_output.source_content.find("EngineScript::numericConvert<uint8_t>(value)") != std::string::npos);
+    assert(numeric_output.source_content.find("EngineScript::numericConvert<float>(value)") != std::string::npos);
+    assert(numeric_output.source_content.find("NumericRuntime::identity(float value)") != std::string::npos);
+    require_generated_cpp_runs(numeric_output, R"(
+        #include "NumericRuntime.generated.hpp"
+        #include <cassert>
+        #include <cmath>
+        #include <cstdint>
+        #include <limits>
+
+        int main() {
+            NumericRuntime conversions;
+            assert(conversions.convertFloatToInt(-3.9) == -3);
+            assert(conversions.convertFloatToInt(std::numeric_limits<double>::quiet_NaN()) == 0);
+            assert(conversions.convertFloatToInt(std::numeric_limits<double>::infinity()) ==
+                std::numeric_limits<int32_t>::max());
+            assert(conversions.convertToByte(1000) == std::numeric_limits<uint8_t>::max());
+            assert(conversions.convertToUnsigned(-10.5) == 0u);
+            assert(conversions.intToFloat(3) == 3.0f);
+            assert(std::isinf(conversions.narrowFloat(std::numeric_limits<double>::infinity())));
+            assert(conversions.identity(1.25f) == 1.25f);
+            return 0;
+        }
+    )");
 
     std::cout << "[PASS] EngineScriptCodegenTests passed!\n";
     return 0;

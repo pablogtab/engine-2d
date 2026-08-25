@@ -17,6 +17,8 @@ enum class IROpKind {
     Assign,
     Binary,
     Unary,
+    NumericConvert,
+    ValueConstruct,
     Call,
     MethodCall,
     MemberGet,
@@ -72,6 +74,16 @@ struct IRBinary : public IROperation {
 struct IRUnary : public IROperation {
     TokenType op = TokenType::Invalid;
     std::shared_ptr<IROperation> operand;
+};
+
+struct IRNumericConvert : public IROperation {
+    TypeKind target_kind = TypeKind::Error;
+    std::shared_ptr<IROperation> operand;
+};
+
+struct IRValueConstruct : public IROperation {
+    TypeKind target_kind = TypeKind::Error;
+    std::vector<std::shared_ptr<IROperation>> args;
 };
 
 struct IRCall : public IROperation {

@@ -38,16 +38,9 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
     std::shared_ptr<Type> t;
     if (annot.name == "Void") t = m_type_void;
     else if (annot.name == "Bool") t = m_type_bool;
-    else if (annot.name == "Int" || annot.name == "Int32") t = m_type_int;
-    else if (annot.name == "Int8") t = Type::make_primitive(TypeKind::Int8);
-    else if (annot.name == "Int16") t = Type::make_primitive(TypeKind::Int16);
-    else if (annot.name == "Int64") t = Type::make_primitive(TypeKind::Int64);
-    else if (annot.name == "UInt" || annot.name == "UInt32") t = Type::make_primitive(TypeKind::UInt32);
-    else if (annot.name == "UInt8") t = Type::make_primitive(TypeKind::UInt8);
-    else if (annot.name == "UInt16") t = Type::make_primitive(TypeKind::UInt16);
-    else if (annot.name == "UInt64") t = Type::make_primitive(TypeKind::UInt64);
-    else if (annot.name == "Float" || annot.name == "Float32") t = m_type_float;
-    else if (annot.name == "Float64") t = Type::make_primitive(TypeKind::Float64);
+    else if (const auto numeric_kind = numeric_type_for_name(annot.name)) {
+        t = Type::make_primitive(*numeric_kind);
+    }
     else if (annot.name == "String") t = m_type_string;
     else if (annot.name == "Vec2") t = Type::make_primitive(TypeKind::Vec2);
     else if (annot.name == "Vec3") t = Type::make_primitive(TypeKind::Vec3);
@@ -435,7 +428,18 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 return m_type_string;
             }
             if (left_t->is_numeric() && right_t->is_numeric()) {
-                std::shared_ptr<Type> res_t = (left_t->is_float() || right_t->is_float()) ? m_type_float : m_type_int;
+                const auto promoted = promote_numeric_types(left_t->kind, right_t->kind);
+                if (!promoted) {
+                    m_diagnostics.report_error(
+                        "E3062",
+                        std::format("Operator operands '{}' and '{}' require an explicit numeric conversion",
+                            left_t->to_string(), right_t->to_string()),
+                        bin->span
+                    );
+                    m_node_types[bin] = m_type_error;
+                    return m_type_error;
+                }
+                std::shared_ptr<Type> res_t = Type::make_primitive(*promoted);
                 m_node_types[bin] = res_t;
                 return res_t;
             }
@@ -451,6 +455,15 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Relational
         if (bin->op == TokenType::Less || bin->op == TokenType::LessEquals || bin->op == TokenType::Greater || bin->op == TokenType::GreaterEquals) {
+            if (left_t->is_numeric() && right_t->is_numeric() &&
+                !promote_numeric_types(left_t->kind, right_t->kind)) {
+                m_diagnostics.report_error(
+                    "E3062",
+                    std::format("Operator operands '{}' and '{}' require an explicit numeric conversion",
+                        left_t->to_string(), right_t->to_string()),
+                    bin->span
+                );
+            }
             m_node_types[bin] = m_type_bool;
             return m_type_bool;
         }
@@ -767,13 +780,34 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Global async functions
         if (auto id = dynamic_cast<IdentifierExpr*>(call->callee.get())) {
-            const std::size_t vector_width = id->name == "Vec2" ? 2 :
-                (id->name == "Vec3" ? 3 : ((id->name == "Vec4" || id->name == "Color") ? 4 : 0));
-            if (vector_width != 0) {
-                if (call->arguments.size() != vector_width) {
+            if (const auto target_kind = numeric_type_for_name(id->name)) {
+                if (call->arguments.size() != 1) {
+                    m_diagnostics.report_error(
+                        "E3060",
+                        std::format("{} conversion expects exactly 1 numeric argument, got {}",
+                            id->name, call->arguments.size()),
+                        call->span
+                    );
+                } else {
+                    const auto source_type = get_type_of_node(call->arguments.front().get());
+                    if (!source_type || !source_type->is_numeric()) {
+                        m_diagnostics.report_error(
+                            "E3061",
+                            std::format("{} conversion requires a numeric source, got '{}'",
+                                id->name, source_type ? source_type->to_string() : "<unknown>"),
+                            call->arguments.front()->span
+                        );
+                    }
+                }
+                auto target_type = Type::make_primitive(*target_kind);
+                m_node_types[call] = target_type;
+                return target_type;
+            }
+            if (const auto constructor_width = value_constructor_width(id->name)) {
+                if (call->arguments.size() != *constructor_width) {
                     m_diagnostics.report_error(
                         "E3058",
-                        std::format("{} expects {} numeric arguments, got {}", id->name, vector_width, call->arguments.size()),
+                        std::format("{} expects {} numeric arguments, got {}", id->name, *constructor_width, call->arguments.size()),
                         call->span
                     );
                 }
@@ -1036,7 +1070,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         return arr_t;
     }
 
-    if (dynamic_cast<ObjectLiteralExpr*>(expr.get()) || dynamic_cast<CastExpr*>(expr.get()) ||
+    if (dynamic_cast<ObjectLiteralExpr*>(expr.get()) ||
         dynamic_cast<ArrowFunctionExpr*>(expr.get()) || dynamic_cast<ThisExpr*>(expr.get())) {
         m_diagnostics.report_error("E3042", "This expression is parsed but not supported by the native EngineScript backend", expr->span);
         m_node_types[expr.get()] = m_type_error;

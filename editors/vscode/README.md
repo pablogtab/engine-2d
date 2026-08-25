@@ -8,6 +8,8 @@ types, global functions, and service methods stay aligned with the compiler.
 This includes contextual component methods such as
 `RigidBody2D.setIgnoreOneWay`, particle authoring through `Particles` and
 `ParticleEmitter2D`, and typed global helpers such as `toString(Int)`.
+Numeric type calls such as `Int(value)`, `UInt8(value)`, and `Float64(value)`
+provide completion documentation, hover details, and signature help.
 The `EngineScript: Compile Project` command builds `.e2s` files. Its status-bar item
 shows language-server availability and the result of the latest project build;
 click it to compile the active Engine2D project.

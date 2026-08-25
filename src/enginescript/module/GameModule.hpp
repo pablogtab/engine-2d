@@ -16,6 +16,9 @@
 #include <cctype>
 #include <string_view>
 #include <type_traits>
+#include <cmath>
+#include <limits>
+#include <utility>
 
 namespace EngineScript {
 
@@ -59,8 +62,42 @@ inline std::string toString(int value) {
     return std::to_string(value);
 }
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 23;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v23";
+template <typename Target, typename Source>
+requires (std::is_arithmetic_v<Target> && std::is_arithmetic_v<Source> &&
+          !std::is_same_v<Target, bool> && !std::is_same_v<Source, bool>)
+[[nodiscard]] inline Target numericConvert(Source value) {
+    if constexpr (std::is_same_v<Target, Source>) {
+        return value;
+    } else if constexpr (std::is_floating_point_v<Source> && std::is_integral_v<Target>) {
+        if (std::isnan(value)) return Target{0};
+        if (std::isinf(value)) {
+            return value > Source{0}
+                ? std::numeric_limits<Target>::max()
+                : std::numeric_limits<Target>::lowest();
+        }
+        const long double truncated = std::trunc(static_cast<long double>(value));
+        const long double minimum = static_cast<long double>(std::numeric_limits<Target>::lowest());
+        const long double maximum = static_cast<long double>(std::numeric_limits<Target>::max());
+        if (truncated <= minimum) return std::numeric_limits<Target>::lowest();
+        if (truncated >= maximum) return std::numeric_limits<Target>::max();
+        return static_cast<Target>(truncated);
+    } else if constexpr (std::is_integral_v<Source> && std::is_integral_v<Target>) {
+        if (std::cmp_less(value, std::numeric_limits<Target>::lowest())) {
+            return std::numeric_limits<Target>::lowest();
+        }
+        if (std::cmp_greater(value, std::numeric_limits<Target>::max())) {
+            return std::numeric_limits<Target>::max();
+        }
+        return static_cast<Target>(value);
+    } else {
+        static_assert(std::numeric_limits<Target>::is_iec559,
+            "EngineScript floating-point conversions require IEEE-754 targets");
+        return static_cast<Target>(value);
+    }
+}
+
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 24;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v24";
 
 class Input {
 public:

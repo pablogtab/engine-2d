@@ -18,19 +18,11 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
     if (!type) return "void";
 
     std::string s;
-    switch (type->kind) {
+    if (const NumericTypeInfo* numeric = numeric_type_info(type->kind)) {
+        s = numeric->cpp_name;
+    } else switch (type->kind) {
         case TypeKind::Void:       s = "void"; break;
         case TypeKind::Bool:       s = "bool"; break;
-        case TypeKind::Int8:       s = "int8_t"; break;
-        case TypeKind::Int16:      s = "int16_t"; break;
-        case TypeKind::Int32:      s = "int32_t"; break;
-        case TypeKind::Int64:      s = "int64_t"; break;
-        case TypeKind::UInt8:      s = "uint8_t"; break;
-        case TypeKind::UInt16:     s = "uint16_t"; break;
-        case TypeKind::UInt32:     s = "uint32_t"; break;
-        case TypeKind::UInt64:     s = "uint64_t"; break;
-        case TypeKind::Float32:    s = "float"; break;
-        case TypeKind::Float64:    s = "double"; break;
         case TypeKind::String:     s = "std::string"; break;
         case TypeKind::Vec2:       s = "glm::vec2"; break;
         case TypeKind::Vec3:       s = "glm::vec3"; break;
@@ -627,18 +619,35 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
         return std::format("({}{})", token_type_to_string(un->op), emit_operation_cpp(un->operand.get()));
     }
 
+    if (auto conversion = dynamic_cast<const IRNumericConvert*>(op)) {
+        if (!conversion->operand) return "0";
+        if (conversion->operand->result_type &&
+            conversion->operand->result_type->kind == conversion->target_kind) {
+            return emit_operation_cpp(conversion->operand.get());
+        }
+        const NumericTypeInfo* target = numeric_type_info(conversion->target_kind);
+        return target
+            ? std::format("EngineScript::numericConvert<{}>({})", target->cpp_name,
+                emit_operation_cpp(conversion->operand.get()))
+            : "0";
+    }
+
+    if (auto construction = dynamic_cast<const IRValueConstruct*>(op)) {
+        std::string result = construction->target_kind == TypeKind::Vec2 ? "glm::vec2(" :
+            (construction->target_kind == TypeKind::Vec3 ? "glm::vec3(" : "glm::vec4(");
+        for (std::size_t index = 0; index < construction->args.size(); ++index) {
+            result += emit_operation_cpp(construction->args[index].get());
+            if (index + 1 < construction->args.size()) result += ", ";
+        }
+        return result + ")";
+    }
+
     if (auto call = dynamic_cast<const IRCall*>(op)) {
         const bool injected_callable = m_injected_members.contains(call->callee_name);
         std::string s;
         if (call->callee_name == "__array_literal") {
             std::string type = call->result_type ? type_to_cpp(call->result_type.get()) : "std::vector<int>";
             s = type + "{";
-        } else if (call->callee_name == "Vec2") {
-            s = "glm::vec2(";
-        } else if (call->callee_name == "Vec3") {
-            s = "glm::vec3(";
-        } else if (call->callee_name == "Vec4" || call->callee_name == "Color") {
-            s = "glm::vec4(";
         } else if (call->callee_name == "toString") {
             s = "EngineScript::toString(";
         } else if (call->callee_name == "delay" || call->callee_name == "realDelay" ||

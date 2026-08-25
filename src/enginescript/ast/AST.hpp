@@ -123,11 +123,6 @@ struct AwaitExpr : public Expression {
     std::shared_ptr<Expression> operand;
 };
 
-struct CastExpr : public Expression {
-    std::shared_ptr<Expression> expr;
-    TypeAnnotation target_type;
-};
-
 struct ParamDecl;
 struct Statement;
 

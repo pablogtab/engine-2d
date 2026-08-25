@@ -26,6 +26,9 @@ bool IRVerifier::verify_class(const IRClass& cls) {
         return false;
     }
     bool ok = true;
+    for (const auto& property : cls.properties) {
+        if (property.initializer && !verify_operation(property.initializer.get())) ok = false;
+    }
     for (const auto& m : cls.methods) {
         for (const auto& b : m.blocks) {
             if (!verify_block(b)) ok = false;
@@ -39,7 +42,11 @@ bool IRVerifier::verify_struct(const IRStruct& st) {
         m_diagnostics.report_error("E4002", "IRStruct has empty name", {});
         return false;
     }
-    return true;
+    bool ok = true;
+    for (const auto& property : st.properties) {
+        if (property.initializer && !verify_operation(property.initializer.get())) ok = false;
+    }
+    return ok;
 }
 
 bool IRVerifier::verify_function(const IRFunction& fn) {
@@ -84,6 +91,42 @@ bool IRVerifier::verify_operation(const IROperation* op) {
             return false;
         }
         return verify_operation(un->operand.get());
+    }
+
+    if (auto conversion = dynamic_cast<const IRNumericConvert*>(op)) {
+        if (conversion->kind != IROpKind::NumericConvert ||
+            !numeric_type_info(conversion->target_kind) || !conversion->result_type ||
+            conversion->result_type->kind != conversion->target_kind) {
+            m_diagnostics.report_error("E4025", "IRNumericConvert has an invalid numeric target", conversion->span);
+            return false;
+        }
+        if (!conversion->operand || !conversion->operand->result_type ||
+            !conversion->operand->result_type->is_numeric()) {
+            m_diagnostics.report_error("E4026", "IRNumericConvert requires one numeric operand", conversion->span);
+            return false;
+        }
+        return verify_operation(conversion->operand.get());
+    }
+
+    if (auto construction = dynamic_cast<const IRValueConstruct*>(op)) {
+        const std::size_t expected = construction->target_kind == TypeKind::Vec2 ? 2 :
+            (construction->target_kind == TypeKind::Vec3 ? 3 :
+                ((construction->target_kind == TypeKind::Vec4 || construction->target_kind == TypeKind::Color) ? 4 : 0));
+        if (construction->kind != IROpKind::ValueConstruct ||
+            expected == 0 || !construction->result_type ||
+            construction->result_type->kind != construction->target_kind ||
+            construction->args.size() != expected) {
+            m_diagnostics.report_error("E4027", "IRValueConstruct has an invalid target or arity", construction->span);
+            return false;
+        }
+        for (const auto& argument : construction->args) {
+            if (!argument || !argument->result_type || !argument->result_type->is_numeric() ||
+                !verify_operation(argument.get())) {
+                m_diagnostics.report_error("E4028", "IRValueConstruct requires numeric operands", construction->span);
+                return false;
+            }
+        }
+        return true;
     }
 
     if (auto assign = dynamic_cast<const IRAssign*>(op)) {

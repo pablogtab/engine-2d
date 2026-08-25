@@ -267,7 +267,9 @@ takes priority over cache hit rate; file timestamps alone are insufficient.
 | `T?` | optional value/reference |
 | `Result<T, E>` | explicit success/failure |
 
-Potentially lossy numeric conversions require explicit casts.
+Potentially lossy numeric conversions use explicit type calls such as
+`Int(speed)` or `Float64(score)`. Reference casts and `as`/`as?` conversion
+syntax are intentionally excluded; `as` remains an import-alias keyword.
 
 ### 4.2 Objects
 

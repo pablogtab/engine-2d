@@ -1,4 +1,5 @@
 #include <cassert>
+#include <array>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
@@ -79,15 +80,25 @@ int main() {
     assert(j_comp["result"].size() > 5);
     bool has_behaviour_template = false;
     bool has_to_string = false;
+    bool has_int_conversion = false;
+    bool has_uint8_conversion = false;
+    bool has_float64_conversion = false;
     for (const auto& item : j_comp["result"]) {
         if (item["label"] == "behaviour class") {
             has_behaviour_template = item["insertTextFormat"] == 2;
         }
         has_to_string |= item["label"] == "toString" &&
             item.value("detail", "").find("value: Int") != std::string::npos;
+        has_int_conversion |= item["label"] == "Int" &&
+            item.value("detail", "") == "Int(value: Numeric) -> Int";
+        has_uint8_conversion |= item["label"] == "UInt8" &&
+            item.value("detail", "") == "UInt8(value: Numeric) -> UInt8";
+        has_float64_conversion |= item["label"] == "Float64" &&
+            item.value("detail", "") == "Float64(value: Numeric) -> Float64";
     }
     assert(has_behaviour_template);
     assert(has_to_string);
+    assert(has_int_conversion && has_uint8_conversion && has_float64_conversion);
 
     // Definitions resolve to the declaration span instead of a placeholder range.
     std::string definition_req = R"({
@@ -556,6 +567,58 @@ int main() {
     })"));
     // The request is valid even while its document contains an incomplete edit.
     assert(signature_help.contains("result"));
+
+    const std::array<std::string, 6> conversion_lines{{
+        "function conversions(score: Int, speed: Float64): Void {",
+        "  let a: Int = Int(score);",
+        "  let b: UInt8 = UInt8(score);",
+        "  let c: Float64 = Float64(speed);",
+        "  let d: Float = Float(score);",
+        "}"
+    }};
+    std::string conversion_document;
+    for (const std::string& conversion_line : conversion_lines) conversion_document += conversion_line + "\n";
+    json conversion_change = {
+        {"jsonrpc", "2.0"},
+        {"method", "textDocument/didChange"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 30}}},
+            {"contentChanges", {{{"text", conversion_document}}}}
+        }}
+    };
+    const json conversion_diagnostics = json::parse(server.handle_message(conversion_change.dump()));
+    assert(conversion_diagnostics["params"]["diagnostics"].empty());
+    const auto require_conversion_signature = [&](uint32_t request_id, uint32_t request_line,
+                                                  const std::string& expected_name) {
+        json request = {
+            {"jsonrpc", "2.0"}, {"id", request_id}, {"method", "textDocument/signatureHelp"},
+            {"params", {
+                {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+                {"position", {{"line", request_line},
+                    {"character", conversion_lines[request_line].rfind('(') + 1}}}
+            }}
+        };
+        const json result = json::parse(server.handle_message(request.dump()));
+        assert(result["result"]["signatures"][0]["label"] ==
+            expected_name + "(value: Numeric) -> " + expected_name);
+        assert(result["result"]["signatures"][0]["documentation"].get<std::string>().find("saturate") !=
+            std::string::npos || expected_name == "Float64");
+    };
+    require_conversion_signature(22, 1, "Int");
+    require_conversion_signature(23, 2, "UInt8");
+    require_conversion_signature(24, 3, "Float64");
+
+    json numeric_hover_request = {
+        {"jsonrpc", "2.0"}, {"id", 25}, {"method", "textDocument/hover"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 0}, {"character", 43}}}
+        }}
+    };
+    const json numeric_hover = json::parse(server.handle_message(numeric_hover_request.dump()));
+    const std::string numeric_hover_text = numeric_hover["result"]["contents"]["value"];
+    assert(numeric_hover_text.find("Float64(value: Numeric) -> Float64") != std::string::npos);
+    assert(numeric_hover_text.find("IEEE-754") != std::string::npos);
     fs::remove_all(discovery_root);
 
     std::cout << "[PASS] EngineScriptLspTests passed!\n";

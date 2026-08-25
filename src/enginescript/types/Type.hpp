@@ -1,47 +1,13 @@
 #pragma once
 
+#include "NumericTypes.hpp"
+
 #include <string>
 #include <vector>
 #include <memory>
 #include <format>
 
 namespace EngineScript {
-
-enum class TypeKind {
-    Void,
-    Bool,
-    Int8,
-    Int16,
-    Int32,
-    Int64,
-    UInt8,
-    UInt16,
-    UInt32,
-    UInt64,
-    Float32,
-    Float64,
-    String,
-    Vec2,
-    Vec3,
-    Vec4,
-    Color,
-    Duration,
-    Entity,
-    Class,
-    Struct,
-    Interface,
-    Enum,
-    Array,
-    FixedArray,
-    Map,
-    Set,
-    Optional,
-    Result,
-    Task,
-    Function,
-    Null,
-    Error
-};
 
 struct Type : public std::enable_shared_from_this<Type> {
     TypeKind kind = TypeKind::Error;
@@ -101,30 +67,21 @@ struct Type : public std::enable_shared_from_this<Type> {
             return true;
         }
 
-        // Numeric implicit widening (Int32 -> Float32 / Float64, Float32 -> Float64)
         if (is_numeric() && target->is_numeric()) {
-            if (kind == TypeKind::Int32 && (target->kind == TypeKind::Float32 || target->kind == TypeKind::Float64)) return true;
-            if (kind == TypeKind::Float32 && target->kind == TypeKind::Float64) return true;
+            return is_implicit_numeric_conversion(kind, target->kind);
         }
 
         return false;
     }
 
     std::string to_string() const {
+        if (const NumericTypeInfo* numeric = numeric_type_info(kind)) {
+            return std::string(numeric->display_name) + (is_nullable ? "?" : "");
+        }
         std::string s;
         switch (kind) {
             case TypeKind::Void:       s = "Void"; break;
             case TypeKind::Bool:       s = "Bool"; break;
-            case TypeKind::Int8:       s = "Int8"; break;
-            case TypeKind::Int16:      s = "Int16"; break;
-            case TypeKind::Int32:      s = "Int"; break;
-            case TypeKind::Int64:      s = "Int64"; break;
-            case TypeKind::UInt8:      s = "UInt8"; break;
-            case TypeKind::UInt16:     s = "UInt16"; break;
-            case TypeKind::UInt32:     s = "UInt"; break;
-            case TypeKind::UInt64:     s = "UInt64"; break;
-            case TypeKind::Float32:    s = "Float"; break;
-            case TypeKind::Float64:    s = "Float64"; break;
             case TypeKind::String:     s = "String"; break;
             case TypeKind::Vec2:       s = "Vec2"; break;
             case TypeKind::Vec3:       s = "Vec3"; break;

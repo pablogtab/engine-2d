@@ -1,5 +1,6 @@
 #include "LanguageServer.hpp"
 #include "enginescript/api/ApiCatalog.hpp"
+#include "enginescript/types/NumericTypes.hpp"
 #include <nlohmann/json.hpp>
 #include <cctype>
 #include <filesystem>
@@ -128,6 +129,23 @@ std::string callable_signature(
     signature += ") -> ";
     signature += return_type;
     return signature;
+}
+
+std::string numeric_conversion_signature(std::string_view name) {
+    return std::string(name) + "(value: Numeric) -> " + std::string(name);
+}
+
+std::string numeric_conversion_documentation(std::string_view name, const NumericTypeInfo& info) {
+    std::string documentation = "Explicit numeric conversion to `" + std::string(name) + "` (" +
+        std::to_string(info.bit_width) + "-bit " +
+        (info.is_integer ? (info.is_signed ? "signed integer" : "unsigned integer") : "IEEE-754 floating point") +
+        ", range " + std::string(info.range_description) + ").\n\n";
+    if (info.is_integer) {
+        documentation += "Integer inputs saturate. Floating inputs truncate toward zero and saturate; NaN becomes 0 and infinities become the destination limits.";
+    } else {
+        documentation += "Uses IEEE rounding to the nearest representable value and preserves NaN and infinities.";
+    }
+    return documentation;
 }
 
 std::string callable_snippet(
@@ -812,12 +830,18 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
     if (!completing_decorator) {
         for (const ApiTypeDescriptor& type : ApiCatalog::instance().types()) {
             if (type.availability != ApiAvailability::Available) continue;
-            items.push_back({
+            json item = {
                 {"label", type.name},
                 {"kind", 7},
                 {"detail", "EngineScript " + type.name},
                 {"sortText", "5_" + type.name}
-            });
+            };
+            if (const auto numeric_kind = numeric_type_for_name(type.name)) {
+                const NumericTypeInfo* info = numeric_type_info(*numeric_kind);
+                item["detail"] = numeric_conversion_signature(type.name);
+                item["documentation"] = numeric_conversion_documentation(type.name, *info);
+            }
+            items.push_back(std::move(item));
         }
     }
 
@@ -872,10 +896,11 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
         markdown = "### `@optional`\n\n```enginescript\n@optional private <param>: <ComponentType>?\n```\n\nBinds an optional **ECS Component** handle that safely evaluates to `null` if not attached.";
     }
     // 2. Builtin Types
-    else if (word == "Float") {
-        markdown = "### `Float`\n\n64-bit IEEE-754 double precision floating-point number.";
-    } else if (word == "Int") {
-        markdown = "### `Int`\n\n64-bit signed integer numeric type.";
+    else if (const auto numeric_kind = numeric_type_for_name(word)) {
+        const NumericTypeInfo* info = numeric_type_info(*numeric_kind);
+        markdown = "### `" + word + "`\n\n```enginescript\n" +
+            numeric_conversion_signature(word) + "\n```\n\n" +
+            numeric_conversion_documentation(word, *info);
     } else if (word == "Bool") {
         markdown = "### `Bool`\n\nBoolean type representing `true` or `false`.";
     } else if (word == "String") {
@@ -1020,6 +1045,20 @@ std::string LanguageServer::on_signature_help(
     if (!std::regex_search(prefix, match, call_pattern)) return response.dump();
 
     const std::string name = match[1].str();
+    if (const auto numeric_kind = numeric_type_for_name(name)) {
+        const NumericTypeInfo* info = numeric_type_info(*numeric_kind);
+        response["result"] = {
+            {"signatures", {{
+                {"label", numeric_conversion_signature(name)},
+                {"documentation", numeric_conversion_documentation(name, *info)},
+                {"parameters", {{{"label", "value: Numeric"},
+                    {"documentation", "Any EngineScript numeric value."}}}}
+            }}},
+            {"activeSignature", 0},
+            {"activeParameter", 0}
+        };
+        return response.dump();
+    }
     for (const ApiFunctionDescriptor& function : ApiCatalog::instance().functions()) {
         if (function.availability != ApiAvailability::Available || function.name != name) continue;
         json parameters = json::array();
