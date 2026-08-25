@@ -55,6 +55,13 @@ Window::Window(const std::string& title, int width, int height, bool persist_edi
       m_height(height),
       m_persist_editor_state(persist_editor_state) {
     
+    // A dev build is commonly relaunched by a background shell. Make the
+    // foreground/focus intent explicit instead of relying on environment or
+    // platform defaults inherited by that shell.
+    SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
+    SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "1");
+    SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_RAISED, "1");
+
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
         ENGINE_LOG_ERROR("Failed to initialize SDL3: {}", SDL_GetError());
         return;
@@ -87,9 +94,6 @@ Window::Window(const std::string& title, int width, int height, bool persist_edi
     if (has_saved_state) {
         SDL_SetWindowPosition(m_window, saved_x, saved_y);
     }
-
-    // Bring window to front and give it input focus on macOS when launched from scripts
-    SDL_RaiseWindow(m_window);
 
     // The SDL GPU-backed 2D renderer preserves the SDL_Renderer API used by
     // the engine and editor while enabling custom fragment shaders. Keep a
@@ -190,6 +194,19 @@ void Window::request_close() {
     }
 }
 
+void Window::request_input_focus() {
+    if (!m_window) return;
+
+    if (SDL_GetKeyboardFocus() == m_window) return;
+
+    if (!SDL_SetWindowFocusable(m_window, true)) {
+        ENGINE_LOG_WARN("[WINDOW FOCUS] Could not mark window focusable: {}", SDL_GetError());
+    }
+    if (!SDL_RaiseWindow(m_window)) {
+        ENGINE_LOG_WARN("[WINDOW FOCUS] Could not request keyboard focus: {}", SDL_GetError());
+    }
+}
+
 void Window::poll_events() {
     drain_lifecycle_events();
     SDL_Event event;
@@ -243,11 +260,25 @@ void Window::poll_events() {
 
         if (display_changed && m_display_change_callback) m_display_change_callback();
 
+        // Some window managers deliver the activation click before assigning
+        // keyboard focus to a freshly relaunched process. The click is direct
+        // user intent, so retrying the focus request here is safe and avoids a
+        // mouse-active but keyboard-inactive editor window.
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+            event.button.windowID == SDL_GetWindowID(m_window) &&
+            SDL_GetKeyboardFocus() != m_window) {
+            request_input_focus();
+        }
+
         if (m_event_callback) {
             m_event_callback(event);
         } else {
             Input::process_event(event);
         }
+    }
+    if (m_startup_focus_attempts_remaining > 0) {
+        request_input_focus();
+        --m_startup_focus_attempts_remaining;
     }
     drain_lifecycle_events();
 }

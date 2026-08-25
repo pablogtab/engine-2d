@@ -20,6 +20,7 @@ public:
     bool is_should_close() const { return m_should_close; }
     void request_close();
     void force_close() { m_should_close = true; }
+    void request_input_focus();
     void poll_events();
     void clear(uint8_t r = 20, uint8_t g = 24, uint8_t b = 32, uint8_t a = 255);
     void set_logical_presentation(int reference_width, int reference_height, PresentationMode mode);
@@ -72,6 +73,7 @@ private:
     bool m_should_close{false};
     bool m_uses_logical_presentation{false};
     bool m_persist_editor_state{true};
+    unsigned int m_startup_focus_attempts_remaining{4};
     bool m_lifecycle_watch_registered{false};
     std::atomic<std::uint32_t> m_pending_lifecycle_events{0};
     std::function<bool()> m_close_request_callback;

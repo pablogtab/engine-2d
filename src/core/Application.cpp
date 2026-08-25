@@ -448,6 +448,11 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_window->set_display_change_callback([this]() {
         this->handle_render_surface_changed();
     });
+
+    // Request focus only after the editor and all SDL event consumers are
+    // initialized. Raising the window during early window construction is
+    // racy on macOS when dev.sh has just replaced the previous process.
+    m_window->request_input_focus();
 }
 
 Application::~Application() {
