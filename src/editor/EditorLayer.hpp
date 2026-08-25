@@ -3,6 +3,7 @@
 #include "EditorPanel.hpp"
 #include "state/AutosaveRecovery.hpp"
 #include "state/RecentSceneList.hpp"
+#include "state/EditorPanelStateStore.hpp"
 #include <SDL3/SDL.h>
 #include <vector>
 #include <memory>
@@ -125,6 +126,7 @@ private:
     void render_main_menu_bar();
     void setup_default_dockspace_layout(uint32_t dockspace_id);
     void persist_imgui_layout();
+    void persist_panel_states();
     void update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch);
     void update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store, std::shared_ptr<EditorSelection> sel = nullptr);
     void render_prefab_stage_modals();
@@ -158,8 +160,11 @@ private:
     std::filesystem::path m_recent_scenes_path{"ProjectSettings/EditorRecentScenes.json"};
     std::filesystem::path m_autosave_preferences_path{"ProjectSettings/EditorAutosave.json"};
     std::filesystem::path m_entity_state_preferences_path{"Library/Editor/EntityStates.json"};
+    std::filesystem::path m_panel_state_path{"Library/Editor/PanelStates.json"};
     std::string m_imgui_ini_path;
     std::string m_last_saved_imgui_ini;
+    EditorPanelStateStore m_panel_states;
+    std::uint64_t m_saved_panel_state_revision{0};
     std::vector<AutosaveRecord> m_pending_recoveries;
     const Scene* m_last_active_scene{nullptr};
 

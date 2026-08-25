@@ -95,6 +95,9 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     m_recent_scenes_path = m_project_root / "ProjectSettings/EditorRecentScenes.json";
     m_autosave_preferences_path = m_project_root / "ProjectSettings/EditorAutosave.json";
     m_entity_state_preferences_path = m_project_root / "Library/Editor/EntityStates.json";
+    m_panel_state_path = m_project_root / "Library/Editor/PanelStates.json";
+    static_cast<void>(m_panel_states.load(m_panel_state_path.string()));
+    m_saved_panel_state_revision = m_panel_states.revision();
     const std::filesystem::path editor_layout_path = m_project_root / "Library/Editor/imgui.ini";
     std::error_code layout_error;
     std::filesystem::create_directories(editor_layout_path.parent_path(), layout_error);
@@ -353,6 +356,7 @@ void EditorLayer::shutdown() {
     if (!m_initialized) return;
 
     save_entity_state_preferences();
+    persist_panel_states();
     persist_imgui_layout();
     ImGui_ImplSDLRenderer3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
@@ -808,6 +812,16 @@ void EditorLayer::persist_imgui_layout() {
         return;
     }
     m_last_saved_imgui_ini = current;
+}
+
+void EditorLayer::persist_panel_states() {
+    for (const auto& panel : m_panels) {
+        if (panel) m_panel_states.set_open(panel->get_name(), panel->is_open);
+    }
+    if (m_panel_states.revision() == m_saved_panel_state_revision) return;
+    if (m_panel_states.save(m_panel_state_path.string())) {
+        m_saved_panel_state_revision = m_panel_states.revision();
+    }
 }
 
 void EditorLayer::create_new_scene(const std::string& name) {
@@ -1555,6 +1569,7 @@ void EditorLayer::render_panels(float delta_time) {
         }
     );
     if (entity_state_changed) save_entity_state_preferences();
+    persist_panel_states();
 }
 
 void EditorLayer::update_autosaves(float delta_time) {
@@ -1676,6 +1691,7 @@ void EditorLayer::restore_render_resources() {
 
 void EditorLayer::register_panel(std::shared_ptr<EditorPanel> panel) {
     if (!panel) return;
+    panel->is_open = m_panel_states.is_open(panel->get_name(), panel->is_open);
     m_panels.push_back(panel);
     ENGINE_LOG_INFO("[EDITOR] Registered panel: '{}'", panel->get_name());
 }
