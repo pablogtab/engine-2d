@@ -1553,10 +1553,14 @@ void AssetBrowserPanel::draw_toolbar() {
 }
 
 void AssetBrowserPanel::on_gui() {
-    if (!is_open) return;
+    if (!is_open) {
+        m_is_focused = false;
+        return;
+    }
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
     if (ImGui::Begin("Asset Browser", &is_open)) {
+        m_is_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         const bool at_root = m_current_path == m_root_path;
         ImGui::BeginDisabled(at_root);
         if (ImGui::Button("< Up")) navigate_to(m_current_path.parent_path());
@@ -2227,6 +2231,8 @@ void AssetBrowserPanel::on_gui() {
             }
             ImGui::EndPopup();
         }
+    } else {
+        m_is_focused = false;
     }
     ImGui::End();
     ImGui::PopStyleVar();

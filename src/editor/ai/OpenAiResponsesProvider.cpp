@@ -157,7 +157,22 @@ OpenAiResponsesResult OpenAiResponsesProvider::run(
             input.push_back({{"role", message.role}, {"content", message.content}});
         }
     }
-    input.push_back({{"role", "user"}, {"content", request.prompt}});
+    if (request.images.empty()) {
+        input.push_back({{"role", "user"}, {"content", request.prompt}});
+    } else {
+        nlohmann::json content = nlohmann::json::array({{
+            {"type", "input_text"}, {"text", request.prompt}
+        }});
+        for (const EditorAiImageAttachment& image : request.images) {
+            if (image.data_url.empty()) continue;
+            content.push_back({
+                {"type", "input_image"},
+                {"image_url", image.data_url},
+                {"detail", image.detail.empty() ? "auto" : image.detail}
+            });
+        }
+        input.push_back({{"role", "user"}, {"content", std::move(content)}});
+    }
     emit_event(on_event, {OpenAiProviderEventType::Started, {}, {}});
 
     std::size_t tool_failures = 0;

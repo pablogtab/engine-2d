@@ -1,5 +1,7 @@
 #include "AiAssistantPanel.hpp"
+#include "EditorAiAttachmentView.hpp"
 #include "../../core/AssetDatabase.hpp"
+#include "../ai/EditorAiRequestPolicy.hpp"
 #include "../ai/ProjectCommandRegistry.hpp"
 
 #include "../../scene/ComponentRegistry.hpp"
@@ -15,6 +17,7 @@
 #include "../tools/EditorIcons.hpp"
 
 #include <imgui.h>
+#include <SDL3/SDL_clipboard.h>
 
 #include <cstdlib>
 #include <cstdio>
@@ -563,6 +566,7 @@ AiAssistantPanel::AiAssistantPanel(
     m_serialization_context(serialization_context),
     m_tool_registry(build_component_probes(), engine_source_root()),
     m_authoring_registry(&default_component_registry()),
+    m_attachments(serialization_context.renderer, project_root()),
     m_codex_provider(std::make_unique<CodexAppServerProvider>(
         create_default_codex_app_server_transport()
     )),
@@ -869,6 +873,87 @@ std::string AiAssistantPanel::current_context_json() const {
     return context.dump(2);
 }
 
+void AiAssistantPanel::prune_attached_contexts() {
+    m_attachments.prune_entities(
+        m_scene_manager ? m_scene_manager->get_active_scene_shared_ptr() : nullptr
+    );
+}
+
+void AiAssistantPanel::attach_current_selection() {
+    const std::shared_ptr<Scene> active_scene = m_scene_manager
+        ? m_scene_manager->get_active_scene_shared_ptr() : nullptr;
+    const EditorAiAttachmentResult result = m_attachments.attach_selection(
+        active_scene, m_selection.get()
+    );
+    m_focus_prompt_requested = true;
+    std::lock_guard lock(m_request_mutex);
+    m_ui_feedback = result.message;
+}
+
+void AiAssistantPanel::attach_asset_paths(
+    const std::vector<std::filesystem::path>& paths
+) {
+    const EditorAiAttachmentResult result = m_attachments.attach_assets(
+        paths, m_serialization_context.asset_database
+    );
+    m_focus_prompt_requested = true;
+    std::lock_guard lock(m_request_mutex);
+    m_ui_feedback = result.message;
+}
+
+void AiAssistantPanel::attach_clipboard_screenshot() {
+    constexpr const char* MIME_TYPES[] = {"image/png", "image/jpeg"};
+    std::optional<EditorAiAttachmentResult> rejection;
+    for (const char* mime_type : MIME_TYPES) {
+        if (!SDL_HasClipboardData(mime_type)) continue;
+        std::size_t size = 0;
+        void* data = SDL_GetClipboardData(mime_type, &size);
+        if (!data) continue;
+        const EditorAiAttachmentResult result = m_attachments.attach_screenshot_bytes(
+            static_cast<const std::uint8_t*>(data), size, mime_type, "Clipboard screenshot"
+        );
+        SDL_free(data);
+        if (result.success) {
+            m_focus_prompt_requested = true;
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = result.message;
+            return;
+        }
+        rejection = result;
+    }
+    std::lock_guard lock(m_request_mutex);
+    m_ui_feedback = rejection
+        ? rejection->message
+        : "The clipboard does not contain a supported PNG or JPEG screenshot.";
+}
+
+void AiAssistantPanel::attach_viewport_screenshot() {
+    const std::shared_ptr<ViewportPanel> viewport = m_viewport_panel.lock();
+    if (!viewport) {
+        std::lock_guard lock(m_request_mutex);
+        m_ui_feedback = "The Scene Viewport is unavailable.";
+        return;
+    }
+    const std::filesystem::path temporary = std::filesystem::path(project_root()) /
+        "Library" / "EditorAi" / "ScreenshotAttachments" /
+        ("viewport_source_" + std::to_string(NEXT_AI_REQUEST_ID.fetch_add(1)) + ".png");
+    std::size_t byte_count = 0;
+    std::string error;
+    if (!viewport->capture_viewport_png(temporary.string(), byte_count, error)) {
+        std::lock_guard lock(m_request_mutex);
+        m_ui_feedback = error.empty() ? "Could not capture the Scene Viewport." : error;
+        return;
+    }
+    const std::vector<std::uint8_t> bytes = FileSystem::read_bytes(temporary.string());
+    static_cast<void>(FileSystem::remove(temporary.string()));
+    const EditorAiAttachmentResult result = m_attachments.attach_screenshot_bytes(
+        bytes.data(), bytes.size(), "image/png", "Scene Viewport"
+    );
+    m_focus_prompt_requested = true;
+    std::lock_guard lock(m_request_mutex);
+    m_ui_feedback = result.message;
+}
+
 void AiAssistantPanel::cancel_request() {
     m_cancel_requested.store(true);
     static_cast<void>(ProjectCommandRegistry::cancel_active());
@@ -879,6 +964,9 @@ void AiAssistantPanel::cancel_request() {
 void AiAssistantPanel::start_new_conversation() {
     std::lock_guard lock(m_request_mutex);
     if (m_request_running || m_pending_proposal) return;
+    m_attachments.clear_all();
+    m_pending_asset_context_paths.clear();
+    m_attach_assets_requested = false;
     m_messages.clear();
     m_streamed_response.clear();
     m_reasoning_summary.clear();
@@ -920,6 +1008,9 @@ void AiAssistantPanel::restore_conversation(const std::string& thread_id) {
         m_request_error = "The selected conversation is no longer available.";
         return;
     }
+    m_attachments.clear_all();
+    m_pending_asset_context_paths.clear();
+    m_attach_assets_requested = false;
     if (conversation->tool_contract_version == EDITOR_AI_TOOL_CONTRACT_VERSION) {
         m_codex_thread_id = conversation->thread_id;
         m_codex_session_id = conversation->session_id;
@@ -992,6 +1083,9 @@ void AiAssistantPanel::delete_conversation(const std::string& thread_id) {
         return;
     }
     if (m_codex_thread_id == thread_id || m_superseded_thread_id == thread_id) {
+        m_attachments.clear_all();
+        m_pending_asset_context_paths.clear();
+        m_attach_assets_requested = false;
         m_messages.clear();
         m_streamed_response.clear();
         m_reasoning_summary.clear();
@@ -1270,8 +1364,11 @@ void AiAssistantPanel::start_request() {
         return;
     }
 
-    const std::string prompt(m_prompt.data());
+    std::string prompt(m_prompt.data());
     const std::string model(m_model.data());
+    if (!has_visible_text(prompt.c_str()) && m_attachments.has_screenshots()) {
+        prompt = "Inspect the attached screenshot(s).";
+    }
     if (!has_visible_text(prompt.c_str()) || !has_visible_text(model.c_str())) return;
     const std::uint64_t request_id = NEXT_AI_REQUEST_ID.fetch_add(1);
     const auto request_started = std::chrono::steady_clock::now();
@@ -1308,6 +1405,10 @@ void AiAssistantPanel::start_request() {
     auto request_context = std::make_shared<nlohmann::json>(
         m_tool_registry.build_context_snapshot(active_scene.get(), selection.get(), m_serialization_context)
     );
+    nlohmann::json attached_contexts = m_attachments.build_context(
+        *request_context, m_serialization_context.asset_database
+    );
+    (*request_context)["attached_contexts"] = attached_contexts;
     (*request_context)["generated_texture_previews"] = nlohmann::json::object();
     (*request_context)["viewport"] = viewport_state_json();
     const nlohmann::json before_entity_index = request_context->value(
@@ -1327,6 +1428,8 @@ void AiAssistantPanel::start_request() {
     request.model = model;
     request.prompt = prompt;
     request.reasoning_effort = reasoning_effort;
+    std::vector<std::filesystem::path> screenshot_cleanup_paths;
+    request.images = m_attachments.build_images(using_codex, screenshot_cleanup_paths);
     if (image_generation_requested) {
         request.skills.push_back({"imagegen", m_imagegen_skill_path});
     }
@@ -1341,51 +1444,15 @@ void AiAssistantPanel::start_request() {
             request.tools.push_back(schema);
         }
     }
-    request.instructions = image_generation_requested && authoring_available
-        ? "Complete one bounded texture workflow. Resolve the requested target with selection context "
-          "or find_scene_entities, then generate exactly one suitable PNG with the attached imagegen "
-          "skill. After ImageGen returns savedPath, you MUST call propose_import_generated_texture "
-          "exactly once before replying. Use that exact savedPath, a descriptive new or versioned path "
-          "under Assets/Textures/, and assign the sprite or ui_image target when uniquely resolved. If "
-          "the target remains ambiguous, import with an empty assignments array rather than discarding "
-          "the generated image. Tool success means queued for editor validation, not applied. Do not "
-          "finish with only a description of the generated image. Reply with one concise sentence."
-        : authoring_available
-        ? "For an authoring request, act directly and do not narrate intermediate reasoning. The tool "
-          "schemas are the source of truth: do not inspect workspace files to discover argument shapes. "
-          "Use find_scene_entities before changing an existing target and pass its numeric entity_id. "
-          "If a search returns multiple matches, narrow it or use selection context instead of guessing. "
-          "entity_alias is request-local and may only reference an entity created earlier in the same "
-          "proposal. On later conversation turns, resolve previously created entities again because aliases "
-          "do not persist. Creating a root entity does not require inspection. Fold the final name, transform, and components of a new entity "
-          "into one propose_create_entity call instead of queuing redundant follow-up actions. A successful "
-          "queued result is final for this turn: do not wait for another editor response and do not retry it. If a call "
-          "is invalid, correct it once from the returned error without reading files. Use find_project_assets "
-          "for stable handles and prefer bulk duplicate/delete tools for sets. Queue at most 25 focused actions. "
-          "New entities and prefab roots can be referenced by @alias. Reply with one concise sentence. "
-          "Tool success means the proposal was queued, not applied. Never claim that a scene or asset change "
-          "was created or applied; say that the proposal is prepared for editor validation. The editor reports "
-          "the real application result separately and applies successful proposals atomically through Undo history."
-        : "Validated live authoring tools are unavailable for this request. You still have Full Access "
-          "to the local environment, but the editor must be in Edit mode with an active scene before "
-          "scene changes can be proposed.";
-    if (authoring_available && authoring_mode == AuthoringMode::ConfirmBeforeApply) {
-        request.instructions += " The user must confirm the proposal in the editor before it is applied.";
-    } else if (authoring_available) {
-        request.instructions += " Autonomous safe mode is enabled, so the editor will apply the proposal automatically if every validation gate passes.";
-    }
-    if (!previous_receipt.empty()) {
-        request.instructions += " Previous editor result: " + previous_receipt;
-    }
-    if (viewport_available && !image_generation_requested) {
-        request.instructions +=
-            " You can inspect the live Scene Viewport without changing authored content. Use "
-            "find_scene_entities before focus_viewport_entities. Navigate with pan, zoom, focus, "
-            "frame-all, or reset, then call capture_viewport to receive the actual rendered PNG as "
-            "visual tool output. Use get_scene_diagnostics for validator errors and warnings. Capture "
-            "only when visual evidence materially helps and at most four times per request. Viewport "
-            "navigation is ephemeral and never part of scene Undo history.";
-    }
+    request.instructions = build_editor_ai_request_instructions({
+        image_generation_requested,
+        authoring_available,
+        authoring_mode == AuthoringMode::ConfirmBeforeApply,
+        viewport_available,
+        !request.images.empty(),
+        previous_receipt,
+        attached_contexts
+    });
     request.project_root = project_root();
     request.codex_executable = m_codex_executable;
     request.persist_thread = using_codex;
@@ -1436,7 +1503,7 @@ void AiAssistantPanel::start_request() {
     ENGINE_LOG_INFO(
         "[AI AUDIT] request={} phase=start backend={} model={} effort={} mode={} scene={} "
         "baseline_revision={} history_messages={} history_chars={} context_chars={} tools={} "
-        "tool_schema_chars={} instructions_chars={} prompt_chars={} thread={} persistent={} "
+        "tool_schema_chars={} instructions_chars={} prompt_chars={} images={} thread={} persistent={} "
         "compact_before_turn={} compact_source={} previous_input_tokens={}",
         request_id,
         m_backend == ProviderBackend::CodexSubscription ? "codex_subscription" : "openai_api",
@@ -1452,6 +1519,7 @@ void AiAssistantPanel::start_request() {
         request.tools.dump().size(),
         request.instructions.size(),
         prompt.size(),
+        request.images.size(),
         request.provider_thread_id.empty() ? "new" : request.provider_thread_id,
         request.persist_thread,
         request.compact_thread_before_turn,
@@ -1515,6 +1583,8 @@ void AiAssistantPanel::start_request() {
         return audited(m_tool_registry.execute_snapshot(name, arguments, *request_context));
     };
     m_prompt.fill('\0');
+    m_attachments.clear_contexts();
+    m_attachments.clear_screenshots(false);
     if (m_request_thread.joinable()) m_request_thread.join();
     m_cancel_requested.store(false);
 
@@ -1535,7 +1605,8 @@ void AiAssistantPanel::start_request() {
         using_codex,
         model,
         request_id,
-        request_started
+        request_started,
+        screenshot_cleanup_paths = std::move(screenshot_cleanup_paths)
     ]() mutable {
         bool first_text_logged = false;
         bool first_reasoning_summary_logged = false;
@@ -1721,6 +1792,10 @@ void AiAssistantPanel::start_request() {
             [this]() { return m_cancel_requested.load(); }
         );
 
+        for (const std::filesystem::path& screenshot : screenshot_cleanup_paths) {
+            static_cast<void>(FileSystem::remove(screenshot.string()));
+        }
+
         std::lock_guard lock(m_request_mutex);
         m_request_running = false;
         m_active_tool.clear();
@@ -1826,6 +1901,17 @@ void AiAssistantPanel::start_request() {
 
 void AiAssistantPanel::on_gui() {
     process_live_editor_tools();
+    if (m_attach_assets_requested) {
+        m_attach_assets_requested = false;
+        std::vector<std::filesystem::path> paths = std::move(m_pending_asset_context_paths);
+        m_pending_asset_context_paths.clear();
+        attach_asset_paths(paths);
+    } else if (m_attach_selection_requested) {
+        m_attach_selection_requested = false;
+        attach_current_selection();
+    } else {
+        prune_attached_contexts();
+    }
     if (!is_open) return;
 
     bool window_request_running = false;
@@ -2344,7 +2430,10 @@ void AiAssistantPanel::on_gui() {
     ImGui::EndChild();
     ImGui::PopStyleVar();
 
-    constexpr float COMPOSER_HEIGHT = 126.0f;
+    const bool has_attached_context = m_attachments.has_contexts();
+    const bool has_screenshots = m_attachments.has_screenshots();
+    const float composer_height = 126.0f + (has_attached_context ? 30.0f : 0.0f) +
+        (has_screenshots ? 66.0f : 0.0f);
     ImGui::PushStyleColor(
         ImGuiCol_ChildBg,
         ImGui::GetStyleColorVec4(ImGuiCol_FrameBg)
@@ -2356,12 +2445,15 @@ void AiAssistantPanel::on_gui() {
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 16.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(13.0f, 11.0f));
-    ImGui::BeginChild("AIComposer", ImVec2(0.0f, COMPOSER_HEIGHT), true);
+    ImGui::BeginChild("AIComposer", ImVec2(0.0f, composer_height), true);
+
+    draw_editor_ai_attachment_view(m_attachments);
 
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+    // Keep the native blinking caret inside the multiline widget's clip rect.
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f));
     ImGui::BeginDisabled(running || pending_proposal.has_value());
     if (m_focus_prompt_requested) {
         ImGui::SetKeyboardFocusHere();
@@ -2374,11 +2466,33 @@ void AiAssistantPanel::on_gui() {
         ImVec2(-1.0f, 62.0f),
         ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine
     );
+    const bool prompt_hovered = ImGui::IsItemHovered();
+    const bool prompt_active = ImGui::IsItemActive();
+    const ImGuiIO& composer_io = ImGui::GetIO();
+    if (prompt_active && (composer_io.KeySuper || composer_io.KeyCtrl) &&
+        ImGui::IsKeyPressed(ImGuiKey_V, false) &&
+        (SDL_HasClipboardData("image/png") || SDL_HasClipboardData("image/jpeg"))) {
+        attach_clipboard_screenshot();
+    }
+    if (prompt_hovered && !running && !pending_proposal.has_value()) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+    }
     ImGui::EndDisabled();
     const ImVec2 prompt_min = ImGui::GetItemRectMin();
-    if (m_prompt[0] == '\0' && !ImGui::IsItemActive()) {
+    const ImVec2 prompt_max = ImGui::GetItemRectMax();
+    if (prompt_active) {
+        ImGui::GetWindowDrawList()->AddRect(
+            ImVec2(prompt_min.x - 4.0f, prompt_min.y - 4.0f),
+            ImVec2(prompt_max.x + 4.0f, prompt_max.y + 4.0f),
+            ImGui::GetColorU32(ImGuiCol_NavHighlight),
+            6.0f,
+            0,
+            1.5f
+        );
+    }
+    if (m_prompt[0] == '\0' && !prompt_active) {
         ImGui::GetWindowDrawList()->AddText(
-            ImVec2(prompt_min.x + 1.0f, prompt_min.y + 1.0f),
+            ImVec2(prompt_min.x + 4.0f, prompt_min.y + 2.0f),
             IM_COL32(185, 185, 180, 175),
             "Ask Codex about the scene or engine..."
         );
@@ -2388,7 +2502,8 @@ void AiAssistantPanel::on_gui() {
 
     const bool can_send = provider_available && credentials_available && !running &&
         !pending_proposal.has_value() &&
-        has_visible_text(m_prompt.data()) && has_visible_text(m_model.data());
+        (has_visible_text(m_prompt.data()) || m_attachments.has_screenshots()) &&
+        has_visible_text(m_model.data());
     if (submitted && can_send) start_request();
 
     if (editor_icon_button(
@@ -2456,6 +2571,13 @@ void AiAssistantPanel::on_gui() {
     }
 
     if (ImGui::BeginPopup("AIComposerActions")) {
+        if (ImGui::MenuItem("Paste screenshot", "Cmd+V")) {
+            attach_clipboard_screenshot();
+        }
+        if (ImGui::MenuItem("Attach Scene Viewport screenshot")) {
+            attach_viewport_screenshot();
+        }
+        ImGui::Separator();
         ImGui::BeginDisabled(!using_codex || m_imagegen_skill_path.empty());
         if (ImGui::MenuItem(
             "Generate PNG with Codex",
@@ -2473,6 +2595,9 @@ void AiAssistantPanel::on_gui() {
             );
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Attach selection", "Cmd+L")) {
+            attach_current_selection();
+        }
         if (ImGui::MenuItem("Copy scene context")) {
             copy_to_clipboard(current_context_json(), "Scene context copied.");
         }

@@ -100,8 +100,14 @@ void test_streaming_request_and_chunk_boundaries() {
     });
     OpenAiResponsesProvider provider(std::make_unique<FakeTransport>(state));
     std::string streamed;
+    OpenAiResponsesRequest request = basic_request();
+    request.images.push_back({
+        "/tmp/screenshot.png",
+        "data:image/png;base64,dmlld3BvcnQ=",
+        "auto"
+    });
     const OpenAiResponsesResult result = provider.run(
-        basic_request(),
+        request,
         [&streamed](const OpenAiProviderEvent& event) {
             if (event.type == OpenAiProviderEventType::TextDelta) streamed += event.text;
         }
@@ -122,6 +128,13 @@ void test_streaming_request_and_chunk_boundaries() {
     assert(body.at("reasoning").at("effort") == "low");
     assert(body.at("tools").size() == 1);
     assert(body.at("input").back().at("role") == "user");
+    const auto& user_content = body.at("input").back().at("content");
+    assert(user_content.is_array());
+    assert(user_content.at(0).at("type") == "input_text");
+    assert(user_content.at(1).at("type") == "input_image");
+    assert(user_content.at(1).at("image_url") ==
+        "data:image/png;base64,dmlld3BvcnQ=");
+    assert(user_content.at(1).at("detail") == "auto");
 }
 
 void test_invalid_tool_call_budget_stops_retries() {

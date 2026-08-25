@@ -473,6 +473,11 @@ void test_skill_input_and_generated_image_event() {
     CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
     EditorAiProviderRequest request = basic_request();
     request.skills.push_back({"imagegen", "/skills/imagegen/SKILL.md"});
+    request.images.push_back({
+        "/tmp/editor-screenshot.png",
+        "data:image/png;base64,dmlld3BvcnQ=",
+        "high"
+    });
     std::vector<EditorAiProviderEvent> events;
     const EditorAiProviderResult result = provider.run(
         request,
@@ -481,12 +486,15 @@ void test_skill_input_and_generated_image_event() {
 
     assert(result.status == EditorAiProviderStatus::Completed);
     const auto& input = state->writes.at(3).at("params").at("input");
-    assert(input.size() == 2);
+    assert(input.size() == 3);
     assert(input.at(0).at("type") == "skill");
     assert(input.at(0).at("name") == "imagegen");
     assert(input.at(0).at("path") == "/skills/imagegen/SKILL.md");
-    assert(input.at(1).at("type") == "text");
-    assert(input.at(1).at("text_elements") == nlohmann::json::array());
+    assert(input.at(1).at("type") == "localImage");
+    assert(input.at(1).at("path") == "/tmp/editor-screenshot.png");
+    assert(input.at(1).at("detail") == "high");
+    assert(input.at(2).at("type") == "text");
+    assert(input.at(2).at("text_elements") == nlohmann::json::array());
     const auto generated = std::find_if(events.begin(), events.end(), [](const auto& event) {
         return event.type == EditorAiProviderEventType::ImageGenerated;
     });

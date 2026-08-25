@@ -116,6 +116,9 @@ set(SOURCES
     src/editor/panels/TilemapPalettePanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/panels/AiAssistantPanel.cpp
+    src/editor/panels/EditorAiAttachmentView.cpp
+    src/editor/ai/EditorAiAttachmentStore.cpp
+    src/editor/ai/EditorAiRequestPolicy.cpp
     src/editor/ai/EditorAiConversationStore.cpp
     src/editor/ai/EditorAiToolRegistry.cpp
     src/editor/ai/ProjectCommandRegistry.cpp
@@ -1030,6 +1033,28 @@ target_include_directories(EditorAiCommandTests PRIVATE
 )
 target_link_libraries(EditorAiCommandTests PRIVATE EngineRuntime SDL3::SDL3)
 add_test(NAME EditorAiCommandTests COMMAND EditorAiCommandTests)
+
+add_executable(EditorAiRequestPolicyTests
+    tests/EditorAiRequestPolicyTests.cpp
+    src/editor/ai/EditorAiRequestPolicy.cpp
+)
+target_include_directories(EditorAiRequestPolicyTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+add_test(NAME EditorAiRequestPolicyTests COMMAND EditorAiRequestPolicyTests)
+
+add_executable(EditorAiAttachmentStoreTests
+    tests/EditorAiAttachmentStoreTests.cpp
+    src/editor/ai/EditorAiAttachmentStore.cpp
+)
+target_include_directories(EditorAiAttachmentStoreTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(EditorAiAttachmentStoreTests PRIVATE EngineRuntime SDL3::SDL3)
+add_test(NAME EditorAiAttachmentStoreTests COMMAND EditorAiAttachmentStoreTests)
 
 add_executable(OpenAiResponsesProviderTests
     tests/OpenAiResponsesProviderTests.cpp

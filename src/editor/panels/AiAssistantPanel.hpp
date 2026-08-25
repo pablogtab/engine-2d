@@ -5,6 +5,7 @@
 #include "../ai/CodexAppServerProvider.hpp"
 #include "../ai/EditorAiConversationStore.hpp"
 #include "../ai/EditorAiAuthoring.hpp"
+#include "../ai/EditorAiAttachmentStore.hpp"
 #include "../ai/EditorAiToolRegistry.hpp"
 #include "../ai/EditorAiViewportTools.hpp"
 #include "../ai/OpenAiResponsesProvider.hpp"
@@ -15,6 +16,7 @@
 #include <cstdint>
 #include <deque>
 #include <future>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -45,6 +47,17 @@ public:
     void request_focus() {
         is_open = true;
         m_focus_requested = true;
+    }
+    void request_attach_selection() {
+        is_open = true;
+        m_focus_requested = true;
+        m_attach_selection_requested = true;
+    }
+    void request_attach_assets(std::vector<std::filesystem::path> paths) {
+        is_open = true;
+        m_focus_requested = true;
+        m_pending_asset_context_paths = std::move(paths);
+        m_attach_assets_requested = true;
     }
     void set_selection(std::shared_ptr<EditorSelection> selection) { m_selection = std::move(selection); }
     void set_command_history(std::shared_ptr<EditorCommandHistory> history) {
@@ -104,6 +117,12 @@ private:
         std::string description;
     };
 
+    void attach_current_selection();
+    void attach_asset_paths(const std::vector<std::filesystem::path>& paths);
+    void attach_clipboard_screenshot();
+    void attach_viewport_screenshot();
+    void prune_attached_contexts();
+
     struct AiActivityEntry {
         std::string label;
         std::string detail;
@@ -156,6 +175,7 @@ private:
     EditorAiToolRegistry m_tool_registry;
     EditorAiViewportTools m_viewport_tools;
     EditorAiAuthoringRegistry m_authoring_registry;
+    EditorAiAttachmentStore m_attachments;
     std::weak_ptr<ViewportPanel> m_viewport_panel;
     std::unique_ptr<CodexAppServerProvider> m_codex_provider;
     std::unique_ptr<OpenAiResponsesProvider> m_openai_provider;
@@ -190,6 +210,7 @@ private:
     std::string m_conversation_action_thread_id;
     std::optional<PendingProposal> m_pending_proposal;
     std::optional<AppliedAiSession> m_last_applied_session;
+    std::vector<std::filesystem::path> m_pending_asset_context_paths;
     std::unique_ptr<Texture> m_generated_texture_preview;
     std::string m_loaded_texture_preview_id;
     std::size_t m_last_input_tokens{0};
@@ -201,6 +222,8 @@ private:
     bool m_scroll_chat_to_bottom{false};
     bool m_focus_requested{false};
     bool m_focus_prompt_requested{false};
+    bool m_attach_selection_requested{false};
+    bool m_attach_assets_requested{false};
     bool m_open_session_settings_requested{false};
     bool m_image_generation_requested{false};
     bool m_conversation_has_generated_image{false};

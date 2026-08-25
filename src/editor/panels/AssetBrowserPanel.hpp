@@ -57,6 +57,10 @@ public:
     [[nodiscard]] AssetHandle duplicate_material_asset(AssetHandle source_handle);
     void open_material_asset(AssetHandle handle);
     [[nodiscard]] SDL_Texture* preview_material_asset(AssetHandle handle);
+    [[nodiscard]] bool is_focused() const { return m_is_focused; }
+    [[nodiscard]] std::vector<std::filesystem::path> selected_assets_for_context() const {
+        return selected_asset_paths();
+    }
     void set_on_material_preview(
         std::function<void(AssetHandle, std::shared_ptr<const Material>)> callback
     ) { m_on_material_preview = std::move(callback); }
@@ -176,6 +180,7 @@ private:
     std::string m_edit_layer_effect_error;
     float m_thumbnail_size{72.0f};
     float m_padding{14.0f};
+    bool m_is_focused{false};
 };
 
 } // namespace Engine

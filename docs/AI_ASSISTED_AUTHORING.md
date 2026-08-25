@@ -134,6 +134,20 @@ that camera explicitly and is shared by human input and AI tools.
 Authoring actions remain queued until the turn completes, so a viewport capture
 observes the currently applied scene, never an uncommitted proposal.
 
+## Screenshot attachments
+
+The composer accepts up to four PNG or JPEG screenshots per message. Paste an
+image from the clipboard with `Cmd+V`/`Ctrl+V`, or choose **Attach Scene Viewport
+screenshot** from the composer `+` menu. Attached images show a removable preview
+and may be sent without additional text. Each image is limited to 12 MiB and
+8192 pixels per dimension.
+
+Codex-subscription turns use the App Server's `localImage` input. OpenAI API turns
+use a bounded `input_image` data URL. Temporary copies live under
+`Library/EditorAi/ScreenshotAttachments` and are removed after the request,
+cancel, dismissal, conversation switch, or editor shutdown; they are never
+registered as assets and never dirty the scene.
+
 ## Safety and rollback
 
 - A proposal is capped at 25 authoring actions; bulk entity calls are capped at 20

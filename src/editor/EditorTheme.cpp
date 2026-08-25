@@ -7,6 +7,8 @@ void EditorTheme::apply_dark_theme() {
     ImGuiStyle& style = ImGui::GetStyle();
     ImVec4* colors = style.Colors;
 
+    ImGui::GetIO().ConfigInputTextCursorBlink = true;
+
     // --- Modern Rounded Geometry ---
     style.WindowPadding     = ImVec2(10.0f, 10.0f);
     style.FramePadding      = ImVec2(8.0f, 5.0f);
@@ -30,6 +32,7 @@ void EditorTheme::apply_dark_theme() {
     style.ScrollbarRounding = 9.0f;
     style.GrabRounding      = 4.0f;
     style.TabRounding       = 5.0f;
+    style.InputTextCursorSize = 2.0f;
 
     // --- Modern Dark Slate & Violet Accent Palette ---
     // Backgrounds
@@ -42,6 +45,7 @@ void EditorTheme::apply_dark_theme() {
     // Text & Headers
     colors[ImGuiCol_Text]                 = ImVec4(0.92f, 0.93f, 0.96f, 1.00f); // Clean light
     colors[ImGuiCol_TextDisabled]         = ImVec4(0.48f, 0.51f, 0.60f, 1.00f);
+    colors[ImGuiCol_InputTextCursor]      = ImVec4(0.49f, 0.73f, 1.00f, 1.00f);
     colors[ImGuiCol_MenuBarBg]            = ImVec4(0.12f, 0.13f, 0.17f, 1.00f);
 
     // Frame inputs (Sliders, Textboxes)

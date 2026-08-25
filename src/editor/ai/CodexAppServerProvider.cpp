@@ -353,6 +353,14 @@ EditorAiProviderResult CodexAppServerProvider::run(
             {"path", skill.path}
         });
     }
+    for (const EditorAiImageAttachment& image : request.images) {
+        if (image.local_path.empty()) continue;
+        turn_input.push_back({
+            {"type", "localImage"},
+            {"path", image.local_path},
+            {"detail", image.detail.empty() ? "auto" : image.detail}
+        });
+    }
     turn_input.push_back({
         {"type", "text"},
         {"text", request.prompt},

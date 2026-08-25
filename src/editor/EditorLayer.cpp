@@ -25,6 +25,7 @@
 #include "panels/ParticleEffectEditorPanel.hpp"
 #include "panels/ProjectSettingsPanel.hpp"
 #include "panels/AiAssistantPanel.hpp"
+#include "panels/AssetBrowserPanel.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
 #include "../ecs/CameraSystem.hpp"
@@ -342,6 +343,34 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
         .mod_alt = false,
         .enable_repeat = false,
         .callback = nullptr
+    });
+
+    sm.register_shortcut({
+        .id = "editor.ai_attach_selection",
+        .display_name = "Attach Selection to AI Assistant",
+        .category = "AI Assistant",
+        .primary_key = ImGuiKey_L,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = false,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = [this]() {
+            const auto assistant = std::dynamic_pointer_cast<AiAssistantPanel>(
+                get_panel("AI Assistant")
+            );
+            if (!assistant) return;
+            const auto asset_browser = std::dynamic_pointer_cast<AssetBrowserPanel>(
+                get_panel("Asset Browser")
+            );
+            if (asset_browser && asset_browser->is_focused()) {
+                assistant->request_attach_assets(
+                    asset_browser->selected_assets_for_context()
+                );
+                return;
+            }
+            assistant->request_attach_selection();
+        }
     });
 
     sm.load_from_file((m_project_root / "ProjectSettings/EditorShortcuts.json").string());

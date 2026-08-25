@@ -42,6 +42,12 @@ struct EditorAiSkillReference {
     std::string path;
 };
 
+struct EditorAiImageAttachment {
+    std::string local_path;
+    std::string data_url;
+    std::string detail{"auto"};
+};
+
 enum class EditorAiProviderStatus {
     Completed,
     Cancelled,
@@ -57,6 +63,7 @@ struct EditorAiProviderRequest {
     std::string reasoning_summary{"auto"};
     std::vector<EditorAiChatMessage> history;
     std::vector<EditorAiSkillReference> skills;
+    std::vector<EditorAiImageAttachment> images;
     nlohmann::json tools{nlohmann::json::array()};
     std::function<EditorAiToolResult(const std::string&, const nlohmann::json&)> execute_tool;
     std::string project_root{"."};
