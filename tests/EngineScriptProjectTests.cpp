@@ -60,6 +60,26 @@ int main() {
     assert(forced.success);
     assert(workspace.compiler_cache().stats().hits == hits_before_force);
 
+    EngineScriptWorkspace growth_workspace("/workspace/GenericGrowth");
+    growth_workspace.add_source_file("Source/Generics.e2s", R"(
+        export function identity<T extends Send>(value: T): T { return value; }
+        export function useGenerics(): Int {
+            let values: Array<Int> = [1, 2];
+            return identity<Int>(values[0]);
+        }
+    )");
+    const CompilationResult growth = growth_workspace.compile();
+    assert(growth.success);
+    assert(growth.generic_code_growth.unique_instantiations >= 2);
+    assert(growth.generic_code_growth.generated_cpp_bytes > 0);
+    bool reported_array = false;
+    bool reported_identity = false;
+    for (const GenericInstantiation& instantiation : growth.generic_code_growth.instantiations) {
+        reported_array |= instantiation.template_name == "Array" && instantiation.type_args == std::vector<std::string>{"Int"};
+        reported_identity |= instantiation.template_name == "identity" && instantiation.type_args == std::vector<std::string>{"Int"};
+    }
+    assert(reported_array && reported_identity);
+
     std::cout << "[PASS] EngineScriptProjectTests passed!\n";
     return 0;
 }

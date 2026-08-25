@@ -52,9 +52,9 @@ void test_round_trip_references_and_transactional_rejection() {
     entities.add_component<TransformComponent>(scripted, TransformComponent{});
 
     ScriptComponent expected;
-    expected.script_handle = AssetHandle{0x1234};
-    expected.enabled = false;
-    expected.public_fields = {
+    expected.instances.front().script_handle = AssetHandle{0x1234};
+    expected.instances.front().enabled = false;
+    expected.instances.front().public_fields = {
         {"active", ScriptFieldType::Boolean, true},
         {"speed", ScriptFieldType::Number, 12.5},
         {"title", ScriptFieldType::String, std::string("Hero")},
@@ -68,7 +68,7 @@ void test_round_trip_references_and_transactional_rejection() {
     SceneSerializer serializer(&scene);
     const std::string snapshot = serializer.serialize_to_string();
     assert(!snapshot.empty());
-    entities.get_component<ScriptComponent>(scripted).public_fields.clear();
+    entities.get_component<ScriptComponent>(scripted).instances.front().public_fields.clear();
     assert(serializer.deserialize_from_string(snapshot));
     assert(entities.get_component<ScriptComponent>(scripted) == expected);
 
@@ -76,13 +76,13 @@ void test_round_trip_references_and_transactional_rejection() {
         entities, scripted, {{target, EntityID{77}}}
     );
     const auto& remapped = entities.get_component<ScriptComponent>(scripted);
-    assert(std::get<EntityID>(remapped.public_fields[4].value) == 77);
+    assert(std::get<EntityID>(remapped.instances.front().public_fields[4].value) == 77);
 
     assert(serializer.deserialize_from_string(snapshot));
     nlohmann::json invalid = nlohmann::json::parse(snapshot);
     for (auto& entity : invalid["entities"]) {
         if (entity.value("id", EntityID{0}) != scripted) continue;
-        entity["script"]["public_fields"][1]["type"] = "boolean";
+        entity["script"]["instances"][0]["public_fields"][1]["type"] = "boolean";
     }
     assert(!serializer.deserialize_from_string(invalid.dump()));
     assert(entities.get_component<ScriptComponent>(scripted) == expected);
@@ -129,8 +129,8 @@ export class Evolution extends Behaviour {
     assert(std::get<bool>(find_field(inspection.public_fields, "new_enabled")->value));
 
     ScriptComponent evolved;
-    evolved.script_handle = script_asset->handle;
-    evolved.public_fields = {
+    evolved.instances.front().script_handle = script_asset->handle;
+    evolved.instances.front().public_fields = {
         {"speed", ScriptFieldType::String, std::string("walk")},
         {"lives", ScriptFieldType::Number, 7.0},
         {"new_enabled", ScriptFieldType::Boolean, true}
@@ -157,8 +157,8 @@ void test_missing_script_is_preserved_and_fails_safely(Engine::AssetDatabase& da
     const EntityID entity = entities.create_entity();
     entities.add_component<TransformComponent>(entity, TransformComponent{});
     ScriptComponent missing;
-    missing.script_handle = AssetHandle{0xDEADBEEF};
-    missing.public_fields = {{"speed", ScriptFieldType::Number, 5.0}};
+    missing.instances.front().script_handle = AssetHandle{0xDEADBEEF};
+    missing.instances.front().public_fields = {{"speed", ScriptFieldType::Number, 5.0}};
     entities.add_component<ScriptComponent>(entity, missing);
 
     SceneSerializer serializer(&scene);

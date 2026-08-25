@@ -1015,6 +1015,15 @@ target_include_directories(ProfilerInstrumentationTests PRIVATE
 )
 add_test(NAME ProfilerInstrumentationTests COMMAND ProfilerInstrumentationTests)
 
+add_executable(StructuredLogTests
+    tests/StructuredLogTests.cpp
+    src/core/Log.cpp
+)
+target_include_directories(StructuredLogTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME StructuredLogTests COMMAND StructuredLogTests)
+
 add_executable(StressRegressionTests tests/StressRegressionTests.cpp)
 target_include_directories(StressRegressionTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -1252,6 +1261,7 @@ add_enginescript_test(EngineScriptParserTests tests/EngineScriptParserTests.cpp)
 add_enginescript_test(EngineScriptResolverTests tests/EngineScriptResolverTests.cpp)
 add_enginescript_test(EngineScriptDependencyTests tests/EngineScriptDependencyTests.cpp)
 add_enginescript_test(EngineScriptTypeCheckerTests tests/EngineScriptTypeCheckerTests.cpp)
+add_enginescript_test(EngineScriptNumericConversionTests tests/EngineScriptNumericConversionTests.cpp)
 add_enginescript_test(EngineScriptIRTests tests/EngineScriptIRTests.cpp)
 add_enginescript_test(EngineScriptCodegenTests tests/EngineScriptCodegenTests.cpp)
 get_target_property(_engine_glm_include_dirs glm::glm INTERFACE_INCLUDE_DIRECTORIES)
@@ -1276,6 +1286,7 @@ add_enginescript_test(EngineScriptHotReloadTests tests/EngineScriptHotReloadTest
 add_enginescript_test(EngineScriptEditorIntegrationTests tests/EngineScriptEditorIntegrationTests.cpp)
 add_enginescript_test(EngineScriptProjectTests tests/EngineScriptProjectTests.cpp)
 add_enginescript_test(EngineScriptLspTests tests/EngineScriptLspTests.cpp)
+add_enginescript_test(EngineScriptRecoveryFuzzTests tests/EngineScriptRecoveryFuzzTests.cpp)
 add_enginescript_test(EngineScriptPlatformerSpikeTests tests/EngineScriptPlatformerSpikeTests.cpp)
 
 add_executable(EngineScriptPlayModeTests tests/EngineScriptPlayModeTests.cpp)

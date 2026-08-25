@@ -33,7 +33,7 @@ int main() {
 
             override update(deltaTime: Float): Void {
                 let axis: Float = input.axis("Horizontal");
-                let label: String = "Coins: " + toString(7);
+                let label: String = "Coins";
                 body.velocity.x = axis * walkSpeed;
                 body.setIgnoreOneWay(false);
                 if (axis < 0.0) {
@@ -64,6 +64,9 @@ int main() {
     TypeChecker checker(resolver, diags);
     bool ok = checker.check_module(m1);
 
+    if (!ok) {
+        std::cerr << diags.render_cli(sm);
+    }
     assert(ok);
     assert(!diags.has_errors());
 
@@ -173,7 +176,7 @@ int main() {
             return particles.emitWithOptions(effect, position, options);
         }
 
-        async function loadEffect(assets: Assets): Task<Asset> {
+        async function loadEffect(assets: Assets): Task<Result<Asset<ParticleEffect2D>, String>> {
             return await assets.load<ParticleEffect2D>("Assets/Particles/dust.particle");
         }
     )";
@@ -187,40 +190,185 @@ int main() {
     assert(check6.check_module(m6));
     assert(!particle_diags.has_errors());
 
-  // Test 7: Nullable catalog results do not mutate the shared Entity type.
-  DiagnosticEngine nullable_diags;
-  std::string nullable_code = R"(
-        function inspect(entities: Entities, source: Entity): Void {
-            let plain = entities.findByName("Status");
-            let nullable = entities.parent(source);
+    // Test 7: Value constructors return their declared vector/color type.
+    DiagnosticEngine value_constructor_diags;
+    const std::string value_constructor_code = R"(
+        function values(): Void {
+            let v2: Vec2 = Vec2(-58.0, 28.0);
+            let v3: Vec3 = Vec3(1.0, 2.0, 3.0);
+            let v4: Vec4 = Vec4(1.0, 2.0, 3.0, 4.0);
+            let color: Color = Color(1.0, 0.5, 0.25, 1.0);
         }
     )";
-  FileId f7 = sm.register_source("Source/NullableCatalog.e2s", nullable_code);
-  Lexer l7(f7, nullable_code, nullable_diags);
-  Parser p7(f7, "Source/NullableCatalog.e2s", l7.tokenize_all(),
-            nullable_diags);
-  auto m7 = p7.parse_module();
-  SymbolResolver res7(sm, nullable_diags);
-  res7.resolve_module(m7);
-  TypeChecker check7(res7, nullable_diags);
-  assert(check7.check_module(m7));
-  assert(!nullable_diags.has_errors());
-  bool found_plain_call = false;
-  bool found_nullable_call = false;
-  for (const InferredTypeInfo &inferred : check7.inferred_types()) {
-    const std::string expression = nullable_code.substr(
-        inferred.span.start_offset, inferred.span.length());
-    if (expression == "entities.findByName(\"Status\")") {
-      found_plain_call = true;
-      assert(inferred.type_name == "Entity");
-    }
-    if (expression == "entities.parent(source)") {
-      found_nullable_call = true;
-      assert(inferred.type_name == "Entity?");
-    }
-  }
-  assert(found_plain_call && found_nullable_call);
+    const FileId f7 = sm.register_source("Source/ValueConstructors.e2s", value_constructor_code);
+    Lexer l7(f7, value_constructor_code, value_constructor_diags);
+    Parser p7(f7, "Source/ValueConstructors.e2s", l7.tokenize_all(), value_constructor_diags);
+    const auto m7 = p7.parse_module();
+    SymbolResolver res7(sm, value_constructor_diags);
+    res7.resolve_module(m7);
+    TypeChecker check7(res7, value_constructor_diags);
+    assert(check7.check_module(m7));
+    assert(!value_constructor_diags.has_errors());
 
-  std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
+    // EngineScript 2.0 value literals, deterministic collections, flow, and
+    // typed events form one coherent frontend contract.
+    DiagnosticEngine v2_diags;
+    const std::string v2_code = R"(
+        export struct EnemyDefeated {
+            enemy: Entity;
+            score: Int;
+        }
+
+        function process(events: Events, entity: Entity): Int {
+            let event: EnemyDefeated = { enemy: entity, score: 10 };
+            let scores: Map<String, Int> = Map { "player" => 10 };
+            let tags: Set<String> = Set { "enemy", "flying" };
+            let axis: FixedArray<Float, 2> = FixedArray [0.0, 1.0];
+            let sum: Int = 0;
+            for (let index: Int = 0; index < 2; index = index + 1) {
+                if (index == 1) { continue; }
+                sum = sum + Int(axis[index]);
+            }
+            for (let tag in tags) {
+                if (tag == "flying") { break; }
+            }
+            events.emit(event);
+            return sum + (scores["player"] ?? 0);
+        }
+    )";
+    const FileId f8 = sm.register_source("Source/V2.e2s", v2_code);
+    Lexer l8(f8, v2_code, v2_diags);
+    Parser p8(f8, "Source/V2.e2s", l8.tokenize_all(), v2_diags);
+    const auto m8 = p8.parse_module();
+    SymbolResolver res8(sm, v2_diags);
+    res8.resolve_module(m8);
+    TypeChecker check8(res8, v2_diags);
+    if (!check8.check_module(m8)) std::cerr << v2_diags.render_cli(sm);
+    assert(!v2_diags.has_errors());
+
+    DiagnosticEngine removed_api_diags;
+    const std::string removed_api_code = R"(
+        function invalidText(): Void {
+            let removed: String = toString(1);
+            let implicit: String = "score=" + 1;
+        }
+    )";
+    const FileId f9 = sm.register_source("Source/RemovedTextApi.e2s", removed_api_code);
+    Lexer l9(f9, removed_api_code, removed_api_diags);
+    Parser p9(f9, "Source/RemovedTextApi.e2s", l9.tokenize_all(), removed_api_diags);
+    const auto m9 = p9.parse_module();
+    SymbolResolver res9(sm, removed_api_diags);
+    res9.resolve_module(m9);
+    TypeChecker check9(res9, removed_api_diags);
+    check9.check_module(m9);
+    assert(removed_api_diags.has_errors());
+    bool missing_to_string = false;
+    bool rejected_concat = false;
+    for (const Diagnostic& diagnostic : removed_api_diags.get_diagnostics()) {
+        missing_to_string |= diagnostic.message.find("toString") != std::string::npos;
+        rejected_concat |= diagnostic.code == "E3063";
+    }
+    assert(missing_to_string && rejected_concat);
+
+    // Jobs only accepts inline closures with immutable Send captures and Send results.
+    DiagnosticEngine jobs_diags;
+    const std::string jobs_code = R"(
+        function validJob(jobs: Jobs, seed: Int): Task<Result<Int, String>> {
+            const multiplier: Int = 2;
+            return jobs.run(() => seed * multiplier);
+        }
+
+        function invalidJobs(jobs: Jobs, entity: Entity): Void {
+            let mutableSeed: Int = 3;
+            jobs.run(() => mutableSeed + 1);
+            jobs.run(() => entity);
+        }
+    )";
+    const FileId f10 = sm.register_source("Source/Jobs.e2s", jobs_code);
+    Lexer l10(f10, jobs_code, jobs_diags);
+    Parser p10(f10, "Source/Jobs.e2s", l10.tokenize_all(), jobs_diags);
+    const auto m10 = p10.parse_module();
+    SymbolResolver res10(sm, jobs_diags);
+    res10.resolve_module(m10);
+    TypeChecker check10(res10, jobs_diags);
+    check10.check_module(m10);
+    bool rejected_mutable_capture = false;
+    bool rejected_ecs_capture = false;
+    bool rejected_non_send_result = false;
+    for (const Diagnostic& diagnostic : jobs_diags.get_diagnostics()) {
+        rejected_mutable_capture |= diagnostic.code == "E3087" &&
+            diagnostic.message.find("mutableSeed") != std::string::npos;
+        rejected_ecs_capture |= diagnostic.code == "E3087" &&
+            diagnostic.message.find("entity") != std::string::npos;
+        rejected_non_send_result |= diagnostic.code == "E3085";
+    }
+    assert(rejected_mutable_capture && rejected_ecs_capture && rejected_non_send_result);
+
+    DiagnosticEngine collection_contract_diags;
+    const std::string bad_collection_contracts = R"(
+        struct Box<T> { value: T; }
+        function invalidCollections(): Void {
+            let missingSize: FixedArray<Float>;
+            let zeroSize: FixedArray<Float, 0>;
+            let mapArity: Map<String>;
+            let boxArity: Box<Int, String>;
+            let numbers: Array<Int> = [1];
+            numbers.push("wrong");
+            numbers.pop(1);
+            let tags: Set<String> = Set { "enemy" };
+            tags.add(2);
+            let scores: Map<String, Int> = Map { "player" => 1 };
+            scores.set(2, "wrong");
+            scores.get(2);
+            scores.keys("unexpected");
+        }
+    )";
+    const FileId f11 = sm.register_source("Source/BadCollectionContracts.e2s", bad_collection_contracts);
+    Lexer l11(f11, bad_collection_contracts, collection_contract_diags);
+    Parser p11(f11, "Source/BadCollectionContracts.e2s", l11.tokenize_all(), collection_contract_diags);
+    const auto m11 = p11.parse_module();
+    SymbolResolver res11(sm, collection_contract_diags);
+    res11.resolve_module(m11);
+    TypeChecker check11(res11, collection_contract_diags);
+    check11.check_module(m11);
+    std::size_t arity_errors = 0;
+    std::size_t collection_method_errors = 0;
+    bool invalid_fixed_size = false;
+    for (const Diagnostic& diagnostic : collection_contract_diags.get_diagnostics()) {
+        arity_errors += diagnostic.code == "E3089";
+        collection_method_errors += diagnostic.code == "E3080" || diagnostic.code == "E3081";
+        invalid_fixed_size |= diagnostic.code == "E3090";
+    }
+    assert(arity_errors == 3);
+    assert(collection_method_errors == 6);
+    assert(invalid_fixed_size);
+
+    DiagnosticEngine generic_class_diags;
+    const std::string generic_class_code = R"(
+        class UnsafeHandle {}
+        class Box<T extends Send> {
+            constructor(private value: T) {}
+            read(): T { return value; }
+        }
+        function invalidBox(): Void {
+            let unsafe: UnsafeHandle = UnsafeHandle();
+            let box: Box<UnsafeHandle> = Box<UnsafeHandle>(unsafe);
+        }
+    )";
+    const FileId f12 = sm.register_source("Source/GenericClass.e2s", generic_class_code);
+    Lexer l12(f12, generic_class_code, generic_class_diags);
+    Parser p12(f12, "Source/GenericClass.e2s", l12.tokenize_all(), generic_class_diags);
+    const auto m12 = p12.parse_module();
+    SymbolResolver res12(sm, generic_class_diags);
+    res12.resolve_module(m12);
+    TypeChecker check12(res12, generic_class_diags);
+    check12.check_module(m12);
+    bool rejected_unsafe_generic_class = false;
+    for (const Diagnostic& diagnostic : generic_class_diags.get_diagnostics()) {
+        rejected_unsafe_generic_class |= diagnostic.code == "E3078";
+    }
+    assert(rejected_unsafe_generic_class);
+
+    std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;
 }

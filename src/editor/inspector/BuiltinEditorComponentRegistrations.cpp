@@ -47,6 +47,22 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         .addable = false
     });
     register_or_throw(registry, {
+        .component_key = "gameplay_tags",
+        .drawer_key = "GameplayTagsHeader",
+        .display_name = "Gameplay Tags",
+        .category = EditorComponentCategory::Core,
+        .icon = EditorIcon::Component,
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            GameplayTagsInspectorDrawer::draw(em, entity, context);
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(GameplayTagsComponent{}); }
+    });
+    register_or_throw(registry, {
         .component_key = "group",
         .display_name = "Group",
         .category = EditorComponentCategory::Core,

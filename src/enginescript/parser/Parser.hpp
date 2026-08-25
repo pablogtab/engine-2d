@@ -46,7 +46,7 @@ private:
     std::shared_ptr<PropertyDecl> parse_property(AccessModifier access, bool is_override, std::vector<DecoratorNode> decorators);
 
     std::vector<std::shared_ptr<ParamDecl>> parse_param_list(bool allow_access_and_decorators = false);
-    std::vector<std::string> parse_generic_param_list();
+    std::vector<GenericParam> parse_generic_param_list();
 
     // Statements
     std::shared_ptr<BlockStmt> parse_block();
@@ -63,6 +63,7 @@ private:
     std::shared_ptr<Expression> parse_prefix();
     std::shared_ptr<Expression> parse_postfix(std::shared_ptr<Expression> expr);
     std::shared_ptr<Expression> parse_infix(std::shared_ptr<Expression> left, const Token& op);
+    [[nodiscard]] bool looks_like_generic_call() const;
 
     FileId m_file_id;
     std::string m_module_path;

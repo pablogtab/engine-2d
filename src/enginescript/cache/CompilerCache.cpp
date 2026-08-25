@@ -27,7 +27,10 @@ void CompilerCache::store(const CacheEntry& entry) {
 const CacheEntry* CompilerCache::lookup(const std::string& module_path, const std::string& content_hash, const std::string& sdk_hash) const {
     auto it = m_entries.find(module_path);
     if (it != m_entries.end()) {
-        if (it->second.content_hash == content_hash && it->second.sdk_hash == sdk_hash) {
+        if (it->second.content_hash == content_hash &&
+            it->second.sdk_hash == sdk_hash &&
+            it->second.language_version == ENGINE_SCRIPT_LANGUAGE_VERSION &&
+            it->second.compiler_cache_id == ENGINE_SCRIPT_COMPILER_CACHE_ID) {
             m_stats.hits++;
             return &it->second;
         }

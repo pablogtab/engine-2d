@@ -2,7 +2,7 @@
   "name": "enginescript-vscode",
   "displayName": "EngineScript Language Support",
   "description": "Language support, syntax highlighting, and LSP tooling for EngineScript (.e2s)",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "publisher": "Engine2D",
   "icon": "media/enginescript-icon.png",
   "engines": {
@@ -67,7 +67,7 @@
         },
         "enginescript.autoCompileOnSave": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Compile the owning Engine2D project after saving an .e2s script."
         }
       }

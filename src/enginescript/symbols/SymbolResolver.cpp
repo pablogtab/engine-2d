@@ -12,20 +12,20 @@ SymbolResolver::SymbolResolver(const SourceManager& source_manager, DiagnosticEn
 }
 
 void SymbolResolver::register_builtin_types() {
-    auto add_builtin_type = [this](std::string name) {
+    auto add_builtin_type = [this](const ApiTypeDescriptor& type) {
         auto sym = std::make_shared<Symbol>();
         sym->id = next_symbol_id();
-        sym->name = name;
-        sym->kind = SymbolKind::Class;
+        sym->name = type.name;
+        sym->kind = type.is_interface ? SymbolKind::Interface : SymbolKind::Class;
         sym->is_exported = true;
         sym->access = AccessModifier::Public;
-        sym->type_string = name;
+        sym->type_string = type.name;
         m_global_scope->define(sym);
     };
 
     for (const ApiTypeDescriptor& type : ApiCatalog::instance().types()) {
         if (type.availability == ApiAvailability::Available) {
-            add_builtin_type(type.name);
+            add_builtin_type(type);
         }
     }
 
@@ -92,6 +92,16 @@ void SymbolResolver::declare_symbols_in_module(const std::shared_ptr<ModuleNode>
             // Class scope
             auto cls_scope = std::make_shared<Scope>(ScopeKind::Class, mod_scope);
             m_node_to_scope[cls] = cls_scope;
+            for (const auto& parameter : cls->generic_params) {
+                auto type_parameter = std::make_shared<Symbol>();
+                type_parameter->id = next_symbol_id();
+                type_parameter->name = parameter.name;
+                type_parameter->kind = SymbolKind::TypeParameter;
+                type_parameter->span = parameter.span;
+                type_parameter->file_id = module->file_id;
+                type_parameter->type_string = parameter.name;
+                cls_scope->define(type_parameter);
+            }
 
             // Add fields from constructor parameters
             if (cls->constructor_decl) {
@@ -166,6 +176,16 @@ void SymbolResolver::declare_symbols_in_module(const std::shared_ptr<ModuleNode>
 
             auto st_scope = std::make_shared<Scope>(ScopeKind::Class, mod_scope);
             m_node_to_scope[st] = st_scope;
+            for (const auto& parameter : st->generic_params) {
+                auto type_parameter = std::make_shared<Symbol>();
+                type_parameter->id = next_symbol_id();
+                type_parameter->name = parameter.name;
+                type_parameter->kind = SymbolKind::TypeParameter;
+                type_parameter->span = parameter.span;
+                type_parameter->file_id = module->file_id;
+                type_parameter->type_string = parameter.name;
+                st_scope->define(type_parameter);
+            }
 
             for (const auto& prop : st->properties) {
                 auto prop_sym = std::make_shared<Symbol>();
@@ -181,6 +201,49 @@ void SymbolResolver::declare_symbols_in_module(const std::shared_ptr<ModuleNode>
                 sym->members.push_back(prop_sym);
                 st_scope->define(prop_sym);
                 m_node_to_symbol[prop.get()] = prop_sym;
+            }
+            for (const auto& method : st->methods) {
+                auto method_symbol = std::make_shared<Symbol>();
+                method_symbol->id = next_symbol_id();
+                method_symbol->name = method->name;
+                method_symbol->kind = SymbolKind::Method;
+                method_symbol->span = method->span;
+                method_symbol->file_id = module->file_id;
+                method_symbol->access = AccessModifier::Public;
+                method_symbol->type_string = method->return_type ? method->return_type->to_string() : "Void";
+                method_symbol->ast_node = method;
+                method_symbol->parent_symbol = sym;
+                sym->members.push_back(method_symbol);
+                st_scope->define(method_symbol);
+                m_node_to_symbol[method.get()] = method_symbol;
+            }
+        } else if (auto iface = dynamic_cast<InterfaceDecl*>(decl.get())) {
+            auto symbol = std::make_shared<Symbol>();
+            symbol->id = next_symbol_id();
+            symbol->name = iface->name;
+            symbol->kind = SymbolKind::Interface;
+            symbol->span = iface->span;
+            symbol->file_id = module->file_id;
+            symbol->is_exported = iface->is_exported;
+            symbol->ast_node = decl;
+            symbol->type_string = iface->name;
+            if (!mod_scope->define(symbol)) {
+                m_diagnostics.report_error("E2001", std::format("Duplicate symbol '{}' in module", iface->name), iface->span);
+            }
+            m_node_to_symbol[iface] = symbol;
+            auto interface_scope = std::make_shared<Scope>(ScopeKind::Class, mod_scope);
+            m_node_to_scope[iface] = interface_scope;
+            for (const auto& member : iface->members) {
+                auto member_symbol = std::make_shared<Symbol>();
+                member_symbol->id = next_symbol_id();
+                member_symbol->name = member.name;
+                member_symbol->kind = member.is_method ? SymbolKind::Method : SymbolKind::Field;
+                member_symbol->span = member.span;
+                member_symbol->file_id = module->file_id;
+                member_symbol->type_string = member.return_type.to_string();
+                member_symbol->parent_symbol = symbol;
+                symbol->members.push_back(member_symbol);
+                interface_scope->define(member_symbol);
             }
         } else if (auto fn = dynamic_cast<FunctionDecl*>(decl.get())) {
             auto sym = std::make_shared<Symbol>();
@@ -258,7 +321,22 @@ void SymbolResolver::resolve_imports(const std::shared_ptr<ModuleNode>& module) 
 
             auto target_scope = get_module_scope(*target_path_opt);
             if (!target_scope) {
-                // Target module might not be compiled or missing
+                m_diagnostics.report_error(
+                    "E2012",
+                    std::format("Import module '{}' was not found", imp->module_path),
+                    imp->module_path_span
+                );
+            }
+
+            if (!imp->is_wildcard && imp->items.empty()) {
+                m_diagnostics.report_error(
+                    "E2013",
+                    "Import list cannot be empty; import at least one exported symbol or remove the declaration",
+                    imp->specifier_span
+                );
+            }
+
+            if (!target_scope) {
                 continue;
             }
 
@@ -273,6 +351,9 @@ void SymbolResolver::resolve_imports(const std::shared_ptr<ModuleNode>& module) 
                 auto imported_sym = std::make_shared<Symbol>(*sym);
                 imported_sym->name = local_name;
                 imported_sym->kind = SymbolKind::Import;
+                if (item.alias) imported_sym->id = next_symbol_id();
+                imported_sym->span = item.span;
+                imported_sym->file_id = module->file_id;
                 mod_scope->define(imported_sym);
             }
         }
@@ -292,6 +373,12 @@ void SymbolResolver::resolve_members_and_types(const std::shared_ptr<ModuleNode>
                 auto base_sym = mod_scope->lookup(cls->base_class->name);
                 if (!base_sym) {
                     m_diagnostics.report_error("E2020", std::format("Base class '{}' not found", cls->base_class->name), cls->base_class->span);
+                }
+            }
+            for (const auto& interface_type : cls->interfaces) {
+                const auto interface_symbol = mod_scope->lookup(interface_type.name);
+                if (!interface_symbol || interface_symbol->kind != SymbolKind::Interface) {
+                    m_diagnostics.report_error("E2021", std::format("Interface '{}' not found", interface_type.name), interface_type.span);
                 }
             }
 
@@ -328,6 +415,35 @@ void SymbolResolver::resolve_members_and_types(const std::shared_ptr<ModuleNode>
                         m_node_to_symbol[p.get()] = p_sym;
                     }
                     resolve_statement_and_expr_symbols(m->body, m_scope);
+                }
+            }
+        } else if (auto st = dynamic_cast<StructDecl*>(decl.get())) {
+            auto st_scope = m_node_to_scope[st];
+            for (const auto& interface_type : st->interfaces) {
+                const auto interface_symbol = mod_scope->lookup(interface_type.name);
+                if (!interface_symbol || interface_symbol->kind != SymbolKind::Interface) {
+                    m_diagnostics.report_error("E2021", std::format("Interface '{}' not found", interface_type.name), interface_type.span);
+                }
+            }
+            for (const auto& method : st->methods) {
+                auto method_scope = std::make_shared<Scope>(ScopeKind::Function, st_scope);
+                for (const auto& parameter : method->params) {
+                    auto parameter_symbol = std::make_shared<Symbol>();
+                    parameter_symbol->id = next_symbol_id();
+                    parameter_symbol->name = parameter->name;
+                    parameter_symbol->kind = SymbolKind::Parameter;
+                    parameter_symbol->type_string = parameter->type_annotation.to_string();
+                    parameter_symbol->span = parameter->span;
+                    method_scope->define(parameter_symbol);
+                    m_node_to_symbol[parameter.get()] = parameter_symbol;
+                }
+                resolve_statement_and_expr_symbols(method->body, method_scope);
+            }
+        } else if (auto iface = dynamic_cast<InterfaceDecl*>(decl.get())) {
+            for (const auto& extended : iface->extended_interfaces) {
+                const auto extended_symbol = mod_scope->lookup(extended.name);
+                if (!extended_symbol || extended_symbol->kind != SymbolKind::Interface) {
+                    m_diagnostics.report_error("E2022", std::format("Extended interface '{}' not found", extended.name), extended.span);
                 }
             }
         } else if (auto fn = dynamic_cast<FunctionDecl*>(decl.get())) {
@@ -369,6 +485,7 @@ void SymbolResolver::resolve_statement_and_expr_symbols(const std::shared_ptr<St
         v_sym->span = v->span;
         v_sym->is_const = v->is_const;
         v_sym->type_string = v->type_annotation ? v->type_annotation->to_string() : "<inferred>";
+        v_sym->ast_node = stmt;
         scope->define(v_sym);
         m_node_to_symbol[v] = v_sym;
     } else if (auto e = dynamic_cast<ExprStmt*>(stmt.get())) {
@@ -432,12 +549,32 @@ void SymbolResolver::resolve_expression_symbols(const std::shared_ptr<Expression
         for (const auto& el : arr->elements) {
             resolve_expression_symbols(el, scope);
         }
+    } else if (auto collection = dynamic_cast<CollectionLiteralExpr*>(expr.get())) {
+        for (const auto& [key, value] : collection->map_entries) {
+            resolve_expression_symbols(key, scope);
+            resolve_expression_symbols(value, scope);
+        }
+        for (const auto& element : collection->elements) resolve_expression_symbols(element, scope);
     } else if (auto obj = dynamic_cast<ObjectLiteralExpr*>(expr.get())) {
         for (const auto& entry : obj->entries) {
             resolve_expression_symbols(entry.value, scope);
         }
     } else if (auto aw = dynamic_cast<AwaitExpr*>(expr.get())) {
         resolve_expression_symbols(aw->operand, scope);
+    } else if (auto arrow = dynamic_cast<ArrowFunctionExpr*>(expr.get())) {
+        auto function_scope = std::make_shared<Scope>(ScopeKind::Function, scope);
+        for (const auto& parameter : arrow->params) {
+            auto parameter_symbol = std::make_shared<Symbol>();
+            parameter_symbol->id = next_symbol_id();
+            parameter_symbol->name = parameter->name;
+            parameter_symbol->kind = SymbolKind::Parameter;
+            parameter_symbol->type_string = parameter->type_annotation.to_string();
+            parameter_symbol->span = parameter->span;
+            function_scope->define(parameter_symbol);
+            m_node_to_symbol[parameter.get()] = parameter_symbol;
+        }
+        if (arrow->body_stmt) resolve_statement_and_expr_symbols(arrow->body_stmt, function_scope);
+        if (arrow->body_expr) resolve_expression_symbols(arrow->body_expr, function_scope);
     }
 }
 

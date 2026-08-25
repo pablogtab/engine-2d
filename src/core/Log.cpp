@@ -76,7 +76,7 @@ const char* Log::level_to_string(LogLevel level) {
     }
 }
 
-void Log::log(LogLevel level, const std::string& message) {
+void Log::log(LogLevel level, const std::string& message, LogMetadata metadata) {
     if (level < s_level) return;
 
     std::lock_guard<std::mutex> lock(s_mutex);
@@ -96,20 +96,30 @@ void Log::log(LogLevel level, const std::string& message) {
         default: break;
     }
 
+    LogRecord record{timestamp, level, message, std::move(metadata)};
+    std::string attribution;
+    if (!record.metadata.category.empty()) attribution += " [" + record.metadata.category + "]";
+    if (record.metadata.entity) attribution += " [entity=" + std::to_string(*record.metadata.entity) + "]";
+    if (record.metadata.source && record.metadata.source->is_valid()) {
+        attribution += " [" + record.metadata.source->path + ":" +
+            std::to_string(record.metadata.source->line) + ":" +
+            std::to_string(record.metadata.source->column) + "]";
+    }
+
     // 1. Terminal Console Output
     std::cout << "\033[90m[" << timestamp << "]\033[0m "
               << color_code << "[" << lvl_str << "]\033[0m "
-              << message << std::endl;
+              << attribution << " " << message << std::endl;
 
     // 2. File Stream Output
     if (s_file_stream.is_open()) {
-        s_file_stream << "[" << timestamp << "] [" << lvl_str << "] " << message << "\n";
+        s_file_stream << "[" << timestamp << "] [" << lvl_str << "]" << attribution << " " << message << "\n";
         s_file_stream.flush();
     }
 
     // 3. In-Editor Console Callback
     if (s_log_callback) {
-        s_log_callback(timestamp, lvl_str, message);
+        s_log_callback(record);
     }
 }
 
@@ -118,6 +128,7 @@ void Log::debug(const std::string& msg) { log(LogLevel::DEBUG, msg); }
 void Log::info(const std::string& msg)  { log(LogLevel::INFO, msg); }
 void Log::warn(const std::string& msg)  { log(LogLevel::WARN, msg); }
 void Log::error(const std::string& msg) { log(LogLevel::ERR, msg); }
+void Log::error(std::string msg, LogMetadata metadata) { log(LogLevel::ERR, msg, std::move(metadata)); }
 void Log::critical(const std::string& msg) { log(LogLevel::CRITICAL, msg); }
 
 } // namespace Engine

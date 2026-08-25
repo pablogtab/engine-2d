@@ -4,20 +4,24 @@
 #include "../ecs/EcsTypes.hpp"
 #include "../ecs/components/ScriptingComponents.hpp"
 #include "../core/Display.hpp"
+#include "../enginescript/module/GameModule.hpp"
 
 #include <cstddef>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <functional>
 #include <optional>
 #include <memory>
+#include <list>
 #include <cstdint>
 #include <glm/glm.hpp>
 
 namespace EngineScript {
 class EngineScriptWorkspace;
 class AsyncScheduler;
+class TypedEventBus;
 class GameModule;
 class NativeBehaviour;
 struct ParticleEmitOptions;
@@ -83,6 +87,11 @@ enum class ScriptExecutionState {
 struct ScriptExecutionStatus {
     ScriptExecutionState state{ScriptExecutionState::Running};
     std::string message;
+    std::string source_path;
+    uint32_t line{0};
+    uint32_t column{0};
+
+    [[nodiscard]] bool has_source_location() const { return !source_path.empty() && line != 0; }
 };
 
 struct ScriptInspectionResult {
@@ -127,6 +136,15 @@ public:
     [[nodiscard]] const ScriptExecutionStatus* status(EntityID entity) const;
     [[nodiscard]] const std::string* reload_error(AssetHandle handle) const;
 
+    [[nodiscard]] EngineScript::ComponentReference find_behaviour_component(
+        EntityID entity,
+        const std::string& type_name,
+        std::size_t index
+    );
+    [[nodiscard]] std::size_t count_behaviour_components(EntityID entity, const std::string& type_name) const;
+    [[nodiscard]] EngineScript::ComponentReference add_behaviour_component(EntityID entity, const std::string& type_name);
+    bool remove_behaviour_component(const EngineScript::ComponentReference& reference);
+
     [[nodiscard]] static ScriptInspectionResult inspect_asset(
         AssetHandle handle,
         const AssetDatabase& asset_database
@@ -135,6 +153,9 @@ public:
 private:
     struct Instance {
         EntityID entity{0};
+        ScriptSlotID slot_id{0};
+        std::uint32_t generation{1};
+        std::uint64_t eligible_phase{0};
         AssetHandle script_handle{};
         std::string script_path;
         std::string class_name;
@@ -148,33 +169,32 @@ private:
         CollisionEnter,
         CollisionExit,
         ButtonClicked,
-        FocusChanged,
-        Custom
+        FocusChanged
     };
 
     struct PendingEvent {
-        PendingEventType type{PendingEventType::Custom};
+        PendingEventType type{PendingEventType::CollisionEnter};
         EntityID entity_a{0};
         EntityID entity_b{0};
         float normal_x{0.0f};
         float normal_y{0.0f};
         bool is_trigger{false};
-        std::string name;
-        std::string payload;
     };
 
-    void queue_custom_event(EntityID source, std::string name, std::string payload);
     void subscribe_to_events();
     void unsubscribe_from_events();
-    void set_error(EntityID entity, std::string message);
+    void set_error(EntityID entity, std::string message, std::string source_path = {}, uint32_t line = 0, uint32_t column = 0);
+    bool instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error);
+    void flush_pending_component_removals();
 
     EntityManager* m_entity_manager{nullptr};
     const AssetDatabase* m_asset_database{nullptr};
     EventDispatcher* m_event_dispatcher{nullptr};
     ScriptRuntimeServices m_services;
-    std::vector<Instance> m_instances;
+    std::list<Instance> m_instances;
     std::unique_ptr<EngineScript::EngineScriptWorkspace> m_native_workspace;
     std::unique_ptr<EngineScript::AsyncScheduler> m_native_async_scheduler;
+    std::unique_ptr<EngineScript::TypedEventBus> m_typed_event_bus;
     std::shared_ptr<EngineScript::GameModule> m_native_module;
     std::unordered_map<EntityID, ScriptExecutionStatus> m_statuses;
     std::unordered_map<AssetHandle, std::optional<std::uint64_t>> m_source_signatures;
@@ -183,6 +203,10 @@ private:
     std::uint32_t m_next_native_build_number{1};
     std::vector<std::uint64_t> m_event_subscriptions;
     std::vector<PendingEvent> m_pending_events;
+    std::vector<EngineScript::ComponentReference> m_pending_component_removals;
+    std::unordered_set<ScriptSlotID> m_instantiating_slots;
+    std::uint64_t m_phase_sequence{0};
+    bool m_phase_active{false};
 };
 
 } // namespace Engine

@@ -458,8 +458,8 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_editor_layer->register_panel(ai_assistant_panel);
 
         // Connect Log stream to in-game ConsolePanel
-        Log::set_callback([console_panel](const std::string& timestamp, const std::string& level, const std::string& message) {
-            console_panel->add_log(timestamp, level, message);
+        Log::set_callback([console_panel](const LogRecord& record) {
+            console_panel->add_log(record);
         });
     }
 #else

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../core/LanguageVersion.hpp"
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -13,6 +15,8 @@ struct CacheEntry {
     std::string content_hash;
     std::string public_signature_hash;
     std::string sdk_hash;
+    uint32_t language_version = ENGINE_SCRIPT_LANGUAGE_VERSION;
+    std::string compiler_cache_id = ENGINE_SCRIPT_COMPILER_CACHE_ID;
     std::string generated_header;
     std::string generated_source;
     std::string generated_header_filename;

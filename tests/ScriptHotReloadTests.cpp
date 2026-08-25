@@ -58,7 +58,7 @@ export class ReloadBehaviour extends Behaviour {
     entities.add_component<TransformComponent>(entity, TransformComponent{});
     entities.add_component<RigidBodyComponent>(entity, RigidBodyComponent::Dynamic());
     ScriptComponent component;
-    component.script_handle = asset->handle;
+    component.instances.front().script_handle = asset->handle;
     entities.add_component<ScriptComponent>(entity, component);
 
     ScriptRuntimeServices services;
@@ -70,10 +70,11 @@ export class ReloadBehaviour extends Behaviour {
     assert(started.started == 1 && started.failed == 0);
     assert(runtime.instance_count() == 1);
     auto& live_script = entities.get_component<ScriptComponent>(entity);
-    const auto boost = std::find_if(live_script.public_fields.begin(), live_script.public_fields.end(), [](const ScriptPublicField& field) {
+    auto& live_fields = live_script.instances.front().public_fields;
+    const auto boost = std::find_if(live_fields.begin(), live_fields.end(), [](const ScriptPublicField& field) {
         return field.name == "boost";
     });
-    assert(boost != live_script.public_fields.end());
+    assert(boost != live_fields.end());
     boost->value = 7.0;
     runtime.update(0.016f);
     assert(std::abs(entities.get_component<RigidBodyComponent>(entity).velocity.x - 7.0f) < 0.001f);

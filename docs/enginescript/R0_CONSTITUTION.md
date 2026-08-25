@@ -2,7 +2,7 @@
 
 **Language Name:** EngineScript  
 **Source File Extension:** `.e2s`  
-**Language Specification Version:** 1.0.0  
+**Language Specification Version:** 2.0.0
 **Target Backend:** C++20 (Clang / MSVC / GCC)  
 
 ---

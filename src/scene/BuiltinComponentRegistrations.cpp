@@ -233,68 +233,59 @@ void register_tag(ComponentRegistry& registry) {
         },
         .validate = [](const TagComponent& tag) -> std::optional<std::string> {
             if (tag.tag.empty()) return "Tag cannot be empty";
-         return std::nullopt;
-       }});
+            return std::nullopt;
+        }
+    });
 }
 
-void register_gameplay_tags(ComponentRegistry &registry) {
-  register_or_throw<GameplayTagsComponent>(
-      registry,
-      {.display_name = "Gameplay Tags",
-       .serialized_key = "gameplay_tags",
-       .serialize =
-           [](const GameplayTagsComponent &component,
-              const ComponentSerializationContext &) {
-             std::vector<std::string> tags = component.tags;
-             std::sort(tags.begin(), tags.end());
-             return Json{{"tags", std::move(tags)}};
-           },
-       .deserialize =
-           [](GameplayTagsComponent &component, const Json &value,
-              const ComponentSerializationContext &, std::string &error) {
-             if (!value.is_object() || value.size() != 1 ||
-                 !value.contains("tags") || !value.at("tags").is_array() ||
-                 value.at("tags").size() > 32) {
-               error = "Gameplay Tags must contain a tags array with at most "
-                       "32 entries";
-               return false;
-             }
-             component.tags.clear();
-             for (const Json &item : value.at("tags")) {
-               if (!item.is_string() ||
-                   !is_valid_gameplay_tag(
-                       item.get_ref<const std::string &>())) {
-                 error = "Gameplay Tags require lowercase dotted identifiers "
-                         "up to 64 characters";
-                 return false;
-               }
-               component.tags.push_back(item.get<std::string>());
-             }
-             std::sort(component.tags.begin(), component.tags.end());
-             if (std::adjacent_find(component.tags.begin(),
-                                    component.tags.end()) !=
-                 component.tags.end()) {
-               error = "Gameplay Tags cannot contain duplicates";
-               return false;
-             }
-             return true;
-           },
-       .validate = [](const GameplayTagsComponent &component)
-           -> std::optional<std::string> {
-         if (component.tags.size() > 32)
-           return "Gameplay Tags supports at most 32 entries";
-         std::vector<std::string> unique = component.tags;
-         for (const std::string &tag : unique) {
-           if (!is_valid_gameplay_tag(tag)) {
-             return "Gameplay Tags require lowercase dotted identifiers up to "
-                    "64 characters";
-           }
-         }
-         std::sort(unique.begin(), unique.end());
-         if (std::adjacent_find(unique.begin(), unique.end()) != unique.end()) {
-           return "Gameplay Tags cannot contain duplicates";
-         }
-         return std::nullopt;
+void register_gameplay_tags(ComponentRegistry& registry) {
+    register_or_throw<GameplayTagsComponent>(registry, {
+        .display_name = "Gameplay Tags",
+        .serialized_key = "gameplay_tags",
+        .serialize = [](const GameplayTagsComponent& component, const ComponentSerializationContext&) {
+            std::vector<std::string> tags = component.tags;
+            std::sort(tags.begin(), tags.end());
+            return Json{{"tags", std::move(tags)}};
+        },
+        .deserialize = [](
+            GameplayTagsComponent& component,
+            const Json& value,
+            const ComponentSerializationContext&,
+            std::string& error
+        ) {
+            if (!value.is_object() || value.size() != 1 || !value.contains("tags") ||
+                !value.at("tags").is_array() || value.at("tags").size() > 32) {
+                error = "Gameplay Tags must contain a tags array with at most 32 entries";
+                return false;
+            }
+            component.tags.clear();
+            for (const Json& item : value.at("tags")) {
+                if (!item.is_string() || !is_valid_gameplay_tag(item.get_ref<const std::string&>())) {
+                    error = "Gameplay Tags require lowercase dotted identifiers up to 64 characters";
+                    return false;
+                }
+                component.tags.push_back(item.get<std::string>());
+            }
+            std::sort(component.tags.begin(), component.tags.end());
+            if (std::adjacent_find(component.tags.begin(), component.tags.end()) != component.tags.end()) {
+                error = "Gameplay Tags cannot contain duplicates";
+                return false;
+            }
+            return true;
+        },
+        .validate = [](const GameplayTagsComponent& component) -> std::optional<std::string> {
+            if (component.tags.size() > 32) return "Gameplay Tags supports at most 32 entries";
+            std::vector<std::string> unique = component.tags;
+            for (const std::string& tag : unique) {
+                if (!is_valid_gameplay_tag(tag)) {
+                    return "Gameplay Tags require lowercase dotted identifiers up to 64 characters";
+                }
+            }
+            std::sort(unique.begin(), unique.end());
+            if (std::adjacent_find(unique.begin(), unique.end()) != unique.end()) {
+                return "Gameplay Tags cannot contain duplicates";
+            }
+            return std::nullopt;
         }
     });
 }
@@ -894,79 +885,134 @@ void register_script(ComponentRegistry& registry) {
     register_or_throw<ScriptComponent>(registry, {
         .display_name = "Script",
         .serialized_key = "script",
+        .schema_version = 2,
         .serialize = [](const ScriptComponent& script, const ComponentSerializationContext&) {
-            Json fields = Json::array();
-            for (const ScriptPublicField& field : script.public_fields) {
-                if (!script_field_value_matches_type(field)) {
-                    throw std::runtime_error("Script field type does not match its stored value: " + field.name);
+            Json instances = Json::array();
+            for (const ScriptBehaviourSlot& instance : script.instances) {
+                if (instance.runtime_only) continue;
+                Json fields = Json::array();
+                for (const ScriptPublicField& field : instance.public_fields) {
+                    if (!script_field_value_matches_type(field)) {
+                        throw std::runtime_error("Script field type does not match its stored value: " + field.name);
+                    }
+                    fields.push_back({
+                        {"name", field.name},
+                        {"type", script_field_type_to_string(field.type)},
+                        {"value", serialize_script_field_value(field)}
+                    });
                 }
-                fields.push_back({
-                    {"name", field.name},
-                    {"type", script_field_type_to_string(field.type)},
-                    {"value", serialize_script_field_value(field)}
-                });
+                Json value{
+                    {"id", std::to_string(instance.id)},
+                    {"enabled", instance.enabled},
+                    {"public_fields", std::move(fields)}
+                };
+                if (instance.script_handle.is_valid()) {
+                    value["script_handle"] = instance.script_handle.to_string();
+                }
+                instances.push_back(std::move(value));
             }
-            Json value{{"enabled", script.enabled}, {"public_fields", std::move(fields)}};
-            if (script.script_handle.is_valid()) value["script_handle"] = script.script_handle.to_string();
-            return value;
+            return Json{{"instances", std::move(instances)}};
         },
         .deserialize = [](ScriptComponent& script, const Json& value, const ComponentSerializationContext&, std::string& error) {
-            if (!value.is_object() || !value.contains("public_fields") || !value["public_fields"].is_array()) {
-                error = "Script must contain a public_fields array";
+            if (!value.is_object() || !value.contains("instances") || !value["instances"].is_array()) {
+                error = "Script must contain an instances array";
                 return false;
             }
-            script = {};
-            script.enabled = value.value("enabled", true);
-            if (value.contains("script_handle")) {
-                if (!value["script_handle"].is_string()) {
-                    error = "Script script_handle must be a string";
+            script.instances.clear();
+            std::vector<ScriptSlotID> ids;
+            for (const Json& instance_value : value["instances"]) {
+                if (!instance_value.is_object() || !instance_value.contains("id") ||
+                    !instance_value["id"].is_string() ||
+                    !instance_value.contains("public_fields") ||
+                    !instance_value["public_fields"].is_array()) {
+                    error = "Script instance is invalid";
                     return false;
                 }
-                const auto handle = AssetHandle::from_string(value["script_handle"].get<std::string>());
-                if (!handle) { error = "Script script_handle is invalid"; return false; }
-                script.script_handle = *handle;
-            }
-            for (const Json& field_value : value["public_fields"]) {
-                if (!field_value.is_object() || !field_value.contains("name") ||
-                    !field_value["name"].is_string() || !field_value.contains("type") ||
-                    !field_value["type"].is_string() || !field_value.contains("value")) {
-                    error = "Script public field is invalid";
+                ScriptBehaviourSlot instance;
+                try {
+                    instance.id = std::stoull(instance_value["id"].get<std::string>());
+                } catch (...) {
+                    error = "Script instance id is invalid";
                     return false;
                 }
-                ScriptPublicField field;
-                field.name = field_value["name"].get<std::string>();
-                if (field.name.empty() || !script_field_type_from_string(
-                        field_value["type"].get<std::string>(), field.type
-                    ) || !deserialize_script_field_value(
-                        field.type, field_value["value"], field.value, error
-                    )) return false;
-                const bool duplicate = std::any_of(
-                    script.public_fields.begin(), script.public_fields.end(),
-                    [&field](const ScriptPublicField& existing) { return existing.name == field.name; }
-                );
-                if (duplicate) { error = "Script public field names must be unique"; return false; }
-                script.public_fields.push_back(std::move(field));
+                if (instance.id == 0 || std::find(ids.begin(), ids.end(), instance.id) != ids.end()) {
+                    error = "Script instance ids must be non-zero and unique";
+                    return false;
+                }
+                ids.push_back(instance.id);
+                observe_script_slot_id(instance.id);
+                instance.enabled = instance_value.value("enabled", true);
+                if (instance_value.contains("script_handle")) {
+                    if (!instance_value["script_handle"].is_string()) {
+                        error = "Script instance script_handle must be a string";
+                        return false;
+                    }
+                    const auto handle = AssetHandle::from_string(instance_value["script_handle"].get<std::string>());
+                    if (!handle) { error = "Script instance script_handle is invalid"; return false; }
+                    instance.script_handle = *handle;
+                }
+                for (const Json& field_value : instance_value["public_fields"]) {
+                    if (!field_value.is_object() || !field_value.contains("name") ||
+                        !field_value["name"].is_string() || !field_value.contains("type") ||
+                        !field_value["type"].is_string() || !field_value.contains("value")) {
+                        error = "Script public field is invalid";
+                        return false;
+                    }
+                    ScriptPublicField field;
+                    field.name = field_value["name"].get<std::string>();
+                    if (field.name.empty() || !script_field_type_from_string(
+                            field_value["type"].get<std::string>(), field.type
+                        ) || !deserialize_script_field_value(
+                            field.type, field_value["value"], field.value, error
+                        )) return false;
+                    const bool duplicate = std::any_of(
+                        instance.public_fields.begin(), instance.public_fields.end(),
+                        [&field](const ScriptPublicField& existing) { return existing.name == field.name; }
+                    );
+                    if (duplicate) { error = "Script public field names must be unique per instance"; return false; }
+                    instance.public_fields.push_back(std::move(field));
+                }
+                script.instances.push_back(std::move(instance));
             }
             return true;
         },
+        .migrate = [](std::uint32_t version, Json& value, std::string& error) {
+            if (version != 1 || !value.is_object()) {
+                error = "Unsupported Script component migration";
+                return false;
+            }
+            Json instance = value;
+            instance["id"] = std::to_string(make_script_slot_id());
+            value = Json{{"instances", Json::array({std::move(instance)})}};
+            return true;
+        },
         .remap_references = [](ScriptComponent& script, const std::unordered_map<EntityID, EntityID>& old_to_new) {
-            for (ScriptPublicField& field : script.public_fields) {
-                if (field.type != ScriptFieldType::Entity || !std::holds_alternative<EntityID>(field.value)) continue;
-                const EntityID old_id = std::get<EntityID>(field.value);
-                const auto replacement = old_to_new.find(old_id);
-                if (replacement != old_to_new.end()) field.value = replacement->second;
+            for (ScriptBehaviourSlot& instance : script.instances) {
+                for (ScriptPublicField& field : instance.public_fields) {
+                    if (field.type != ScriptFieldType::Entity || !std::holds_alternative<EntityID>(field.value)) continue;
+                    const EntityID old_id = std::get<EntityID>(field.value);
+                    const auto replacement = old_to_new.find(old_id);
+                    if (replacement != old_to_new.end()) field.value = replacement->second;
+                }
             }
         },
         .validate = [](const ScriptComponent& script) -> std::optional<std::string> {
-            if (!script.script_handle.is_valid()) return "Script asset is not assigned";
-            std::vector<std::string> names;
-            for (const ScriptPublicField& field : script.public_fields) {
-                if (field.name.empty()) return "Script public field name cannot be empty";
-                if (!script_field_value_matches_type(field)) return "Script public field type does not match its value";
-                if (std::find(names.begin(), names.end(), field.name) != names.end()) {
-                    return "Script public field names must be unique";
+            std::vector<ScriptSlotID> ids;
+            for (const ScriptBehaviourSlot& instance : script.instances) {
+                if (instance.id == 0 || std::find(ids.begin(), ids.end(), instance.id) != ids.end()) {
+                    return "Script instance ids must be non-zero and unique";
                 }
-                names.push_back(field.name);
+                ids.push_back(instance.id);
+                if (!instance.script_handle.is_valid()) return "Script asset is not assigned";
+                std::vector<std::string> names;
+                for (const ScriptPublicField& field : instance.public_fields) {
+                    if (field.name.empty()) return "Script public field name cannot be empty";
+                    if (!script_field_value_matches_type(field)) return "Script public field type does not match its value";
+                    if (std::find(names.begin(), names.end(), field.name) != names.end()) {
+                        return "Script public field names must be unique per instance";
+                    }
+                    names.push_back(field.name);
+                }
             }
             return std::nullopt;
         }
@@ -1060,8 +1106,8 @@ void register_particle_emitter(ComponentRegistry& registry) {
 
 void register_additional_builtin_components(ComponentRegistry& registry) {
     register_tag(registry);
-  register_gameplay_tags(registry);
-  register_group(registry);
+    register_gameplay_tags(registry);
+    register_group(registry);
     register_render_effect(registry);
     register_light(registry);
     register_shadow_caster(registry);

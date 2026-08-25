@@ -8,8 +8,9 @@ using json = nlohmann::ordered_json;
 
 std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
     json root;
-    root["languageVersion"] = "1.0.0";
     root["sdkHash"] = ENGINE_SCRIPT_SDK_HASH;
+    root["languageVersion"] = ENGINE_SCRIPT_LANGUAGE_VERSION;
+    root["compilerCacheId"] = ENGINE_SCRIPT_COMPILER_CACHE_ID;
 
     json behaviours_arr = json::array();
     json structs_arr = json::array();
@@ -108,7 +109,8 @@ ProjectMetadataManifest MetadataEmitter::parse_json(const std::string& json_str)
     ProjectMetadataManifest manifest;
     try {
         json root = json::parse(json_str);
-        if (root.contains("languageVersion")) manifest.language_version = root["languageVersion"].get<std::string>();
+        if (root.contains("languageVersion")) manifest.language_version = root["languageVersion"].get<std::uint32_t>();
+        if (root.contains("compilerCacheId")) manifest.compiler_cache_id = root["compilerCacheId"].get<std::string>();
         if (root.contains("sdkHash")) manifest.sdk_hash = root["sdkHash"].get<std::string>();
 
         if (root.contains("behaviours") && root["behaviours"].is_array()) {

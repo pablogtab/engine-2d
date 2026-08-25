@@ -1,11 +1,20 @@
 #pragma once
 
 #include "../async/AsyncScheduler.hpp"
+#include "../async/Jobs.hpp"
+#include "../async/Result.hpp"
+#include "../async/TaskScope.hpp"
+#include "../async/TypedEventBus.hpp"
+#include "../core/LanguageVersion.hpp"
+#include "../runtime/Collections.hpp"
 
 #include <glm/glm.hpp>
 
 #include <cstdint>
 #include <cstddef>
+#include <array>
+#include <charconv>
+#include <system_error>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -14,10 +23,36 @@
 #include <variant>
 #include <algorithm>
 #include <cctype>
+#include <string_view>
+#include <type_traits>
+#include <cmath>
+#include <limits>
+#include <utility>
 
 namespace EngineScript {
 
+template <typename Interface, typename Value>
+[[nodiscard]] std::shared_ptr<Interface> boxInterface(Value value) {
+    static_assert(std::is_base_of_v<Interface, Value>);
+    return std::make_shared<Value>(std::move(value));
+}
+
 namespace StringOps {
+
+template <typename Value>
+requires (std::is_arithmetic_v<Value> && !std::is_same_v<Value, bool>)
+[[nodiscard]] inline std::string from_numeric(Value value) {
+    if constexpr (std::is_floating_point_v<Value>) {
+        if (std::isnan(value)) return "nan";
+        if (std::isinf(value)) return value < Value{0} ? "-inf" : "inf";
+    }
+
+    std::array<char, 128> buffer{};
+    const auto [end, error] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+    return error == std::errc{}
+        ? std::string(buffer.data(), end)
+        : std::string{};
+}
 
 inline bool includes(const std::string& value, const std::string& needle) {
     return value.find(needle) != std::string::npos;
@@ -53,12 +88,39 @@ inline std::string to_upper(std::string value) {
 
 } // namespace StringOps
 
-inline std::string toString(int value) {
-    return std::to_string(value);
+template <typename Target, typename Source>
+requires (std::is_arithmetic_v<Target> && std::is_arithmetic_v<Source> &&
+          !std::is_same_v<Target, bool> && !std::is_same_v<Source, bool>)
+[[nodiscard]] inline Target numericConvert(Source value) {
+    if constexpr (std::is_same_v<Target, Source>) {
+        return value;
+    } else if constexpr (std::is_floating_point_v<Source> && std::is_integral_v<Target>) {
+        if (std::isnan(value)) return Target{0};
+        if (std::isinf(value)) {
+            return value > Source{0}
+                ? std::numeric_limits<Target>::max()
+                : std::numeric_limits<Target>::lowest();
+        }
+        const long double truncated = std::trunc(static_cast<long double>(value));
+        const long double minimum = static_cast<long double>(std::numeric_limits<Target>::lowest());
+        const long double maximum = static_cast<long double>(std::numeric_limits<Target>::max());
+        if (truncated <= minimum) return std::numeric_limits<Target>::lowest();
+        if (truncated >= maximum) return std::numeric_limits<Target>::max();
+        return static_cast<Target>(truncated);
+    } else if constexpr (std::is_integral_v<Source> && std::is_integral_v<Target>) {
+        if (std::cmp_less(value, std::numeric_limits<Target>::lowest())) {
+            return std::numeric_limits<Target>::lowest();
+        }
+        if (std::cmp_greater(value, std::numeric_limits<Target>::max())) {
+            return std::numeric_limits<Target>::max();
+        }
+        return static_cast<Target>(value);
+    } else {
+        static_assert(std::numeric_limits<Target>::is_iec559,
+            "EngineScript floating-point conversions require IEEE-754 targets");
+        return static_cast<Target>(value);
+    }
 }
-
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 23;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v23";
 
 class Input {
 public:
@@ -80,6 +142,7 @@ public:
 };
 
 struct RigidBody2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "RigidBody2D";
     glm::vec2 velocity{0.0f, 0.0f};
     bool isGrounded{false};
 
@@ -96,10 +159,12 @@ struct RigidBody2D {
 };
 
 struct SpriteRenderer2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "SpriteRenderer2D";
     bool flipX{false};
 };
 
 struct Transform2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "Transform2D";
     glm::vec2 position{0.0f, 0.0f};
     float rotation{0.0f};
     glm::vec2 scale{1.0f, 1.0f};
@@ -128,17 +193,119 @@ public:
     virtual bool setFullscreen(bool enabled) = 0;
 };
 
+struct ComponentReference {
+    using ResolveCallback = void* (*)(void*, uint32_t, uint64_t, uint32_t, const char*);
+    using RemoveCallback = bool (*)(void*, uint32_t, uint64_t, uint32_t, const char*);
+
+    void* runtime_context{nullptr};
+    uint32_t entity_id{0};
+    uint64_t slot_id{0};
+    uint32_t generation{0};
+    std::string type_name;
+    ResolveCallback resolve_callback{nullptr};
+    RemoveCallback remove_callback{nullptr};
+
+    [[nodiscard]] void* resolve() const {
+        return resolve_callback && !type_name.empty()
+            ? resolve_callback(runtime_context, entity_id, slot_id, generation, type_name.c_str())
+            : nullptr;
+    }
+};
+
+template <typename T>
+[[nodiscard]] constexpr const char* component_type_name() {
+    if constexpr (requires { T::ENGINE_SCRIPT_TYPE_NAME; }) {
+        return T::ENGINE_SCRIPT_TYPE_NAME;
+    } else {
+        return nullptr;
+    }
+}
+
+template <typename T>
+class ComponentHandle {
+public:
+    ComponentHandle() = default;
+    ComponentHandle(std::nullptr_t) {}
+    explicit ComponentHandle(ComponentReference reference) : m_reference(reference) {}
+
+    [[nodiscard]] T* get() const { return static_cast<T*>(m_reference.resolve()); }
+    [[nodiscard]] bool isValid() const { return get() != nullptr; }
+    [[nodiscard]] uint64_t slotId() const { return m_reference.slot_id; }
+    [[nodiscard]] const ComponentReference& reference() const { return m_reference; }
+
+    T* operator->() const { return get(); }
+    operator T*() const { return get(); }
+    explicit operator bool() const { return isValid(); }
+
+private:
+    ComponentReference m_reference;
+};
+
 struct Entity {
     uint32_t id = 0;
     std::string name;
     std::string tag;
 
     using DestroyCallback = void (*)(void*, uint32_t);
+    using FindComponentCallback = ComponentReference (*)(void*, uint32_t, const char*, std::size_t);
+    using CountComponentsCallback = std::size_t (*)(void*, uint32_t, const char*);
+    using AddComponentCallback = ComponentReference (*)(void*, uint32_t, const char*);
     void* runtime_context = nullptr;
     DestroyCallback destroy_callback = nullptr;
+    void* component_context = nullptr;
+    FindComponentCallback find_component_callback = nullptr;
+    CountComponentsCallback count_components_callback = nullptr;
+    AddComponentCallback add_component_callback = nullptr;
 
     void destroy() const {
         if (destroy_callback) destroy_callback(runtime_context, id);
+    }
+
+    template <typename T>
+    [[nodiscard]] ComponentHandle<T> getComponent() const {
+        const char* type = component_type_name<T>();
+        return ComponentHandle<T>{find_component_callback && type
+            ? find_component_callback(component_context, id, type, 0)
+            : ComponentReference{}};
+    }
+
+    template <typename T>
+    [[nodiscard]] std::vector<ComponentHandle<T>> getComponents() const {
+        std::vector<ComponentHandle<T>> result;
+        const char* type = component_type_name<T>();
+        if (!find_component_callback || !count_components_callback || !type) return result;
+        const std::size_t count = count_components_callback(component_context, id, type);
+        result.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            ComponentReference reference = find_component_callback(component_context, id, type, index);
+            if (reference.resolve_callback) result.emplace_back(reference);
+        }
+        return result;
+    }
+
+    template <typename T>
+    [[nodiscard]] bool hasComponent() const {
+        return static_cast<bool>(getComponent<T>());
+    }
+
+    template <typename T>
+    [[nodiscard]] ComponentHandle<T> addComponent() const {
+        const char* type = component_type_name<T>();
+        return ComponentHandle<T>{add_component_callback && type
+            ? add_component_callback(component_context, id, type)
+            : ComponentReference{}};
+    }
+
+    template <typename T>
+    bool removeComponent(const ComponentHandle<T>& component) const {
+        const ComponentReference& reference = component.reference();
+        return reference.remove_callback && reference.remove_callback(
+            reference.runtime_context,
+            reference.entity_id,
+            reference.slot_id,
+            reference.generation,
+            reference.type_name.c_str()
+        );
     }
 };
 
@@ -151,6 +318,7 @@ struct Asset {
 };
 
 struct ParticleEmitter2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "ParticleEmitter2D";
     float emitRate{0.0f};
     int burstCount{0};
     bool active{false};
@@ -181,6 +349,7 @@ struct ParticleEmitter2D {
 };
 
 struct Joint2D {
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "Joint2D";
     Entity target{};
     bool collideConnected{false};
 };
@@ -216,17 +385,12 @@ public:
     [[nodiscard]] virtual Entity findByTag(const std::string& tag) const = 0;
     [[nodiscard]] virtual bool exists(const Entity& entity) const = 0;
     [[nodiscard]] virtual std::vector<Entity> findAllByTag(const std::string& tag) const = 0;
-  [[nodiscard]] virtual Entity
-  findByGameplayTag(const std::string &tag) const = 0;
-  [[nodiscard]] virtual std::vector<Entity>
-  findAllByGameplayTag(const std::string &tag) const = 0;
-  [[nodiscard]] virtual bool hasGameplayTag(const Entity &entity,
-                                            const std::string &tag) const = 0;
-  virtual bool addGameplayTag(const Entity &entity, const std::string &tag) = 0;
-  virtual bool removeGameplayTag(const Entity &entity,
-                                 const std::string &tag) = 0;
-  [[nodiscard]] virtual std::vector<std::string>
-  gameplayTags(const Entity &entity) const = 0;
+    [[nodiscard]] virtual Entity findByGameplayTag(const std::string& tag) const = 0;
+    [[nodiscard]] virtual std::vector<Entity> findAllByGameplayTag(const std::string& tag) const = 0;
+    [[nodiscard]] virtual bool hasGameplayTag(const Entity& entity, const std::string& tag) const = 0;
+    virtual bool addGameplayTag(const Entity& entity, const std::string& tag) = 0;
+    virtual bool removeGameplayTag(const Entity& entity, const std::string& tag) = 0;
+    [[nodiscard]] virtual std::vector<std::string> gameplayTags(const Entity& entity) const = 0;
     [[nodiscard]] virtual std::vector<Entity> findAllWithTransform() const = 0;
     [[nodiscard]] virtual bool hasTransform(const Entity& entity) const = 0;
     [[nodiscard]] virtual Transform2D* transform(const Entity& entity) = 0;
@@ -242,6 +406,7 @@ public:
 
 class Animator2D {
 public:
+    static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "Animator2D";
     virtual ~Animator2D() = default;
     virtual void play(const std::string& clip_name) = 0;
 };
@@ -269,13 +434,6 @@ public:
     [[nodiscard]] virtual std::string currentName() const = 0;
     [[nodiscard]] virtual bool isLoading() const = 0;
     [[nodiscard]] virtual std::string lastError() const = 0;
-};
-
-class Events {
-public:
-    virtual ~Events() = default;
-    virtual bool emit(const std::string& name, const std::string& payload = {}) = 0;
-    virtual bool subscribe(const std::string& name) = 0;
 };
 
 class PlayerPrefs {
@@ -342,58 +500,16 @@ public:
     virtual ~Assets() = default;
     [[nodiscard]] virtual Asset* find(const std::string& path) = 0;
     [[nodiscard]] virtual bool exists(const std::string& path) const = 0;
-    virtual bool request(const std::string& path) = 0;
-    virtual Task<Asset*> load_resource(const std::string& path, ResourceType type) = 0;
+    virtual Task<Result<Asset*, std::string>> load_resource(const std::string& path, ResourceType type) = 0;
 
     template <typename T>
-    Task<Asset*> load(const std::string& path) {
-        return load_resource(path, resource_type_for<T>);
-    }
+    Task<Result<Asset*, std::string>> load(const std::string& path);
 };
 
-template <typename T, typename E = std::string>
-class Result {
-public:
-    static Result success(T value) {
-        Result result;
-        result.m_value = std::move(value);
-        return result;
-    }
-
-    static Result failure(E error) {
-        Result result;
-        result.m_error = std::move(error);
-        return result;
-    }
-
-    [[nodiscard]] bool isOk() const { return m_value.has_value(); }
-    [[nodiscard]] bool isError() const { return !isOk(); }
-    // Callers must check isOk()/isError() before reading the matching value.
-    [[nodiscard]] T value() const { return m_value.value_or(T{}); }
-    [[nodiscard]] E error() const { return m_error.value_or(E{}); }
-
-private:
-    std::optional<T> m_value;
-    std::optional<E> m_error;
-};
-
-template <typename E>
-class Result<void, E> {
-public:
-    static Result success() { return Result{}; }
-    static Result failure(E error) {
-        Result result;
-        result.m_error = std::move(error);
-        return result;
-    }
-
-    [[nodiscard]] bool isOk() const { return !m_error.has_value(); }
-    [[nodiscard]] bool isError() const { return !isOk(); }
-    [[nodiscard]] E error() const { return m_error.value_or(E{}); }
-
-private:
-    std::optional<E> m_error;
-};
+template <typename T>
+Task<Result<Asset*, std::string>> Assets::load(const std::string& path) {
+    return load_resource(path, resource_type_for<T>);
+}
 
 class UI {
 public:
@@ -418,10 +534,6 @@ public:
     virtual void on_start() {}
     virtual void on_destroy() {}
     virtual void on_collision_enter(const Entity& other) { static_cast<void>(other); }
-    virtual void on_event(const std::string& name, const std::string& payload) {
-        static_cast<void>(name);
-        static_cast<void>(payload);
-    }
     virtual bool set_exposed_property(const std::string& name, const ExposedPropertyValue& value) {
         static_cast<void>(name);
         static_cast<void>(value);

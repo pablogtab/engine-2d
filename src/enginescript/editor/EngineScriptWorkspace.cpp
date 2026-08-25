@@ -5,11 +5,48 @@
 #include "../module/GameModule.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <format>
 #include <functional>
+#include <unordered_set>
 
 namespace EngineScript {
 
 using json = nlohmann::ordered_json;
+
+namespace {
+
+std::optional<SourceSpan> exact_symbol_span(
+    const SourceManager& source_manager,
+    const SourceSpan& containing_span,
+    std::string_view name
+) {
+    const SourceFile* file = source_manager.get_file(containing_span.file_id);
+    if (!file || name.empty() || containing_span.start_offset >= file->content.size()) return std::nullopt;
+    const std::size_t end = std::min<std::size_t>(containing_span.end_offset, file->content.size());
+    std::size_t position = containing_span.start_offset;
+    while ((position = file->content.find(name, position)) != std::string::npos && position < end) {
+        const std::size_t name_end = position + name.size();
+        const auto is_identifier = [](char value) {
+            return std::isalnum(static_cast<unsigned char>(value)) || value == '_';
+        };
+        const bool starts_word = position == 0 || !is_identifier(file->content[position - 1]);
+        const bool ends_word = name_end >= file->content.size() || !is_identifier(file->content[name_end]);
+        if (starts_word && ends_word && name_end <= end) {
+            return source_manager.get_span(
+                containing_span.file_id,
+                static_cast<uint32_t>(position),
+                static_cast<uint32_t>(name_end)
+            );
+        }
+        position = name_end;
+    }
+    return std::nullopt;
+}
+
+} // namespace
 
 EngineScriptWorkspace::EngineScriptWorkspace(std::string project_root)
     : m_source_manager(project_root), m_cache(project_root + "/Library/EngineScript/Cache") {
@@ -21,6 +58,8 @@ void EngineScriptWorkspace::set_project_root(std::string project_root) {
     m_dep_graph.clear();
     m_inferred_types.clear();
     m_document_symbols.clear();
+    m_exported_symbols.clear();
+    m_symbol_occurrences.clear();
     m_last_workspace_hash.clear();
     m_last_result.reset();
 }
@@ -47,6 +86,50 @@ void EngineScriptWorkspace::remove_source_file(const std::string& relative_path)
     std::erase_if(m_document_symbols, [file_id](const WorkspaceDocumentSymbol& symbol) {
         return symbol.file_id == file_id;
     });
+    std::erase_if(m_exported_symbols, [file_id](const WorkspaceExportedSymbol& symbol) {
+        return symbol.file_id == file_id;
+    });
+    std::erase_if(m_symbol_occurrences, [file_id](const WorkspaceSymbolOccurrence& occurrence) {
+        return occurrence.span.file_id == file_id;
+    });
+}
+
+size_t EngineScriptWorkspace::discover_project_sources() {
+    namespace fs = std::filesystem;
+    size_t discovered = 0;
+    const fs::path root(m_source_manager.project_root());
+    if (root.empty() || !fs::exists(root)) return 0;
+
+    const auto excluded = [](const fs::path& relative) {
+        for (const fs::path& part : relative) {
+            const std::string name = part.generic_string();
+            if (name == "Library" || name == ".e2s_build" || name == "build" || name == "Build") return true;
+        }
+        return false;
+    };
+    try {
+        for (const fs::directory_entry& entry : fs::recursive_directory_iterator(root)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".e2s") continue;
+            const fs::path relative = fs::relative(entry.path(), root);
+            if (excluded(relative)) continue;
+            std::ifstream input(entry.path(), std::ios::binary);
+            if (!input) continue;
+            add_source_file(relative.generic_string(), {std::istreambuf_iterator<char>(input), {}});
+            ++discovered;
+        }
+    } catch (const fs::filesystem_error&) {
+        return discovered;
+    }
+    return discovered;
+}
+
+bool EngineScriptWorkspace::restore_source_file_from_disk(const std::string& relative_path) {
+    namespace fs = std::filesystem;
+    const fs::path absolute = fs::path(m_source_manager.project_root()) / relative_path;
+    std::ifstream input(absolute, std::ios::binary);
+    if (!input) return false;
+    add_source_file(relative_path, {std::istreambuf_iterator<char>(input), {}});
+    return true;
 }
 
 CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
@@ -70,6 +153,8 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     m_diagnostics.clear();
     m_ir_modules.clear();
     m_inferred_types.clear();
+    m_exported_symbols.clear();
+    m_symbol_occurrences.clear();
     m_manifest = {};
     m_dep_graph.clear();
     CompilationResult result;
@@ -99,6 +184,31 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         auto mod_node = parser.parse_module();
         if (mod_node) {
             ast_modules.push_back(mod_node);
+
+            const auto index_export = [this, file_id, &path](
+                                          const std::shared_ptr<Declaration>& declaration,
+                                          const std::string& name,
+                                          WorkspaceExportedSymbolKind kind) {
+                if (!declaration || name.empty()) return;
+                m_exported_symbols.push_back({
+                    file_id, path, name, declaration->span, kind, declaration->is_exported
+                });
+            };
+            for (const auto& declaration : mod_node->declarations) {
+                if (const auto value = std::dynamic_pointer_cast<ClassDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Class);
+                } else if (const auto value = std::dynamic_pointer_cast<StructDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Struct);
+                } else if (const auto value = std::dynamic_pointer_cast<InterfaceDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Interface);
+                } else if (const auto value = std::dynamic_pointer_cast<EnumDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Enum);
+                } else if (const auto value = std::dynamic_pointer_cast<FunctionDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Function);
+                } else if (const auto value = std::dynamic_pointer_cast<ConstDecl>(declaration)) {
+                    index_export(declaration, value->name, WorkspaceExportedSymbolKind::Constant);
+                }
+            }
 
             std::erase_if(m_document_symbols, [file_id](const WorkspaceDocumentSymbol& symbol) {
                 return symbol.file_id == file_id;
@@ -153,6 +263,16 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
                     }
                     continue;
                 }
+                if (const auto function_decl = std::dynamic_pointer_cast<FunctionDecl>(declaration)) {
+                    for (const auto& parameter : function_decl->params) {
+                        if (parameter) {
+                            add_symbol(parameter->name, parameter->type_annotation, parameter->span,
+                                       function_decl->span, WorkspaceDocumentSymbolKind::Parameter);
+                        }
+                    }
+                    index_statement(function_decl->body, function_decl->span);
+                    continue;
+                }
                 const auto class_decl = std::dynamic_pointer_cast<ClassDecl>(declaration);
                 if (!class_decl) continue;
                 for (const auto& property : class_decl->properties) {
@@ -198,6 +318,14 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     }
 
     const bool has_parse_errors = m_diagnostics.has_errors();
+    std::unordered_set<FileId> files_with_parse_errors;
+    if (has_parse_errors) {
+        for (const Diagnostic& diagnostic : m_diagnostics.get_diagnostics()) {
+            if (diagnostic.is_error() && diagnostic.span.is_valid()) {
+                files_with_parse_errors.insert(diagnostic.span.file_id);
+            }
+        }
+    }
 
     // 2. Check for dependency cycles
     std::vector<std::string> cycle;
@@ -223,6 +351,39 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     SymbolResolver resolver(m_source_manager, semantic_diagnostics);
     resolver.resolve_all(ast_modules);
 
+    // Retain the resolver's symbol identity for LSP definition, references,
+    // and rename. Textual matching is unsafe because unrelated scopes may use
+    // the same spelling.
+    for (const auto& [node, symbol] : resolver.resolved_symbols()) {
+        if (!node || !symbol || symbol->id == 0) continue;
+        const bool is_reference = dynamic_cast<const IdentifierExpr*>(node) != nullptr;
+        const SourceSpan containing_span = node->span.is_valid() ? node->span : symbol->span;
+        const auto occurrence_span = is_reference
+            ? std::optional<SourceSpan>{containing_span}
+            : exact_symbol_span(m_source_manager, containing_span, symbol->name);
+        if (!occurrence_span || !occurrence_span->is_valid()) continue;
+        m_symbol_occurrences.push_back({symbol->id, symbol->name, *occurrence_span, !is_reference, symbol->kind});
+    }
+    for (const auto& module : ast_modules) {
+        if (!module) continue;
+        const auto module_scope = resolver.get_module_scope(module->module_path);
+        if (!module_scope) continue;
+        for (const auto& declaration : module->declarations) {
+            const auto import_decl = std::dynamic_pointer_cast<ImportDecl>(declaration);
+            if (!import_decl) continue;
+            for (const ImportDecl::ImportItem& item : import_decl->items) {
+                const std::string local_name = item.alias ? *item.alias : item.name;
+                const auto imported_symbol = module_scope->lookup_local(local_name);
+                const auto occurrence_span = exact_symbol_span(m_source_manager, item.span, local_name);
+                if (imported_symbol && occurrence_span) {
+                    m_symbol_occurrences.push_back({
+                        imported_symbol->id, local_name, *occurrence_span, true, SymbolKind::Import
+                    });
+                }
+            }
+        }
+    }
+
     if (!has_parse_errors && semantic_diagnostics.has_errors()) {
         result.success = false;
         result.error_count = semantic_diagnostics.error_count();
@@ -234,8 +395,31 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
     // 4. Type Checking
     TypeChecker checker(resolver, semantic_diagnostics);
     checker.check_all(ast_modules);
+    for (const auto& [member_access, symbol] : checker.resolved_member_symbols()) {
+        if (!member_access || !symbol || symbol->id == 0) continue;
+        const auto occurrence_span = exact_symbol_span(
+            m_source_manager, member_access->span, member_access->member_name);
+        if (occurrence_span) {
+            m_symbol_occurrences.push_back({
+                symbol->id, symbol->name, *occurrence_span, false, symbol->kind
+            });
+        }
+    }
     for (const InferredTypeInfo& inferred : checker.inferred_types()) {
         m_inferred_types.push_back({inferred.span, inferred.type_name});
+    }
+
+    // A syntax error in one open document must not hide semantic diagnostics
+    // from the rest of the workspace. Keep diagnostics attached to files that
+    // parsed successfully, while dropping unanchored errors and cascades from
+    // the files whose recovered AST may be incomplete.
+    if (has_parse_errors) {
+        for (const Diagnostic& diagnostic : speculative_diagnostics.get_diagnostics()) {
+            if (diagnostic.span.is_valid()
+                && !files_with_parse_errors.contains(diagnostic.span.file_id)) {
+                m_diagnostics.report(diagnostic);
+            }
+        }
     }
 
     // Complete the syntactic symbol index with types inferred by the checker.
@@ -253,7 +437,7 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
                                              WorkspaceDocumentSymbolKind kind) {
             const std::shared_ptr<Type> type = checker.get_type_of_node(node);
             if (!type || type->is_error()) return;
-            m_document_symbols.push_back({file_id, name, type->to_string(), declaration, scope, kind});
+            m_document_symbols.push_back({file_id, name, type->to_string(), declaration, scope, kind, true});
         };
         std::function<void(const std::shared_ptr<Statement>&, const SourceSpan&)> index_inferred_statement;
         index_inferred_statement = [&](const std::shared_ptr<Statement>& statement, const SourceSpan& scope) {
@@ -288,6 +472,10 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
             }
         };
         for (const auto& declaration : module->declarations) {
+            if (const auto function_decl = std::dynamic_pointer_cast<FunctionDecl>(declaration)) {
+                index_inferred_statement(function_decl->body, function_decl->span);
+                continue;
+            }
             const auto class_decl = std::dynamic_pointer_cast<ClassDecl>(declaration);
             if (!class_decl) continue;
             for (const auto& property : class_decl->properties) {
@@ -345,6 +533,48 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
         return finish(std::move(result));
     }
 
+    GenericsManager generics({
+        .max_instantiations = ENGINE_SCRIPT_MAX_GENERIC_INSTANTIATIONS,
+        .max_active_depth = 32
+    });
+    generics.analyze_modules(ir_modules);
+    result.generic_code_growth.unique_instantiations = generics.instantiation_count();
+    result.generic_code_growth.instantiations = generics.all_instantiations();
+    if (generics.has_failed()) {
+        std::string message;
+        std::string code;
+        switch (generics.last_failure()) {
+            case GenericInstantiationFailure::Cycle:
+                code = "E3090";
+                message = std::format("Cyclic generic instantiation detected while expanding '{}'", generics.failed_instantiation());
+                break;
+            case GenericInstantiationFailure::DepthLimit:
+                code = "E3092";
+                message = std::format("Generic instantiation depth limit exceeded while expanding '{}'", generics.failed_instantiation());
+                break;
+            case GenericInstantiationFailure::CountLimit:
+                code = "E3091";
+                message = std::format(
+                    "Generic instantiation limit of {} exceeded while expanding '{}'; reduce concrete combinations",
+                    ENGINE_SCRIPT_MAX_GENERIC_INSTANTIATIONS,
+                    generics.failed_instantiation()
+                );
+                break;
+            case GenericInstantiationFailure::None:
+                break;
+        }
+        m_diagnostics.report_error(
+            std::move(code),
+            std::move(message),
+            {}
+        );
+        result.success = false;
+        result.error_count = m_diagnostics.error_count();
+        result.warning_count = m_diagnostics.warning_count();
+        result.diagnostics = m_diagnostics.get_diagnostics();
+        return finish(std::move(result));
+    }
+
     // 6. Generate Metadata
     result.metadata_json = MetadataEmitter::emit_json(ir_modules);
     m_manifest = MetadataEmitter::parse_json(result.metadata_json);
@@ -378,6 +608,8 @@ CompilationResult EngineScriptWorkspace::compile(bool force_rebuild) {
             entry.metadata_json = result.metadata_json;
             m_cache.store(entry);
         }
+        result.generic_code_growth.generated_cpp_bytes +=
+            cpp_out.header_content.size() + cpp_out.source_content.size();
         result.generated_cpp.push_back(std::move(cpp_out));
     }
 
@@ -445,6 +677,60 @@ std::vector<WorkspaceDocumentSymbol> EngineScriptWorkspace::symbols_in_scope(
         return lhs.name < rhs.name;
     });
     return result;
+}
+
+std::vector<WorkspaceDocumentSymbol> EngineScriptWorkspace::document_symbols(FileId file_id) const {
+    std::vector<WorkspaceDocumentSymbol> result;
+    for (const WorkspaceDocumentSymbol& symbol : m_document_symbols) {
+        if (symbol.file_id == file_id) result.push_back(symbol);
+    }
+    std::sort(result.begin(), result.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.declaration_span.start_offset < rhs.declaration_span.start_offset;
+    });
+    return result;
+}
+
+std::vector<WorkspaceExportedSymbol> EngineScriptWorkspace::exports_from(std::string_view module_path) const {
+    const std::string normalized = m_source_manager.normalize_path(std::string(module_path));
+    std::vector<WorkspaceExportedSymbol> exports;
+    for (const WorkspaceExportedSymbol& symbol : m_exported_symbols) {
+        if (symbol.is_exported && m_source_manager.normalize_path(symbol.module_path) == normalized) {
+            exports.push_back(symbol);
+        }
+    }
+    return exports;
+}
+
+std::optional<uint64_t> EngineScriptWorkspace::symbol_id_at(FileId file_id, uint32_t byte_offset) const {
+    const auto occurrence = symbol_occurrence_at(file_id, byte_offset);
+    return occurrence ? std::optional<uint64_t>{occurrence->symbol_id} : std::nullopt;
+}
+
+std::optional<WorkspaceSymbolOccurrence> EngineScriptWorkspace::symbol_occurrence_at(
+    FileId file_id,
+    uint32_t byte_offset
+) const {
+    const WorkspaceSymbolOccurrence* best_match = nullptr;
+    for (const WorkspaceSymbolOccurrence& occurrence : m_symbol_occurrences) {
+        if (occurrence.span.file_id != file_id || byte_offset < occurrence.span.start_offset ||
+            byte_offset > occurrence.span.end_offset) {
+            continue;
+        }
+        if (!best_match || occurrence.span.length() < best_match->span.length()) best_match = &occurrence;
+    }
+    return best_match ? std::optional<WorkspaceSymbolOccurrence>{*best_match} : std::nullopt;
+}
+
+std::vector<WorkspaceSymbolOccurrence> EngineScriptWorkspace::occurrences_for_symbol(uint64_t symbol_id) const {
+    std::vector<WorkspaceSymbolOccurrence> occurrences;
+    for (const WorkspaceSymbolOccurrence& occurrence : m_symbol_occurrences) {
+        if (occurrence.symbol_id == symbol_id) occurrences.push_back(occurrence);
+    }
+    std::sort(occurrences.begin(), occurrences.end(), [](const auto& lhs, const auto& rhs) {
+        if (lhs.span.file_id != rhs.span.file_id) return lhs.span.file_id < rhs.span.file_id;
+        return lhs.span.start_offset < rhs.span.start_offset;
+    });
+    return occurrences;
 }
 
 std::string EngineScriptWorkspace::serialize_behaviour_state(const std::string& behaviour_type, const std::unordered_map<std::string, std::string>& properties) const {

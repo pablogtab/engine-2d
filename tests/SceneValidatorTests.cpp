@@ -115,7 +115,7 @@ void test_missing_assets_are_reported_when_a_database_is_available() {
         sprite_entity, RenderEffectComponent{AssetHandle{103}, true}
     );
     ScriptComponent script;
-    script.script_handle = AssetHandle{108};
+    script.instances.front().script_handle = AssetHandle{108};
     entities.add_component<ScriptComponent>(sprite_entity, script);
 
     const EntityID prefab_entity = entities.create_entity();

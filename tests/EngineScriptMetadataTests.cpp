@@ -55,7 +55,8 @@ int main() {
 
     // Parse back to inspect headlessly
     ProjectMetadataManifest manifest = MetadataEmitter::parse_json(json_manifest);
-    assert(manifest.language_version == "1.0.0");
+    assert(manifest.language_version == ENGINE_SCRIPT_LANGUAGE_VERSION);
+    assert(manifest.compiler_cache_id == ENGINE_SCRIPT_COMPILER_CACHE_ID);
     assert(manifest.behaviours.size() == 1);
 
     const auto& b = manifest.behaviours[0];

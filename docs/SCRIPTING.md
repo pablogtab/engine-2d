@@ -117,17 +117,13 @@ but gameplay behavior should prefer semantic tags.
   volume controls;
 - `Scene`: `load(path)`, `currentName()`, `isLoading()`, and `lastError()`.
   A successful request advances through two frame boundaries before the new
-  runtime scene is activated; scripts can subscribe to `SceneLoaded` or
-  `SceneLoadFailed` through `Events`.
-- `Assets`: `find(path)`, `exists(path)`, and `request(path)`. Requests only
-  accept registered ready assets and resolve at the next frame boundary.
-  Textures are decoded into the renderer cache; audio, font, and data payloads
-  are retained as runtime bytes. Requests emit `AssetLoaded` or
-  `AssetLoadFailed` through `Events`.
-  `await assets.load<Texture|AudioClip|Font|DataAsset|ParticleEffect2D>(path)` is the typed
-  alternative: it validates the registered asset type, precaches it on the
-  next frame, and returns `Asset` on success or `null` when unavailable or the
-  requested type does not match.
+  runtime scene is activated. Gameplay events use authored struct values; the
+  string event bus is not part of EngineScript 2.0.
+- `Assets`: `find(path)`, `exists(path)`, and the typed async operation
+  `await assets.load<Texture|AudioClip|Font|DataAsset|ParticleEffect2D>(path)`.
+  Loading validates the registered asset type and precaches it on the next
+  frame. It returns `Result<Asset<T>, String>` so unavailable paths and type
+  mismatches are explicit values rather than `null` or string events.
 
 These services use the same calls in editor Play Mode and generated native
 modules. Audio and scene requests are routed through the host runtime, so a
@@ -139,10 +135,10 @@ world position:
 
 ```enginescript
 async spawnDust(position: Vec2): Task<Void> {
-    let dust: Asset = await assets.load<ParticleEffect2D>(
+    let loaded: Result<Asset<ParticleEffect2D>, String> = await assets.load<ParticleEffect2D>(
         "Assets/Particles/dust.particle"
     );
-    if (dust.ready) particles.emit(dust, position, 12);
+    if (loaded.isOk()) particles.emit(loaded.value(), position, 12);
 }
 ```
 
@@ -169,9 +165,28 @@ removed, cleared, and saved. It never exposes project paths or arbitrary file
 access. Use the canonical camelCase SDK names; unsupported legacy aliases are
 compiler errors rather than calls that can fail later during native compilation.
 
-Use `toString(Int)` when composing numeric HUD or log text. For example,
-`ui.setText(hud, "Coins: " + toString(coins))` remains statically typed and
-generates a native string conversion.
+EngineScript 2.0 removes the legacy `toString(value)` helper. Use the `String`
+type as an explicit numeric conversion instead: `String(score)`. Numeric values
+are never converted implicitly, so `"Score: " + score` is rejected while
+`"Score: " + String(score)` is valid and remains statically typed.
+
+Numeric types use their type name as an explicit conversion: `Int(speed)`
+truncates a floating value toward zero and saturates to the `Int32` range, while
+`Float(score)` converts an integer using IEEE-754 rounding. The same syntax is
+available for `Int8` through `Int64`, `UInt8` through `UInt64`, `Float32`, and
+`Float64`. Integer narrowing and signedness changes saturate; NaN converts to
+zero for integer destinations, and infinities convert to the corresponding
+limit. `Int`, `UInt`, and `Float` remain aliases of `Int32`, `UInt32`, and
+`Float32`. `Vec2(...)`, `Vec3(...)`, `Vec4(...)`, and `Color(...)` are value
+constructors, not casts. Components remain typed ECS queries through
+`entity.getComponent<T>()`.
+
+Generic functions, structs, and classes accept explicit concrete type arguments
+and constraints such as `T extends Send`. Identical combinations are reused
+across the workspace. Compilation is capped at 256 unique concrete generic
+instantiations and 32 active expansion levels; `E3091` reports excessive code
+growth before invoking C++, and `e2sc` prints the resulting instantiation count
+and generated C++ byte size.
 
 The external platformer demo keeps gameplay in project-owned EngineScript
 behaviours: player movement, coyote time, jump buffering, double jump,
@@ -252,10 +267,13 @@ fully checked before native code generation.
 ## Expression support
 
 The native backend supports literals, arithmetic and boolean expressions,
-property access, calls, `await`, typed `Result` operations, array literals, and
-array/map indexing. Object literals, casts, arrow functions, `this`, and indexed
-assignment are diagnosed by EngineScript as unsupported instead of reaching the
-C++ compiler with partial output.
+explicit numeric conversions, value and object construction, authored struct
+object literals, property access and assignment, calls, `this`, arrow
+functions, `await`, typed `Result` operations, deterministic `Array`, `Map`,
+`Set`, and `FixedArray` literals, checked indexing, and indexed assignment.
+Collection methods are typed against their element/key/value contracts and
+lower to the deterministic runtime helpers. Reference casts are not part of
+EngineScript 2.0; `as` is reserved for import aliases.
 
 ## Compiler cache and generated content
 

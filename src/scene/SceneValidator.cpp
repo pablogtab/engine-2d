@@ -218,18 +218,20 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
 
         if (asset_database && entities.has_component<ScriptComponent>(entity)) {
             const auto& script = entities.get_component<ScriptComponent>(entity);
-            if (!script.script_handle.is_valid() ||
-                !has_ready_asset(*asset_database, script.script_handle, AssetType::Script)) {
-                add_diagnostic(
-                    diagnostics,
-                    SceneDiagnosticSeverity::Error,
-                    SceneDiagnosticCode::MissingScriptAsset,
-                    entity,
-                    "Script asset is missing or unavailable",
-                    0,
-                    {},
-                    script.script_handle
-                );
+            for (const ScriptBehaviourSlot& instance : script.instances) {
+                if (!instance.script_handle.is_valid() ||
+                    !has_ready_asset(*asset_database, instance.script_handle, AssetType::Script)) {
+                    add_diagnostic(
+                        diagnostics,
+                        SceneDiagnosticSeverity::Error,
+                        SceneDiagnosticCode::MissingScriptAsset,
+                        entity,
+                        "Script instance asset is missing or unavailable",
+                        0,
+                        {},
+                        instance.script_handle
+                    );
+                }
             }
         }
 

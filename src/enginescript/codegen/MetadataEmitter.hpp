@@ -36,7 +36,8 @@ struct BehaviourManifest {
 };
 
 struct ProjectMetadataManifest {
-    std::string language_version = "1.0.0";
+    std::uint32_t language_version = ENGINE_SCRIPT_LANGUAGE_VERSION;
+    std::string compiler_cache_id = ENGINE_SCRIPT_COMPILER_CACHE_ID;
     std::string sdk_hash = ENGINE_SCRIPT_SDK_HASH;
     std::vector<BehaviourManifest> behaviours;
     std::vector<std::string> structs;

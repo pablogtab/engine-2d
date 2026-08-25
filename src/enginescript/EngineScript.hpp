@@ -3,6 +3,7 @@
 #include "core/SourceLocation.hpp"
 #include "core/SourceManager.hpp"
 #include "core/DiagnosticEngine.hpp"
+#include "core/LanguageVersion.hpp"
 #include "lexer/TokenType.hpp"
 #include "lexer/Token.hpp"
 #include "lexer/Lexer.hpp"

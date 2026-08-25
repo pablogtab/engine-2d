@@ -145,7 +145,12 @@ function activate(context) {
     const clientOptions = {
         documentSelector: [{ scheme: 'file', language: 'enginescript' }],
         synchronize: {
-            fileEvents: vscode.workspace.createFileSystemWatcher('**/*.e2s')
+            fileEvents: vscode.workspace.createFileSystemWatcher(
+                '**/*.e2s',
+                false,
+                false,
+                false
+            )
         }
     };
 

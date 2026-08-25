@@ -1,9 +1,11 @@
 # EngineScript Language and Compiler Roadmap
 
-> **Status:** active implementation. EngineScript is the selected gameplay
-> architecture. The compiler frontend, TypedIR, C++ emitter, Play Mode adapter,
-> metadata, cache, LSP, and local platformer gates are implemented. Native
-> export and cross-platform validation remain open.
+> **Status:** EngineScript 2.0 implementation increment. The public contract is
+> language version 2, ABI/SDK 26, and compiler cache identity
+> `enginescript_codegen_v2_string_cast`. Frontend, structured TypedIR, C++ emission,
+> runtime services, deterministic collections, typed events, scoped async work,
+> LSP, and the VS Code 2.0 extension advance through one macOS acceptance gate.
+> Windows and iOS validation remain separate non-blocking platform work.
 
 `EngineScript` and the `.e2s` extension are the current product contract.
 
@@ -267,7 +269,9 @@ takes priority over cache hit rate; file timestamps alone are insufficient.
 | `T?` | optional value/reference |
 | `Result<T, E>` | explicit success/failure |
 
-Potentially lossy numeric conversions require explicit casts.
+Potentially lossy numeric conversions use explicit type calls such as
+`Int(speed)` or `Float64(score)`. Reference casts and `as`/`as?` conversion
+syntax are intentionally excluded; `as` remains an import-alias keyword.
 
 ### 4.2 Objects
 
@@ -280,8 +284,10 @@ Potentially lossy numeric conversions require explicit casts.
   references.
 - Raw pointers and manual allocation are excluded from the initial language.
 
-The exact class ownership model is an R0 decision and must be proven against
-cycles, hot reload, and module unload before syntax is finalized.
+Authored classes are strong reference-counted handles. `Weak<T>` breaks cycles
+and `lock()` returns `T?`; behaviours remain entity-owned and cannot be
+constructed. Hot reload and module unload cancel behaviour task scopes before
+releasing script instances.
 
 ### 4.3 Collections
 
@@ -306,6 +312,12 @@ generic functions, generic structs/classes, constraints, and bounded inference.
 
 Unresolved templates do not cross the GameModule ABI. The compiler must monitor
 native code growth and reuse identical valid instantiations through the cache.
+The EngineScript 2.0 compiler bounds a workspace to 256 unique concrete
+instantiations and 32 active expansion levels. Repeated combinations are
+deduplicated deterministically; exceeding either boundary is an EngineScript
+diagnostic rather than an eventual C++ template failure. `e2sc` reports the
+unique-instantiation count and generated C++ byte size for every successful
+build.
 
 ## 5. Decorators, Dependency Injection, and Reflection
 

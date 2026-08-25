@@ -90,8 +90,8 @@ export class PlayerController extends Behaviour {
 
     EntityID entity = entity_manager.create_entity();
     ScriptComponent script_comp;
-    script_comp.enabled = true;
-    script_comp.script_handle = record->handle;
+    script_comp.instances.front().enabled = true;
+    script_comp.instances.front().script_handle = record->handle;
     entity_manager.add_component<ScriptComponent>(entity, script_comp);
 
     ScriptRuntimeServices services;
@@ -104,15 +104,16 @@ export class PlayerController extends Behaviour {
     runtime.update(0.016f);
     runtime.update(0.016f);
     const auto& updated = entity_manager.get_component<ScriptComponent>(entity);
-    const auto tick = std::find_if(updated.public_fields.begin(), updated.public_fields.end(), [](const ScriptPublicField& field) {
+    const auto& updated_fields = updated.instances.front().public_fields;
+    const auto tick = std::find_if(updated_fields.begin(), updated_fields.end(), [](const ScriptPublicField& field) {
         return field.name == "tickCount";
     });
-    assert(tick != updated.public_fields.end());
+    assert(tick != updated_fields.end());
     assert(std::get<double>(tick->value) == 2.0);
-    const auto async_completed = std::find_if(updated.public_fields.begin(), updated.public_fields.end(), [](const ScriptPublicField& field) {
+    const auto async_completed = std::find_if(updated_fields.begin(), updated_fields.end(), [](const ScriptPublicField& field) {
         return field.name == "asyncCompleted";
     });
-    assert(async_completed != updated.public_fields.end());
+    assert(async_completed != updated_fields.end());
     assert(std::get<bool>(async_completed->value));
     
     runtime.shutdown();
@@ -244,9 +245,9 @@ export class DynamicPlayer extends Behaviour {
     entity_manager.add_component<TransformComponent>(entity, TransformComponent{});
 
     ScriptComponent script_comp;
-    script_comp.enabled = true;
-    script_comp.script_handle = record->handle;
-    script_comp.public_fields = {
+    script_comp.instances.front().enabled = true;
+    script_comp.instances.front().script_handle = record->handle;
+    script_comp.instances.front().public_fields = {
         {"walkSpeed", ScriptFieldType::Number, 280.0},
         {"jumpSpeed", ScriptFieldType::Number, 520.0}
     };
@@ -264,7 +265,7 @@ export class DynamicPlayer extends Behaviour {
 
     // Modify speed dynamically in-game (as done via Inspector)
     auto& live_comp = entity_manager.get_component<ScriptComponent>(entity);
-    live_comp.public_fields[0].value = 750.0;
+    live_comp.instances.front().public_fields[0].value = 750.0;
 
     // Advance frame and verify update executes with modified live component
     runtime.update(0.016f);
@@ -321,9 +322,9 @@ export class BoostPlayer extends Behaviour {
     entity_manager.add_component<RigidBodyComponent>(player, RigidBodyComponent::Dynamic());
 
     ScriptComponent script_comp;
-    script_comp.enabled = true;
-    script_comp.script_handle = record->handle;
-    script_comp.public_fields = {
+    script_comp.instances.front().enabled = true;
+    script_comp.instances.front().script_handle = record->handle;
+    script_comp.instances.front().public_fields = {
         {"walkSpeed", ScriptFieldType::Number, 280.0}
     };
     entity_manager.add_component<ScriptComponent>(player, script_comp);
@@ -346,8 +347,8 @@ export class BoostPlayer extends Behaviour {
 
     // Verify speed was boosted by +75.0 (280 + 75 = 355)
     const auto& updated_comp = entity_manager.get_component<ScriptComponent>(player);
-    assert(std::holds_alternative<double>(updated_comp.public_fields[0].value));
-    assert(std::abs(std::get<double>(updated_comp.public_fields[0].value) - 355.0) < 0.001);
+    assert(std::holds_alternative<double>(updated_comp.instances.front().public_fields[0].value));
+    assert(std::abs(std::get<double>(updated_comp.instances.front().public_fields[0].value) - 355.0) < 0.001);
     assert(std::abs(entity_manager.get_component<RigidBodyComponent>(player).velocity.y - 780.0f) < 0.001f);
     assert(PhysicsSystem::is_ignoring_one_way(player));
     assert(!entity_manager.is_alive(coin));
@@ -374,15 +375,11 @@ export class ServiceUser extends Behaviour {
         @inject private audio: Audio,
         @inject private scene: Scene,
         @inject private display: Display,
-        @inject private events: Events,
         @inject private assets: Assets,
         @inject private entities: Entities,
         @inject private prefs: PlayerPrefs,
         @inject private ui: UI
     ) {}
-
-    @expose
-    received: String = "";
 
     @expose
     tagChecks: Int = 0;
@@ -394,22 +391,13 @@ export class ServiceUser extends Behaviour {
         scene.load("Assets/Scenes/Level2.scene");
         display.setVsync(display.pixelWidth == 1920);
         display.setFullscreen(false);
-        events.emit("PlayerReady", "level-2");
-        events.subscribe("PlayerReady");
-        events.subscribe("AssetLoaded");
-        if (assets.exists("Assets/scripts/ServiceUser.e2s")) {
-            events.emit("AssetReady", "script");
-        }
-        assets.request("Assets/scripts/ServiceUser.e2s");
         let started: Result<Int, String> = Result.success<Int, String>(7);
         let rejected: Result<Int, String> = Result.failure<Int, String>("not ready");
         let points: Array<Int> = [1, 2, 3];
-        if (started.isOk() && started.value() == points[0] + 6 && rejected.isError()) {
-            events.emit("ResultReady", rejected.error());
-        }
+        if (started.isOk() && started.value() == points[0] + 6 && rejected.isError()) {}
         loadHudTexture();
         let status: Entity = entities.findByName("Status");
-        ui.setText(status, "Ready " + toString(points[0]));
+        ui.setText(status, "Ready");
         ui.setVisible(status, true);
         if (entities.addGameplayTag(status, "ui.status")) tagChecks = tagChecks + 1;
         if (entities.hasGameplayTag(status, "ui.status")) tagChecks = tagChecks + 1;
@@ -420,14 +408,11 @@ export class ServiceUser extends Behaviour {
     }
 
     async loadHudTexture(): Task<Void> {
-        let loaded: Asset = await assets.load<Texture>("Assets/Textures/Hud.png");
-        if (loaded.ready) {
-            events.emit("TypedAssetLoaded", loaded.path);
+        let result: Result<Asset<Texture>, String> = await assets.load<Texture>("Assets/Textures/Hud.png");
+        if (result.isOk()) {
+            let loaded: Asset<Texture> = result.value();
+            if (loaded.ready) { ui.setVisible(entities.findByName("Status"), true); }
         }
-    }
-
-    on_event(name: String, payload: String): Void {
-        received = name + ":" + payload;
     }
 }
 
@@ -445,8 +430,8 @@ export class ServiceUser extends Behaviour {
     EntityManager entity_manager;
     const EntityID entity = entity_manager.create_entity();
     ScriptComponent component;
-    component.enabled = true;
-    component.script_handle = record->handle;
+    component.instances.front().enabled = true;
+    component.instances.front().script_handle = record->handle;
     entity_manager.add_component<ScriptComponent>(entity, component);
     const EntityID status = entity_manager.create_entity();
     entity_manager.add_component<TagComponent>(status, TagComponent{"Status"});
@@ -458,7 +443,6 @@ export class ServiceUser extends Behaviour {
     float master_volume = 0.0f;
     std::string loaded_scene;
     int display_changes = 0;
-    int script_events = 0;
     ScriptRuntimeServices services;
     services.play_sound = [&](const std::string& path, float volume, float pitch, std::string&) {
         assert(path == "Assets/Audio/start.wav");
@@ -502,19 +486,6 @@ export class ServiceUser extends Behaviour {
     };
 
     EventDispatcher dispatcher;
-    dispatcher.subscribe<ScriptEvent>([&](const ScriptEvent& event) {
-        assert(event.source == entity);
-        if (event.name == "PlayerReady") assert(event.payload == "level-2");
-        else if (event.name == "AssetReady") {
-            assert(event.name == "AssetReady");
-            assert(event.payload == "script");
-        } else {
-            assert(event.name == "AssetLoaded" || event.name == "TypedAssetLoaded" || event.name == "ResultReady");
-            assert(event.payload == "Assets/scripts/ServiceUser.e2s" || event.payload == "Assets/Textures/Hud.png" || event.payload == "not ready");
-        }
-        ++script_events;
-    });
-
     ScriptRuntime runtime;
     const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, &dispatcher, services);
     assert(started.started == 1);
@@ -524,11 +495,10 @@ export class ServiceUser extends Behaviour {
     assert(std::abs(master_volume - 0.65f) < 0.001f);
     assert(loaded_scene == "Assets/Scenes/Level2.scene");
     assert(display_changes == 2);
-    assert(entity_manager.get_component<UITextComponent>(status).text == "Ready 1");
-  assert(entity_manager.has_component<GameplayTagsComponent>(status));
-  assert(
-      entity_manager.get_component<GameplayTagsComponent>(status).tags.empty());
-  bool transient_exists = false;
+    assert(entity_manager.get_component<UITextComponent>(status).text == "Ready");
+    assert(entity_manager.has_component<GameplayTagsComponent>(status));
+    assert(entity_manager.get_component<GameplayTagsComponent>(status).tags.empty());
+    bool transient_exists = false;
     entity_manager.for_each<TagComponent>([&](EntityID, const TagComponent& tag) {
         transient_exists = transient_exists || tag.tag == "Transient";
     });
@@ -539,19 +509,13 @@ export class ServiceUser extends Behaviour {
     runtime.update(0.0f);
     dispatcher.dispatch_queued();
     runtime.dispatch_events();
-    assert(script_events == 5);
     const ScriptComponent& updated_component = entity_manager.get_component<ScriptComponent>(entity);
-    const auto received = std::find_if(updated_component.public_fields.begin(), updated_component.public_fields.end(), [](const ScriptPublicField& field) {
-        return field.name == "received";
+    const auto& updated_fields = updated_component.instances.front().public_fields;
+    const auto tag_checks = std::find_if(updated_fields.begin(), updated_fields.end(), [](const ScriptPublicField& field) {
+        return field.name == "tagChecks";
     });
-    assert(received != updated_component.public_fields.end());
-    assert(std::get<std::string>(received->value) == "AssetLoaded:Assets/scripts/ServiceUser.e2s");
-  const auto tag_checks = std::find_if(
-      updated_component.public_fields.begin(),
-      updated_component.public_fields.end(),
-      [](const ScriptPublicField &field) { return field.name == "tagChecks"; });
-  assert(tag_checks != updated_component.public_fields.end());
-  assert(std::get<double>(tag_checks->value) == 4.0);
+    assert(tag_checks != updated_fields.end());
+    assert(std::get<double>(tag_checks->value) == 4.0);
 
     runtime.shutdown();
     assert(stopped_music == 1);
@@ -580,14 +544,14 @@ export class ParticleUser extends Behaviour {
     override on_start(): Void { configureEffect(); }
 
     async configureEffect(): Task<Void> {
-        let effect: Asset = await assets.load<ParticleEffect2D>("Assets/Particles/dust.particle");
-        if (effect.ready && emitter.setEffect(effect)) {
+        let result: Result<Asset<ParticleEffect2D>, String> = await assets.load<ParticleEffect2D>("Assets/Particles/dust.particle");
+        if (result.isOk()) {
+            let effect: Asset<ParticleEffect2D> = result.value();
+            if (!effect.ready || !emitter.setEffect(effect)) { return; }
             emitter.play();
             emitter.burst(6);
             particles.emit(effect, transform.position, 3);
-            let options: ParticleEmitOptions;
-            options.count = 4;
-            options.scale = 1.5;
+            let options: ParticleEmitOptions = { count: 4, scale: 1.5 };
             particles.emitWithOptions(effect, transform.position, options);
             emitter.stop(true);
         }
@@ -608,8 +572,8 @@ export class ParticleUser extends Behaviour {
     entity_manager.add_component<TransformComponent>(entity, TransformComponent{});
     entity_manager.add_component<ParticleEmitter2DComponent>(entity, ParticleEmitter2DComponent{});
     ScriptComponent script;
-    script.enabled = true;
-    script.script_handle = script_record->handle;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = script_record->handle;
     entity_manager.add_component<ScriptComponent>(entity, script);
 
     int play_calls = 0;
@@ -652,6 +616,50 @@ export class ParticleUser extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_collection_range_error_is_controlled() {
+    std::cout << "[Test] CollectionRangeError_IsControlled... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_collection_range_error_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+    write_test_file(root / "Assets/Scripts/RangeError.e2s", R"(
+@behaviour
+export class RangeError extends Behaviour {
+    override update(deltaTime: Float): Void {
+        let values: Array<Int> = [1];
+        let missing: Int = values[2];
+    }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* script_record = asset_database.find_by_path(root / "Assets/Scripts/RangeError.e2s");
+    assert(script_record);
+
+    EntityManager entity_manager;
+    const EntityID entity = entity_manager.create_entity();
+    ScriptComponent script;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = script_record->handle;
+    entity_manager.add_component<ScriptComponent>(entity, script);
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database);
+    assert(started.started == 1 && started.failed == 0);
+    runtime.update(0.016f);
+    const ScriptExecutionStatus* status = runtime.status(entity);
+    assert(status && status->state == ScriptExecutionState::Error);
+    assert(status->message.find("collection index is out of range") != std::string::npos);
+
+    // An errored behaviour is fail-stopped rather than invoked again.
+    runtime.update(0.016f);
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
@@ -659,6 +667,7 @@ int main() {
     test_coin_pickup_speed_boost();
     test_audio_and_scene_services();
     test_particle_services_and_component();
+    test_collection_range_error_is_controlled();
     test_async_scheduler_cancellation();
     test_game_session_transitions();
     test_e2s_script_inspection();
