@@ -4,7 +4,10 @@
 #include "Result.hpp"
 #include "Task.hpp"
 
+#include <algorithm>
 #include <coroutine>
+#include <condition_variable>
+#include <deque>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -26,10 +29,11 @@ public:
     Jobs(const Jobs&) = delete;
     Jobs& operator=(const Jobs&) = delete;
 
-    ~Jobs() {
-        for (auto& worker : m_workers) {
-            if (worker.joinable()) worker.join();
-        }
+    ~Jobs() { stop_workers(); }
+
+    [[nodiscard]] std::size_t worker_count() const {
+        std::scoped_lock lock(m_queue_mutex);
+        return m_workers.size();
     }
 
     template <typename Work>
@@ -81,14 +85,57 @@ private:
 
     template <typename Work>
     void launch(Work work) {
-        std::scoped_lock lock(m_workers_mutex);
-        m_workers.emplace_back(std::move(work));
+        auto shared_work = std::make_shared<Work>(std::move(work));
+        {
+            std::scoped_lock lock(m_queue_mutex);
+            start_workers_locked();
+            if (m_stopping) return;
+            m_queue.emplace_back([shared_work]() mutable { std::invoke(std::move(*shared_work)); });
+        }
+        m_queue_ready.notify_one();
+    }
+
+    void start_workers_locked() {
+        if (!m_workers.empty() || m_stopping) return;
+        const unsigned available = std::thread::hardware_concurrency();
+        const std::size_t count = std::clamp<std::size_t>(available == 0 ? 2 : available, 1, 4);
+        m_workers.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            m_workers.emplace_back([this] {
+                while (true) {
+                    std::function<void()> work;
+                    {
+                        std::unique_lock lock(m_queue_mutex);
+                        m_queue_ready.wait(lock, [this] { return m_stopping || !m_queue.empty(); });
+                        if (m_stopping) return;
+                        work = std::move(m_queue.front());
+                        m_queue.pop_front();
+                    }
+                    work();
+                }
+            });
+        }
+    }
+
+    void stop_workers() {
+        {
+            std::scoped_lock lock(m_queue_mutex);
+            m_stopping = true;
+            m_queue.clear();
+        }
+        m_queue_ready.notify_all();
+        for (auto& worker : m_workers) {
+            if (worker.joinable()) worker.join();
+        }
     }
 
     AsyncScheduler* m_scheduler{nullptr};
     std::uint32_t m_scope_id{0};
-    std::mutex m_workers_mutex;
+    mutable std::mutex m_queue_mutex;
+    std::condition_variable m_queue_ready;
+    std::deque<std::function<void()>> m_queue;
     std::vector<std::thread> m_workers;
+    bool m_stopping{false};
 };
 
 } // namespace EngineScript

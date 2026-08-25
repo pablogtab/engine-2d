@@ -502,7 +502,7 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
         std::string ret = type_to_cpp(m.return_type.get());
         const bool overrides_lifecycle = cls.is_behaviour &&
             (m.name == "on_start" || m.name == "update" || m.name == "on_destroy" ||
-             m.name == "on_collision_enter" || m.name == "on_event");
+             m.name == "on_collision_enter");
         std::string virt = (m.is_override || overrides_lifecycle) ? " override" : "";
         out += std::format("    {} {}(", ret, m.name);
         for (size_t i = 0; i < m.params.size(); ++i) {
@@ -529,7 +529,7 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
         std::string ret = type_to_cpp(m.return_type.get());
         const bool overrides_lifecycle = cls.is_behaviour &&
             (m.name == "on_start" || m.name == "update" || m.name == "on_destroy" ||
-             m.name == "on_collision_enter" || m.name == "on_event");
+             m.name == "on_collision_enter");
         std::string virt = (m.is_override || overrides_lifecycle) ? " override" : "";
         out += std::format("    {} {}(", ret, m.name);
         for (size_t i = 0; i < m.params.size(); ++i) {

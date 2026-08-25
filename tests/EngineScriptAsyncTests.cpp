@@ -115,6 +115,8 @@ int main() {
     assert(job.is_done());
     assert(job.get_result().isOk());
     assert(job.get_result().value() == 42);
+    assert(jobs.worker_count() >= 1);
+    assert(jobs.worker_count() <= 4);
 
     auto failed_job = jobs.run([]() -> int { throw std::runtime_error("worker failure"); });
     for (int attempt = 0; attempt < 200 && !failed_job.is_done(); ++attempt) {

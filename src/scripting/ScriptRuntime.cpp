@@ -35,6 +35,7 @@
 #include <optional>
 #include <unordered_map>
 #include <string_view>
+#include <thread>
 #include <unordered_set>
 #include <variant>
 
@@ -50,24 +51,40 @@ struct ScriptRuntimeBinding {
     const ScriptRuntimeServices* services{nullptr};
     EngineScript::AsyncScheduler* async_scheduler{nullptr};
     EngineScript::TypedEventBus* typed_event_bus{nullptr};
+    std::thread::id main_thread_id;
 };
 
+void require_main_thread(const ScriptRuntimeBinding& binding) {
+    if (binding.main_thread_id != std::thread::id{} && std::this_thread::get_id() != binding.main_thread_id) {
+        throw EngineScript::ScriptRuntimeError("EngineScript ECS access is restricted to the main thread");
+    }
+}
+
 void bind_dynamic_component_access(EngineScript::Entity& entity, const ScriptRuntimeBinding& binding) {
-    entity.component_context = binding.runtime;
+    entity.component_context = const_cast<ScriptRuntimeBinding*>(&binding);
     entity.find_component_callback = [](void* context, uint32_t entity_id, const char* type_name, std::size_t index) {
-        auto* runtime = static_cast<ScriptRuntime*>(context);
+        auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+        if (!binding) return EngineScript::ComponentReference{};
+        require_main_thread(*binding);
+        auto* runtime = binding->runtime;
         return runtime && type_name
             ? runtime->find_behaviour_component(entity_id, type_name, index)
             : EngineScript::ComponentReference{};
     };
     entity.count_components_callback = [](void* context, uint32_t entity_id, const char* type_name) {
-        const auto* runtime = static_cast<const ScriptRuntime*>(context);
+        const auto* binding = static_cast<const ScriptRuntimeBinding*>(context);
+        if (!binding) return std::size_t{0};
+        require_main_thread(*binding);
+        const auto* runtime = binding->runtime;
         return runtime && type_name
             ? runtime->count_behaviour_components(entity_id, type_name)
             : std::size_t{0};
     };
     entity.add_component_callback = [](void* context, uint32_t entity_id, const char* type_name) {
-        auto* runtime = static_cast<ScriptRuntime*>(context);
+        auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+        if (!binding) return EngineScript::ComponentReference{};
+        require_main_thread(*binding);
+        auto* runtime = binding->runtime;
         return runtime && type_name
             ? runtime->add_behaviour_component(entity_id, type_name)
             : EngineScript::ComponentReference{};
@@ -181,10 +198,13 @@ public:
     [[nodiscard]] EngineScript::Entities* entities() { return &m_entities; }
 private:
     void bind_rigid_body(EngineScript::RigidBody2D& body, EntityID entity) {
-        body.runtime_context = m_binding.entity_manager;
+        body.runtime_context = &m_binding;
         body.entity_id = entity;
         body.ignore_one_way_callback = [](void* context, uint32_t id, bool ignore) {
-            auto* entities = static_cast<EntityManager*>(context);
+            auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+            if (!binding) return;
+            require_main_thread(*binding);
+            auto* entities = binding->entity_manager;
             if (!entities || !entities->is_alive(id) ||
                 !entities->has_component<RigidBodyComponent>(id)) return;
             PhysicsSystem::set_ignore_one_way(id, ignore);
@@ -362,7 +382,10 @@ private:
             return changed;
         }
     private:
-        bool alive(EntityID id) const { return m_binding.entity_manager && m_binding.entity_manager->is_alive(id); }
+        bool alive(EntityID id) const {
+            require_main_thread(m_binding);
+            return m_binding.entity_manager && m_binding.entity_manager->is_alive(id);
+        }
         const ScriptRuntimeBinding& m_binding;
     };
     class Tilemap final : public EngineScript::Tilemap {
@@ -381,6 +404,7 @@ private:
         }
     private:
         TilemapComponent* component(EntityID id) const {
+            require_main_thread(m_binding);
             if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(id) ||
                 !m_binding.entity_manager->has_component<TilemapComponent>(id)) return nullptr;
             return &m_binding.entity_manager->get_component<TilemapComponent>(id);
@@ -424,6 +448,7 @@ private:
     public:
         explicit Physics(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
         EngineScript::RaycastHit* raycast(const glm::vec2& origin, const glm::vec2& destination, uint32_t mask) override {
+            require_main_thread(m_binding);
             const RaycastHit2D hit = PhysicsSystem::raycast(origin, destination, static_cast<uint16_t>(mask));
             if (!hit.hit) return nullptr;
             m_hit.hit = true;
@@ -442,9 +467,12 @@ private:
                 entity.name = m_binding.entity_manager->get_component<TagComponent>(id).tag;
                 entity.tag = entity.name;
             }
-            entity.runtime_context = m_binding.entity_manager;
+            entity.runtime_context = const_cast<ScriptRuntimeBinding*>(&m_binding);
             entity.destroy_callback = [](void* context, uint32_t entity_id) {
-                auto* entities = static_cast<EntityManager*>(context);
+                auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+                if (!binding) return;
+                require_main_thread(*binding);
+                auto* entities = binding->entity_manager;
                 if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
             };
             bind_dynamic_component_access(entity, m_binding);
@@ -456,12 +484,16 @@ private:
     class Animator final : public EngineScript::Animator2D {
     public:
         explicit Animator(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
-        void play(const std::string& clip) override { if (m_binding.entity_manager) SpriteAnimationSystem::play_clip(*m_binding.entity_manager, m_binding.entity, clip); }
+        void play(const std::string& clip) override {
+            require_main_thread(m_binding);
+            if (m_binding.entity_manager) SpriteAnimationSystem::play_clip(*m_binding.entity_manager, m_binding.entity, clip);
+        }
     private: const ScriptRuntimeBinding& m_binding; };
     class EntityService final : public EngineScript::Entities {
     public:
         explicit EntityService(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
         EngineScript::Entity create(const std::string& name) override {
+            require_main_thread(m_binding);
             if (!m_binding.entity_manager) return {};
             EntityManager& entities = *m_binding.entity_manager;
             const EntityID id = entities.create_entity();
@@ -470,30 +502,36 @@ private:
             return make_entity(id);
         }
         bool destroy(const EngineScript::Entity& entity) override {
+            require_main_thread(m_binding);
             if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(entity.id)) return false;
             m_binding.entity_manager->destroy_entity(entity.id);
             return true;
         }
         bool setTag(const EngineScript::Entity& entity, const std::string& tag) override {
+            require_main_thread(m_binding);
             if (!alive_with<TagComponent>(entity.id)) return false;
             m_binding.entity_manager->get_component<TagComponent>(entity.id).tag = tag;
             return true;
         }
         EngineScript::Entity parent(const EngineScript::Entity& entity) const override {
+            require_main_thread(m_binding);
             if (!alive_with<HierarchyComponent>(entity.id)) return {};
             return make_entity(m_binding.entity_manager->get_component<HierarchyComponent>(entity.id).parent);
         }
         bool setParent(const EngineScript::Entity& child, const EngineScript::Entity& parent) override {
+            require_main_thread(m_binding);
             if (!m_binding.entity_manager) return false;
             return m_binding.entity_manager->set_parent(child.id, parent.id).changed();
         }
         bool clearParent(const EngineScript::Entity& child) override {
+            require_main_thread(m_binding);
             if (!m_binding.entity_manager) return false;
             return m_binding.entity_manager->remove_parent(child.id).changed();
         }
         EngineScript::Entity findByName(const std::string& name) const override { return find(name); }
         EngineScript::Entity findByTag(const std::string& tag) const override { return find(tag); }
         bool exists(const EngineScript::Entity& entity) const override {
+            require_main_thread(m_binding);
             return m_binding.entity_manager && m_binding.entity_manager->is_alive(entity.id);
         }
         std::vector<EngineScript::Entity> findAllByTag(const std::string& tag) const override {
@@ -524,6 +562,7 @@ private:
                 m_binding.entity_manager->get_component<GameplayTagsComponent>(entity.id).contains(tag);
         }
         bool addGameplayTag(const EngineScript::Entity& entity, const std::string& tag) override {
+            require_main_thread(m_binding);
             if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(entity.id) ||
                 !is_valid_gameplay_tag(tag)) return false;
             if (!m_binding.entity_manager->has_component<GameplayTagsComponent>(entity.id)) {
@@ -548,6 +587,7 @@ private:
             return m_binding.entity_manager->get_component<GameplayTagsComponent>(entity.id).tags;
         }
         std::vector<EngineScript::Entity> findAllWithTransform() const override {
+            require_main_thread(m_binding);
             std::vector<EngineScript::Entity> results;
             if (!m_binding.entity_manager) return results;
             m_binding.entity_manager->for_each<TransformComponent>([&](EntityID id, const TransformComponent&) {
@@ -556,6 +596,7 @@ private:
             return results;
         }
         bool hasTransform(const EngineScript::Entity& entity) const override {
+            require_main_thread(m_binding);
             return m_binding.entity_manager && m_binding.entity_manager->is_alive(entity.id) &&
                 m_binding.entity_manager->has_component<TransformComponent>(entity.id);
         }
@@ -577,10 +618,13 @@ private:
             m_rigid_body.id = entity.id;
             m_rigid_body.value.velocity = source.velocity;
             m_rigid_body.value.isGrounded = PhysicsSystem::is_grounded(*m_binding.entity_manager, entity.id);
-            m_rigid_body.value.runtime_context = m_binding.entity_manager;
+            m_rigid_body.value.runtime_context = const_cast<ScriptRuntimeBinding*>(&m_binding);
             m_rigid_body.value.entity_id = entity.id;
             m_rigid_body.value.ignore_one_way_callback = [](void* context, uint32_t id, bool ignore) {
-                auto* entities = static_cast<EntityManager*>(context);
+                auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+                if (!binding) return;
+                require_main_thread(*binding);
+                auto* entities = binding->entity_manager;
                 if (!entities || !entities->is_alive(id) ||
                     !entities->has_component<RigidBodyComponent>(id)) return;
                 PhysicsSystem::set_ignore_one_way(id, ignore);
@@ -664,6 +708,7 @@ private:
             return &m_joint.value;
         }
         void sync_after() {
+            require_main_thread(m_binding);
             if (!m_binding.entity_manager) return;
             if (m_transform.id != 0 && alive_with<TransformComponent>(m_transform.id)) {
                 TransformComponent& target = m_binding.entity_manager->get_component<TransformComponent>(m_transform.id);
@@ -698,6 +743,7 @@ private:
     private:
         template <typename Predicate>
         std::vector<EngineScript::Entity> find_all(Predicate predicate) const {
+            require_main_thread(m_binding);
             std::vector<EngineScript::Entity> results;
             if (!m_binding.entity_manager) return results;
             m_binding.entity_manager->for_each<TagComponent>([&](EntityID id, const TagComponent& value) {
@@ -707,10 +753,12 @@ private:
         }
         template <typename Component>
         bool alive_with(EntityID id) const {
+            require_main_thread(m_binding);
             return m_binding.entity_manager && m_binding.entity_manager->is_alive(id) &&
                 m_binding.entity_manager->has_component<Component>(id);
         }
         EngineScript::Entity find(const std::string& value) const {
+            require_main_thread(m_binding);
             if (!m_binding.entity_manager) return {};
             EntityID result = 0;
             m_binding.entity_manager->for_each<TagComponent>([&](EntityID id, const TagComponent& tag) {
@@ -719,6 +767,7 @@ private:
             return make_entity(result);
         }
         EngineScript::Entity make_entity(EntityID id) const {
+            require_main_thread(m_binding);
             EngineScript::Entity entity;
             entity.id = id;
             if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(id)) return entity;
@@ -726,9 +775,12 @@ private:
                 entity.name = m_binding.entity_manager->get_component<TagComponent>(id).tag;
                 entity.tag = entity.name;
             }
-            entity.runtime_context = m_binding.entity_manager;
+            entity.runtime_context = const_cast<ScriptRuntimeBinding*>(&m_binding);
             entity.destroy_callback = [](void* context, uint32_t entity_id) {
-                auto* entities = static_cast<EntityManager*>(context);
+                auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+                if (!binding) return;
+                require_main_thread(*binding);
+                auto* entities = binding->entity_manager;
                 if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
             };
             bind_dynamic_component_access(entity, m_binding);
@@ -1962,6 +2014,7 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
     instance.binding->services = &m_services;
     instance.binding->async_scheduler = m_native_async_scheduler.get();
     instance.binding->typed_event_bus = m_typed_event_bus.get();
+    instance.binding->main_thread_id = std::this_thread::get_id();
 
     const auto registration = std::find_if(
         m_native_module->descriptor().behaviour_types.begin(),
