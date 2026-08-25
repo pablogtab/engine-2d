@@ -51,6 +51,10 @@ nlohmann::json serialize_conversation(const EditorAiConversationRecord& conversa
     for (const EditorAiChatMessage& message : conversation.messages) {
         messages.push_back(serialize_message(message));
     }
+    nlohmann::json plan = nlohmann::json::array();
+    for (const EditorAiPlanStep& step : conversation.plan) {
+        plan.push_back({{"step", step.step}, {"status", step.status}});
+    }
     return {
         {"thread_id", conversation.thread_id},
         {"session_id", conversation.session_id},
@@ -61,8 +65,25 @@ nlohmann::json serialize_conversation(const EditorAiConversationRecord& conversa
         {"last_output_tokens", conversation.last_output_tokens},
         {"last_total_tokens", conversation.last_total_tokens},
         {"updated_at_unix_ms", conversation.updated_at_unix_ms},
-        {"messages", std::move(messages)}
+        {"messages", std::move(messages)},
+        {"collaboration_mode", conversation.collaboration_mode ==
+            EditorAiCollaborationMode::Plan ? "plan" : "default"},
+        {"plan_revision", conversation.plan_revision},
+        {"plan_text", conversation.plan_text},
+        {"plan_explanation", conversation.plan_explanation},
+        {"plan", std::move(plan)}
     };
+}
+
+std::vector<EditorAiPlanStep> parse_plan(const nlohmann::json& value) {
+    std::vector<EditorAiPlanStep> plan;
+    if (!value.is_array()) return plan;
+    for (const auto& item : value) {
+        if (!item.is_object()) continue;
+        const std::string step = string_field(item, "step");
+        if (!step.empty()) plan.push_back({step, string_field(item, "status")});
+    }
+    return plan;
 }
 
 std::vector<EditorAiChatMessage> parse_messages(const nlohmann::json& value) {
@@ -137,7 +158,14 @@ bool EditorAiConversationStore::load(std::string& error) {
                 : 0,
             .messages = parse_messages(
                 item.contains("messages") ? item.at("messages") : nlohmann::json::array()
-            )
+            ),
+            .collaboration_mode = string_field(item, "collaboration_mode") == "plan"
+                ? EditorAiCollaborationMode::Plan : EditorAiCollaborationMode::Default,
+            .plan_revision = size_field(item, "plan_revision"),
+            .plan_text = string_field(item, "plan_text"),
+            .plan_explanation = string_field(item, "plan_explanation"),
+            .plan = parse_plan(item.contains("plan") ? item.at("plan")
+                : nlohmann::json::array())
         };
         if (conversation.thread_id.empty()) continue;
         if (conversation.session_id.empty()) conversation.session_id = conversation.thread_id;

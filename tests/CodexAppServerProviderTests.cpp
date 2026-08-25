@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -20,6 +22,7 @@ struct FakeTransportState {
     std::vector<nlohmann::json> writes;
     std::size_t read_index{0};
     bool stopped{false};
+    bool stall_when_exhausted{false};
 };
 
 class FakeTransport final : public ICodexAppServerTransport {
@@ -43,6 +46,12 @@ public:
             return {CodexAppServerReadStatus::Cancelled, {}, {}};
         }
         if (m_state->read_index >= m_state->reads.size()) {
+            if (m_state->stall_when_exhausted) {
+                while (!is_cancelled || !is_cancelled()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                return {CodexAppServerReadStatus::Cancelled, {}, {}};
+            }
             return {CodexAppServerReadStatus::Closed, {}, "script exhausted"};
         }
         return {
@@ -108,6 +117,12 @@ void test_subscription_protocol_streaming_and_full_access_sandbox() {
     auto state = standard_script();
     CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
     EditorAiProviderRequest request = basic_request();
+    request.tools.push_back({
+        {"type", "function"},
+        {"name", "propose_create_entity"},
+        {"description", "Queue an entity."},
+        {"parameters", {{"type", "object"}}}
+    });
     std::string streamed;
     const EditorAiProviderResult result = provider.run(
         request,
@@ -138,9 +153,96 @@ void test_subscription_protocol_streaming_and_full_access_sandbox() {
     assert(thread.at("params").at("ephemeral") == true);
     assert(thread.at("params").at("serviceName") == "engine2d_editor");
     assert(thread.at("params").at("dynamicTools").at(0).at("inputSchema").at("type") == "object");
+    assert(thread.at("params").at("dynamicTools").at(0).at("description")
+        .get<std::string>().find("Never call it from exec") != std::string::npos);
+    assert(thread.at("params").at("dynamicTools").at(1).at("description")
+        .get<std::string>().find("Never call it from exec") != std::string::npos);
     assert(state->writes.at(3).at("method") == "turn/start");
     assert(state->writes.at(3).at("params").at("effort") == "low");
     assert(state->writes.at(3).at("params").at("summary") == "auto");
+    assert(state->writes.at(3).at("params").at("collaborationMode").at("mode") == "default");
+    assert(state->writes.at(3).at("params").at("sandboxPolicy").at("type") ==
+        "dangerFullAccess");
+}
+
+void test_plan_mode_streams_authoritative_plan_and_answers_questions() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-plan"}}}}}}),
+        json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-plan"},
+            {"status", "inProgress"}}}}}}),
+        json_line({{"id", "question-1"}, {"method", "item/tool/requestUserInput"},
+            {"params", {
+                {"threadId", "thread-plan"}, {"turnId", "turn-plan"},
+                {"itemId", "input-1"}, {"isBlocking", true}, {"autoResolutionMs", nullptr},
+                {"questions", nlohmann::json::array({{
+                    {"id", "scope"}, {"header", "Scope"},
+                    {"question", "Which scope?"}, {"isOther", true},
+                    {"options", nlohmann::json::array({{
+                        {"label", "Focused"}, {"description", "Small scope"}
+                    }})}
+                }})}
+            }}}),
+        json_line({{"method", "item/plan/delta"}, {"params", {
+            {"threadId", "thread-plan"}, {"turnId", "turn-plan"},
+            {"itemId", "plan-1"}, {"delta", "Draft plan"}
+        }}}),
+        json_line({{"method", "turn/plan/updated"}, {"params", {
+            {"threadId", "thread-plan"}, {"turnId", "turn-plan"},
+            {"explanation", "Grounded in the repository"},
+            {"plan", nlohmann::json::array({
+                {{"step", "Inspect"}, {"status", "completed"}},
+                {{"step", "Implement"}, {"status", "pending"}}
+            })}
+        }}}),
+        json_line({{"method", "item/completed"}, {"params", {{"item", {
+            {"type", "plan"}, {"id", "plan-1"}, {"text", "# Final plan"}
+        }}}}}),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-plan"},
+            {"turn", {{"id", "turn-plan"}, {"status", "completed"},
+                {"items", nlohmann::json::array()}}}
+        }}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    EditorAiProviderRequest request = basic_request();
+    request.collaboration_mode = EditorAiCollaborationMode::Plan;
+    request.request_user_input = [](const EditorAiUserInputRequest& input)
+        -> std::optional<EditorAiUserInputAnswers> {
+        assert(input.item_id == "input-1");
+        assert(input.questions.size() == 1);
+        assert(input.questions.front().allow_other);
+        return EditorAiUserInputAnswers{{"scope", {"Focused"}}};
+    };
+    std::vector<EditorAiProviderEvent> events;
+    const EditorAiProviderResult result = provider.run(
+        request,
+        [&events](const EditorAiProviderEvent& event) { events.push_back(event); }
+    );
+
+    assert(result.status == EditorAiProviderStatus::Completed);
+    assert(result.text == "# Final plan");
+    assert(result.plan_text == "# Final plan");
+    assert(result.plan_explanation == "Grounded in the repository");
+    assert(result.plan.size() == 2);
+    const auto& turn = state->writes.at(3).at("params");
+    assert(turn.at("collaborationMode").at("mode") == "plan");
+    assert(turn.at("sandboxPolicy").at("type") == "readOnly");
+    assert(turn.at("sandboxPolicy").at("networkAccess") == false);
+    const auto response = std::find_if(state->writes.begin(), state->writes.end(), [](const auto& value) {
+        return value.value("id", nlohmann::json{}) == nlohmann::json("question-1");
+    });
+    assert(response != state->writes.end());
+    assert(response->at("result").at("answers").at("scope").at("answers").at(0) ==
+        "Focused");
+    assert(std::any_of(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::PlanUpdated && event.plan.size() == 2;
+    }));
+    assert(std::any_of(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::PlanCompleted &&
+            event.text == "# Final plan";
+    }));
 }
 
 void test_reasoning_summary_stream_and_item_lifecycle() {
@@ -206,6 +308,168 @@ void test_reasoning_summary_stream_and_item_lifecycle() {
     assert(completed != events.end());
     assert(completed->item_id == "reasoning-1");
     assert(completed->item_type == "reasoning");
+}
+
+void test_agent_message_items_are_separate_paragraphs() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-paragraphs"}}}}}}),
+        json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-paragraphs"},
+            {"status", "inProgress"}}}}}}),
+        json_line({{"method", "item/agentMessage/delta"}, {"params", {
+            {"itemId", "message-1"}, {"delta", "First update."}
+        }}}),
+        json_line({{"method", "item/agentMessage/delta"}, {"params", {
+            {"itemId", "message-2"}, {"delta", "Second update."}
+        }}}),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-paragraphs"},
+            {"turn", {{"id", "turn-paragraphs"}, {"status", "completed"},
+                {"items", nlohmann::json::array()}}}
+        }}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    std::string streamed;
+    const EditorAiProviderResult result = provider.run(
+        basic_request(),
+        [&streamed](const EditorAiProviderEvent& event) {
+            if (event.type == EditorAiProviderEventType::TextDelta) streamed += event.text;
+        }
+    );
+
+    assert(result.status == EditorAiProviderStatus::Completed);
+    assert(result.text == "First update.\n\nSecond update.");
+    assert(streamed == result.text);
+}
+
+void test_command_activity_exposes_structured_detail_and_output() {
+    auto state = std::make_shared<FakeTransportState>();
+    const nlohmann::json started_item{
+        {"type", "commandExecution"}, {"id", "command-1"},
+        {"command", "cmake --build build"}, {"cwd", nullptr},
+        {"status", "inProgress"}, {"commandActions", nlohmann::json::array()}
+    };
+    nlohmann::json completed_item = started_item;
+    completed_item["status"] = "completed";
+    completed_item["aggregatedOutput"] = "Built target Engine2D\n";
+    completed_item["exitCode"] = 0;
+    completed_item["durationMs"] = 42;
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-command"}}}}}}),
+        json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-command"},
+            {"status", "inProgress"}}}}}}),
+        json_line({{"method", "item/started"}, {"params", {{"item", started_item}}}}),
+        json_line({{"method", "item/commandExecution/outputDelta"}, {"params", {
+            {"itemId", "command-1"}, {"delta", "Built target Engine2D\n"}
+        }}}),
+        json_line({{"method", "item/completed"}, {"params", {{"item", completed_item}}}}),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-command"},
+            {"turn", {{"id", "turn-command"}, {"status", "completed"},
+                {"items", nlohmann::json::array()}}}
+        }}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    std::vector<EditorAiProviderEvent> events;
+    const EditorAiProviderResult result = provider.run(
+        basic_request(),
+        [&events](const EditorAiProviderEvent& event) { events.push_back(event); }
+    );
+
+    assert(result.status == EditorAiProviderStatus::Completed);
+    const auto started = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::ItemStarted;
+    });
+    const auto output = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::ItemOutputDelta;
+    });
+    const auto completed = std::find_if(events.begin(), events.end(), [](const auto& event) {
+        return event.type == EditorAiProviderEventType::ItemCompleted;
+    });
+    assert(started != events.end() && started->details.at("command") == "cmake --build build");
+    assert(output != events.end() && output->text == "Built target Engine2D\n");
+    assert(completed != events.end() && completed->details.at("exitCode") == 0);
+}
+
+void test_resume_retries_transient_active_writer() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"error", {
+            {"code", -32000}, {"message", "thread existing already has an active writer"}
+        }}}),
+        json_line({{"id", 21}, {"result", {{"thread", {
+            {"id", "thread-existing"}, {"sessionId", "session-existing"}
+        }}}}}),
+        json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-retried"},
+            {"status", "inProgress"}}}}}}),
+        json_line({{"method", "turn/completed"}, {"params", {
+            {"threadId", "thread-existing"},
+            {"turn", {{"id", "turn-retried"}, {"status", "completed"},
+                {"items", nlohmann::json::array()}}}
+        }}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    EditorAiProviderRequest request = basic_request();
+    request.provider_thread_id = "thread-existing";
+    request.persist_thread = true;
+
+    const EditorAiProviderResult result = provider.run(request, {});
+
+    assert(result.status == EditorAiProviderStatus::Completed);
+    assert(result.error.empty());
+    assert(state->writes.at(2).at("method") == "thread/resume");
+    assert(state->writes.at(3).at("method") == "thread/resume");
+    assert(state->writes.at(3).at("id") == 21);
+}
+
+void test_orphaned_dynamic_tool_is_interrupted_by_watchdog() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->stall_when_exhausted = true;
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-watchdog"}}}}}}),
+        json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-watchdog"},
+            {"status", "inProgress"}}}}}}),
+        json_line({{"method", "item/started"}, {"params", {{"item", {
+            {"type", "dynamicToolCall"}, {"id", "tool-orphan"},
+            {"tool", "propose_configure_component"}, {"status", "inProgress"}
+        }}}}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    EditorAiProviderRequest request = basic_request();
+    request.dynamic_tool_start_timeout_ms = 5;
+    request.provider_inactivity_timeout_ms = 1000;
+
+    const EditorAiProviderResult result = provider.run(request, {});
+
+    assert(result.status == EditorAiProviderStatus::Failed);
+    assert(result.error.find("did not send its execution request") != std::string::npos);
+    assert(state->writes.back().at("method") == "turn/interrupt");
+    assert(state->writes.back().at("params").at("turnId") == "turn-watchdog");
+}
+
+void test_provider_inactivity_is_interrupted_by_watchdog() {
+    auto state = std::make_shared<FakeTransportState>();
+    state->stall_when_exhausted = true;
+    state->reads = {
+        json_line({{"id", 1}, {"result", nlohmann::json::object()}}),
+        json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-inactive"}}}}}}),
+        json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-inactive"},
+            {"status", "inProgress"}}}}}})
+    };
+    CodexAppServerProvider provider(std::make_unique<FakeTransport>(state));
+    EditorAiProviderRequest request = basic_request();
+    request.dynamic_tool_start_timeout_ms = 1000;
+    request.provider_inactivity_timeout_ms = 5;
+
+    const EditorAiProviderResult result = provider.run(request, {});
+
+    assert(result.status == EditorAiProviderStatus::Failed);
+    assert(result.error.find("produced no events") != std::string::npos);
+    assert(state->writes.back().at("method") == "turn/interrupt");
 }
 
 void test_persistent_thread_can_be_resumed_without_history_reinjection() {
@@ -394,6 +658,11 @@ void test_read_only_history_and_dynamic_tool_bridge() {
         json_line({{"id", 2}, {"result", {{"thread", {{"id", "thread-tools"}}}}}}),
         json_line({{"id", 3}, {"result", nlohmann::json::object()}}),
         json_line({{"id", 4}, {"result", {{"turn", {{"id", "turn-tools"}, {"status", "inProgress"}, {"items", nlohmann::json::array()}}}}}}),
+        json_line({{"method", "item/started"}, {"params", {{"item", {
+            {"type", "dynamicToolCall"}, {"id", "lifecycle-scene"},
+            {"tool", "get_scene_summary"}, {"arguments", nlohmann::json::object()},
+            {"status", "inProgress"}
+        }}}}}),
         json_line({
             {"id", "tool-request"},
             {"method", "item/tool/call"},
@@ -418,6 +687,7 @@ void test_read_only_history_and_dynamic_tool_bridge() {
     EditorAiProviderRequest request = basic_request();
     request.history = {{"user", "What is selected?"}, {"assistant", "I will inspect it."}};
     std::size_t calls = 0;
+    std::vector<std::string> tool_activity_ids;
     request.execute_tool = [&calls](const std::string& name, const nlohmann::json& arguments) {
         ++calls;
         assert(name == "get_scene_summary");
@@ -430,11 +700,22 @@ void test_read_only_history_and_dynamic_tool_bridge() {
         };
     };
 
-    const EditorAiProviderResult result = provider.run(request, {});
+    const EditorAiProviderResult result = provider.run(
+        request,
+        [&tool_activity_ids](const EditorAiProviderEvent& event) {
+            if (event.type == EditorAiProviderEventType::ToolStarted ||
+                event.type == EditorAiProviderEventType::ToolFinished) {
+                tool_activity_ids.push_back(event.item_id);
+            }
+        }
+    );
     assert(result.status == EditorAiProviderStatus::Completed);
     assert(result.text == "One entity.");
     assert(result.tool_call_count == 1);
     assert(calls == 1);
+    assert(tool_activity_ids == std::vector<std::string>({
+        "lifecycle-scene", "lifecycle-scene"
+    }));
     assert(state->writes.at(2).at("params").at("sandbox") == "danger-full-access");
     assert(state->writes.at(3).at("method") == "thread/inject_items");
     assert(state->writes.at(3).at("params").at("items").size() == 2);
@@ -578,7 +859,13 @@ void test_live_app_server_when_requested() {
 
 int main() {
     test_subscription_protocol_streaming_and_full_access_sandbox();
+    test_plan_mode_streams_authoritative_plan_and_answers_questions();
     test_reasoning_summary_stream_and_item_lifecycle();
+    test_agent_message_items_are_separate_paragraphs();
+    test_command_activity_exposes_structured_detail_and_output();
+    test_resume_retries_transient_active_writer();
+    test_orphaned_dynamic_tool_is_interrupted_by_watchdog();
+    test_provider_inactivity_is_interrupted_by_watchdog();
     test_read_only_history_and_dynamic_tool_bridge();
     test_skill_input_and_generated_image_event();
     test_persistent_thread_can_be_resumed_without_history_reinjection();

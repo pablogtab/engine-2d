@@ -40,6 +40,8 @@ void test_confirmed_authoring_policy_includes_context() {
   assert(contains(instructions, "generated automatically"));
   assert(contains(instructions, "attached screenshot images"));
   assert(contains(instructions, "capture_viewport"));
+  assert(contains(instructions, "Never invoke any Engine2D dynamic editor tool"));
+  assert(contains(instructions, "directly and one at a time"));
 }
 
 void test_image_generation_uses_bounded_policy_and_suppresses_viewport_capture() {
@@ -87,6 +89,22 @@ void test_final_verification_policy_is_read_only() {
   assert(contains(instructions, "do not request additional authoring changes"));
 }
 
+void test_plan_mode_is_read_only_and_signals_explicit_build_authorization() {
+  Engine::EditorAiRequestPolicyInput input;
+  input.planning = true;
+  input.has_existing_plan = true;
+  input.existing_plan = "Inspect, implement, verify";
+
+  const std::string instructions =
+      Engine::build_editor_ai_request_instructions(input);
+  assert(contains(instructions, "Work only in Plan mode"));
+  assert(contains(instructions, "do not modify files"));
+  assert(contains(instructions, "begin_plan_implementation"));
+  assert(contains(instructions, "clearly authorizes"));
+  assert(contains(instructions, "Inspect, implement, verify"));
+  assert(contains(instructions, "plan-transition tools"));
+}
+
 } // namespace
 
 int main() {
@@ -95,6 +113,7 @@ int main() {
   test_image_generation_uses_bounded_policy_and_suppresses_viewport_capture();
   test_iterative_policy_requires_applied_state_inspection();
   test_final_verification_policy_is_read_only();
+  test_plan_mode_is_read_only_and_signals_explicit_build_authorization();
   std::cout << "Editor AI request policy tests passed\n";
   return 0;
 }

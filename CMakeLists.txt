@@ -117,6 +117,7 @@ set(SOURCES
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/panels/AiAssistantPanel.cpp
     src/editor/panels/EditorAiAttachmentView.cpp
+    src/editor/ai/EditorAiActivityFormatter.cpp
     src/editor/ai/EditorAiAttachmentStore.cpp
     src/editor/ai/EditorAiAuthoringSession.cpp
     src/editor/ai/EditorAiRequestPolicy.cpp
@@ -1086,6 +1087,16 @@ target_include_directories(CodexAppServerProviderTests PRIVATE
 )
 target_link_libraries(CodexAppServerProviderTests PRIVATE SDL3::SDL3)
 add_test(NAME CodexAppServerProviderTests COMMAND CodexAppServerProviderTests)
+
+add_executable(EditorAiActivityFormatterTests
+    tests/EditorAiActivityFormatterTests.cpp
+    src/editor/ai/EditorAiActivityFormatter.cpp
+)
+target_include_directories(EditorAiActivityFormatterTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+add_test(NAME EditorAiActivityFormatterTests COMMAND EditorAiActivityFormatterTests)
 
 add_executable(EditorAiAuthoringTests
     tests/EditorAiAuthoringTests.cpp

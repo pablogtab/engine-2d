@@ -20,6 +20,11 @@ struct EditorAiConversationRecord {
     std::size_t last_total_tokens{0};
     std::int64_t updated_at_unix_ms{0};
     std::vector<EditorAiChatMessage> messages;
+    EditorAiCollaborationMode collaboration_mode{EditorAiCollaborationMode::Default};
+    std::size_t plan_revision{0};
+    std::string plan_text;
+    std::string plan_explanation;
+    std::vector<EditorAiPlanStep> plan;
 };
 
 class EditorAiConversationStore {

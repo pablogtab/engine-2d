@@ -23,6 +23,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace Engine {
@@ -129,6 +130,23 @@ private:
         std::string description;
     };
 
+    struct PendingUserInput {
+        explicit PendingUserInput(EditorAiUserInputRequest value)
+            : request(std::move(value)), answers(request.questions.size()),
+              custom_answers(request.questions.size()), custom_selected(request.questions.size()) {
+            for (std::size_t index = 0; index < request.questions.size(); ++index) {
+                custom_selected[index] = request.questions[index].options.empty();
+            }
+        }
+
+        EditorAiUserInputRequest request;
+        std::vector<std::string> answers;
+        std::vector<std::array<char, 256>> custom_answers;
+        std::vector<bool> custom_selected;
+        std::promise<std::optional<EditorAiUserInputAnswers>> completion;
+        std::atomic_bool resolved{false};
+    };
+
     void attach_current_selection();
     void attach_asset_paths(const std::vector<std::filesystem::path>& paths);
     void attach_clipboard_screenshot();
@@ -139,6 +157,11 @@ private:
         std::string label;
         std::string detail;
         std::uint64_t elapsed_ms{0};
+        std::string item_id;
+        std::string item_type;
+        std::string status{"inProgress"};
+        std::uint64_t duration_ms{0};
+        std::string output;
     };
 
     struct LiveEditorToolRequest {
@@ -155,7 +178,8 @@ private:
     [[nodiscard]] std::string current_context_json() const;
     void start_request(
         std::string internal_prompt = {},
-        bool iterative_continuation = false
+        bool iterative_continuation = false,
+        bool approved_plan_build = false
     );
     void continue_iterative_authoring();
     void finalize_iterative_verification();
@@ -167,6 +191,12 @@ private:
     void persist_current_conversation_locked(const std::string& model);
     void copy_to_clipboard(const std::string& contents, const std::string& feedback);
     void toggle_authoring_mode();
+    void set_collaboration_mode(EditorAiCollaborationMode mode);
+    void start_approved_plan_build();
+    [[nodiscard]] std::optional<EditorAiUserInputAnswers> request_user_input(
+        const EditorAiUserInputRequest& request
+    );
+    void resolve_user_input(bool submit);
     void apply_pending_proposal();
     void dismiss_pending_proposal();
     void undo_last_ai_session();
@@ -206,6 +236,7 @@ private:
     AuthoringMode m_authoring_mode{AuthoringMode::ConfirmBeforeApply};
     ReasoningEffort m_reasoning_effort{ReasoningEffort::Low};
     int m_authoring_work_budget_minutes{10};
+    EditorAiCollaborationMode m_collaboration_mode{EditorAiCollaborationMode::Default};
 
     mutable std::mutex m_request_mutex;
     std::mutex m_live_tool_mutex;
@@ -229,6 +260,12 @@ private:
     std::optional<PendingProposal> m_pending_proposal;
     std::optional<AppliedAiSession> m_last_applied_session;
     std::optional<IterativeAuthoringBinding> m_iterative_authoring;
+    std::shared_ptr<PendingUserInput> m_pending_user_input;
+    std::vector<EditorAiPlanStep> m_plan;
+    std::string m_plan_text;
+    std::string m_plan_explanation;
+    std::size_t m_plan_revision{0};
+    std::string m_approved_plan_text;
     std::vector<std::filesystem::path> m_pending_asset_context_paths;
     std::unique_ptr<Texture> m_generated_texture_preview;
     std::string m_loaded_texture_preview_id;
@@ -251,6 +288,7 @@ private:
     bool m_iteration_verification_pending{false};
     bool m_iteration_verification_inspected{false};
     bool m_iteration_verification_time_budget_reached{false};
+    bool m_plan_build_requested{false};
     std::uint64_t m_iteration_verification_revision{0};
     std::atomic_bool m_cancel_requested{false};
     std::thread m_request_thread;

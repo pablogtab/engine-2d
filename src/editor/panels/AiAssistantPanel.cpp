@@ -1,6 +1,7 @@
 #include "AiAssistantPanel.hpp"
 #include "EditorAiAttachmentView.hpp"
 #include "../../core/AssetDatabase.hpp"
+#include "../ai/EditorAiActivityFormatter.hpp"
 #include "../ai/EditorAiRequestPolicy.hpp"
 #include "../ai/ProjectCommandRegistry.hpp"
 
@@ -35,9 +36,29 @@ namespace {
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
-constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 10;
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 13;
 constexpr std::size_t AUTO_COMPACT_INPUT_TOKEN_THRESHOLD = 24000;
 std::string project_root();
+
+nlohmann::json begin_plan_implementation_schema() {
+    return {
+        {"type", "function"},
+        {"name", "begin_plan_implementation"},
+        {"description",
+            "Signal that the user explicitly authorized implementation of the current plan. "
+            "This does not mutate the project; the editor switches to Build after the Plan turn."},
+        {"parameters", {
+            {"type", "object"},
+            {"properties", {{"reason", {
+                {"type", "string"},
+                {"description", "Brief evidence from the current user message authorizing build."}
+            }}}},
+            {"required", nlohmann::json::array({"reason"})},
+            {"additionalProperties", false}
+        }},
+        {"strict", true}
+    };
+}
 
 const char* diagnostic_code_name(SceneDiagnosticCode code) {
     switch (code) {
@@ -489,6 +510,119 @@ std::string activity_item_label(const std::string& item_type) {
     return item_type.empty() ? "Codex activity" : item_type;
 }
 
+std::string friendly_request_error(const std::string& error) {
+    if (error.find("did not send its execution request") != std::string::npos) {
+        return "Codex stopped before the announced editor tool could run. The incomplete proposal "
+            "including actions queued by earlier tool calls was discarded. No scene changes from "
+            "this turn were applied, so you can retry safely.";
+    }
+    if (error.find("produced no events") != std::string::npos) {
+        return "Codex stopped producing events, so the editor interrupted the turn. Incomplete "
+            "proposal changes were discarded and the request can be retried.";
+    }
+    if (error.find("already has an active writer") != std::string::npos) {
+        return "Codex could not start the verification because the previous turn was still "
+            "closing. Applied editor changes were preserved.";
+    }
+    return error;
+}
+
+std::string wrap_selectable_text(const std::string& text, float width) {
+    if (text.empty() || width <= 1.0f) return text;
+    std::string wrapped;
+    wrapped.reserve(text.size() + text.size() / 24);
+    std::string line;
+    std::size_t cursor = 0;
+    const auto flush_line = [&]() {
+        wrapped += line;
+        line.clear();
+    };
+    while (cursor < text.size()) {
+        if (text[cursor] == '\n') {
+            flush_line();
+            wrapped.push_back('\n');
+            ++cursor;
+            continue;
+        }
+        const std::size_t word_end = text.find_first_of(" \n", cursor);
+        const std::size_t end = word_end == std::string::npos ? text.size() : word_end;
+        std::string word = text.substr(cursor, end - cursor);
+        if (end < text.size() && text[end] == ' ') word.push_back(' ');
+        if (!line.empty() && ImGui::CalcTextSize((line + word).c_str()).x > width) {
+            flush_line();
+            wrapped.push_back('\n');
+        }
+        while (!word.empty() && ImGui::CalcTextSize(word.c_str()).x > width) {
+            std::size_t split = 1;
+            while (split < word.size() &&
+                ImGui::CalcTextSize(word.substr(0, split + 1).c_str()).x <= width) {
+                ++split;
+            }
+            line += word.substr(0, split);
+            flush_line();
+            wrapped.push_back('\n');
+            word.erase(0, split);
+        }
+        line += word;
+        cursor = end + (end < text.size() && text[end] == ' ' ? 1 : 0);
+    }
+    flush_line();
+    return wrapped;
+}
+
+std::string ellipsize_text_to_width(const std::string& text, float maximum_width) {
+    if (text.empty() || ImGui::CalcTextSize(text.c_str()).x <= maximum_width) return text;
+    constexpr const char* ELLIPSIS = "...";
+    const float ellipsis_width = ImGui::CalcTextSize(ELLIPSIS).x;
+    if (maximum_width <= ellipsis_width) return ELLIPSIS;
+
+    std::size_t low = 0;
+    std::size_t high = text.size();
+    while (low < high) {
+        const std::size_t middle = low + (high - low + 1) / 2;
+        const std::string candidate = text.substr(0, middle) + ELLIPSIS;
+        if (ImGui::CalcTextSize(candidate.c_str()).x <= maximum_width) low = middle;
+        else high = middle - 1;
+    }
+    while (low > 0 && low < text.size() &&
+        (static_cast<unsigned char>(text[low]) & 0xC0U) == 0x80U) {
+        --low;
+    }
+    return text.substr(0, low) + ELLIPSIS;
+}
+
+float selectable_text_height(const std::string& text, float maximum_height = 0.0f) {
+    const std::size_t lines = 1 + static_cast<std::size_t>(std::count(
+        text.begin(), text.end(), '\n'
+    ));
+    const float height = static_cast<float>(lines) * ImGui::GetTextLineHeight() + 4.0f;
+    return maximum_height > 0.0f ? std::min(height, maximum_height) : height;
+}
+
+void draw_selectable_text(
+    const char* id,
+    const std::string& text,
+    float width,
+    float maximum_height = 0.0f
+) {
+    std::string wrapped = wrap_selectable_text(text, std::max(1.0f, width));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 1.0f));
+    ImGui::InputTextMultiline(
+        id,
+        wrapped.data(),
+        wrapped.size() + 1,
+        ImVec2(width, selectable_text_height(wrapped, maximum_height)),
+        ImGuiInputTextFlags_ReadOnly
+    );
+    if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(3);
+}
+
 bool draw_chat_message(
     const EditorAiChatMessage& message,
     int index,
@@ -516,12 +650,8 @@ bool draw_chat_message(
             ? ImVec4(0.88f, 0.70f, 0.28f, 1.0f)
             : ImVec4(0.40f, 0.82f, 0.62f, 1.0f));
     const float text_width = std::max(1.0f, bubble_width - 20.0f);
-    const float text_height = ImGui::CalcTextSize(
-        message.content.c_str(),
-        nullptr,
-        false,
-        text_width
-    ).y;
+    const std::string wrapped_content = wrap_selectable_text(message.content, text_width);
+    const float text_height = selectable_text_height(wrapped_content);
     const float bubble_height = ImGui::GetTextLineHeightWithSpacing() + text_height + 20.0f;
 
     ImGui::PushID(index);
@@ -539,9 +669,7 @@ bool draw_chat_message(
         "%s",
         is_user ? "You" : (is_editor ? "Editor" : "Codex")
     );
-    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + text_width);
-    ImGui::TextUnformatted(message.content.c_str());
-    ImGui::PopTextWrapPos();
+    draw_selectable_text("##content", message.content, text_width);
     ImGui::EndChild();
     if (!is_user) {
         if (editor_icon_button("copy", EditorIcon::Copy, "Copy response")) {
@@ -595,6 +723,11 @@ AiAssistantPanel::AiAssistantPanel(
         if (!conversation->model.empty()) {
             std::snprintf(m_model.data(), m_model.size(), "%s", conversation->model.c_str());
         }
+        m_collaboration_mode = conversation->collaboration_mode;
+        m_plan_revision = conversation->plan_revision;
+        m_plan_text = conversation->plan_text;
+        m_plan_explanation = conversation->plan_explanation;
+        m_plan = conversation->plan;
         m_scroll_chat_to_bottom = true;
         ENGINE_LOG_INFO(
             "[AI AUDIT] conversation_store=restored thread={} messages={} contract={} current_contract={} compatible={}",
@@ -864,9 +997,16 @@ std::string AiAssistantPanel::current_context_json() const {
     context["authoring"] = {
         {"mode", m_authoring_mode == AuthoringMode::AutonomousSafe
             ? "autonomous_safe" : "confirm_before_apply"},
-        {"filesystem", "full_access"},
+        {"collaboration", m_collaboration_mode == EditorAiCollaborationMode::Plan
+            ? "plan" : "build"},
+        {"filesystem", m_collaboration_mode == EditorAiCollaborationMode::Plan
+            ? "read_only" : "full_access"},
         {"max_actions_per_proposal", EditorAiAuthoringRegistry::MAX_ACTIONS_PER_PROPOSAL},
         {"tools", m_authoring_registry.tool_schemas()}
+    };
+    context["plan"] = {
+        {"revision", m_plan_revision},
+        {"available", !m_plan_text.empty()}
     };
     context["viewport"] = viewport_state_json();
     context["viewport"]["tools"] = m_viewport_tools.tool_schemas();
@@ -967,6 +1107,7 @@ void AiAssistantPanel::start_new_conversation() {
     m_attachments.clear_all();
     m_pending_asset_context_paths.clear();
     m_iterative_authoring.reset();
+    m_pending_user_input.reset();
     m_iteration_continuation_requested = false;
     m_iteration_verification_pending = false;
     m_attach_assets_requested = false;
@@ -985,6 +1126,13 @@ void AiAssistantPanel::start_new_conversation() {
     m_superseded_thread_id.clear();
     m_conversation_has_generated_image = false;
     m_compact_before_next_request = false;
+    m_collaboration_mode = EditorAiCollaborationMode::Default;
+    m_plan.clear();
+    m_plan_text.clear();
+    m_plan_explanation.clear();
+    m_plan_revision = 0;
+    m_approved_plan_text.clear();
+    m_plan_build_requested = false;
     m_last_input_tokens = 0;
     m_last_output_tokens = 0;
     m_last_total_tokens = 0;
@@ -1014,6 +1162,7 @@ void AiAssistantPanel::restore_conversation(const std::string& thread_id) {
     m_attachments.clear_all();
     m_pending_asset_context_paths.clear();
     m_iterative_authoring.reset();
+    m_pending_user_input.reset();
     m_iteration_continuation_requested = false;
     m_iteration_verification_pending = false;
     m_attach_assets_requested = false;
@@ -1027,6 +1176,13 @@ void AiAssistantPanel::restore_conversation(const std::string& thread_id) {
         m_superseded_thread_id = conversation->thread_id;
     }
     m_messages = conversation->messages;
+    m_collaboration_mode = conversation->collaboration_mode;
+    m_plan_revision = conversation->plan_revision;
+    m_plan_text = conversation->plan_text;
+    m_plan_explanation = conversation->plan_explanation;
+    m_plan = conversation->plan;
+    m_approved_plan_text.clear();
+    m_plan_build_requested = false;
     m_conversation_has_generated_image = false;
     m_compact_before_next_request = false;
     m_streamed_response.clear();
@@ -1100,6 +1256,13 @@ void AiAssistantPanel::delete_conversation(const std::string& thread_id) {
         m_superseded_thread_id.clear();
         m_conversation_has_generated_image = false;
         m_compact_before_next_request = false;
+        m_collaboration_mode = EditorAiCollaborationMode::Default;
+        m_plan.clear();
+        m_plan_text.clear();
+        m_plan_explanation.clear();
+        m_plan_revision = 0;
+        m_approved_plan_text.clear();
+        m_plan_build_requested = false;
         m_live_activity = "Idle";
         m_activity_entries.clear();
         m_request_started_at = {};
@@ -1147,6 +1310,120 @@ void AiAssistantPanel::toggle_authoring_mode() {
     );
 }
 
+void AiAssistantPanel::set_collaboration_mode(EditorAiCollaborationMode mode) {
+    std::lock_guard lock(m_request_mutex);
+    if (m_request_running || m_pending_proposal || m_pending_user_input) return;
+    if (mode == EditorAiCollaborationMode::Plan &&
+        m_backend != ProviderBackend::CodexSubscription) {
+        m_ui_feedback = "Plan mode requires the Codex subscription backend.";
+        return;
+    }
+    m_collaboration_mode = mode;
+    m_ui_feedback = mode == EditorAiCollaborationMode::Plan
+        ? "Plan mode enabled. Codex can inspect and refine a plan without changing the project."
+        : "Build mode enabled.";
+    ENGINE_LOG_INFO(
+        "[AI AUDIT] ui_action=collaboration_mode mode={}",
+        mode == EditorAiCollaborationMode::Plan ? "plan" : "default"
+    );
+}
+
+std::optional<EditorAiUserInputAnswers> AiAssistantPanel::request_user_input(
+    const EditorAiUserInputRequest& request
+) {
+    auto pending = std::make_shared<PendingUserInput>(request);
+    auto completion = pending->completion.get_future();
+    {
+        std::lock_guard lock(m_request_mutex);
+        if (m_pending_user_input) return std::nullopt;
+        m_pending_user_input = pending;
+        m_live_activity = "Waiting for your answer";
+        m_scroll_chat_to_bottom = true;
+    }
+    const auto started = std::chrono::steady_clock::now();
+    while (completion.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
+        if (m_cancel_requested.load()) {
+            bool expected = false;
+            if (pending->resolved.compare_exchange_strong(expected, true)) {
+                pending->completion.set_value(std::nullopt);
+            }
+        } else if (request.auto_resolution_ms &&
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started
+            ).count() >= static_cast<std::int64_t>(*request.auto_resolution_ms)) {
+            bool expected = false;
+            if (pending->resolved.compare_exchange_strong(expected, true)) {
+                pending->completion.set_value(EditorAiUserInputAnswers{});
+            }
+        }
+    }
+    auto answer = completion.get();
+    {
+        std::lock_guard lock(m_request_mutex);
+        if (m_pending_user_input == pending) m_pending_user_input.reset();
+        if (m_request_running) m_live_activity = "Codex is working";
+    }
+    return answer;
+}
+
+void AiAssistantPanel::resolve_user_input(bool submit) {
+    std::shared_ptr<PendingUserInput> pending;
+    {
+        std::lock_guard lock(m_request_mutex);
+        pending = m_pending_user_input;
+    }
+    if (!pending) return;
+    if (!submit) m_cancel_requested.store(true);
+    std::optional<EditorAiUserInputAnswers> result;
+    if (submit) {
+        EditorAiUserInputAnswers answers;
+        for (std::size_t index = 0; index < pending->request.questions.size(); ++index) {
+            std::string value = pending->custom_selected[index]
+                ? std::string(pending->custom_answers[index].data())
+                : pending->answers[index];
+            if (!has_visible_text(value.c_str())) {
+                std::lock_guard lock(m_request_mutex);
+                m_ui_feedback = "Answer every Codex question before continuing.";
+                return;
+            }
+            answers.push_back({pending->request.questions[index].id, {std::move(value)}});
+        }
+        result = std::move(answers);
+    }
+    bool expected = false;
+    if (pending->resolved.compare_exchange_strong(expected, true)) {
+        pending->completion.set_value(std::move(result));
+    }
+}
+
+void AiAssistantPanel::start_approved_plan_build() {
+    std::string plan;
+    {
+        std::lock_guard lock(m_request_mutex);
+        if (!m_plan_build_requested || m_request_running || m_pending_proposal ||
+            m_pending_user_input) return;
+        m_plan_build_requested = false;
+        plan = !m_plan_text.empty() ? m_plan_text : m_approved_plan_text;
+        if (plan.empty()) {
+            m_request_error = "Codex requested Build before producing an authoritative plan.";
+            return;
+        }
+        m_approved_plan_text = plan;
+        m_collaboration_mode = EditorAiCollaborationMode::Default;
+        m_messages.push_back({"editor", "Plan revision " + std::to_string(m_plan_revision) +
+            " approved; Build started automatically."});
+        m_ui_feedback = "Plan approved. Codex switched to Build automatically.";
+        m_scroll_chat_to_bottom = true;
+    }
+    start_request(
+        "Implement the approved plan below completely. Treat it as the authoritative scope, "
+        "use the validated editor authoring tools for scene changes, verify the result, and do "
+        "not silently expand the plan.\n\n" + plan,
+        false,
+        true
+    );
+}
+
 void AiAssistantPanel::persist_current_conversation_locked(const std::string& model) {
     if (!m_conversation_store || m_codex_thread_id.empty()) return;
     const auto updated_at = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1162,7 +1439,12 @@ void AiAssistantPanel::persist_current_conversation_locked(const std::string& mo
         .last_output_tokens = m_last_output_tokens,
         .last_total_tokens = m_last_total_tokens,
         .updated_at_unix_ms = updated_at,
-        .messages = m_messages
+        .messages = m_messages,
+        .collaboration_mode = m_collaboration_mode,
+        .plan_revision = m_plan_revision,
+        .plan_text = m_plan_text,
+        .plan_explanation = m_plan_explanation,
+        .plan = m_plan
     });
     if (!m_superseded_thread_id.empty() && m_superseded_thread_id != m_codex_thread_id) {
         const std::string previous_thread = m_superseded_thread_id;
@@ -1505,7 +1787,8 @@ void AiAssistantPanel::finalize_iterative_verification() {
 
 void AiAssistantPanel::start_request(
     std::string internal_prompt,
-    bool iterative_continuation
+    bool iterative_continuation,
+    bool approved_plan_build
 ) {
     const bool using_codex = m_backend == ProviderBackend::CodexSubscription;
     IEditorAiProvider* provider = using_codex
@@ -1524,7 +1807,7 @@ void AiAssistantPanel::start_request(
         return;
     }
 
-    std::string prompt = iterative_continuation
+    std::string prompt = !internal_prompt.empty()
         ? std::move(internal_prompt)
         : std::string(m_prompt.data());
     std::string original_prompt = prompt;
@@ -1563,6 +1846,8 @@ void AiAssistantPanel::start_request(
         ? "high"
         : (m_reasoning_effort == ReasoningEffort::Medium ? "medium" : "low");
 
+    const bool planning = !iterative_continuation && !approved_plan_build &&
+        m_collaboration_mode == EditorAiCollaborationMode::Plan;
     bool image_generation_requested = false;
     {
         std::lock_guard lock(m_request_mutex);
@@ -1570,7 +1855,7 @@ void AiAssistantPanel::start_request(
             m_request_error = "Apply or dismiss the pending AI proposal before sending another request.";
             return;
         }
-        image_generation_requested = !iterative_continuation && using_codex &&
+        image_generation_requested = !planning && !iterative_continuation && using_codex &&
             !m_imagegen_skill_path.empty() &&
             (m_image_generation_requested || prompt_requests_generated_image(prompt) ||
              (m_conversation_has_generated_image && prompt_refines_generated_image(prompt)));
@@ -1585,7 +1870,8 @@ void AiAssistantPanel::start_request(
     const bool editor_authoring_available = active_scene && command_history &&
         entity_state_store && selection &&
         m_scene_manager && m_scene_manager->is_editing();
-    const bool authoring_available = editor_authoring_available && !final_verification_only;
+    const bool authoring_available = editor_authoring_available && !planning &&
+        !final_verification_only;
     const bool viewport_available = active_scene && !m_viewport_panel.expired() && m_scene_manager &&
         m_scene_manager->is_editing();
     const std::uint64_t baseline_revision = command_history
@@ -1656,11 +1942,14 @@ void AiAssistantPanel::start_request(
             request.tools.push_back(schema);
         }
     }
-    if (authoring_available) {
+    // App Server binds dynamic tools when the thread is created. Keep authoring schemas
+    // available on a read-only Plan turn so the same thread can transition to Build.
+    if (editor_authoring_available) {
         for (const auto& schema : m_authoring_registry.tool_schemas()) {
             request.tools.push_back(schema);
         }
     }
+    if (using_codex) request.tools.push_back(begin_plan_implementation_schema());
     request.instructions = build_editor_ai_request_instructions({
         .image_generation_requested = image_generation_requested,
         .authoring_available = authoring_available,
@@ -1669,6 +1958,8 @@ void AiAssistantPanel::start_request(
         .has_images = !request.images.empty(),
         .iterative_continuation = iterative_continuation,
         .final_verification_only = final_verification_only,
+        .planning = planning,
+        .has_existing_plan = !m_plan_text.empty(),
         .applied_batches = applied_batches,
         .work_time_ms = session_work_time_ms,
         .work_budget_ms = session_work_budget_ms,
@@ -1676,13 +1967,21 @@ void AiAssistantPanel::start_request(
         .attached_contexts = attached_contexts,
         .project_overview = request_context->value(
             "project_overview", nlohmann::json::object()
-        )
+        ),
+        .existing_plan = m_plan_text
     });
     request.project_root = project_root();
     request.codex_executable = m_codex_executable;
     request.persist_thread = using_codex;
     request.max_tool_rounds = 12;
     request.max_tool_failures = 3;
+    request.collaboration_mode = planning
+        ? EditorAiCollaborationMode::Plan : EditorAiCollaborationMode::Default;
+    if (using_codex) {
+        request.request_user_input = [this](const EditorAiUserInputRequest& input) {
+            return request_user_input(input);
+        };
+    }
     std::string compaction_source = "none";
     std::size_t previous_input_tokens = 0;
     {
@@ -1701,18 +2000,15 @@ void AiAssistantPanel::start_request(
             compaction_source = m_compact_before_next_request ? "manual" : "automatic";
             m_compact_before_next_request = false;
         }
-        if (!iterative_continuation) m_messages.push_back({"user", prompt});
+        if (!iterative_continuation && !approved_plan_build) {
+            m_messages.push_back({"user", prompt});
+        }
         m_streamed_response.clear();
         m_reasoning_summary.clear();
         m_request_error.clear();
         m_active_tool.clear();
         m_live_activity = "Connecting to Codex";
         m_activity_entries.clear();
-        m_activity_entries.push_back({
-            iterative_continuation ? "Verification pass started" : "Request sent",
-            model,
-            0
-        });
         m_request_started_at = request_started;
         m_authoring_feedback.clear();
         m_ui_feedback.clear();
@@ -1730,7 +2026,7 @@ void AiAssistantPanel::start_request(
         }
     );
     ENGINE_LOG_INFO(
-        "[AI AUDIT] request={} phase=start backend={} model={} effort={} mode={} scene={} "
+        "[AI AUDIT] request={} phase=start backend={} model={} effort={} mode={} collaboration={} scene={} "
         "baseline_revision={} history_messages={} history_chars={} context_chars={} tools={} "
         "tool_schema_chars={} instructions_chars={} prompt_chars={} images={} thread={} persistent={} "
         "compact_before_turn={} compact_source={} previous_input_tokens={}",
@@ -1739,6 +2035,7 @@ void AiAssistantPanel::start_request(
         model,
         reasoning_effort,
         authoring_mode == AuthoringMode::AutonomousSafe ? "autonomous_safe" : "confirm_before_apply",
+        planning ? "plan" : "default",
         active_scene ? active_scene->get_name() : "none",
         baseline_revision,
         request.history.size(),
@@ -1756,11 +2053,14 @@ void AiAssistantPanel::start_request(
         previous_input_tokens
     );
     auto inspection_tool_count = std::make_shared<std::size_t>(0);
+    auto build_transition_requested = std::make_shared<bool>(false);
     request.execute_tool = [
         this,
         request_context,
         proposal_actions,
         inspection_tool_count,
+        build_transition_requested,
+        planning,
         authoring_available,
         viewport_available,
         active_scene,
@@ -1792,6 +2092,20 @@ void AiAssistantPanel::start_request(
             );
             return result;
         };
+        if (name == "begin_plan_implementation") {
+            if (!planning) {
+                return audited({false, {}, "Build transition is available only in Plan mode"});
+            }
+            const std::string reason = arguments.value("reason", "");
+            if (!has_visible_text(reason.c_str())) {
+                return audited({false, {}, "Build transition requires explicit authorization evidence"});
+            }
+            *build_transition_requested = true;
+            return audited({true, {{"accepted", true}, {"transition", "plan_to_build"}}, {}});
+        }
+        if (planning && name == "run_project_command") {
+            return audited({false, {}, "Project commands are unavailable in read-only Plan mode"});
+        }
         if (m_authoring_registry.is_authoring_tool(name)) {
             if (!authoring_available) {
                 return audited({false, {}, "Authoring is unavailable for this request"});
@@ -1839,8 +2153,11 @@ void AiAssistantPanel::start_request(
         before_asset_index,
         request_context,
         inspection_tool_count,
+        build_transition_requested,
         authoring_mode,
         iterative_continuation,
+        approved_plan_build,
+        planning,
         final_verification_only,
         original_prompt,
         session_revision_before,
@@ -1984,23 +2301,68 @@ void AiAssistantPanel::start_request(
                     }
                 }
                 std::lock_guard lock(m_request_mutex);
-                const auto add_activity = [this, elapsed](
-                    std::string label,
-                    std::string detail
+                const auto upsert_activity = [this, elapsed](
+                    const EditorAiProviderEvent& item_event
                 ) {
-                    constexpr std::size_t MAX_ACTIVITY_ENTRIES = 80;
-                    if (m_activity_entries.size() >= MAX_ACTIVITY_ENTRIES) {
-                        m_activity_entries.erase(m_activity_entries.begin());
+                    if (item_event.item_type == "agentMessage" ||
+                        item_event.item_type == "plan") {
+                        return;
                     }
-                    m_activity_entries.push_back({
-                        std::move(label),
-                        std::move(detail),
-                        static_cast<std::uint64_t>(std::max<std::int64_t>(0, elapsed))
-                    });
+                    constexpr std::size_t MAX_ACTIVITY_ENTRIES = 40;
+                    const std::string key = item_event.item_type == "reasoning"
+                        ? "reasoning"
+                        : (!item_event.item_id.empty()
+                            ? item_event.item_id
+                            : item_event.item_type + ":" + item_event.tool_name);
+                    const EditorAiActivityPresentation presentation =
+                        format_editor_ai_activity(item_event);
+                    auto entry = std::find_if(
+                        m_activity_entries.begin(),
+                        m_activity_entries.end(),
+                        [&key](const AiActivityEntry& candidate) {
+                            return candidate.item_id == key;
+                        }
+                    );
+                    if (entry == m_activity_entries.end()) {
+                        if (m_activity_entries.size() >= MAX_ACTIVITY_ENTRIES) {
+                            m_activity_entries.erase(m_activity_entries.begin());
+                        }
+                        m_activity_entries.push_back({
+                            presentation.summary,
+                            {},
+                            static_cast<std::uint64_t>(std::max<std::int64_t>(0, elapsed)),
+                            key,
+                            item_event.item_type,
+                            item_event.item_status.empty() ? "inProgress" : item_event.item_status
+                        });
+                        entry = std::prev(m_activity_entries.end());
+                    }
+                    entry->label = presentation.summary;
+                    entry->item_type = item_event.item_type;
+                    if (!item_event.item_status.empty()) entry->status = item_event.item_status;
+                    std::string detail = presentation.detail;
+                    constexpr std::size_t MAX_ACTIVITY_DETAIL = 64 * 1024;
+                    if (detail.size() > MAX_ACTIVITY_DETAIL) {
+                        detail.resize(MAX_ACTIVITY_DETAIL);
+                        detail += "\n\n[Detail truncated at 64 KiB]";
+                    }
+                    if (!detail.empty()) entry->detail = detail;
+                    if (entry->status != "inProgress") {
+                        if (item_event.details.contains("durationMs") &&
+                            item_event.details.at("durationMs").is_number_integer()) {
+                            entry->duration_ms = item_event.details.at("durationMs")
+                                .get<std::uint64_t>();
+                        } else {
+                            const std::uint64_t completed_at = static_cast<std::uint64_t>(
+                                std::max<std::int64_t>(0, elapsed)
+                            );
+                            entry->duration_ms = completed_at >= entry->elapsed_ms
+                                ? completed_at - entry->elapsed_ms : 0;
+                        }
+                    }
                 };
                 if (event.type == EditorAiProviderEventType::Started) {
                     m_live_activity = "Codex started";
-                    add_activity("Codex started", "Provider connected");
                 } else if (event.type == EditorAiProviderEventType::TextDelta) {
                     m_streamed_response += event.text;
                     m_live_activity = "Writing response";
@@ -2008,27 +2370,61 @@ void AiAssistantPanel::start_request(
                 } else if (event.type == EditorAiProviderEventType::ReasoningSummaryDelta) {
                     m_reasoning_summary += event.text;
                     m_live_activity = "Reasoning";
+                    upsert_activity(event);
                     m_scroll_chat_to_bottom = true;
                 } else if (event.type == EditorAiProviderEventType::ItemStarted) {
-                    const std::string label = activity_item_label(event.item_type);
-                    m_live_activity = label;
-                    add_activity(label, "Started");
+                    if (event.item_type == "dynamicToolCall") {
+                        const std::string tool = event.details.is_object() &&
+                                event.details.contains("tool") &&
+                                event.details.at("tool").is_string()
+                            ? event.details.at("tool").get<std::string>()
+                            : "editor tool";
+                        m_live_activity = "Waiting for Codex to call " + tool;
+                    } else {
+                        m_live_activity = activity_item_label(event.item_type);
+                    }
+                    upsert_activity(event);
                     m_scroll_chat_to_bottom = true;
                 } else if (event.type == EditorAiProviderEventType::ItemCompleted) {
-                    const std::string label = activity_item_label(event.item_type);
-                    add_activity(
-                        label,
-                        event.item_status.empty() ? "Completed" : event.item_status
-                    );
+                    upsert_activity(event);
                     m_live_activity = "Codex is working";
+                } else if (event.type == EditorAiProviderEventType::ItemOutputDelta) {
+                    const auto entry = std::find_if(
+                        m_activity_entries.begin(),
+                        m_activity_entries.end(),
+                        [&event](const AiActivityEntry& candidate) {
+                            return candidate.item_id == event.item_id;
+                        }
+                    );
+                    if (entry != m_activity_entries.end()) {
+                        constexpr std::size_t MAX_LIVE_OUTPUT = 64 * 1024;
+                        if (entry->output.size() < MAX_LIVE_OUTPUT) {
+                            entry->output += event.text.substr(
+                                0, MAX_LIVE_OUTPUT - entry->output.size()
+                            );
+                        }
+                    }
                 } else if (event.type == EditorAiProviderEventType::ToolStarted) {
                     m_active_tool = event.tool_name;
-                    m_live_activity = "Using " + event.tool_name;
-                    add_activity("Tool", event.tool_name + " started");
+                    m_live_activity = "Executing " + event.tool_name;
+                    upsert_activity(event);
                 } else if (event.type == EditorAiProviderEventType::ToolFinished) {
                     m_active_tool.clear();
                     m_live_activity = "Codex is working";
-                    add_activity("Tool", event.tool_name + " " + event.text);
+                    upsert_activity(event);
+                } else if (event.type == EditorAiProviderEventType::PlanDelta) {
+                    m_streamed_response += event.text;
+                    m_live_activity = "Drafting plan";
+                    m_scroll_chat_to_bottom = true;
+                } else if (event.type == EditorAiProviderEventType::PlanUpdated) {
+                    m_plan = event.plan;
+                    m_plan_explanation = event.explanation;
+                    m_live_activity = "Updating plan";
+                    m_scroll_chat_to_bottom = true;
+                } else if (event.type == EditorAiProviderEventType::PlanCompleted) {
+                    m_streamed_response = event.text;
+                    m_live_activity = "Plan ready";
+                    m_scroll_chat_to_bottom = true;
                 }
             },
             [this]() { return m_cancel_requested.load(); }
@@ -2073,14 +2469,23 @@ void AiAssistantPanel::start_request(
         m_live_activity = result.status == EditorAiProviderStatus::Completed
             ? "Completed"
             : (result.status == EditorAiProviderStatus::Cancelled ? "Cancelled" : "Failed");
+        if (result.status != EditorAiProviderStatus::Completed) {
+            for (AiActivityEntry& entry : m_activity_entries) {
+                if (entry.status != "inProgress") continue;
+                entry.status = result.status == EditorAiProviderStatus::Cancelled
+                    ? "cancelled" : "failed";
+                const std::uint64_t completed_at = m_last_request_duration_ms;
+                entry.duration_ms = completed_at >= entry.elapsed_ms
+                    ? completed_at - entry.elapsed_ms : 0;
+                if (!result.error.empty()) {
+                    if (!entry.detail.empty()) entry.detail += "\n\n";
+                    entry.detail += "Turn stopped\n" + result.error;
+                }
+            }
+        }
         if (result.context_compacted) {
             m_ui_feedback = "Codex context was compacted before this message.";
         }
-        m_activity_entries.push_back({
-            m_live_activity,
-            result.error.empty() ? "Turn finished" : result.error,
-            m_last_request_duration_ms
-        });
         ENGINE_LOG_INFO(
             "[AI AUDIT] request={} phase=finish status={} duration_ms={} tool_calls={} "
             "proposal_actions={} input_tokens={} output_tokens={} total_tokens={} thread={} "
@@ -2100,7 +2505,21 @@ void AiAssistantPanel::start_request(
         );
         if (result.status == EditorAiProviderStatus::Completed) {
             if (m_streamed_response.empty()) m_streamed_response = result.text;
-            m_messages.push_back({"assistant", m_streamed_response});
+            if (!m_streamed_response.empty()) {
+                m_messages.push_back({"assistant", m_streamed_response});
+            }
+            if (planning && !result.plan_text.empty()) {
+                if (m_plan_text != result.plan_text) ++m_plan_revision;
+                m_plan_text = result.plan_text;
+                m_plan_explanation = result.plan_explanation;
+                m_plan = result.plan;
+            }
+            if (planning && *build_transition_requested) {
+                m_approved_plan_text = !result.plan_text.empty()
+                    ? result.plan_text : m_plan_text;
+                m_plan_build_requested = true;
+                m_ui_feedback = "Implementation authorization detected; switching to Build...";
+            }
             if (!proposal_actions->empty()) {
                 m_pending_proposal = PendingProposal{
                     .request_id = request_id,
@@ -2118,7 +2537,8 @@ void AiAssistantPanel::start_request(
                     ),
                     .auto_apply = authoring_mode == AuthoringMode::AutonomousSafe,
                     .iterative_continuation = iterative_continuation,
-                    .original_prompt = original_prompt,
+                    .original_prompt = approved_plan_build && !m_approved_plan_text.empty()
+                        ? m_approved_plan_text : original_prompt,
                     .session_revision_before = session_revision_before
                 };
                 m_authoring_feedback = m_pending_proposal->auto_apply
@@ -2162,8 +2582,13 @@ void AiAssistantPanel::start_request(
             if (iterative_continuation && m_iterative_authoring) {
                 m_iteration_continuation_requested = false;
                 m_iteration_verification_pending = false;
+                const std::string verification_failure =
+                    result.error.find("already has an active writer") != std::string::npos
+                    ? "Verification could not start because the previous Codex turn was still "
+                        "closing; applied batches were preserved."
+                    : "Iterative verification failed; applied batches were preserved.";
                 m_iterative_authoring->session.finish_failed(
-                    "Iterative verification failed; applied batches were preserved."
+                    verification_failure
                 );
                 m_authoring_feedback = m_iterative_authoring->session.outcome();
                 m_last_receipt_summary = m_authoring_feedback;
@@ -2201,6 +2626,7 @@ void AiAssistantPanel::on_gui() {
     if (auto_apply_proposal) apply_pending_proposal();
     finalize_iterative_verification();
     continue_iterative_authoring();
+    start_approved_plan_build();
     if (!is_open) return;
 
     bool window_request_running = false;
@@ -2245,6 +2671,12 @@ void AiAssistantPanel::on_gui() {
     std::optional<PendingProposal> pending_proposal;
     std::optional<AppliedAiSession> last_applied_session;
     std::optional<EditorAiAuthoringSession> iterative_session;
+    std::shared_ptr<PendingUserInput> pending_user_input;
+    std::vector<EditorAiPlanStep> plan;
+    std::string plan_text;
+    std::string plan_explanation;
+    std::size_t plan_revision = 0;
+    EditorAiCollaborationMode collaboration_mode{EditorAiCollaborationMode::Default};
     std::string authoring_feedback;
     std::string ui_feedback;
     nlohmann::json application_receipt;
@@ -2274,6 +2706,12 @@ void AiAssistantPanel::on_gui() {
         pending_proposal = m_pending_proposal;
         last_applied_session = m_last_applied_session;
         if (m_iterative_authoring) iterative_session = m_iterative_authoring->session;
+        pending_user_input = m_pending_user_input;
+        plan = m_plan;
+        plan_text = m_plan_text;
+        plan_explanation = m_plan_explanation;
+        plan_revision = m_plan_revision;
+        collaboration_mode = m_collaboration_mode;
         authoring_feedback = m_authoring_feedback;
         ui_feedback = m_ui_feedback;
         application_receipt = m_last_application_receipt;
@@ -2624,6 +3062,66 @@ void AiAssistantPanel::on_gui() {
     }
     ImGui::Separator();
 
+    ImGui::BeginDisabled(running || pending_proposal.has_value() || pending_user_input);
+    if (ImGui::SmallButton(collaboration_mode == EditorAiCollaborationMode::Plan
+            ? "Plan [active]" : "Plan")) {
+        set_collaboration_mode(EditorAiCollaborationMode::Plan);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton(collaboration_mode == EditorAiCollaborationMode::Default
+            ? "Build [active]" : "Build")) {
+        set_collaboration_mode(EditorAiCollaborationMode::Default);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled(
+        collaboration_mode == EditorAiCollaborationMode::Plan
+            ? "Read-only planning" : "Project changes allowed"
+    );
+
+    if (!plan_text.empty() || !plan.empty()) {
+        const std::string plan_header = "Plan revision " + std::to_string(plan_revision) +
+            "##AIPlan";
+        if (ImGui::CollapsingHeader(plan_header.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (!plan_explanation.empty()) {
+                draw_selectable_text(
+                    "##plan-explanation",
+                    plan_explanation,
+                    std::max(1.0f, ImGui::GetContentRegionAvail().x)
+                );
+            }
+            for (std::size_t index = 0; index < plan.size(); ++index) {
+                const EditorAiPlanStep& step = plan[index];
+                ImGui::PushID(static_cast<int>(index));
+                const ImVec4 color = step.status == "completed"
+                    ? ImVec4(0.35f, 0.78f, 0.52f, 1.0f)
+                    : (step.status == "inProgress"
+                        ? ImVec4(0.48f, 0.66f, 0.95f, 1.0f)
+                        : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::TextColored(color, "%s", step.status == "completed" ? "[x]" : "[ ]");
+                ImGui::SameLine();
+                draw_selectable_text(
+                    "##plan-step",
+                    step.step,
+                    std::max(1.0f, ImGui::GetContentRegionAvail().x)
+                );
+                ImGui::PopID();
+            }
+            if (ImGui::SmallButton("Copy plan")) {
+                copy_to_clipboard(plan_text, "Plan copied.");
+            }
+            ImGui::SameLine();
+            ImGui::BeginDisabled(running || pending_proposal.has_value() || pending_user_input);
+            if (ImGui::SmallButton("Approve & Build")) {
+                std::lock_guard lock(m_request_mutex);
+                m_approved_plan_text = m_plan_text;
+                m_plan_build_requested = true;
+                m_ui_feedback = "Plan approved; switching to Build...";
+            }
+            ImGui::EndDisabled();
+        }
+    }
+
     const float conversation_height = std::clamp(
         ImGui::GetContentRegionAvail().y - 270.0f,
         220.0f,
@@ -2647,43 +3145,87 @@ void AiAssistantPanel::on_gui() {
         : request_duration_ms;
     const auto draw_activity = [&]() {
         if (activity_entries.empty() && reasoning_summary.empty()) return;
-        const std::string phase = live_activity.empty() ? "Activity" : live_activity;
+        const std::string phase = running
+            ? (live_activity.empty() ? "Codex is working" : live_activity)
+            : "Work details";
         char header[160];
         std::snprintf(
             header,
             sizeof(header),
-            "%s  %.1fs##AIActivity",
+            "%s  %.1fs  %zu operation%s##AIActivity",
             phase.c_str(),
-            static_cast<double>(activity_elapsed_ms) / 1000.0
+            static_cast<double>(activity_elapsed_ms) / 1000.0,
+            activity_entries.size(),
+            activity_entries.size() == 1 ? "" : "s"
         );
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.16f, 0.17f, 0.22f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.20f, 0.21f, 0.28f, 1.0f));
         const bool open = ImGui::CollapsingHeader(
             header,
-            ImGuiTreeNodeFlags_DefaultOpen
+            running ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None
         );
         ImGui::PopStyleColor(2);
         if (!open) return;
         ImGui::Indent(8.0f);
-        if (!reasoning_summary.empty()) {
-            ImGui::TextColored(
-                ImVec4(0.58f, 0.62f, 0.74f, 1.0f),
-                "Reasoning summary"
-            );
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
-            ImGui::TextUnformatted(reasoning_summary.c_str());
-            ImGui::PopTextWrapPos();
-            if (!activity_entries.empty()) ImGui::Spacing();
-        }
-        for (const AiActivityEntry& entry : activity_entries) {
-            ImGui::TextDisabled("%5.1fs", static_cast<double>(entry.elapsed_ms) / 1000.0);
+        for (std::size_t index = 0; index < activity_entries.size(); ++index) {
+            const AiActivityEntry& entry = activity_entries[index];
+            ImGui::PushID(static_cast<int>(index));
+            const bool in_progress = entry.status == "inProgress";
+            const bool failed = entry.status == "failed" || entry.status == "declined";
+            const ImVec4 status_color = failed
+                ? ImVec4(0.95f, 0.36f, 0.32f, 1.0f)
+                : (in_progress
+                    ? ImVec4(0.48f, 0.66f, 0.95f, 1.0f)
+                    : ImVec4(0.35f, 0.78f, 0.52f, 1.0f));
+            ImGui::TextColored(status_color, "%s", in_progress ? ">" : (failed ? "!" : "+"));
             ImGui::SameLine();
-            ImGui::TextWrapped(
-                "%s%s%s",
-                entry.label.c_str(),
-                entry.detail.empty() ? "" : " - ",
-                entry.detail.c_str()
+            std::string visible_detail = entry.item_type == "reasoning"
+                ? reasoning_summary
+                : (!entry.detail.empty() ? entry.detail : entry.output);
+            if (entry.status == "inProgress" && !entry.output.empty() &&
+                visible_detail != entry.output) {
+                visible_detail += "\n\nOutput\n" + entry.output;
+            }
+            const bool has_detail = !visible_detail.empty();
+            char row[192];
+            const std::uint64_t displayed_duration_ms = in_progress
+                ? (activity_elapsed_ms >= entry.elapsed_ms
+                    ? activity_elapsed_ms - entry.elapsed_ms : 0)
+                : entry.duration_ms;
+            const double time_seconds = static_cast<double>(displayed_duration_ms) / 1000.0;
+            char time_label[32];
+            std::snprintf(time_label, sizeof(time_label), "%.1fs", time_seconds);
+            const float row_text_width = std::max(
+                24.0f,
+                ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(time_label).x - 42.0f
             );
+            const std::string compact_label = ellipsize_text_to_width(
+                entry.label,
+                row_text_width
+            );
+            std::snprintf(
+                row,
+                sizeof(row),
+                "%s  %s##activity-row",
+                compact_label.c_str(),
+                time_label
+            );
+            const bool detail_open = has_detail
+                ? ImGui::TreeNodeEx(row, ImGuiTreeNodeFlags_SpanAvailWidth)
+                : (ImGui::TextUnformatted(entry.label.c_str()), false);
+            if (detail_open) {
+                if (editor_icon_button("copy-detail", EditorIcon::Copy, "Copy operation detail")) {
+                    copy_to_clipboard(visible_detail, "Operation detail copied.");
+                }
+                draw_selectable_text(
+                    "##activity-detail",
+                    visible_detail,
+                    std::max(1.0f, ImGui::GetContentRegionAvail().x),
+                    220.0f
+                );
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
         }
         ImGui::Unindent(8.0f);
         ImGui::Spacing();
@@ -2720,6 +3262,55 @@ void AiAssistantPanel::on_gui() {
             "%s...",
             live_activity.empty() ? "Codex is working" : live_activity.c_str()
         );
+    }
+    if (pending_user_input) {
+        ImGui::Separator();
+        ImGui::TextColored(
+            ImVec4(0.48f, 0.66f, 0.95f, 1.0f),
+            "Codex needs your input"
+        );
+        for (std::size_t index = 0;
+             index < pending_user_input->request.questions.size(); ++index) {
+            const EditorAiUserInputQuestion& question =
+                pending_user_input->request.questions[index];
+            ImGui::PushID(static_cast<int>(index));
+            if (!question.header.empty()) ImGui::TextDisabled("%s", question.header.c_str());
+            draw_selectable_text(
+                "##question",
+                question.question,
+                std::max(1.0f, ImGui::GetContentRegionAvail().x)
+            );
+            for (const EditorAiUserInputOption& option : question.options) {
+                const bool selected = !pending_user_input->custom_selected[index] &&
+                    pending_user_input->answers[index] == option.label;
+                if (ImGui::Selectable(option.label.c_str(), selected)) {
+                    pending_user_input->answers[index] = option.label;
+                    pending_user_input->custom_selected[index] = false;
+                }
+                if (!option.description.empty() && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", option.description.c_str());
+                }
+            }
+            if (question.allow_other || question.options.empty()) {
+                if (!question.options.empty() &&
+                    ImGui::Selectable("Other...", pending_user_input->custom_selected[index])) {
+                    pending_user_input->custom_selected[index] = true;
+                }
+                if (pending_user_input->custom_selected[index]) {
+                    ImGui::InputText(
+                        "##custom_answer",
+                        pending_user_input->custom_answers[index].data(),
+                        pending_user_input->custom_answers[index].size(),
+                        question.secret ? ImGuiInputTextFlags_Password : ImGuiInputTextFlags_None
+                    );
+                }
+            }
+            ImGui::PopID();
+            ImGui::Spacing();
+        }
+        if (ImGui::Button("Continue")) resolve_user_input(true);
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel request")) resolve_user_input(false);
     }
     if (!activity_drawn && !activity_entries.empty()) {
         draw_activity();
@@ -2818,7 +3409,8 @@ void AiAssistantPanel::on_gui() {
         ImGui::OpenPopup("AIComposerActions");
     }
     ImGui::SameLine();
-    ImGui::BeginDisabled(running || pending_proposal.has_value());
+    ImGui::BeginDisabled(running || pending_proposal.has_value() ||
+        collaboration_mode == EditorAiCollaborationMode::Plan);
     if (editor_icon_button(
         "authoring_security",
         EditorIcon::Shield,
@@ -2833,7 +3425,12 @@ void AiAssistantPanel::on_gui() {
     ImGui::EndDisabled();
     if (ImGui::GetContentRegionAvail().x > 330.0f) {
         ImGui::SameLine();
-        if (m_authoring_mode == AuthoringMode::AutonomousSafe) {
+        if (collaboration_mode == EditorAiCollaborationMode::Plan) {
+            ImGui::TextColored(
+                ImVec4(0.48f, 0.66f, 0.95f, 1.0f),
+                "Read-only plan"
+            );
+        } else if (m_authoring_mode == AuthoringMode::AutonomousSafe) {
             ImGui::TextColored(
                 ImGui::GetStyleColorVec4(ImGuiCol_TabSelectedOverline),
                 "Autonomous safe"
@@ -2842,7 +3439,8 @@ void AiAssistantPanel::on_gui() {
             ImGui::TextDisabled("Confirm changes");
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Change authoring approval mode");
-        if (ImGui::IsItemClicked() && !running && !pending_proposal.has_value()) {
+        if (ImGui::IsItemClicked() && !running && !pending_proposal.has_value() &&
+            collaboration_mode != EditorAiCollaborationMode::Plan) {
             toggle_authoring_mode();
         }
     }
@@ -2932,19 +3530,46 @@ void AiAssistantPanel::on_gui() {
         ImGui::TextDisabled("Working: %s", active_tool.c_str());
     }
     if (!request_error.empty()) {
-        ImGui::TextColored(ImVec4(0.95f, 0.36f, 0.32f, 1.0f), "%s", request_error.c_str());
-    }
-    if (!running && total_tokens > 0) {
-        ImGui::TextDisabled(
-            "Last request: %.2fs | %zu tools",
-            static_cast<double>(request_duration_ms) / 1000.0,
-            tool_calls
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.36f, 0.32f, 1.0f));
+        draw_selectable_text(
+            "##request-error",
+            friendly_request_error(request_error),
+            std::max(1.0f, ImGui::GetContentRegionAvail().x)
         );
-        ImGui::TextDisabled(
-            "Usage: %zu input | %zu output | %zu total tokens",
-            input_tokens,
-            output_tokens,
-            total_tokens
+        ImGui::PopStyleColor();
+        ImGui::BeginDisabled(running || pending_proposal.has_value() || !provider_available ||
+            !credentials_available);
+        if (ImGui::SmallButton("Retry request")) {
+            start_request(
+                "Retry the previous request from a fresh scene snapshot. Re-resolve every target "
+                "and repeat required proposal actions because the interrupted proposal was discarded."
+            );
+        }
+        ImGui::EndDisabled();
+    }
+    if (!running && (total_tokens > 0 || !request_error.empty() || !ui_feedback.empty()) &&
+        ImGui::CollapsingHeader("Last request details")) {
+        char duration[32];
+        std::snprintf(
+            duration,
+            sizeof(duration),
+            "%.2f",
+            static_cast<double>(request_duration_ms) / 1000.0
+        );
+        std::string request_details = std::string("Duration: ") + duration +
+            " s\nEditor tools: " + std::to_string(tool_calls);
+        if (total_tokens > 0) {
+            request_details += "\nTokens: " + std::to_string(input_tokens) + " input, " +
+                std::to_string(output_tokens) + " output, " + std::to_string(total_tokens) +
+                " total";
+        }
+        if (!request_error.empty()) request_details += "\n\nTechnical error\n" + request_error;
+        request_details += "\n\nAudit log: Console and Library/engine.log";
+        draw_selectable_text(
+            "##last-request-details",
+            request_details,
+            std::max(1.0f, ImGui::GetContentRegionAvail().x),
+            180.0f
         );
         if (using_codex && !codex_thread_id.empty() &&
             (compact_before_next_request || input_tokens >= AUTO_COMPACT_INPUT_TOKEN_THRESHOLD)) {
@@ -2954,12 +3579,14 @@ void AiAssistantPanel::on_gui() {
             );
         }
     }
-    ImGui::TextDisabled("Audit logs: Console + engine.log");
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Request IDs and session metadata only; no prompts or credentials");
-    }
     if (!ui_feedback.empty()) {
-        ImGui::TextColored(ImVec4(0.48f, 0.66f, 0.95f, 1.0f), "%s", ui_feedback.c_str());
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.48f, 0.66f, 0.95f, 1.0f));
+        draw_selectable_text(
+            "##ui-feedback",
+            ui_feedback,
+            std::max(1.0f, ImGui::GetContentRegionAvail().x)
+        );
+        ImGui::PopStyleColor();
     }
 
     if (pending_proposal) {
@@ -3011,8 +3638,17 @@ void AiAssistantPanel::on_gui() {
             }
         }
         ImGui::BeginChild("AIPendingProposal", ImVec2(0.0f, 118.0f), true);
-        for (const EditorAiAuthoringAction& action : pending_proposal->actions) {
-            ImGui::BulletText("%s", action.summary.c_str());
+        for (std::size_t index = 0; index < pending_proposal->actions.size(); ++index) {
+            const EditorAiAuthoringAction& action = pending_proposal->actions[index];
+            ImGui::PushID(static_cast<int>(index));
+            ImGui::Bullet();
+            ImGui::SameLine();
+            draw_selectable_text(
+                "##proposal-action",
+                action.summary,
+                std::max(1.0f, ImGui::GetContentRegionAvail().x)
+            );
+            ImGui::PopID();
         }
         ImGui::EndChild();
         if (!pending_proposal->auto_apply) {
@@ -3024,13 +3660,19 @@ void AiAssistantPanel::on_gui() {
 
     if (!authoring_feedback.empty()) {
         const bool failed = authoring_feedback.starts_with("Proposal rejected") ||
-            authoring_feedback.starts_with("Failed");
-        ImGui::TextColored(
+            authoring_feedback.starts_with("Failed") ||
+            authoring_feedback.find("failed") != std::string::npos;
+        ImGui::PushStyleColor(
+            ImGuiCol_Text,
             failed ? ImVec4(0.95f, 0.36f, 0.32f, 1.0f)
-                   : ImVec4(0.35f, 0.78f, 0.52f, 1.0f),
-            "%s",
-            authoring_feedback.c_str()
+                   : ImVec4(0.35f, 0.78f, 0.52f, 1.0f)
         );
+        draw_selectable_text(
+            "##authoring-feedback",
+            authoring_feedback,
+            std::max(1.0f, ImGui::GetContentRegionAvail().x)
+        );
+        ImGui::PopStyleColor();
     }
     if (iterative_session && iterative_session->status() !=
             EditorAiAuthoringSession::Status::Idle) {
@@ -3051,9 +3693,12 @@ void AiAssistantPanel::on_gui() {
         if (ImGui::Button("Copy receipt JSON")) {
             copy_to_clipboard(receipt_text, "Application receipt copied.");
         }
-        ImGui::BeginChild("AIApplicationReceipt", ImVec2(0.0f, 150.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
-        ImGui::TextUnformatted(receipt_text.c_str());
-        ImGui::EndChild();
+        draw_selectable_text(
+            "##application-receipt",
+            receipt_text,
+            std::max(1.0f, ImGui::GetContentRegionAvail().x),
+            150.0f
+        );
     }
 
     bool can_undo_ai_session = false;
@@ -3084,9 +3729,12 @@ void AiAssistantPanel::on_gui() {
         }
         ImGui::SameLine();
         ImGui::TextDisabled("Live scene metadata; document contents are loaded only on request");
-        ImGui::BeginChild("AIContextPreview", ImVec2(0.0f, 180.0f), true, ImGuiWindowFlags_HorizontalScrollbar);
-        ImGui::TextUnformatted(context.c_str());
-        ImGui::EndChild();
+        draw_selectable_text(
+            "##context-preview",
+            context,
+            std::max(1.0f, ImGui::GetContentRegionAvail().x),
+            180.0f
+        );
     }
 
     ImGui::End();

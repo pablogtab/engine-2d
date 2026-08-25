@@ -1,10 +1,11 @@
 # AI-assisted authoring contract
 
-The AI Assistant is an editor integration with **Full Access** when using the
-Codex-subscription backend. Codex may inspect, create, modify, and execute files
-and commands in the local environment. This is a direct automation path and may
-change files outside the editor's Undo/Redo history. It also receives a frozen
-snapshot of the active scene and selection plus validated editor tools.
+The AI Assistant uses **Full Access** for Build turns on the Codex-subscription
+backend. Codex may inspect, create, modify, and execute files and commands in the
+local environment. This is a direct automation path and may change files outside
+the editor's Undo/Redo history. Plan turns override the same persistent thread to
+a read-only sandbox. Both modes receive a frozen snapshot of the active scene and
+selection plus validated editor tools.
 
 Use validated `propose_*` tools for scene changes whenever the result must retain
 the editor's atomic validation, serialization, Undo/Redo, and authoring-revision
@@ -33,6 +34,32 @@ The default mode is **Confirm before apply**. **Autonomous safe** skips the huma
 confirmation click but uses exactly the same validation and command path. In
 confirmation mode, every correction batch is reviewed separately. In autonomous
 mode, application and verification continue without an extra click.
+
+## Plan and automatic Build transition
+
+The composer exposes the App Server collaboration modes as `Plan` and `Build`.
+Plan is not simulated with prompt wording: `turn/start` receives the native
+`collaborationMode.mode = plan` preset and a read-only sandbox policy. Read tools,
+attached entities/assets, screenshots, project documents, engine capabilities,
+and ephemeral viewport inspection remain available. Authoring tools and direct
+filesystem writes are rejected.
+
+App Server `turn/plan/updated` notifications populate the live step list. The
+completed `plan` item is authoritative, increments the editor-owned revision when
+its text changes, and is persisted with the conversation. Follow-up messages stay
+in Plan so the user can change scope, assumptions, validation, or ordering without
+losing the inspected context. App Server `requestUserInput` questions are rendered
+inside the conversation and the turn resumes after every required answer is sent.
+
+`Approve & Build` explicitly freezes the current plan revision. The same transition
+also happens automatically when Codex semantically determines that the current
+user message explicitly requests implementation and calls the non-mutating
+`begin_plan_implementation` intent tool. The policy rejects generic acknowledgements
+such as `ok` unless the message also authorizes implementation. After the Plan turn
+finishes, the editor changes the next turn to the native default collaboration mode,
+restores Full Access, supplies the frozen plan as authoritative scope, and starts
+the existing iterative authoring flow. This avoids brittle phrase matching while
+keeping the actual mode and permission change under editor control.
 
 ## Iterative authoring sessions
 
@@ -103,9 +130,10 @@ is serialized, prefab-safe, editable through Undo/Redo, visible to EngineScript,
 and automatically included in AI entity snapshots.
 Persistent Codex threads record the editor tool-contract version. When that
 contract or Full Access policy changes, the editor starts a compatible replacement
-thread and injects the bounded local conversation history because App Server only
-accepts dynamic tool declarations and sandbox policy on `thread/start`, not
-`thread/resume`.
+thread and injects the bounded local conversation history because App Server binds
+dynamic tool declarations on `thread/start`. Collaboration mode and sandbox policy
+are overridden per turn, which allows one persistent thread to move safely between
+Plan and Build.
 
 ## Authoring action set
 
@@ -250,11 +278,35 @@ count, request duration, and token usage. Prompt/message content,
 reasoning-summary text, API keys, and credentials are never logged.
 
 Codex turns request the App Server's public `auto` reasoning summary. The panel
-streams this summary into a collapsible Activity block together with timestamped
-item and editor-tool lifecycle entries. Raw `item/reasoning/textDelta` content is
+groups each App Server item into one operation instead of rendering separate
+started/completed log lines. The Activity header is open while work is running and
+collapsed after completion. Every command, file change, search, image generation,
+or editor tool has an optional detail row with its structured arguments, output,
+status, duration, and result; individual details are capped at 64 KiB. Response,
+plan, receipt, context, status, reasoning-summary, and operation-detail text uses
+read-only selectable controls. Raw `item/reasoning/textDelta` content is
 intentionally ignored: the UI exposes the supported summary, not private model
 reasoning. Activity is transient request diagnostics and is not persisted in the
-conversation store.
+conversation store. Distinct App Server `agentMessage` items are separated by a
+blank line so commentary and later iteration results remain separate paragraphs.
+
+The provider also guards the protocol itself. Every Engine2D dynamic tool is
+requested directly and one at a time instead of being invoked from programmatic
+`exec` code; this includes read-only inspection and authoring tools. If Codex
+announces a dynamic editor tool but does not send its execution request within 120 seconds,
+or if the App
+Server produces no event for 180 seconds, the editor interrupts the turn and
+reports a recoverable failure. In-progress Activity rows are closed as failed,
+unapplied proposal actions are discarded, and **Retry request** starts again from
+a fresh scene snapshot so entity and asset targets are resolved again instead of
+reusing stale IDs.
+
+When an automatic verification resumes a persistent thread immediately after an
+application, the provider retries the transient `already has an active writer`
+condition with bounded backoff. If the writer remains unavailable, the panel says
+that application succeeded but verification could not start, preserves every
+applied batch, and keeps the raw protocol error only in the request-details
+dropdown.
 
 Every successful application also emits a structured receipt containing the
 request ID, before/after revisions, queued action summaries, and bounded lists of

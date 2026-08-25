@@ -7,7 +7,24 @@ namespace Engine {
 std::string
 build_editor_ai_request_instructions(const EditorAiRequestPolicyInput &input) {
   std::string instructions;
-  if (input.image_generation_requested && input.authoring_available) {
+  if (input.planning) {
+    instructions =
+        "Work only in Plan mode. Inspect the repository and live editor state deeply enough to "
+        "produce a grounded implementation plan, but do not modify files, scenes, assets, or "
+        "external state. Iterate on the plan when the user requests changes. Use structured user "
+        "questions only when an answer materially changes the design. The dynamic tool "
+        "begin_plan_implementation is an intent signal, not an authoring tool: call it exactly once "
+        "only when the current user message clearly authorizes implementing the current plan. Do "
+        "not call it for an acknowledgement such as ok or sounds good by itself. Treat an explicit "
+        "request to act now in any language as authorization, including implement, execute, build, "
+        "start, proceed, continue, hazlo, hacelo, hagamoslo, vamos con eso, ejecutar, construir, "
+        "empezar, continuar, or avanzar con el plan. "
+        "Before signaling implementation, ensure the final plan reflects the latest request.";
+    if (input.has_existing_plan) {
+      instructions += " The current authoritative plan is revision data from the editor: " +
+          input.existing_plan + ".";
+    }
+  } else if (input.image_generation_requested && input.authoring_available) {
     instructions = "Complete one bounded texture workflow. Resolve the "
                    "requested target with selection context "
                    "or find_scene_entities, then generate exactly one suitable "
@@ -133,6 +150,11 @@ build_editor_ai_request_instructions(const EditorAiRequestPolicyInput &input) {
         "request. Viewport "
         "navigation is ephemeral and never part of scene Undo history.";
   }
+  instructions +=
+      " Never invoke any Engine2D dynamic editor tool from exec, JavaScript, Promise.all, or other "
+      "programmatic tool code. This applies to read-only inspection, viewport, command, authoring, "
+      "and plan-transition tools. Call every Engine2D tool directly and one at a time, and wait for "
+      "its result before issuing the next call.";
   return instructions;
 }
 

@@ -1,7 +1,9 @@
 #include "CodexAppServerProvider.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <optional>
+#include <thread>
 
 namespace Engine {
 namespace {
@@ -11,6 +13,16 @@ constexpr int THREAD_OPEN_ID = 2;
 constexpr int HISTORY_INJECT_ID = 3;
 constexpr int TURN_START_ID = 4;
 constexpr int THREAD_COMPACT_ID = 7;
+constexpr int THREAD_RESUME_RETRY_ID = 20;
+
+bool active_writer_error(const std::string& error) {
+    return error.find("already has an active writer") != std::string::npos;
+}
+
+std::string paragraph_separator(const std::string& text) {
+    if (text.empty() || text.ends_with("\n\n")) return {};
+    return text.ends_with('\n') ? "\n" : "\n\n";
+}
 
 void emit_event(
     const std::function<void(const EditorAiProviderEvent&)>& callback,
@@ -37,10 +49,15 @@ nlohmann::json dynamic_tools(const nlohmann::json& response_tools) {
             !tool.contains("name") || !tool.at("name").is_string()) {
             continue;
         }
+        const std::string name = tool.at("name").get<std::string>();
+        std::string description = tool.value("description", "Engine2D editor tool");
+        description +=
+            " Invoke this Engine2D tool directly and one at a time. Never call it from exec, "
+            "JavaScript, Promise.all, or other programmatic tool code.";
         tools.push_back({
             {"type", "function"},
-            {"name", tool.at("name")},
-            {"description", tool.value("description", "Engine2D editor tool")},
+            {"name", name},
+            {"description", std::move(description)},
             {"inputSchema", tool.value("parameters", nlohmann::json::object())}
         });
     }
@@ -82,6 +99,56 @@ std::string completed_turn_text(const nlohmann::json& turn) {
         }
     }
     return text;
+}
+
+std::vector<EditorAiPlanStep> parse_plan_steps(const nlohmann::json& value) {
+    std::vector<EditorAiPlanStep> steps;
+    if (!value.is_array()) return steps;
+    for (const auto& item : value) {
+        if (!item.is_object()) continue;
+        const std::string step = item.value("step", "");
+        if (step.empty()) continue;
+        steps.push_back({step, item.value("status", "pending")});
+    }
+    return steps;
+}
+
+std::optional<EditorAiUserInputRequest> parse_user_input_request(
+    const nlohmann::json& params
+) {
+    if (!params.is_object() || !params.contains("questions") ||
+        !params.at("questions").is_array()) {
+        return std::nullopt;
+    }
+    EditorAiUserInputRequest request;
+    request.item_id = params.value("itemId", "");
+    request.blocking = params.value("isBlocking", true);
+    if (params.contains("autoResolutionMs") && params.at("autoResolutionMs").is_number_unsigned()) {
+        request.auto_resolution_ms = params.at("autoResolutionMs").get<std::uint64_t>();
+    }
+    for (const auto& value : params.at("questions")) {
+        if (!value.is_object()) continue;
+        EditorAiUserInputQuestion question;
+        question.id = value.value("id", "");
+        question.header = value.value("header", "");
+        question.question = value.value("question", "");
+        question.allow_other = value.value("isOther", false);
+        question.secret = value.value("isSecret", false);
+        if (value.contains("options") && value.at("options").is_array()) {
+            for (const auto& option : value.at("options")) {
+                if (!option.is_object()) continue;
+                const std::string label = option.value("label", "");
+                if (!label.empty()) {
+                    question.options.push_back({label, option.value("description", "")});
+                }
+            }
+        }
+        if (!question.id.empty() && !question.question.empty()) {
+            request.questions.push_back(std::move(question));
+        }
+    }
+    if (request.questions.empty()) return std::nullopt;
+    return request;
 }
 
 std::string turn_error(const nlohmann::json& turn) {
@@ -127,7 +194,39 @@ EditorAiProviderResult CodexAppServerProvider::run(
         result.error = "A prompt is required";
         return result;
     }
-    const auto cancelled = [&is_cancelled]() { return is_cancelled && is_cancelled(); };
+    std::string watchdog_error;
+    std::string pending_dynamic_tool_item;
+    auto pending_dynamic_tool_started_at = std::chrono::steady_clock::time_point{};
+    auto last_provider_message_at = std::chrono::steady_clock::now();
+    const auto cancelled = [
+        &is_cancelled,
+        &watchdog_error,
+        &pending_dynamic_tool_item,
+        &pending_dynamic_tool_started_at,
+        &last_provider_message_at,
+        &request
+    ]() {
+        if (is_cancelled && is_cancelled()) return true;
+        const auto now = std::chrono::steady_clock::now();
+        if (request.dynamic_tool_start_timeout_ms > 0 &&
+            !pending_dynamic_tool_item.empty() &&
+            pending_dynamic_tool_started_at != std::chrono::steady_clock::time_point{} &&
+            now - pending_dynamic_tool_started_at >=
+                std::chrono::milliseconds(request.dynamic_tool_start_timeout_ms)) {
+            watchdog_error = "Codex announced editor tool item '" + pending_dynamic_tool_item +
+                "' but did not send its execution request within " +
+                std::to_string(request.dynamic_tool_start_timeout_ms / 1000) + " seconds";
+            return true;
+        }
+        if (request.provider_inactivity_timeout_ms > 0 &&
+            now - last_provider_message_at >=
+                std::chrono::milliseconds(request.provider_inactivity_timeout_ms)) {
+            watchdog_error = "Codex App Server produced no events for " +
+                std::to_string(request.provider_inactivity_timeout_ms / 1000) + " seconds";
+            return true;
+        }
+        return false;
+    };
     if (cancelled()) {
         result.status = EditorAiProviderStatus::Cancelled;
         return result;
@@ -149,16 +248,28 @@ EditorAiProviderResult CodexAppServerProvider::run(
         result.error = error.empty() ? "Could not write to Codex App Server" : error;
         return false;
     };
-    const auto read_message = [this, &result, &cancelled]() -> std::optional<nlohmann::json> {
+    const auto read_message = [
+        this,
+        &result,
+        &cancelled,
+        &watchdog_error,
+        &last_provider_message_at
+    ]() -> std::optional<nlohmann::json> {
         const CodexAppServerReadResult read = m_transport->read_line(cancelled);
         if (read.status == CodexAppServerReadStatus::Cancelled) {
-            result.status = EditorAiProviderStatus::Cancelled;
+            if (!watchdog_error.empty()) {
+                result.status = EditorAiProviderStatus::Failed;
+                result.error = watchdog_error;
+            } else {
+                result.status = EditorAiProviderStatus::Cancelled;
+            }
             return std::nullopt;
         }
         if (read.status != CodexAppServerReadStatus::Line) {
             result.error = !read.error.empty() ? read.error : "Codex App Server closed unexpectedly";
             return std::nullopt;
         }
+        last_provider_message_at = std::chrono::steady_clock::now();
         nlohmann::json message = nlohmann::json::parse(read.line, nullptr, false);
         if (message.is_discarded() || !message.is_object()) {
             result.error = "Codex App Server returned malformed JSONL data";
@@ -220,12 +331,24 @@ EditorAiProviderResult CodexAppServerProvider::run(
         thread_params["dynamicTools"] = dynamic_tools(request.tools);
         thread_params["serviceName"] = "engine2d_editor";
     }
-    if (!send({
-        {"id", THREAD_OPEN_ID},
-        {"method", resuming_thread ? "thread/resume" : "thread/start"},
-        {"params", std::move(thread_params)}
-    })) return result;
-    const auto thread_open = wait_for_response(THREAD_OPEN_ID);
+    std::optional<nlohmann::json> thread_open;
+    constexpr int MAX_ACTIVE_WRITER_RETRIES = 5;
+    for (int attempt = 0; attempt <= MAX_ACTIVE_WRITER_RETRIES; ++attempt) {
+        const int request_id = attempt == 0 ? THREAD_OPEN_ID : THREAD_RESUME_RETRY_ID + attempt;
+        if (!send({
+            {"id", request_id},
+            {"method", resuming_thread ? "thread/resume" : "thread/start"},
+            {"params", thread_params}
+        })) return result;
+        thread_open = wait_for_response(request_id);
+        if (thread_open) break;
+        if (!resuming_thread || !active_writer_error(result.error) ||
+            attempt == MAX_ACTIVE_WRITER_RETRIES) {
+            return result;
+        }
+        result.error.clear();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100 * (1 << attempt)));
+    }
     if (!thread_open) return result;
     if (!thread_open->contains("thread") || !thread_open->at("thread").is_object()) {
         result.error = "Codex App Server did not return a thread";
@@ -264,7 +387,8 @@ EditorAiProviderResult CodexAppServerProvider::run(
         while (!request_acknowledged || !turn_completed) {
             const auto message = read_message();
             if (!message) {
-                if (result.status == EditorAiProviderStatus::Cancelled &&
+                if ((result.status == EditorAiProviderStatus::Cancelled ||
+                     !watchdog_error.empty()) &&
                     !compaction_turn_id.empty()) {
                     send({
                         {"id", 8},
@@ -366,24 +490,40 @@ EditorAiProviderResult CodexAppServerProvider::run(
         {"text", request.prompt},
         {"text_elements", nlohmann::json::array()}
     });
+    nlohmann::json turn_params{
+        {"threadId", thread_id},
+        {"input", std::move(turn_input)},
+        {"effort", request.reasoning_effort.empty() ? "low" : request.reasoning_effort},
+        {"summary", request.reasoning_summary.empty() ? "auto" : request.reasoning_summary}
+    };
+    turn_params["collaborationMode"] = {
+        {"mode", request.collaboration_mode == EditorAiCollaborationMode::Plan
+            ? "plan" : "default"},
+        {"settings", {
+            {"model", request.model},
+            {"reasoning_effort", request.reasoning_effort.empty()
+                ? "low" : request.reasoning_effort},
+            {"developer_instructions", nullptr}
+        }}
+    };
+    turn_params["sandboxPolicy"] = request.collaboration_mode == EditorAiCollaborationMode::Plan
+        ? nlohmann::json{{"type", "readOnly"}, {"networkAccess", false}}
+        : nlohmann::json{{"type", "dangerFullAccess"}};
     if (!send({
         {"id", TURN_START_ID},
         {"method", "turn/start"},
-        {"params", {
-            {"threadId", thread_id},
-            {"input", std::move(turn_input)},
-            {"effort", request.reasoning_effort.empty() ? "low" : request.reasoning_effort},
-            {"summary", request.reasoning_summary.empty() ? "auto" : request.reasoning_summary}
-        }}
+        {"params", std::move(turn_params)}
     })) return result;
     emit_event(on_event, {EditorAiProviderEventType::Started, {}, {}});
 
     std::string turn_id;
+    std::string active_agent_message_id;
     std::size_t tool_failures = 0;
     while (true) {
         const auto message = read_message();
         if (!message) {
-            if (result.status == EditorAiProviderStatus::Cancelled && !turn_id.empty()) {
+            if ((result.status == EditorAiProviderStatus::Cancelled ||
+                 !watchdog_error.empty()) && !turn_id.empty()) {
                 send({
                     {"id", 5},
                     {"method", "turn/interrupt"},
@@ -407,15 +547,36 @@ EditorAiProviderResult CodexAppServerProvider::run(
 
         const std::string method = message->value("method", "");
         if (method == "item/agentMessage/delta") {
-            const std::string delta = message->value("params", nlohmann::json::object()).value("delta", "");
+            const auto& params = message->value("params", nlohmann::json::object());
+            const std::string item_id = params.value("itemId", "");
+            if (!item_id.empty() && !active_agent_message_id.empty() &&
+                item_id != active_agent_message_id) {
+                const std::string separator = paragraph_separator(result.text);
+                result.text += separator;
+                if (!separator.empty()) {
+                    EditorAiProviderEvent boundary;
+                    boundary.type = EditorAiProviderEventType::TextDelta;
+                    boundary.text = separator;
+                    boundary.item_id = item_id;
+                    emit_event(on_event, std::move(boundary));
+                }
+            }
+            if (!item_id.empty()) active_agent_message_id = item_id;
+            const std::string delta = params.value("delta", "");
             result.text += delta;
-            emit_event(on_event, {EditorAiProviderEventType::TextDelta, delta, {}});
+            EditorAiProviderEvent text_event;
+            text_event.type = EditorAiProviderEventType::TextDelta;
+            text_event.text = delta;
+            text_event.item_id = item_id;
+            emit_event(on_event, std::move(text_event));
         } else if (method == "item/reasoning/summaryTextDelta") {
             const auto& params = message->value("params", nlohmann::json::object());
             EditorAiProviderEvent event;
             event.type = EditorAiProviderEventType::ReasoningSummaryDelta;
             event.text = params.value("delta", "");
             event.item_id = params.value("itemId", "");
+            event.item_type = "reasoning";
+            event.item_status = "inProgress";
             emit_event(on_event, std::move(event));
         } else if (method == "item/reasoning/summaryPartAdded") {
             const auto& params = message->value("params", nlohmann::json::object());
@@ -424,8 +585,34 @@ EditorAiProviderResult CodexAppServerProvider::run(
                 event.type = EditorAiProviderEventType::ReasoningSummaryDelta;
                 event.text = "\n\n";
                 event.item_id = params.value("itemId", "");
+                event.item_type = "reasoning";
+                event.item_status = "inProgress";
                 emit_event(on_event, std::move(event));
             }
+        } else if (method == "item/plan/delta") {
+            const auto& params = message->value("params", nlohmann::json::object());
+            EditorAiProviderEvent event;
+            event.type = EditorAiProviderEventType::PlanDelta;
+            event.text = params.value("delta", "");
+            event.item_id = params.value("itemId", "");
+            emit_event(on_event, std::move(event));
+        } else if (method == "item/commandExecution/outputDelta") {
+            const auto& params = message->value("params", nlohmann::json::object());
+            EditorAiProviderEvent event;
+            event.type = EditorAiProviderEventType::ItemOutputDelta;
+            event.item_id = params.value("itemId", "");
+            event.item_type = "commandExecution";
+            event.text = params.value("delta", "");
+            emit_event(on_event, std::move(event));
+        } else if (method == "turn/plan/updated") {
+            const auto& params = message->value("params", nlohmann::json::object());
+            result.plan_explanation = params.value("explanation", "");
+            result.plan = parse_plan_steps(params.value("plan", nlohmann::json::array()));
+            EditorAiProviderEvent event;
+            event.type = EditorAiProviderEventType::PlanUpdated;
+            event.explanation = result.plan_explanation;
+            event.plan = result.plan;
+            emit_event(on_event, std::move(event));
         } else if (method == "thread/tokenUsage/updated") {
             const auto& params = message->value("params", nlohmann::json::object());
             if (params.contains("tokenUsage") && params.at("tokenUsage").contains("last")) {
@@ -442,7 +629,12 @@ EditorAiProviderResult CodexAppServerProvider::run(
             activity.item_id = item.value("id", "");
             activity.item_type = item.value("type", "unknown");
             activity.item_status = item.value("status", "inProgress");
+            activity.details = item;
             emit_event(on_event, std::move(activity));
+            if (item.value("type", "") == "dynamicToolCall") {
+                pending_dynamic_tool_item = item.value("id", "unknown");
+                pending_dynamic_tool_started_at = std::chrono::steady_clock::now();
+            }
             if (item.value("type", "") == "imageGeneration") {
                 emit_event(on_event, {
                     EditorAiProviderEventType::ToolStarted, {}, "Codex ImageGen"
@@ -456,7 +648,24 @@ EditorAiProviderResult CodexAppServerProvider::run(
             activity.item_id = item.value("id", "");
             activity.item_type = item.value("type", "unknown");
             activity.item_status = item.value("status", "completed");
+            activity.details = item;
             emit_event(on_event, std::move(activity));
+            if (item.value("type", "") == "dynamicToolCall" &&
+                (pending_dynamic_tool_item == item.value("id", "") ||
+                 pending_dynamic_tool_item == "unknown")) {
+                pending_dynamic_tool_item.clear();
+                pending_dynamic_tool_started_at = {};
+            }
+            if (item.value("type", "") == "plan" && item.contains("text") &&
+                item.at("text").is_string()) {
+                result.plan_text = item.at("text").get<std::string>();
+                EditorAiProviderEvent plan_event;
+                plan_event.type = EditorAiProviderEventType::PlanCompleted;
+                plan_event.text = result.plan_text;
+                plan_event.item_id = item.value("id", "");
+                plan_event.plan = result.plan;
+                emit_event(on_event, std::move(plan_event));
+            }
             const bool image_generation_item = item.value("type", "") == "imageGeneration";
             if (image_generation_item &&
                 item.value("status", "") == "completed" &&
@@ -473,10 +682,52 @@ EditorAiProviderResult CodexAppServerProvider::run(
                 item.value("status", "") == "completed" ? "success" : "failed",
                 "Codex ImageGen"
             });
+        } else if (method == "item/tool/requestUserInput" && message->contains("id")) {
+            const auto& params = message->value("params", nlohmann::json::object());
+            const auto input_request = parse_user_input_request(params);
+            if (!input_request || !request.request_user_input) {
+                if (!send({
+                    {"id", message->at("id")},
+                    {"error", {{"code", -32602}, {"message", "User input is unavailable"}}}
+                })) return result;
+                continue;
+            }
+            const auto answers = request.request_user_input(*input_request);
+            if (!answers) {
+                if (!send({
+                    {"id", message->at("id")},
+                    {"error", {{"code", -32800}, {"message", "User input was cancelled"}}}
+                })) return result;
+                continue;
+            }
+            nlohmann::json answer_map = nlohmann::json::object();
+            for (const auto& [question_id, values] : *answers) {
+                answer_map[question_id] = {{"answers", values}};
+            }
+            if (!send({
+                {"id", message->at("id")},
+                {"result", {{"answers", std::move(answer_map)}}}
+            })) return result;
         } else if (method == "item/tool/call" && message->contains("id")) {
             const auto& params = message->value("params", nlohmann::json::object());
             const std::string name = params.value("tool", "");
-            emit_event(on_event, {EditorAiProviderEventType::ToolStarted, {}, name});
+            const std::string lifecycle_item_id = pending_dynamic_tool_item;
+            const std::string tool_activity_item_id = lifecycle_item_id.empty()
+                ? params.value("callId", params.value("itemId", ""))
+                : lifecycle_item_id;
+            pending_dynamic_tool_item.clear();
+            pending_dynamic_tool_started_at = {};
+            EditorAiProviderEvent tool_started_event;
+            tool_started_event.type = EditorAiProviderEventType::ToolStarted;
+            tool_started_event.tool_name = name;
+            tool_started_event.item_id = tool_activity_item_id;
+            tool_started_event.item_type = "dynamicToolCall";
+            tool_started_event.item_status = "inProgress";
+            tool_started_event.details = {
+                {"tool", name},
+                {"arguments", params.value("arguments", nlohmann::json::object())}
+            };
+            emit_event(on_event, std::move(tool_started_event));
             EditorAiToolResult tool_result;
             if (++result.tool_call_count > request.max_tool_rounds) {
                 tool_result = {false, {}, "Codex exceeded the editor tool-call limit"};
@@ -506,11 +757,21 @@ EditorAiProviderResult CodexAppServerProvider::run(
                     {"success", tool_result.success}
                 }}
             })) return result;
-            emit_event(on_event, {
-                EditorAiProviderEventType::ToolFinished,
-                tool_result.success ? "success" : tool_result.error,
-                name
-            });
+            EditorAiProviderEvent tool_finished_event;
+            tool_finished_event.type = EditorAiProviderEventType::ToolFinished;
+            tool_finished_event.text = tool_result.success ? "success" : tool_result.error;
+            tool_finished_event.tool_name = name;
+            tool_finished_event.item_id = tool_activity_item_id;
+            tool_finished_event.item_type = "dynamicToolCall";
+            tool_finished_event.item_status = tool_result.success ? "completed" : "failed";
+            tool_finished_event.details = {
+                {"tool", name},
+                {"arguments", params.value("arguments", nlohmann::json::object())},
+                {"success", tool_result.success}
+            };
+            if (tool_result.success) tool_finished_event.details["result"] = tool_result.output;
+            else tool_finished_event.details["error"] = tool_result.error;
+            emit_event(on_event, std::move(tool_finished_event));
             const bool call_limit_reached = result.tool_call_count > request.max_tool_rounds;
             const bool failure_limit_reached = !tool_result.success &&
                 ++tool_failures >= request.max_tool_failures;
@@ -537,6 +798,9 @@ EditorAiProviderResult CodexAppServerProvider::run(
                     result.text = final_text;
                     emit_event(on_event, {EditorAiProviderEventType::TextDelta, final_text, {}});
                 }
+            }
+            if (result.text.empty() && !result.plan_text.empty()) {
+                result.text = result.plan_text;
             }
             const std::string status = turn.value("status", "failed");
             if (status == "completed") {

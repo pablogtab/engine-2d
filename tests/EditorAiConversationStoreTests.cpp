@@ -46,6 +46,11 @@ void test_persists_active_conversation_and_messages() {
     store.record(make_conversation("thread-first", "Create a player", 100));
     auto second = make_conversation("thread-second", "Explain the renderer", 200);
     second.messages.push_back({"editor", "Applied successfully."});
+    second.collaboration_mode = Engine::EditorAiCollaborationMode::Plan;
+    second.plan_revision = 3;
+    second.plan_text = "# Plan";
+    second.plan_explanation = "Refined";
+    second.plan = {{"Inspect", "completed"}, {"Build", "pending"}};
     store.record(std::move(second));
     assert(store.active_thread_id() == "thread-second");
 
@@ -68,6 +73,11 @@ void test_persists_active_conversation_and_messages() {
     assert(loaded.active_conversation()->last_input_tokens == 24000);
     assert(loaded.active_conversation()->last_output_tokens == 500);
     assert(loaded.active_conversation()->last_total_tokens == 24500);
+    assert(loaded.active_conversation()->collaboration_mode ==
+        Engine::EditorAiCollaborationMode::Plan);
+    assert(loaded.active_conversation()->plan_revision == 3);
+    assert(loaded.active_conversation()->plan_text == "# Plan");
+    assert(loaded.active_conversation()->plan.size() == 2);
 }
 
 void test_switches_and_clears_active_conversation_without_deleting_history() {
