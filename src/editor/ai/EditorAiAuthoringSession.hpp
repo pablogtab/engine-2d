@@ -14,6 +14,7 @@ public:
     enum class Status {
         Idle,
         Active,
+        ValidatedAtomically,
         Verified,
         TimeBudgetReached,
         Cancelled,
@@ -28,6 +29,7 @@ public:
     );
     [[nodiscard]] bool record_applied_batch(std::size_t action_count, std::string& error);
     void record_work_time(std::chrono::milliseconds duration);
+    void finish_validated_atomically();
     void finish_verified();
     void finish_time_budget();
     void finish_cancelled(std::string reason);

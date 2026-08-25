@@ -47,8 +47,9 @@ build_editor_ai_request_instructions(const EditorAiRequestPolicyInput &input) {
         "intermediate reasoning. The tool "
         "schemas are the source of truth: do not inspect workspace files to "
         "discover argument shapes. "
-        "Use find_scene_entities before changing an existing target and pass "
-        "its numeric entity_id. "
+        "Use an entity_id from attached context or the compact project overview when it uniquely "
+        "identifies the requested gameplay role. Otherwise use find_scene_entities before changing "
+        "an existing target. "
         "If a search returns multiple matches, narrow it or use selection "
         "context instead of guessing. "
         "entity_alias is request-local and may only reference an entity "
@@ -58,9 +59,9 @@ build_editor_ai_request_instructions(const EditorAiRequestPolicyInput &input) {
         "do not persist. Creating a root entity does not require inspection. "
         "Fold the final name and transform of a new entity into its "
         "propose_create_entity call instead of queuing redundant transform "
-        "actions. Include required components there and configure components "
-        "that need assets or values later in the same proposal; validation "
-        "uses the final atomic state. For script, assign script_handle and "
+        "actions. Include required components and component_patches there whenever their values are "
+        "already known, instead of issuing later configure calls; validation uses the final atomic "
+        "state. For script, assign script_handle and "
         "enabled. Omit public_fields unless explicit overrides are required; "
         "their canonical types are boolean, number, string, vector2, entity, "
         "and asset. A successful "
@@ -70,7 +71,11 @@ build_editor_ai_request_instructions(const EditorAiRequestPolicyInput &input) {
         "files. Use find_project_assets for stable handles. A ready match "
         "already contains enough identity and readiness data for assignment; "
         "do not call get_asset_details unless dependencies, dependents, or "
-        "import settings are actually needed. Prefer bulk duplicate/delete tools for sets. "
+        "import settings are actually needed. Once the target is unique and every required asset "
+        "is ready, invoke the composite authoring action in the next tool step without another "
+        "planning or inspection pass. Do not follow a configured propose_create_entity call with "
+        "propose_configure_component for the same initial components. Prefer bulk duplicate/delete "
+        "tools for sets. "
         "Queue at most 25 focused actions. "
         "New entities and prefab roots can be referenced by @alias. Reply with "
         "one concise sentence. "
@@ -158,10 +163,9 @@ build_editor_ai_request_instructions(const EditorAiRequestPolicyInput &input) {
         "navigation is ephemeral and never part of scene Undo history.";
   }
   instructions +=
-      " Never invoke any Engine2D dynamic editor tool from exec, JavaScript, Promise.all, or other "
-      "programmatic tool code. This applies to read-only inspection, viewport, command, authoring, "
-      "and plan-transition tools. Call every Engine2D tool directly and one at a time, and wait for "
-      "its result before issuing the next call.";
+      " Invoke Engine2D tools sequentially. Use exactly one awaited Engine2D call per tool bridge; "
+      "never batch them with Promise.all or place multiple Engine2D calls in the same programmatic "
+      "execution. Prefer the smallest number of high-level calls that preserves validation.";
   return instructions;
 }
 

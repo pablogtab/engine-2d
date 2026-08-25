@@ -90,6 +90,135 @@ bool only_keys(const Json& value, std::initializer_list<const char*> keys) {
     return true;
 }
 
+std::size_t edit_distance(std::string_view lhs, std::string_view rhs) {
+    std::vector<std::size_t> previous(rhs.size() + 1);
+    std::vector<std::size_t> current(rhs.size() + 1);
+    for (std::size_t index = 0; index <= rhs.size(); ++index) previous[index] = index;
+    for (std::size_t left = 1; left <= lhs.size(); ++left) {
+        current[0] = left;
+        for (std::size_t right = 1; right <= rhs.size(); ++right) {
+            current[right] = std::min({
+                current[right - 1] + 1,
+                previous[right] + 1,
+                previous[right - 1] + (lhs[left - 1] == rhs[right - 1] ? 0u : 1u)
+            });
+        }
+        previous.swap(current);
+    }
+    return previous.back();
+}
+
+std::string unknown_patch_field_error(
+    const std::string& component_key,
+    const std::string& field,
+    const std::unordered_set<std::string>& allowed
+) {
+    std::string suggestion;
+    std::size_t best_distance = std::numeric_limits<std::size_t>::max();
+    for (const std::string& candidate : allowed) {
+        const std::size_t distance = edit_distance(field, candidate);
+        if (distance < best_distance) {
+            best_distance = distance;
+            suggestion = candidate;
+        }
+    }
+    std::vector<std::string> fields(allowed.begin(), allowed.end());
+    std::sort(fields.begin(), fields.end());
+    std::string message = "Unknown field '" + field + "' for component '" +
+        component_key + "'";
+    if (!suggestion.empty()) message += "; did you mean '" + suggestion + "'?";
+    message += " Allowed fields: ";
+    for (std::size_t index = 0; index < fields.size(); ++index) {
+        if (index != 0) message += ", ";
+        message += fields[index];
+    }
+    return message;
+}
+
+bool patch_shape_was_applied(
+    const Json& patch,
+    const Json& serialized,
+    const std::string& path,
+    std::string& error
+) {
+    if (!patch.is_object()) return true;
+    if (!serialized.is_object()) {
+        error = "Component result at '" + path + "' is not an object";
+        return false;
+    }
+    for (auto item = patch.begin(); item != patch.end(); ++item) {
+        const std::string child_path = path.empty() ? item.key() : path + "." + item.key();
+        // JSON Merge Patch uses null to remove a value. Components may serialize a cleared
+        // optional field either as null or by omitting it entirely.
+        if (item.value().is_null()) continue;
+        if (!serialized.contains(item.key())) {
+            error = "Field '" + child_path + "' was not applied by the component deserializer";
+            return false;
+        }
+        const Json& result = serialized.at(item.key());
+        if (item.value().is_object() &&
+            !patch_shape_was_applied(item.value(), result, child_path, error)) {
+            return false;
+        }
+        if (item.value().is_array() && result.is_array() &&
+            item.value().size() == result.size()) {
+            for (std::size_t index = 0; index < item.value().size(); ++index) {
+                if (!item.value()[index].is_object()) continue;
+                if (!patch_shape_was_applied(
+                        item.value()[index], result[index],
+                        child_path + "[" + std::to_string(index) + "]", error
+                    )) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool apply_component_patch(
+    EntityManager& entities,
+    const ComponentDescriptor& descriptor,
+    EntityID entity,
+    const Json& patch,
+    const ComponentSerializationContext& serialization,
+    std::string& error
+) {
+    try {
+        Json data = descriptor.serialize(entities, entity, serialization);
+        if (!data.is_object()) {
+            error = "serialized component data is not an object";
+            return false;
+        }
+        data.merge_patch(patch);
+        if (!descriptor.deserialize(entities, entity, data, serialization, error)) {
+            if (error.empty()) error = "component deserializer rejected the patch";
+            return false;
+        }
+        if (descriptor.finalize && !descriptor.finalize(
+                entities,
+                entity,
+                ComponentFinalizeContext{
+                    .serialization = serialization,
+                    .reason = ComponentFinalizeReason::EditorComponentChange
+                },
+                error
+            )) {
+            if (error.empty()) error = "component finalizer rejected the patch";
+            return false;
+        }
+        const Json applied = descriptor.serialize(entities, entity, serialization);
+        if (!patch_shape_was_applied(patch, applied, {}, error)) {
+            if (error.empty()) error = "component patch was not applied";
+            return false;
+        }
+        return true;
+    } catch (const std::exception& exception) {
+        error = exception.what();
+        return false;
+    }
+}
+
 bool finite_number(const Json& value, double limit = 1'000'000.0) {
     if (!value.is_number()) return false;
     const double number = value.get<double>();
@@ -293,11 +422,13 @@ public:
         std::string name,
         TransformComponent transform,
         EntityTarget parent,
-        std::vector<std::string> components
+        std::vector<std::string> components,
+        std::vector<std::pair<std::string, Json>> component_patches
     ) : m_entities(entities), m_registry(registry), m_selection(std::move(selection)),
         m_state_store(std::move(state_store)), m_serialization(serialization),
         m_aliases(std::move(aliases)), m_alias(std::move(alias)), m_name(std::move(name)),
-        m_transform(transform), m_parent(std::move(parent)), m_components(std::move(components)) {}
+        m_transform(transform), m_parent(std::move(parent)), m_components(std::move(components)),
+        m_component_patches(std::move(component_patches)) {}
 
     bool execute() override {
         m_error.clear();
@@ -357,6 +488,20 @@ public:
                     cleanup(entity);
                     return false;
                 }
+            }
+        }
+        for (const auto& [key, patch] : m_component_patches) {
+            const ComponentDescriptor* descriptor = m_registry->find_by_key(key);
+            std::string patch_error;
+            if (!descriptor || !descriptor->has(*m_entities, entity) ||
+                !descriptor->serialize || !descriptor->deserialize ||
+                !apply_component_patch(
+                    *m_entities, *descriptor, entity, patch, m_serialization, patch_error
+                )) {
+                m_error = "Component '" + key + "' could not be configured";
+                if (!patch_error.empty()) m_error += ": " + patch_error;
+                cleanup(entity);
+                return false;
             }
         }
         if (parent != 0 && !m_entities->set_parent(entity, parent).succeeded()) {
@@ -434,6 +579,7 @@ private:
     TransformComponent m_transform;
     EntityTarget m_parent;
     std::vector<std::string> m_components;
+    std::vector<std::pair<std::string, Json>> m_component_patches;
     EntityID m_created_id{0};
     EntitySnapshot m_snapshot;
     std::unordered_set<EntityID> m_selection_before;
@@ -631,30 +777,12 @@ public:
             }
         };
 
-        try {
-            Json data = descriptor->serialize(*m_entities, entity, m_serialization);
-            if (!data.is_object()) return fail("serialized component data is not an object");
-            data.merge_patch(m_patch);
-            std::string error;
-            if (!descriptor->deserialize(*m_entities, entity, data, m_serialization, error)) {
-                restore_before();
-                return fail(error.empty() ? "component deserializer rejected the patch" : error);
-            }
-            if (descriptor->finalize && !descriptor->finalize(
-                    *m_entities,
-                    entity,
-                    ComponentFinalizeContext{
-                        .serialization = m_serialization,
-                        .reason = ComponentFinalizeReason::EditorComponentChange
-                    },
-                    error
-                )) {
-                restore_before();
-                return fail(error.empty() ? "component finalizer rejected the patch" : error);
-            }
-        } catch (const std::exception& exception) {
+        std::string error;
+        if (!apply_component_patch(
+                *m_entities, *descriptor, entity, m_patch, m_serialization, error
+            )) {
             restore_before();
-            return fail(exception.what());
+            return fail(error);
         }
 
         ComponentSnapshotSet after;
@@ -914,8 +1042,33 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         if (descriptor.removable) m_removable_component_keys.push_back(descriptor.serialized_key);
         if (descriptor.serialize && descriptor.deserialize) {
             m_configurable_component_keys.push_back(descriptor.serialized_key);
+
+            EntityManager defaults;
+            const EntityID default_entity = defaults.create_entity();
+            try {
+                descriptor.add_default(defaults, default_entity);
+                const Json serialized = descriptor.serialize(
+                    defaults, default_entity, ComponentSerializationContext{}
+                );
+                if (serialized.is_object()) {
+                    auto& fields = m_component_patch_fields[descriptor.serialized_key];
+                    for (auto field = serialized.begin(); field != serialized.end(); ++field) {
+                        fields.insert(field.key());
+                    }
+                }
+            } catch (const std::exception&) {
+                // Runtime validation still rejects unapplied fields. A component whose default
+                // cannot serialize without editor services must declare its optional fields below.
+            }
         }
     }
+    // These fields are conditionally omitted by serializers while their asset reference is empty.
+    m_component_patch_fields["sprite"].insert({
+        "texture_handle", "material_handle", "src_rect"
+    });
+    m_component_patch_fields["render_effect"].insert("profile_handle");
+    m_component_patch_fields["script"].insert("script_handle");
+    m_component_patch_fields["particle_emitter"].insert("effect_handle");
     std::sort(m_addable_component_keys.begin(), m_addable_component_keys.end());
     std::sort(m_removable_component_keys.begin(), m_removable_component_keys.end());
     std::sort(m_configurable_component_keys.begin(), m_configurable_component_keys.end());
@@ -925,6 +1078,15 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
     const Json addable_schema{{"type", "string"}, {"enum", m_addable_component_keys}};
     const Json removable_schema{{"type", "string"}, {"enum", m_removable_component_keys}};
     const Json configurable_schema{{"type", "string"}, {"enum", m_configurable_component_keys}};
+    const Json initial_component_patch_schema{
+        {"type", "object"},
+        {"properties", {
+            {"component_key", configurable_schema},
+            {"patch_json", {{"type", "string"}}}
+        }},
+        {"required", Json::array({"component_key", "patch_json"})},
+        {"additionalProperties", false}
+    };
     const Json entity_ids_schema{
         {"type", "array"},
         {"items", {{"type", "integer"}, {"minimum", 1}}},
@@ -966,6 +1128,9 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         {"parent_entity_alias", {{"type", Json::array({"string", "null"})}}},
         {"components", nullable_schema({
             {"type", "array"}, {"items", addable_schema}, {"maxItems", 12}
+        })},
+        {"component_patches", nullable_schema({
+            {"type", "array"}, {"items", initial_component_patch_schema}, {"maxItems", 12}
         })}
     };
     const Json instantiate_prefab_properties{
@@ -1004,13 +1169,13 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
     m_tool_schemas = Json::array({
         {
             {"type", "function"}, {"name", CREATE_ENTITY_TOOL},
-            {"description", "Queues creation of a game entity. Position accepts [x,y] or [x,y,z]. Include the final name, transform, and required components in this call, then configure components that require assets later in the same proposal. Final-state validation and rollback are atomic. The alias can be referenced by later proposal tools in the same AI session. This does not mutate immediately."},
+            {"description", "Queues creation of a fully configured game entity. Position accepts [x,y] or [x,y,z]. Include the final name, transform, required components, and component_patches in this single call whenever their values are already known. Each component_patches entry uses the same strict patch_json contract as propose_configure_component and its component_key must also appear in components. Final-state validation and rollback are atomic. The alias can be referenced by later proposal tools in the same AI session. This does not mutate immediately."},
             {"parameters", {
                 {"type", "object"},
                 {"properties", create_properties},
                 {"required", Json::array({
                     "alias", "name", "position", "scale", "pivot", "rotation", "visible",
-                    "parent_entity_id", "parent_entity_alias", "components"
+                    "parent_entity_id", "parent_entity_alias", "components", "component_patches"
                 })},
                 {"additionalProperties", false}
             }}, {"strict", true}
@@ -1046,7 +1211,7 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         },
         {
             {"type", "function"}, {"name", CONFIGURE_COMPONENT_TOOL},
-            {"description", "Queues a validated merge patch for a registered component already present on the target. For existing entities, call get_entity_details first. Pass patch_json as a JSON object string containing only fields to change. For script, assign script_handle and enabled; omit public_fields unless overriding known values, and use canonical field types boolean, number, string, vector2, entity, or asset. Existing scene entities require entity_id; entity_alias is only for an earlier create action."},
+            {"description", "Queues a strictly validated merge patch for a registered component already present on the target. Unknown or silently ignored fields are rejected with the canonical field name. For existing entities, call get_entity_details first. Pass patch_json as a JSON object string containing only fields to change. Canonical asset fields include sprite.texture_handle, sprite.material_handle, script.script_handle, particle_emitter.effect_handle, render_effect.profile_handle, ui_text.font_handle, ui_text.material_handle, ui_image.texture_handle, and ui_image.material_handle; never use *_asset aliases. For script, omit public_fields unless overriding known values, and use canonical field types boolean, number, string, vector2, entity, or asset. Existing scene entities require entity_id; entity_alias is only for an earlier create action."},
             {"parameters", { {"type", "object"}, {"properties", configurable_properties},
                 {"required", Json::array({"entity_id", "entity_alias", "component_key", "patch_json"})},
                 {"additionalProperties", false}}},
@@ -1181,6 +1346,61 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
     const auto frozen_index_available = [&]() {
         return frozen_context && frozen_context->contains("entity_index") &&
             frozen_context->at("entity_index").is_array();
+    };
+    const auto validate_component_patch = [this, frozen_context](
+        const std::string& key,
+        const std::string& patch_text
+    ) -> std::optional<std::string> {
+        if (std::find(
+                m_configurable_component_keys.begin(),
+                m_configurable_component_keys.end(),
+                key
+            ) == m_configurable_component_keys.end()) {
+            return "Component is not configurable through this action: " + key;
+        }
+        if (patch_text.empty() || patch_text.size() > 16 * 1024) {
+            return "patch_json must contain at most 16384 bytes";
+        }
+        const Json patch = Json::parse(patch_text, nullptr, false);
+        if (patch.is_discarded() || !patch.is_object() || patch.empty()) {
+            return "patch_json must encode a non-empty JSON object";
+        }
+        const auto contract = m_component_patch_fields.find(key);
+        if (contract != m_component_patch_fields.end()) {
+            for (auto field = patch.begin(); field != patch.end(); ++field) {
+                if (!contract->second.contains(field.key())) {
+                    return unknown_patch_field_error(key, field.key(), contract->second);
+                }
+            }
+        }
+        std::vector<std::pair<std::string, std::string>> handles;
+        collect_asset_handles(patch, handles);
+        if (!handles.empty() && (!frozen_context ||
+            !frozen_context->contains("asset_index") ||
+            !frozen_context->at("asset_index").is_array())) {
+            return "Asset assignment requires a frozen project asset index";
+        }
+        for (const auto& [field, handle] : handles) {
+            const Json* asset = nullptr;
+            for (const Json& candidate : frozen_context->at("asset_index")) {
+                if (candidate.value("asset_handle", "") == handle) {
+                    asset = &candidate;
+                    break;
+                }
+            }
+            if (!asset) {
+                return "Unknown asset handle '" + handle +
+                    "'; call find_project_assets and use its asset_handle";
+            }
+            if (asset->value("status", "") != "ready") {
+                return "Asset '" + handle + "' is not ready";
+            }
+            if (const auto expected = expected_asset_type(key, field);
+                expected && asset->value("type", "") != *expected) {
+                return field + " requires asset type '" + *expected + "'";
+            }
+        }
+        return std::nullopt;
     };
     if (tool_name == IMPORT_GENERATED_AUDIO_TOOL) {
         if (!only_keys(arguments, {"generated_path", "destination_path"}) ||
@@ -1339,7 +1559,7 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
         summary = std::string(tool_name == DUPLICATE_ENTITIES_TOOL ? "Duplicate " : "Delete ") +
             std::to_string(ids.size()) + (ids.size() == 1 ? " entity subtree" : " entity subtrees");
     } else if (tool_name == CREATE_ENTITY_TOOL) {
-        if (!only_keys(arguments, {"alias", "name", "position", "scale", "pivot", "rotation", "visible", "parent_entity_id", "parent_entity_alias", "components"}) ||
+        if (!only_keys(arguments, {"alias", "name", "position", "scale", "pivot", "rotation", "visible", "parent_entity_id", "parent_entity_alias", "components", "component_patches"}) ||
             !arguments.contains("alias") || !arguments.at("alias").is_string() ||
             !valid_alias(arguments.at("alias").get<std::string>()) ||
             !arguments.contains("name") || !arguments.at("name").is_string() ||
@@ -1380,16 +1600,46 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
                 return {false, {}, "Scale cannot contain zero"};
             }
         }
+        std::unordered_set<std::string> declared_components;
         if (arguments.contains("components")) {
             if (!arguments.at("components").is_array() || arguments.at("components").size() > 12) {
                 return {false, {}, "components must be an array with at most 12 entries"};
             }
-            std::unordered_set<std::string> unique;
             for (const Json& component : arguments.at("components")) {
                 if (!component.is_string() ||
                     std::find(m_addable_component_keys.begin(), m_addable_component_keys.end(), component.get<std::string>()) == m_addable_component_keys.end() ||
-                    !unique.insert(component.get<std::string>()).second) {
+                    !declared_components.insert(component.get<std::string>()).second) {
                     return {false, {}, "components contains an unknown or duplicate component key"};
+                }
+            }
+        }
+        if (arguments.contains("component_patches")) {
+            if (!arguments.at("component_patches").is_array() ||
+                arguments.at("component_patches").size() > 12) {
+                return {false, {}, "component_patches must be an array with at most 12 entries"};
+            }
+            std::unordered_set<std::string> patched_components;
+            for (const Json& component_patch : arguments.at("component_patches")) {
+                if (!only_keys(component_patch, {"component_key", "patch_json"}) ||
+                    !component_patch.contains("component_key") ||
+                    !component_patch.at("component_key").is_string() ||
+                    !component_patch.contains("patch_json") ||
+                    !component_patch.at("patch_json").is_string()) {
+                    return {false, {}, "Each component_patches entry requires component_key and patch_json"};
+                }
+                const std::string key = component_patch.at("component_key").get<std::string>();
+                if (!declared_components.contains(key)) {
+                    return {false, {}, "Initial component patch '" + key +
+                        "' requires the same key in components"};
+                }
+                if (!patched_components.insert(key).second) {
+                    return {false, {}, "component_patches contains duplicate component key: " + key};
+                }
+                if (const auto patch_error = validate_component_patch(
+                        key,
+                        component_patch.at("patch_json").get<std::string>()
+                    )) {
+                    return {false, {}, *patch_error};
                 }
             }
         }
@@ -1400,6 +1650,12 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
             return {false, {}, "Entity alias is already used in this proposal: " + alias};
         }
         summary = "Create '" + arguments.at("name").get<std::string>() + "' as @" + alias;
+        if (arguments.contains("component_patches") &&
+            !arguments.at("component_patches").empty()) {
+            summary += " with " + std::to_string(arguments.at("component_patches").size()) +
+                " configured component" +
+                (arguments.at("component_patches").size() == 1 ? "" : "s");
+        }
     } else {
         const auto target = read_target(arguments, error);
         if (!target) return {false, {}, error};
@@ -1458,13 +1714,6 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
                 return {false, {}, "Configure component requires component_key and patch_json"};
             }
             const std::string key = arguments.at("component_key").get<std::string>();
-            if (std::find(
-                    m_configurable_component_keys.begin(),
-                    m_configurable_component_keys.end(),
-                    key
-                ) == m_configurable_component_keys.end()) {
-                return {false, {}, "Component is not configurable through this action: " + key};
-            }
             if (frozen_entity && frozen_entity->contains("components") &&
                 std::find(
                     frozen_entity->at("components").begin(),
@@ -1475,38 +1724,8 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
                     " does not contain component '" + key + "'; add it before configuring it"};
             }
             const std::string patch_text = arguments.at("patch_json").get<std::string>();
-            if (patch_text.empty() || patch_text.size() > 16 * 1024) {
-                return {false, {}, "patch_json must contain at most 16384 bytes"};
-            }
-            const Json patch = Json::parse(patch_text, nullptr, false);
-            if (patch.is_discarded() || !patch.is_object() || patch.empty()) {
-                return {false, {}, "patch_json must encode a non-empty JSON object"};
-            }
-            std::vector<std::pair<std::string, std::string>> handles;
-            collect_asset_handles(patch, handles);
-            if (!handles.empty() && (!frozen_context || !frozen_context->contains("asset_index") ||
-                !frozen_context->at("asset_index").is_array())) {
-                return {false, {}, "Asset assignment requires a frozen project asset index"};
-            }
-            for (const auto& [field, handle] : handles) {
-                const Json* asset = nullptr;
-                for (const Json& candidate : frozen_context->at("asset_index")) {
-                    if (candidate.value("asset_handle", "") == handle) {
-                        asset = &candidate;
-                        break;
-                    }
-                }
-                if (!asset) {
-                    return {false, {}, "Unknown asset handle '" + handle +
-                        "'; call find_project_assets and use its asset_handle"};
-                }
-                if (asset->value("status", "") != "ready") {
-                    return {false, {}, "Asset '" + handle + "' is not ready"};
-                }
-                if (const auto expected = expected_asset_type(key, field);
-                    expected && asset->value("type", "") != *expected) {
-                    return {false, {}, field + " requires asset type '" + *expected + "'"};
-                }
+            if (const auto patch_error = validate_component_patch(key, patch_text)) {
+                return {false, {}, *patch_error};
             }
             summary = "Configure " + key + " on " + target_label(*target);
         } else if (tool_name == REPARENT_ENTITY_TOOL) {
@@ -1821,6 +2040,16 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
             }
             const auto parent = read_parent(action.arguments);
             if (!parent) return nullptr;
+            std::vector<std::pair<std::string, Json>> initial_component_patches;
+            if (action.arguments.contains("component_patches")) {
+                initial_component_patches.reserve(action.arguments.at("component_patches").size());
+                for (const Json& component_patch : action.arguments.at("component_patches")) {
+                    initial_component_patches.emplace_back(
+                        component_patch.at("component_key").get<std::string>(),
+                        Json::parse(component_patch.at("patch_json").get<std::string>())
+                    );
+                }
+            }
             validation_targets.push_back(EntityTarget{.alias = alias});
             group->add_command(std::make_unique<CreateAiEntityCommand>(
                 context.entities,
@@ -1833,7 +2062,8 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
                 action.arguments.at("name").get<std::string>(),
                 transform_from_create_arguments(action.arguments),
                 *parent,
-                component_list(action.arguments)
+                component_list(action.arguments),
+                std::move(initial_component_patches)
             ));
             continue;
         }

@@ -63,7 +63,9 @@ EditorAiProjectKnowledge::project_documents() const {
     if (relative.empty() || relative.native().starts_with(".."))
       return;
     const std::string id = relative.generic_string();
-    if (seen.insert(id).second)
+    // macOS commonly resolves Docs/ and docs/ to the same directory. Deduplicate
+    // case-insensitively so the project overview never repeats a document.
+    if (seen.insert(lowercase(id)).second)
       documents.push_back({id, path, size});
   };
 

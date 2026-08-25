@@ -39,6 +39,18 @@ void test_verification_finishes_session() {
     assert(session.history_description() == "AI Iterative Session (1 batch, 2 actions)");
 }
 
+void test_atomic_validation_is_not_reported_as_visual_verification() {
+    EditorAiAuthoringSession session;
+    session.begin(10, "Attach a sprite", 0, 5min);
+    std::string error;
+    assert(session.record_applied_batch(2, error));
+    session.finish_validated_atomically();
+    assert(!session.active());
+    assert(session.status() == EditorAiAuthoringSession::Status::ValidatedAtomically);
+    assert(session.status_label() == "Data validated");
+    assert(session.outcome().find("No visual Codex iteration") != std::string::npos);
+}
+
 void test_elapsed_work_time_requests_one_final_verification() {
     EditorAiAuthoringSession session;
     session.begin(11, "Populate a scene", 0, 2min);
@@ -72,6 +84,7 @@ void test_action_count_does_not_end_a_session() {
 int main() {
     test_iterates_with_bounded_action_budget();
     test_verification_finishes_session();
+    test_atomic_validation_is_not_reported_as_visual_verification();
     test_elapsed_work_time_requests_one_final_verification();
     test_action_count_does_not_end_a_session();
     std::cout << "Editor AI authoring session tests passed\n";

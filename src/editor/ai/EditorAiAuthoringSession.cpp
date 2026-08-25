@@ -46,6 +46,13 @@ void EditorAiAuthoringSession::record_work_time(std::chrono::milliseconds durati
     m_work_time += duration;
 }
 
+void EditorAiAuthoringSession::finish_validated_atomically() {
+    if (!active()) return;
+    m_status = Status::ValidatedAtomically;
+    m_outcome =
+        "The editor validated the applied data atomically. No visual Codex iteration was run.";
+}
+
 void EditorAiAuthoringSession::finish_verified() {
     if (!active()) return;
     m_status = Status::Verified;
@@ -124,6 +131,7 @@ std::string EditorAiAuthoringSession::status_label() const {
     switch (m_status) {
         case Status::Idle: return "Idle";
         case Status::Active: return "Inspecting";
+        case Status::ValidatedAtomically: return "Data validated";
         case Status::Verified: return "Verified";
         case Status::TimeBudgetReached: return "Work time reached";
         case Status::Cancelled: return "Cancelled";

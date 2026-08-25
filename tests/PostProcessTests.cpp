@@ -814,8 +814,12 @@ void test_render_layer_effect_profile_round_trip_and_asset_dependencies() {
            record->status == Engine::AssetStatus::Ready);
     const auto restored = Engine::RenderLayerEffectProfile::load_asset(record->handle, database);
     assert(restored && *restored == profile);
-    assert(database.dependencies(record->handle) ==
-           std::vector<Engine::AssetHandle>({glow_material, outline_material}));
+    std::vector<Engine::AssetHandle> expected_dependencies{glow_material, outline_material};
+    std::sort(expected_dependencies.begin(), expected_dependencies.end(),
+              [](Engine::AssetHandle lhs, Engine::AssetHandle rhs) {
+                  return lhs.value < rhs.value;
+              });
+    assert(database.dependencies(record->handle) == expected_dependencies);
     std::string error;
     const auto runtime_passes = restored->build_runtime_passes(database, nullptr, &error);
     assert(runtime_passes.size() == 1 && error.empty());

@@ -109,13 +109,35 @@ void test_tool_validation_and_limits() {
         {{"entity_alias", "enemy"}, {"component_key", "sprite"}, {"patch_json", "not json"}},
         actions
     ).success);
+    const EditorAiToolResult unknown_sprite_field = registry.queue_action(
+        "propose_configure_component",
+        {{"entity_alias", "enemy"}, {"component_key", "sprite"},
+         {"patch_json", R"({"texture_asset":"0000000000000001"})"}},
+        actions
+    );
+    assert(!unknown_sprite_field.success);
+    assert(unknown_sprite_field.error.find("texture_handle") != std::string::npos);
+    const EditorAiToolResult undeclared_initial_patch = registry.queue_action(
+        "propose_create_entity",
+        {
+            {"alias", "patched_without_component"}, {"name", "Invalid"},
+            {"component_patches", nlohmann::json::array({{
+                {"component_key", "sprite"}, {"patch_json", R"({"size":[8,8]})"}
+            }})}
+        },
+        actions
+    );
+    assert(!undeclared_initial_patch.success);
+    assert(undeclared_initial_patch.error.find("requires the same key in components") !=
+        std::string::npos);
 
     std::vector<EditorAiAuthoringAction> strict_arguments;
     assert(registry.queue_action("propose_create_entity", {
         {"alias", "strict_enemy"}, {"name", "Strict Enemy"},
         {"position", nullptr}, {"scale", nullptr}, {"pivot", nullptr},
         {"rotation", nullptr}, {"visible", nullptr}, {"parent_entity_id", nullptr},
-        {"parent_entity_alias", nullptr}, {"components", nullptr}
+        {"parent_entity_alias", nullptr}, {"components", nullptr},
+        {"component_patches", nullptr}
     }, strict_arguments).success);
     assert(strict_arguments.at(0).arguments.size() == 2);
 
@@ -214,18 +236,19 @@ void test_required_component_configuration_validates_final_transaction_state() {
         {"alias", "pet"},
         {"name", "Pet_Flying_Fox"},
         {"position", {-238.0, -78.0, 0.0}},
-        {"components", {"sprite", "script"}}
+        {"components", {"sprite", "script"}},
+        {"component_patches", nlohmann::json::array({
+            {
+                {"component_key", "sprite"},
+                {"patch_json", R"({"size":[48.0,32.0],"order_in_layer":1})"}
+            },
+            {
+                {"component_key", "script"},
+                {"patch_json", R"({"enabled":true,"script_handle":"d17564dba2c3cd4e"})"}
+            }
+        })}
     }, actions, &frozen_context).success);
-    assert(registry.queue_action("propose_configure_component", {
-        {"entity_alias", "pet"},
-        {"component_key", "sprite"},
-        {"patch_json", R"({"size":[48.0,32.0],"order_in_layer":1})"}
-    }, actions, &frozen_context).success);
-    assert(registry.queue_action("propose_configure_component", {
-        {"entity_alias", "pet"},
-        {"component_key", "script"},
-        {"patch_json", R"({"enabled":true,"script_handle":"d17564dba2c3cd4e"})"}
-    }, actions, &frozen_context).success);
+    assert(actions.size() == 1);
 
     std::string description;
     std::string error;
@@ -240,6 +263,9 @@ void test_required_component_configuration_validates_final_transaction_state() {
     const ScriptComponent& script = session.entities.get_component<ScriptComponent>(pet);
     assert(script.enabled);
     assert(script.script_handle == *AssetHandle::from_string("d17564dba2c3cd4e"));
+    const SpriteComponent& sprite = session.entities.get_component<SpriteComponent>(pet);
+    assert(sprite.size == glm::vec2(48.0f, 32.0f));
+    assert(sprite.order_in_layer == 1);
     const AssetHandle script_handle = script.script_handle;
     assert(session.history.get_undo_count() == 1);
 
@@ -275,6 +301,35 @@ void test_final_component_validation_reports_exact_rollback_reason() {
     assert(session.entities.find_by_tag("Invalid_Script_Entity") == 0);
     assert(session.history.get_undo_count() == 0);
     assert(session.history.get_current_revision() == 0);
+}
+
+void test_silently_ignored_component_field_rolls_back_atomically() {
+    TestSession session;
+    EditorAiAuthoringRegistry registry;
+    const std::vector<EditorAiAuthoringAction> actions{
+        {
+            "propose_create_entity",
+            {{"alias", "invalid_sprite"}, {"name", "Invalid Sprite"},
+             {"components", {"sprite"}}},
+            "Create Invalid Sprite as @invalid_sprite"
+        },
+        {
+            "propose_configure_component",
+            {{"entity_alias", "invalid_sprite"}, {"component_key", "sprite"},
+             {"patch_json", R"({"texture_asset":"0000000000000001"})"}},
+            "Configure sprite on @invalid_sprite"
+        }
+    };
+
+    std::string description;
+    std::string error;
+    assert(!registry.execute_proposal(
+        actions, session.context(), session.history, 0, description, error
+    ));
+    assert(error.find("texture_asset") != std::string::npos);
+    assert(error.find("was not applied") != std::string::npos);
+    assert(session.entities.find_by_tag("Invalid Sprite") == 0);
+    assert(session.history.get_undo_count() == 0);
 }
 
 void test_gameplay_tags_are_ai_configurable_and_undoable() {
@@ -791,6 +846,7 @@ int main() {
     test_alias_session_executes_as_one_undoable_transaction();
     test_required_component_configuration_validates_final_transaction_state();
     test_final_component_validation_reports_exact_rollback_reason();
+    test_silently_ignored_component_field_rolls_back_atomically();
   test_gameplay_tags_are_ai_configurable_and_undoable();
   test_component_data_can_be_configured_and_replayed();
     test_2d_positions_default_or_preserve_depth();

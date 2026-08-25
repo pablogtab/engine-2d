@@ -185,7 +185,7 @@ EditorAiToolRegistry::EditorAiToolRegistry(
           {
               {"type", "function"},
               {"name", "find_project_assets"},
-              {"description", "Finds project assets by path/name and type. Returns stable asset_handle values plus type and readiness for component configuration and prefab instantiation. A ready match is sufficient for assignment; do not call get_asset_details only to recheck it."},
+              {"description", "Finds project assets by path/name and type. Returns stable asset_handle values plus type and readiness for component configuration and prefab instantiation. When a typed search has no result, related_matches contains same-name assets of other types; inspect those before repeating the search. A ready match is sufficient for assignment; do not call get_asset_details only to recheck it."},
               {"parameters", {
                   {"type", "object"},
                   {"properties", {
@@ -817,6 +817,7 @@ EditorAiToolResult EditorAiToolRegistry::find_project_assets(
     const std::string type = lowercase(arguments.value("asset_type", ""));
     const bool ready_only = arguments.at("ready_only").get<bool>();
     nlohmann::json matches = nlohmann::json::array();
+    nlohmann::json related_matches = nlohmann::json::array();
     std::size_t total_matches = 0;
     for (const nlohmann::json& asset : asset_index) {
         if (!query.empty() && lowercase(asset.value("path", "")).find(query) == std::string::npos) continue;
@@ -832,13 +833,33 @@ EditorAiToolResult EditorAiToolRegistry::find_project_assets(
             });
         }
     }
-    return {true, {
+    if (total_matches == 0 && !query.empty() && !type.empty()) {
+        for (const nlohmann::json& asset : asset_index) {
+            if (lowercase(asset.value("path", "")).find(query) == std::string::npos) continue;
+            if (ready_only && asset.value("status", "") != "ready") continue;
+            if (related_matches.size() >= static_cast<std::size_t>(limit)) break;
+            related_matches.push_back({
+                {"asset_handle", asset.value("asset_handle", "")},
+                {"path", asset.value("path", "")},
+                {"type", asset.value("type", "unknown")},
+                {"status", asset.value("status", "unknown")}
+            });
+        }
+    }
+    nlohmann::json output{
         {"matches", std::move(matches)},
         {"returned_count", std::min(total_matches, static_cast<std::size_t>(limit))},
         {"total_matches", total_matches},
         {"truncated", total_matches > static_cast<std::size_t>(limit)},
         {"identity_rule", "Use asset_handle for AI authoring; do not copy or invent asset paths."}
-    }, {}};
+    };
+    if (!related_matches.empty()) {
+        output["related_matches"] = std::move(related_matches);
+        output["search_guidance"] =
+            "No asset matched the requested type. Reuse a suitable related match instead of "
+            "repeating the same search, or change asset_type only when the task requires it.";
+    }
+    return {true, std::move(output), {}};
 }
 
 EditorAiToolResult EditorAiToolRegistry::get_asset_details(

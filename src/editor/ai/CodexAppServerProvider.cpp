@@ -41,8 +41,20 @@ std::string protocol_error(const nlohmann::json& message, std::string fallback) 
     return fallback;
 }
 
+bool keep_dynamic_tool_eager(const std::string& name) {
+    // Keep only the compact, high-frequency scene-authoring path immediately available.
+    // App Server can still discover every other Engine2D tool on demand, without
+    // paying for all of their schemas in the initial model context.
+    return name == "find_entities_by_gameplay_tag" ||
+        name == "find_scene_entities" ||
+        name == "find_project_assets" ||
+        name == "propose_create_entity" ||
+        name == "begin_plan_implementation";
+}
+
 nlohmann::json dynamic_tools(const nlohmann::json& response_tools) {
     nlohmann::json tools = nlohmann::json::array();
+    nlohmann::json deferred_tools = nlohmann::json::array();
     if (!response_tools.is_array()) return tools;
     for (const auto& tool : response_tools) {
         if (!tool.is_object() || tool.value("type", "") != "function" ||
@@ -50,15 +62,25 @@ nlohmann::json dynamic_tools(const nlohmann::json& response_tools) {
             continue;
         }
         const std::string name = tool.at("name").get<std::string>();
-        std::string description = tool.value("description", "Engine2D editor tool");
-        description +=
-            " Invoke this Engine2D tool directly and one at a time. Never call it from exec, "
-            "JavaScript, Promise.all, or other programmatic tool code.";
-        tools.push_back({
+        nlohmann::json dynamic_tool{
             {"type", "function"},
             {"name", name},
-            {"description", std::move(description)},
+            {"description", tool.value("description", "Engine2D editor tool")},
             {"inputSchema", tool.value("parameters", nlohmann::json::object())}
+        };
+        if (!keep_dynamic_tool_eager(name)) {
+            dynamic_tool["deferLoading"] = true;
+            deferred_tools.push_back(std::move(dynamic_tool));
+        } else {
+            tools.push_back(std::move(dynamic_tool));
+        }
+    }
+    if (!deferred_tools.empty()) {
+        tools.push_back({
+            {"type", "namespace"},
+            {"name", "engine2d"},
+            {"description", "Additional Engine2D editor, project, viewport, and authoring tools."},
+            {"tools", std::move(deferred_tools)}
         });
     }
     return tools;

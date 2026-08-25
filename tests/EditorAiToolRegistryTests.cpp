@@ -5,7 +5,9 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "scene/Scene.hpp"
 
+#include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -170,6 +172,18 @@ void test_project_assets_are_frozen_and_queried_by_handle() {
     assert(found.output.at("matches").at(0).at("asset_handle") == handle->to_string());
     assert(!found.output.at("matches").at(0).contains("import_settings"));
 
+    const EditorAiToolResult related = registry.execute_snapshot(
+        "find_project_assets",
+        {{"query", "hero"}, {"asset_type", "prefab"}, {"ready_only", true}, {"limit", 10}},
+        snapshot
+    );
+    assert(related.success);
+    assert(related.output.at("total_matches") == 0);
+    assert(related.output.at("related_matches").size() == 1);
+    assert(related.output.at("related_matches").at(0).at("asset_handle") ==
+        handle->to_string());
+    assert(related.output.contains("search_guidance"));
+
     const EditorAiToolResult details = registry.execute_snapshot(
         "get_asset_details", {{"asset_handle", handle->to_string()}}, snapshot
     );
@@ -279,10 +293,19 @@ void test_project_documents_are_bounded_and_cannot_traverse() {
       "list_project_documents", nlohmann::json::object(), nullptr, nullptr);
   assert(listed.success);
   std::set<std::string> document_ids;
+  std::set<std::string> normalized_document_ids;
   for (const nlohmann::json &document : listed.output.at("documents")) {
-    document_ids.insert(document.at("document_id").get<std::string>());
+    const std::string document_id = document.at("document_id").get<std::string>();
+    document_ids.insert(document_id);
+    std::string normalized = document_id;
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                   [](unsigned char character) {
+                     return static_cast<char>(std::tolower(character));
+                   });
+    normalized_document_ids.insert(std::move(normalized));
   }
   assert(document_ids.size() == listed.output.at("documents").size());
+  assert(normalized_document_ids.size() == listed.output.at("documents").size());
     assert(document_ids.contains("AGENTS.md"));
     assert(document_ids.contains("Docs/GAMEPLAY.md"));
     assert(!document_ids.contains("README.md"));

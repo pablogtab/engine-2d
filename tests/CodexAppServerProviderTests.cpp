@@ -152,11 +152,22 @@ void test_subscription_protocol_streaming_and_full_access_sandbox() {
     assert(thread.at("params").at("approvalPolicy") == "never");
     assert(thread.at("params").at("ephemeral") == true);
     assert(thread.at("params").at("serviceName") == "engine2d_editor");
-    assert(thread.at("params").at("dynamicTools").at(0).at("inputSchema").at("type") == "object");
-    assert(thread.at("params").at("dynamicTools").at(0).at("description")
-        .get<std::string>().find("Never call it from exec") != std::string::npos);
-    assert(thread.at("params").at("dynamicTools").at(1).at("description")
-        .get<std::string>().find("Never call it from exec") != std::string::npos);
+    const auto& dynamic_tools = thread.at("params").at("dynamicTools");
+    assert(dynamic_tools.size() == 2);
+    const auto& eager_tool = dynamic_tools.at(0);
+    const auto& deferred_namespace = dynamic_tools.at(1);
+    assert(eager_tool.at("name") == "propose_create_entity");
+    assert(eager_tool.at("inputSchema").at("type") == "object");
+    assert(eager_tool.at("description") == "Queue an entity.");
+    assert(!eager_tool.contains("deferLoading"));
+    assert(deferred_namespace.at("type") == "namespace");
+    assert(deferred_namespace.at("name") == "engine2d");
+    assert(deferred_namespace.at("tools").size() == 1);
+    const auto& deferred_tool = deferred_namespace.at("tools").at(0);
+    assert(deferred_tool.at("name") == "get_scene_summary");
+    assert(deferred_tool.at("inputSchema").at("type") == "object");
+    assert(deferred_tool.at("description") == "Read the current scene.");
+    assert(deferred_tool.at("deferLoading") == true);
     assert(state->writes.at(3).at("method") == "turn/start");
     assert(state->writes.at(3).at("params").at("effort") == "low");
     assert(state->writes.at(3).at("params").at("summary") == "auto");

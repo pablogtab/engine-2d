@@ -36,8 +36,11 @@ namespace {
 std::atomic_uint64_t NEXT_AI_REQUEST_ID{1};
 // App Server binds dynamic tools on thread/start. Bump this whenever the editor
 // tool schemas or their identity semantics change so saved threads are replaced.
-constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 14;
-constexpr std::size_t AUTO_COMPACT_INPUT_TOKEN_THRESHOLD = 24000;
+constexpr std::uint32_t EDITOR_AI_TOOL_CONTRACT_VERSION = 18;
+// Input usage includes the editor contract, schemas, and cached thread context. Compacting at
+// 24k caused a fresh authoring thread to compact again on nearly every turn. Keep ample headroom
+// while avoiding repeated 10-20 second compaction passes during normal editor work.
+constexpr std::size_t AUTO_COMPACT_INPUT_TOKEN_THRESHOLD = 96000;
 std::string project_root();
 
 nlohmann::json begin_plan_implementation_schema() {
@@ -1644,9 +1647,13 @@ void AiAssistantPanel::apply_pending_proposal() {
         m_pending_proposal.reset();
         return;
     }
-    const bool should_continue = m_iterative_authoring->session.can_continue();
+    const bool should_continue = m_iterative_verification_enabled &&
+        m_iterative_authoring->session.can_continue();
+    if (!should_continue && m_iterative_authoring->session.active()) {
+        m_iterative_authoring->session.finish_validated_atomically();
+    }
     m_iteration_continuation_requested = should_continue;
-    receipt["session_status"] = should_continue ? "inspecting" : "stopped";
+    receipt["session_status"] = should_continue ? "inspecting" : "validated_atomically";
     receipt["session_batches"] = m_iterative_authoring->session.applied_batches();
     receipt["session_actions"] = m_iterative_authoring->session.total_actions();
     receipt["session_work_time_ms"] = m_iterative_authoring->session.work_time().count();
@@ -1658,7 +1665,7 @@ void AiAssistantPanel::apply_pending_proposal() {
     m_last_receipt_summary = summary;
     m_authoring_feedback = should_continue
         ? session_description + " applied. Inspecting the current result..."
-        : session_description + " applied. Iterative verification stopped.";
+        : session_description + " applied and atomically data-validated. Visual iteration was not run.";
     m_messages.push_back({"editor", "Applied successfully. " + summary});
     m_scroll_chat_to_bottom = true;
     persist_current_conversation_locked(m_model.data());
@@ -2894,6 +2901,22 @@ void AiAssistantPanel::on_gui() {
                 ? "Autonomous safe mode enabled."
                 : "Changes now require confirmation.";
         }
+        if (ImGui::Checkbox(
+                "Iterate visually after apply",
+                &m_iterative_verification_enabled
+            )) {
+            std::lock_guard lock(m_request_mutex);
+            m_ui_feedback = m_iterative_verification_enabled
+                ? "Codex will inspect applied scene changes and may queue corrections."
+                : "Applied changes will use fast atomic editor validation.";
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Off is faster and validates data deterministically. Enable only when a second "
+                "visual/spatial inspection is worth another Codex turn."
+            );
+        }
+        ImGui::BeginDisabled(!m_iterative_verification_enabled);
         ImGui::SetNextItemWidth(-1.0f);
         if (ImGui::SliderInt(
             "AI work budget (min)",
@@ -2910,11 +2933,13 @@ void AiAssistantPanel::on_gui() {
                 "Counts provider work only; time waiting for confirmation is excluded"
             );
         }
+        ImGui::EndDisabled();
         ImGui::Separator();
         if (ImGui::Button("Reset defaults")) {
             m_backend = ProviderBackend::CodexSubscription;
             m_reasoning_effort = ReasoningEffort::Low;
             m_authoring_mode = AuthoringMode::ConfirmBeforeApply;
+            m_iterative_verification_enabled = false;
             m_authoring_work_budget_minutes = 10;
             std::snprintf(m_model.data(), m_model.size(), "%s", "gpt-5.6-sol");
             start_new_conversation();
@@ -3152,7 +3177,7 @@ void AiAssistantPanel::on_gui() {
         std::snprintf(
             header,
             sizeof(header),
-            "%s  %.1fs  %zu operation%s##AIActivity",
+            "%s  %.1fs  %zu operation%s###AIActivity",
             phase.c_str(),
             static_cast<double>(activity_elapsed_ms) / 1000.0,
             activity_entries.size(),
@@ -3169,7 +3194,11 @@ void AiAssistantPanel::on_gui() {
         ImGui::Indent(8.0f);
         for (std::size_t index = 0; index < activity_entries.size(); ++index) {
             const AiActivityEntry& entry = activity_entries[index];
-            ImGui::PushID(static_cast<int>(index));
+            if (!entry.item_id.empty()) {
+                ImGui::PushID(entry.item_id.c_str());
+            } else {
+                ImGui::PushID(static_cast<int>(index));
+            }
             const bool in_progress = entry.status == "inProgress";
             const bool failed = entry.status == "failed" || entry.status == "declined";
             const ImVec4 status_color = failed
@@ -3206,7 +3235,7 @@ void AiAssistantPanel::on_gui() {
             std::snprintf(
                 row,
                 sizeof(row),
-                "%s  %s##activity-row",
+                "%s  %s###activity-row",
                 compact_label.c_str(),
                 time_label
             );
@@ -3677,7 +3706,10 @@ void AiAssistantPanel::on_gui() {
     if (iterative_session && iterative_session->status() !=
             EditorAiAuthoringSession::Status::Idle) {
         ImGui::TextDisabled(
-            "Iteration: %s | %zu batches | %zu actions | %.1f/%.1f min AI time",
+            "%s: %s | %zu batches | %zu actions | %.1f/%.1f min AI time",
+            iterative_session->status() ==
+                    EditorAiAuthoringSession::Status::ValidatedAtomically
+                ? "Authoring" : "Iteration",
             iterative_session->status_label().c_str(),
             iterative_session->applied_batches(),
             iterative_session->total_actions(),

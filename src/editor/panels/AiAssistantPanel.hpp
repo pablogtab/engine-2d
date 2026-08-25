@@ -235,6 +235,7 @@ private:
     ProviderBackend m_backend{ProviderBackend::CodexSubscription};
     AuthoringMode m_authoring_mode{AuthoringMode::ConfirmBeforeApply};
     ReasoningEffort m_reasoning_effort{ReasoningEffort::Low};
+    bool m_iterative_verification_enabled{false};
     int m_authoring_work_budget_minutes{10};
     EditorAiCollaborationMode m_collaboration_mode{EditorAiCollaborationMode::Default};
 

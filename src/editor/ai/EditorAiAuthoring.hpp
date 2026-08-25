@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Engine {
@@ -65,6 +67,8 @@ private:
     std::vector<std::string> m_addable_component_keys;
     std::vector<std::string> m_removable_component_keys;
     std::vector<std::string> m_configurable_component_keys;
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        m_component_patch_fields;
 };
 
 } // namespace Engine

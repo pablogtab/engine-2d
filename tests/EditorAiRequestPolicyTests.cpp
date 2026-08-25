@@ -40,8 +40,11 @@ void test_confirmed_authoring_policy_includes_context() {
   assert(contains(instructions, "generated automatically"));
   assert(contains(instructions, "attached screenshot images"));
   assert(contains(instructions, "capture_viewport"));
-  assert(contains(instructions, "Never invoke any Engine2D dynamic editor tool"));
-  assert(contains(instructions, "directly and one at a time"));
+  assert(contains(instructions, "exactly one awaited Engine2D call per tool bridge"));
+  assert(contains(instructions, "component_patches"));
+  assert(contains(instructions,
+                  "composite authoring action in the next tool step"));
+  assert(contains(instructions, "compact project overview when it uniquely"));
   assert(contains(instructions, "validation uses the final atomic state"));
   assert(contains(instructions, "boolean, number, string, vector2, entity"));
   assert(contains(instructions, "do not call get_asset_details unless"));
@@ -105,7 +108,7 @@ void test_plan_mode_is_read_only_and_signals_explicit_build_authorization() {
   assert(contains(instructions, "begin_plan_implementation"));
   assert(contains(instructions, "clearly authorizes"));
   assert(contains(instructions, "Inspect, implement, verify"));
-  assert(contains(instructions, "plan-transition tools"));
+  assert(contains(instructions, "exactly one awaited Engine2D call per tool bridge"));
 }
 
 } // namespace
