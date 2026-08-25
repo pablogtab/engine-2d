@@ -118,6 +118,10 @@ filesystem or shell effects remain outside this editor transaction.
 - `get_asset_details` returns dependencies, dependents, and import settings for one
   stable handle without requiring the model to guess editor asset identity.
 
+A `ready` result from `find_project_assets` is already sufficient for assigning
+its handle. Requests call `get_asset_details` only when dependency, dependent, or
+import-setting data is needed; readiness is not queried twice.
+
 Existing scene entities must always be addressed by `entity_id`. New entities
 receive request-local aliases such as `@enemy`; later actions in that same proposal
 may use the alias only after its create action. Aliases never cross conversation
@@ -289,6 +293,13 @@ intentionally ignored: the UI exposes the supported summary, not private model
 reasoning. Activity is transient request diagnostics and is not persisted in the
 conversation store. Distinct App Server `agentMessage` items are separated by a
 blank line so commentary and later iteration results remain separate paragraphs.
+
+Authoring proposals validate component invariants against the final transaction
+state. A new entity may therefore receive a required component and configure it
+later in the same proposal without exposing an invalid intermediate state. If the
+final state is invalid, the complete transaction rolls back and the receipt names
+the failed command, target, component, and registry validation reason instead of
+replacing it with a generic execution failure.
 
 The provider also guards the protocol itself. Every Engine2D dynamic tool is
 requested directly and one at a time instead of being invoked from programmatic

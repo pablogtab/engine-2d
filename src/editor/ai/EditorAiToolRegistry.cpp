@@ -185,7 +185,7 @@ EditorAiToolRegistry::EditorAiToolRegistry(
           {
               {"type", "function"},
               {"name", "find_project_assets"},
-              {"description", "Finds project assets by path/name and type. Returns stable asset_handle values for component configuration and prefab instantiation."},
+              {"description", "Finds project assets by path/name and type. Returns stable asset_handle values plus type and readiness for component configuration and prefab instantiation. A ready match is sufficient for assignment; do not call get_asset_details only to recheck it."},
               {"parameters", {
                   {"type", "object"},
                   {"properties", {
@@ -202,7 +202,7 @@ EditorAiToolRegistry::EditorAiToolRegistry(
           {
               {"type", "function"},
               {"name", "get_asset_details"},
-              {"description", "Returns type, status, dependencies, dependents, and import settings for one stable asset_handle."},
+              {"description", "Returns dependencies, dependents, and import settings for one stable asset_handle. Use only when those extra details are required; do not call it merely to validate a ready result from find_project_assets."},
               {"parameters", {
                   {"type", "object"},
                   {"properties", {{"asset_handle", {{"type", "string"}}}}},

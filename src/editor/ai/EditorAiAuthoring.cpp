@@ -184,18 +184,35 @@ public:
         : m_factory(std::move(factory)), m_description(std::move(description)) {}
 
     bool execute() override {
-        if (m_command || !m_factory) return false;
+        m_error.clear();
+        if (m_command) {
+            m_error = "Deferred command was already created";
+            return false;
+        }
+        if (!m_factory) {
+            m_error = "Deferred command factory is unavailable";
+            return false;
+        }
         m_command = m_factory();
-        return m_command && m_command->execute();
+        if (!m_command) {
+            m_error = "Deferred command could not be created from the current editor state";
+            return false;
+        }
+        if (m_command->execute()) return true;
+        m_error = m_command->get_error();
+        if (m_error.empty()) m_error = "Deferred command execution failed";
+        return false;
     }
     bool undo() override { return m_command && m_command->undo(); }
     bool redo() override { return m_command && m_command->redo(); }
     [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] std::string get_error() const override { return m_error; }
 
 private:
     Factory m_factory;
     std::unique_ptr<IEditorCommand> m_command;
     std::string m_description;
+    std::string m_error;
 };
 
 class InstantiateAiPrefabCommand final : public IEditorCommand {
@@ -283,16 +300,33 @@ public:
         m_transform(transform), m_parent(std::move(parent)), m_components(std::move(components)) {}
 
     bool execute() override {
-        if (!m_entities || !m_registry || m_created_id != 0) return false;
+        m_error.clear();
+        if (!m_entities || !m_registry) {
+            m_error = "Entity or component registry is unavailable";
+            return false;
+        }
+        if (m_created_id != 0) {
+            m_error = "Entity was already created";
+            return false;
+        }
         m_selection_before = m_selection ? m_selection->get_selected() : std::unordered_set<EntityID>{};
 
         const EntityID parent = resolve_target(m_parent, m_aliases);
         if ((!m_parent.alias.empty() || m_parent.entity_id != 0) &&
-            (parent == 0 || !m_entities->is_alive(parent))) return false;
-        if (parent != 0 && m_state_store && m_state_store->is_locked(parent)) return false;
+            (parent == 0 || !m_entities->is_alive(parent))) {
+            m_error = "Parent entity is unavailable";
+            return false;
+        }
+        if (parent != 0 && m_state_store && m_state_store->is_locked(parent)) {
+            m_error = "Parent entity is locked";
+            return false;
+        }
 
         const EntityID entity = m_entities->create_entity();
-        if (entity == 0) return false;
+        if (entity == 0) {
+            m_error = "Entity manager could not allocate an entity";
+            return false;
+        }
         m_entities->add_component<TagComponent>(entity, TagComponent{m_name});
         m_entities->add_component<TransformComponent>(entity, m_transform);
         m_entities->add_component<HierarchyComponent>(entity, HierarchyComponent{});
@@ -300,6 +334,9 @@ public:
         for (const std::string& key : m_components) {
             const ComponentDescriptor* descriptor = m_registry->find_by_key(key);
             if (!descriptor || descriptor->has(*m_entities, entity)) {
+                m_error = !descriptor
+                    ? "Unknown component '" + key + "'"
+                    : "Component '" + key + "' already exists";
                 cleanup(entity);
                 return false;
             }
@@ -315,16 +352,15 @@ public:
                         },
                         error
                     )) {
+                    m_error = "Component '" + key + "' could not be initialized";
+                    if (!error.empty()) m_error += ": " + error;
                     cleanup(entity);
                     return false;
                 }
             }
         }
         if (parent != 0 && !m_entities->set_parent(entity, parent).succeeded()) {
-            cleanup(entity);
-            return false;
-        }
-        if (!m_registry->validate_entity(*m_entities, entity).empty()) {
+            m_error = "Entity could not be parented";
             cleanup(entity);
             return false;
         }
@@ -375,6 +411,7 @@ public:
     }
 
     [[nodiscard]] std::string get_description() const override { return "Create " + m_name; }
+    [[nodiscard]] std::string get_error() const override { return m_error; }
 
 private:
     void cleanup(EntityID entity) {
@@ -400,6 +437,7 @@ private:
     EntityID m_created_id{0};
     EntitySnapshot m_snapshot;
     std::unordered_set<EntityID> m_selection_before;
+    std::string m_error;
 };
 
 class SetAiComponentPresenceCommand final : public IEditorCommand {
@@ -418,13 +456,30 @@ public:
         m_component_key(std::move(component_key)), m_present(present) {}
 
     bool execute() override {
-        if (m_command || !m_entities || !m_registry) return false;
+        m_error.clear();
+        if (m_command) {
+            m_error = "Component presence command was already created";
+            return false;
+        }
+        if (!m_entities || !m_registry) {
+            m_error = "Entity or component registry is unavailable";
+            return false;
+        }
         const EntityID entity = resolve_target(m_target, m_aliases);
         if (entity == 0 || !m_entities->is_alive(entity) ||
-            (m_state_store && m_state_store->is_locked(entity))) return false;
+            (m_state_store && m_state_store->is_locked(entity))) {
+            m_error = entity != 0 && m_state_store && m_state_store->is_locked(entity)
+                ? "Entity is locked" : "Entity is unavailable";
+            return false;
+        }
         const ComponentDescriptor* descriptor = m_registry->find_by_key(m_component_key);
         if (!descriptor || descriptor->has(*m_entities, entity) == m_present ||
-            (!m_present && !descriptor->removable)) return false;
+            (!m_present && !descriptor->removable)) {
+            m_error = !descriptor
+                ? "Unknown component '" + m_component_key + "'"
+                : "Component presence change is not valid";
+            return false;
+        }
 
         ComponentSnapshotSet before;
         descriptor->capture(*m_entities, entity, before);
@@ -448,16 +503,14 @@ public:
                         },
                         error
                     )) {
+                    m_error = "Component could not be initialized";
+                    if (!error.empty()) m_error += ": " + error;
                     descriptor->restore(*m_entities, entity, before);
                     return false;
                 }
             }
         } else {
             descriptor->remove(*m_entities, entity);
-        }
-        if (!m_registry->validate_entity(*m_entities, entity).empty()) {
-            descriptor->restore(*m_entities, entity, before);
-            return false;
         }
 
         ComponentSnapshotSet after;
@@ -488,6 +541,7 @@ public:
     [[nodiscard]] std::string get_description() const override {
         return std::string(m_present ? "Add " : "Remove ") + m_component_key;
     }
+    [[nodiscard]] std::string get_error() const override { return m_error; }
 
 private:
     EntityManager* m_entities{nullptr};
@@ -499,6 +553,7 @@ private:
     std::string m_component_key;
     bool m_present{false};
     std::unique_ptr<SetRegisteredComponentCommand> m_command;
+    std::string m_error;
 };
 
 class PatchAiComponentCommand final : public IEditorCommand {
@@ -517,9 +572,16 @@ public:
         m_component_key(std::move(component_key)), m_patch(std::move(patch)) {}
 
     bool execute() override {
-        if (m_command || !m_entities || !m_registry) return false;
+        m_error.clear();
+        if (m_command || !m_entities || !m_registry) {
+            m_error = m_command
+                ? "Component patch command was already created"
+                : "Entity or component registry is unavailable";
+            return false;
+        }
         const EntityID entity = resolve_target(m_target, m_aliases);
         const auto fail = [&](const std::string& reason) {
+            m_error = reason;
             ENGINE_LOG_WARN(
                 "[AI AUTHORING] Configure component rejected: entity={} component={} reason={}",
                 entity,
@@ -590,12 +652,6 @@ public:
                 restore_before();
                 return fail(error.empty() ? "component finalizer rejected the patch" : error);
             }
-            const std::vector<ComponentValidationIssue> issues =
-                m_registry->validate_entity(*m_entities, entity);
-            if (!issues.empty()) {
-                restore_before();
-                return fail(issues.front().component_key + ": " + issues.front().message);
-            }
         } catch (const std::exception& exception) {
             restore_before();
             return fail(exception.what());
@@ -624,6 +680,7 @@ public:
     [[nodiscard]] std::string get_description() const override {
         return "Configure " + m_component_key;
     }
+    [[nodiscard]] std::string get_error() const override { return m_error; }
 
 private:
     EntityManager* m_entities{nullptr};
@@ -635,6 +692,67 @@ private:
     std::string m_component_key;
     Json m_patch;
     std::unique_ptr<SetRegisteredComponentCommand> m_command;
+    std::string m_error;
+};
+
+class ValidateAiProposalCommand final : public IEditorCommand {
+public:
+    ValidateAiProposalCommand(
+        EntityManager* entities,
+        ComponentRegistry* registry,
+        std::shared_ptr<AliasState> aliases,
+        std::vector<EntityTarget> targets
+    ) : m_entities(entities), m_registry(registry), m_aliases(std::move(aliases)),
+        m_targets(std::move(targets)) {}
+
+    bool execute() override {
+        m_error.clear();
+        if (!m_entities || !m_registry || !m_aliases) {
+            m_error = "Final proposal validation is unavailable";
+            return false;
+        }
+
+        std::unordered_set<EntityID> validated;
+        for (const EntityTarget& target : m_targets) {
+            const EntityID entity = resolve_target(target, m_aliases);
+            if (entity == 0) {
+                m_error = target_label(target) + " could not be resolved for final validation";
+                return false;
+            }
+            // A later action may intentionally delete a previously modified entity.
+            if (!m_entities->is_alive(entity) || !validated.insert(entity).second) continue;
+
+            const std::vector<ComponentValidationIssue> issues =
+                m_registry->validate_entity(*m_entities, entity);
+            if (issues.empty()) continue;
+            m_error = target_label(target) + " component '" + issues.front().component_key +
+                "': " + issues.front().message;
+            return false;
+        }
+
+        m_applied = true;
+        return true;
+    }
+
+    bool undo() override {
+        if (!m_applied) return false;
+        m_applied = false;
+        return true;
+    }
+
+    bool redo() override { return execute(); }
+    [[nodiscard]] std::string get_description() const override {
+        return "Validate final AI proposal";
+    }
+    [[nodiscard]] std::string get_error() const override { return m_error; }
+
+private:
+    EntityManager* m_entities{nullptr};
+    ComponentRegistry* m_registry{nullptr};
+    std::shared_ptr<AliasState> m_aliases;
+    std::vector<EntityTarget> m_targets;
+    std::string m_error;
+    bool m_applied{false};
 };
 
 TransformComponent transform_from_create_arguments(const Json& arguments) {
@@ -886,7 +1004,7 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
     m_tool_schemas = Json::array({
         {
             {"type", "function"}, {"name", CREATE_ENTITY_TOOL},
-            {"description", "Queues creation of a game entity. Position accepts [x,y] or [x,y,z]. Include the final name, transform, and components in this call. The alias can be referenced by later proposal tools in the same AI session. This does not mutate immediately."},
+            {"description", "Queues creation of a game entity. Position accepts [x,y] or [x,y,z]. Include the final name, transform, and required components in this call, then configure components that require assets later in the same proposal. Final-state validation and rollback are atomic. The alias can be referenced by later proposal tools in the same AI session. This does not mutate immediately."},
             {"parameters", {
                 {"type", "object"},
                 {"properties", create_properties},
@@ -928,7 +1046,7 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         },
         {
             {"type", "function"}, {"name", CONFIGURE_COMPONENT_TOOL},
-            {"description", "Queues a validated merge patch for a registered component already present on the target. Call get_entity_details first, then pass patch_json as a JSON object string containing only fields to change. Existing scene entities require entity_id; entity_alias is only for an earlier create action."},
+            {"description", "Queues a validated merge patch for a registered component already present on the target. For existing entities, call get_entity_details first. Pass patch_json as a JSON object string containing only fields to change. For script, assign script_handle and enabled; omit public_fields unless overriding known values, and use canonical field types boolean, number, string, vector2, entity, or asset. Existing scene entities require entity_id; entity_alias is only for an earlier create action."},
             {"parameters", { {"type", "object"}, {"properties", configurable_properties},
                 {"required", Json::array({"entity_id", "entity_alias", "component_key", "patch_json"})},
                 {"additionalProperties", false}}},
@@ -1461,6 +1579,7 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
     std::unordered_set<std::string> generated_texture_sources;
     std::unordered_set<std::string> generated_audio_destinations;
     std::unordered_set<std::string> generated_audio_sources;
+    std::vector<EntityTarget> validation_targets;
     auto group = std::make_unique<EditorCommandGroup>(
         "AI Session (" + std::to_string(actions.size()) +
         (actions.size() == 1 ? " action)" : " actions)")
@@ -1599,6 +1718,7 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
                 const auto target = target_for(assignment);
                 if (!target || !validate_target(*target)) return nullptr;
                 const EntityTarget captured_target = *target;
+                validation_targets.push_back(captured_target);
                 const std::string component_key = assignment.at("component_key").get<std::string>();
                 group->add_command(std::make_unique<DeferredEditorCommand>(
                     [entities = context.entities, registry, state_store = context.entity_state_store,
@@ -1701,6 +1821,7 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
             }
             const auto parent = read_parent(action.arguments);
             if (!parent) return nullptr;
+            validation_targets.push_back(EntityTarget{.alias = alias});
             group->add_command(std::make_unique<CreateAiEntityCommand>(
                 context.entities,
                 registry,
@@ -1760,6 +1881,7 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
                 action.summary
             ));
         } else if (action.tool_name == ADD_COMPONENT_TOOL || action.tool_name == REMOVE_COMPONENT_TOOL) {
+            validation_targets.push_back(*target);
             group->add_command(std::make_unique<SetAiComponentPresenceCommand>(
                 context.entities,
                 registry,
@@ -1771,6 +1893,7 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
                 action.tool_name == ADD_COMPONENT_TOOL
             ));
         } else if (action.tool_name == CONFIGURE_COMPONENT_TOOL) {
+            validation_targets.push_back(*target);
             group->add_command(std::make_unique<PatchAiComponentCommand>(
                 context.entities,
                 registry,
@@ -1830,6 +1953,15 @@ std::unique_ptr<EditorCommandGroup> EditorAiAuthoringRegistry::build_command_gro
         }
     }
 
+    if (!validation_targets.empty()) {
+        group->add_command(std::make_unique<ValidateAiProposalCommand>(
+            context.entities,
+            registry,
+            aliases,
+            std::move(validation_targets)
+        ));
+    }
+
     return group->empty() ? nullptr : std::move(group);
 }
 
@@ -1856,7 +1988,8 @@ bool EditorAiAuthoringRegistry::execute_proposal(
     description = group->get_description();
     if (!history.execute_command(std::move(group))) {
         description.clear();
-        error = "Execution failed and every completed action was rolled back";
+        error = history.get_last_error();
+        if (error.empty()) error = "Execution failed and every completed action was rolled back";
         return false;
     }
     return true;

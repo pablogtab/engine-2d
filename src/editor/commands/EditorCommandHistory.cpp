@@ -59,11 +59,21 @@ private:
 namespace Engine {
 
 bool EditorCommandHistory::execute_command(std::unique_ptr<IEditorCommand> command) {
-    if (!command) return false;
+    m_last_error.clear();
+    if (!command) {
+        m_last_error = "Command is unavailable";
+        return false;
+    }
 
     std::string desc = command->get_description();
     if (!command->execute()) {
-        ENGINE_LOG_WARN("[COMMAND] Execution failed, not added to history: '{}'", desc);
+        m_last_error = command->get_error();
+        if (m_last_error.empty()) m_last_error = "Command execution failed";
+        ENGINE_LOG_WARN(
+            "[COMMAND] Execution failed, not added to history: '{}' reason={}",
+            desc,
+            m_last_error
+        );
         return false;
     }
 

@@ -42,6 +42,9 @@ void test_confirmed_authoring_policy_includes_context() {
   assert(contains(instructions, "capture_viewport"));
   assert(contains(instructions, "Never invoke any Engine2D dynamic editor tool"));
   assert(contains(instructions, "directly and one at a time"));
+  assert(contains(instructions, "validation uses the final atomic state"));
+  assert(contains(instructions, "boolean, number, string, vector2, entity"));
+  assert(contains(instructions, "do not call get_asset_details unless"));
 }
 
 void test_image_generation_uses_bounded_policy_and_suppresses_viewport_capture() {

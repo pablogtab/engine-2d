@@ -10,11 +10,24 @@ void EditorCommandGroup::add_command(std::unique_ptr<IEditorCommand> command) {
 }
 
 bool EditorCommandGroup::execute() {
-    if (m_state != State::Fresh || m_commands.empty()) return false;
+    m_error.clear();
+    if (m_state != State::Fresh) {
+        m_error = "Command group is not fresh";
+        return false;
+    }
+    if (m_commands.empty()) {
+        m_error = "Command group is empty";
+        return false;
+    }
 
     std::size_t applied = 0;
     for (; applied < m_commands.size(); ++applied) {
         if (m_commands[applied]->execute()) continue;
+        m_error = "Action " + std::to_string(applied + 1) + "/" +
+            std::to_string(m_commands.size()) + " ('" +
+            m_commands[applied]->get_description() + "') failed";
+        const std::string detail = m_commands[applied]->get_error();
+        if (!detail.empty()) m_error += ": " + detail;
         while (applied > 0) {
             --applied;
             static_cast<void>(m_commands[applied]->undo());
@@ -44,11 +57,17 @@ bool EditorCommandGroup::undo() {
 }
 
 bool EditorCommandGroup::redo() {
+    m_error.clear();
     if (m_state != State::Undone || m_commands.empty()) return false;
 
     std::size_t applied = 0;
     for (; applied < m_commands.size(); ++applied) {
         if (m_commands[applied]->redo()) continue;
+        m_error = "Action " + std::to_string(applied + 1) + "/" +
+            std::to_string(m_commands.size()) + " ('" +
+            m_commands[applied]->get_description() + "') failed during redo";
+        const std::string detail = m_commands[applied]->get_error();
+        if (!detail.empty()) m_error += ": " + detail;
         while (applied > 0) {
             --applied;
             static_cast<void>(m_commands[applied]->undo());

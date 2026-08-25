@@ -22,6 +22,7 @@ public:
     bool undo() override;
     bool redo() override;
     [[nodiscard]] std::string get_description() const override { return m_description; }
+    [[nodiscard]] std::string get_error() const override { return m_error; }
 
 private:
     enum class State {
@@ -32,6 +33,7 @@ private:
 
     std::vector<std::unique_ptr<IEditorCommand>> m_commands;
     std::string m_description;
+    std::string m_error;
     State m_state{State::Fresh};
 };
 

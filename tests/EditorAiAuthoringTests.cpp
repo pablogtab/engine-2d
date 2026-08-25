@@ -9,6 +9,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
+#include "ecs/components/ScriptingComponents.hpp"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -79,6 +80,12 @@ void test_tool_validation_and_limits() {
         assert(encoded.find("maxLength") == std::string::npos);
         assert(encoded.find("uniqueItems") == std::string::npos);
     }
+    assert(registry.tool_schemas().at(0).at("description").get<std::string>().find(
+        "Final-state validation"
+    ) != std::string::npos);
+    assert(registry.tool_schemas().at(5).at("description").get<std::string>().find(
+        "canonical field types"
+    ) != std::string::npos);
 
     assert(!registry.queue_action("unknown", nlohmann::json::object(), actions).success);
     assert(!registry.queue_action(
@@ -188,6 +195,86 @@ void test_alias_session_executes_as_one_undoable_transaction() {
     assert(session.entities.find_by_tag("Elite Enemy") == created);
     assert(session.entities.has_component<SpriteComponent>(created));
     assert(session.entities.has_component<ColliderComponent>(created));
+}
+
+void test_required_component_configuration_validates_final_transaction_state() {
+    TestSession session;
+    EditorAiAuthoringRegistry registry;
+    std::vector<EditorAiAuthoringAction> actions;
+    const nlohmann::json frozen_context{
+        {"entity_index", nlohmann::json::array()},
+        {"asset_index", nlohmann::json::array({{
+            {"asset_handle", "d17564dba2c3cd4e"},
+            {"path", "Assets/Scripts/PetFollower.e2s"},
+            {"status", "ready"},
+            {"type", "script"}
+        }})}
+    };
+    assert(registry.queue_action("propose_create_entity", {
+        {"alias", "pet"},
+        {"name", "Pet_Flying_Fox"},
+        {"position", {-238.0, -78.0, 0.0}},
+        {"components", {"sprite", "script"}}
+    }, actions, &frozen_context).success);
+    assert(registry.queue_action("propose_configure_component", {
+        {"entity_alias", "pet"},
+        {"component_key", "sprite"},
+        {"patch_json", R"({"size":[48.0,32.0],"order_in_layer":1})"}
+    }, actions, &frozen_context).success);
+    assert(registry.queue_action("propose_configure_component", {
+        {"entity_alias", "pet"},
+        {"component_key", "script"},
+        {"patch_json", R"({"enabled":true,"script_handle":"d17564dba2c3cd4e"})"}
+    }, actions, &frozen_context).success);
+
+    std::string description;
+    std::string error;
+    assert(registry.execute_proposal(
+        actions, session.context(), session.history, 0, description, error
+    ));
+    assert(error.empty());
+    const EntityID pet = session.entities.find_by_tag("Pet_Flying_Fox");
+    assert(pet != 0);
+    assert(session.entities.has_component<SpriteComponent>(pet));
+    assert(session.entities.has_component<ScriptComponent>(pet));
+    const ScriptComponent& script = session.entities.get_component<ScriptComponent>(pet);
+    assert(script.enabled);
+    assert(script.script_handle == *AssetHandle::from_string("d17564dba2c3cd4e"));
+    const AssetHandle script_handle = script.script_handle;
+    assert(session.history.get_undo_count() == 1);
+
+    session.history.undo();
+    assert(!session.entities.is_alive(pet));
+    session.history.redo();
+    assert(session.entities.is_alive(pet));
+    assert(session.entities.get_component<ScriptComponent>(pet).script_handle == script_handle);
+}
+
+void test_final_component_validation_reports_exact_rollback_reason() {
+    TestSession session;
+    EditorAiAuthoringRegistry registry;
+    const std::vector<EditorAiAuthoringAction> actions{{
+        "propose_create_entity",
+        {
+            {"alias", "invalid_script"},
+            {"name", "Invalid_Script_Entity"},
+            {"components", {"script"}}
+        },
+        "Create Invalid_Script_Entity as @invalid_script"
+    }};
+
+    std::string description;
+    std::string error;
+    assert(!registry.execute_proposal(
+        actions, session.context(), session.history, 0, description, error
+    ));
+    assert(error.find("Validate final AI proposal") != std::string::npos);
+    assert(error.find("@invalid_script") != std::string::npos);
+    assert(error.find("component 'script'") != std::string::npos);
+    assert(error.find("Script asset is not assigned") != std::string::npos);
+    assert(session.entities.find_by_tag("Invalid_Script_Entity") == 0);
+    assert(session.history.get_undo_count() == 0);
+    assert(session.history.get_current_revision() == 0);
 }
 
 void test_gameplay_tags_are_ai_configurable_and_undoable() {
@@ -702,6 +789,8 @@ void test_proposal_rejects_a_stale_scene_revision() {
 int main() {
     test_tool_validation_and_limits();
     test_alias_session_executes_as_one_undoable_transaction();
+    test_required_component_configuration_validates_final_transaction_state();
+    test_final_component_validation_reports_exact_rollback_reason();
   test_gameplay_tags_are_ai_configurable_and_undoable();
   test_component_data_can_be_configured_and_replayed();
     test_2d_positions_default_or_preserve_depth();

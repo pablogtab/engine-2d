@@ -71,6 +71,12 @@ void test_tool_schemas_are_read_only_and_strict() {
     assert(schemas.at(5).at("name") == "get_entity_details");
     assert(schemas.at(6).at("name") == "find_project_assets");
     assert(schemas.at(7).at("name") == "get_asset_details");
+    assert(schemas.at(6).at("description").get<std::string>().find(
+        "ready match is sufficient"
+    ) != std::string::npos);
+    assert(schemas.at(7).at("description").get<std::string>().find(
+        "do not call it merely"
+    ) != std::string::npos);
     assert(schemas.at(8).at("name") == "list_engine_documents");
   assert(schemas.at(9).at("name") == "read_engine_document");
   assert(schemas.at(10).at("name") == "list_project_documents");

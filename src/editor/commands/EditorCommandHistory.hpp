@@ -44,6 +44,7 @@ public:
 
     [[nodiscard]] std::string get_undo_description() const;
     [[nodiscard]] std::string get_redo_description() const;
+    [[nodiscard]] const std::string& get_last_error() const { return m_last_error; }
 
     // Clears undo/redo stacks while preserving current dirty state and revisions
     void clear_history_preserving_dirty_state();
@@ -78,6 +79,7 @@ private:
 
     std::vector<HistoryEntry> m_undo_stack;
     std::vector<HistoryEntry> m_redo_stack;
+    std::string m_last_error;
 };
 
 } // namespace Engine

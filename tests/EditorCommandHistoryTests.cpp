@@ -30,6 +30,7 @@ public:
     bool execute() override { return false; }
     bool undo() override { return false; }
     [[nodiscard]] std::string get_description() const override { return "Failing Command"; }
+    [[nodiscard]] std::string get_error() const override { return "Concrete failure reason"; }
 };
 
 class FailingUndoCommand final : public IEditorCommand {
@@ -73,6 +74,7 @@ void test_failed_command_is_not_added_to_history() {
     assert(!history.can_undo());
     assert(history.get_undo_count() == 0);
     assert(!history.can_redo());
+    assert(history.get_last_error() == "Concrete failure reason");
 }
 
 void test_failing_undo_retains_command_in_undo_stack() {
@@ -187,6 +189,8 @@ void test_command_group_rolls_back_failed_execution() {
     assert(!history.execute_command(std::move(group)));
     assert(value == 0);
     assert(!history.can_undo());
+    assert(history.get_last_error().find("Action 2/2") != std::string::npos);
+    assert(history.get_last_error().find("Concrete failure reason") != std::string::npos);
 }
 
 void test_command_group_restores_applied_state_when_undo_fails() {
