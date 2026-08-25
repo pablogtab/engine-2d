@@ -214,7 +214,10 @@ These systems form the current baseline and should be extended rather than rewri
 
 ### Asset Database
 
-- [x] Introduce stable `AssetHandle` identities and project-relative source paths (`AssetDatabase`, atomic `.meta` sidecars, project-root resolver, duplicate-handle rejection).
+- [x] Introduce stable `AssetHandle` identities and project-relative source paths through the centralized `AssetDatabase`, project-root resolver, and duplicate-handle rejection. Per-asset `.meta` sidecars were intentionally removed and are not part of the current architecture.
+- [ ] Evolve the centralized metadata into an editor-managed `ProjectSettings/AssetRegistry.json` without adjacent `.meta` files. Keep only versionable identity data there: stable handle, project-relative path, asset/importer type, importer schema version, and import settings. The editor must abstract and own this file; it must never appear as an asset or require manual editing.
+- [ ] Move reconstructible catalog data—readiness/import status, dependency graphs, source fingerprints, search indexes, previews, and derived artifacts—out of the versioned registry and into `Library/AssetIndex`. Start with the existing in-memory indexes and introduce a rebuildable SQLite catalog only when measured project scale or incremental import/query requirements justify it.
+- [ ] Treat the registry-v2 switch as a deliberate one-time project conversion, not a permanent compatibility layer. Do not add legacy registry parsing to the engine: use a temporary migration tool to rewrite the external `projecto` registry, verify every preserved handle and reference, then remove the tool after the conversion.
 - [x] Persist prefab links and prefab-variant bases as `AssetHandle`; resolve their runtime paths only through `AssetDatabase` (initial format, with no legacy migration path).
 - [x] Persist Sprite texture references as `AssetHandle`; resolve ready textures through `AssetDatabase` and fall back safely when unavailable.
 - [x] Persist Sprite material references as `AssetHandle`; load validated `.material` assets through `AssetDatabase` and fall back safely when unavailable.
@@ -442,6 +445,10 @@ Remaining language/backend work is tracked in
 - [x] Ensure standalone startup never initializes ImGui, editor panels, or editor history.
 - [x] Replace runtime source duplication in test targets with the reusable `EngineRuntime` library.
 - [x] Package required scenes, assets, shader variants, project settings, and native dependencies for the macOS standalone bundle.
+- [ ] Separate the mutable editor `AssetDatabase` from runtime asset resolution. Editor and Play Mode may use an adapter over the authoring database, but exported games must not scan `Assets/`, rebuild authoring dependencies, or write `ProjectSettings/AssetDatabase.json` at startup.
+- [ ] Generate a deterministic, versioned `RuntimeAssetManifest` during export from the startup-scene dependency closure. Record each packaged asset's stable handle, runtime type, package-relative location, content hash, byte size, and direct dependencies in stable handle order; fail export on missing, duplicate, unsupported, or out-of-scope entries.
+- [ ] Load the runtime manifest once at standalone startup behind a read-only asset-resolver interface, and make scenes, scripts, materials, particles, UI, and `RuntimeAssetCache` resolve handles without depending on editor import or mutation APIs.
+- [ ] Keep the initial manifest format simple and portable; retain JSON while measured startup and package sizes remain acceptable, and introduce a compact binary representation only behind the same versioned resolver contract if profiling justifies it. SQLite is not a runtime requirement.
 - [ ] Create platform-native distributable layouts: `.app` bundle on macOS, portable folder/ZIP or installer on Windows, and AppImage/tarball on Linux.
 - [x] On macOS, copy non-system `.dylib` dependencies into `Engine2D.app/Contents/Frameworks`, rewrite their load paths with `install_name_tool`, and codesign the finished bundle. The exported app must not depend on Homebrew paths such as `/opt/homebrew/opt/...`.
 - [x] Add a Windows portable-folder packaging target that collects non-system runtime DLLs and validate it on Windows.
@@ -454,7 +461,7 @@ Remaining language/backend work is tracked in
 - [ ] Implement standalone builds for macOS, Windows, and Linux.
 - [ ] Add clean-machine smoke tests for exported builds, including macOS machines without Homebrew/SDL installed.
 
-**Completion criteria:** A standalone build contains only runtime and game dependencies, launches with project defaults, resolves every packaged asset, and does not depend on editor state.
+**Completion criteria:** A standalone build contains only runtime and game dependencies, launches with project defaults, resolves every packaged asset through an immutable generated manifest, never scans or mutates the authoring asset database, and does not depend on editor state.
 
 ---
 
@@ -650,8 +657,8 @@ These suites protect systems that already exist but do not yet have dedicated au
 - [x] `ProfilerInstrumentationTests` — counter scope, nested timings, frame reset, disabled overhead, ring buffer, percentiles, capture export, and entity/pass attribution.
 - [x] `StressRegressionTests` — deterministic execution and recorded correction budgets for entities, sprites, physics, particles, scripts, lighting, post-processing, allocations, and render targets.
 - [ ] `RuntimeBoundaryTests` — runtime targets do not link or initialize ImGui, editor panels, command history, or sandbox helpers.
-- [ ] `AssetPackagingTests` — dependency closure, shader variants, scene inclusion, missing-file failure, and deterministic package manifests.
-- [ ] `StandaloneSmokeTests` — launch, load initial scene, input, audio initialization, display defaults, save path, and clean shutdown.
+- [ ] `AssetPackagingTests` — dependency closure, shader variants, scene inclusion, stable manifest ordering and hashes, missing/duplicate-file failure, deterministic rebuilds, and exclusion of editor-only metadata.
+- [ ] `StandaloneSmokeTests` — launch from a read-only package without source-tree `Assets/`, load the immutable runtime manifest and initial scene, resolve scripts/render/UI/particle assets, initialize input/audio/display, preserve the authoring database unchanged, use the platform save path, and shut down cleanly.
 - [ ] Export smoke coverage on macOS, Windows, and Linux, including a clean environment without source-tree assets.
 
 ### Phase 10 — AI-Assisted Authoring and Full Access Suites
