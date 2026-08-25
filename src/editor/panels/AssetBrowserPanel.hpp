@@ -40,6 +40,9 @@ public:
     void set_on_open_prefab_callback(std::function<void(const std::string&)> cb) {
         m_on_open_prefab = std::move(cb);
     }
+    void set_on_open_particle_effect(std::function<void(AssetHandle)> callback) {
+        m_on_open_particle_effect = std::move(callback);
+    }
     void set_command_history(std::shared_ptr<EditorCommandHistory> command_history) {
         m_command_history = std::move(command_history);
     }
@@ -112,6 +115,7 @@ private:
     std::shared_ptr<EditorCommandHistory> m_command_history;
     std::function<void(const std::string&)> m_on_load_scene;
     std::function<void(const std::string&)> m_on_open_prefab;
+    std::function<void(AssetHandle)> m_on_open_particle_effect;
     std::function<void(AssetHandle, std::shared_ptr<const Material>)> m_on_material_preview;
     std::function<void()> m_on_material_preview_reset;
     std::string m_selected_file{""};
@@ -140,12 +144,14 @@ private:
     char m_new_material_name_buf[128]{"NewMaterial"};
     char m_new_post_process_name_buf[128]{"NewPostProcessProfile"};
     char m_new_layer_effect_name_buf[128]{"NewLayerEffectProfile"};
+    char m_new_particle_name_buf[128]{"NewParticleEffect"};
     AssetHandle m_new_layer_effect_material_handle{};
     bool m_show_new_scene_popup{false};
     bool m_show_new_script_popup{false};
     bool m_show_new_material_popup{false};
     bool m_show_new_post_process_popup{false};
     bool m_show_new_layer_effect_popup{false};
+    bool m_show_new_particle_popup{false};
     bool m_show_edit_layer_effect_popup{false};
     bool m_show_edit_material_popup{false};
     AssetHandle m_edit_material_handle{};

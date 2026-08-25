@@ -92,15 +92,26 @@ int main() {
 
     const std::string before_modify = read(renamed);
     const std::string after_modify = "{\"scene_name\":\"Modified\"}\n";
+    int before_callbacks = 0;
+    int after_callbacks = 0;
     history.execute_command(std::make_unique<Engine::ModifyAssetCommand>(
-        &database, renamed, before_modify, after_modify, "Modify Scene Asset"
+        &database,
+        renamed,
+        before_modify,
+        after_modify,
+        "Modify Scene Asset",
+        [&]() { ++before_callbacks; },
+        [&]() { ++after_callbacks; }
     ));
     require(read(renamed) == after_modify, "modify writes new asset content");
+    require(after_callbacks == 1 && before_callbacks == 0, "modify applies after-state callback");
     require(database.find_by_path(renamed)->handle == handle, "modify preserves handle");
     history.undo();
     require(read(renamed) == before_modify, "undo modify restores previous content");
+    require(before_callbacks == 1, "undo modify applies before-state callback");
     history.redo();
     require(read(renamed) == after_modify, "redo modify restores new content");
+    require(after_callbacks == 2, "redo modify reapplies after-state callback");
 
     history.execute_command(std::make_unique<Engine::DeleteAssetCommand>(&database, renamed));
     require(!fs::exists(renamed), "delete removes source asset");

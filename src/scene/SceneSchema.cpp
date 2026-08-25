@@ -52,12 +52,13 @@ bool migrate_v2_to_v3(Json& root, const ComponentRegistry&, std::string&) {
 }
 
 bool migrate_v3_to_v4(Json& root, const ComponentRegistry&, std::string& error) {
+    Json migrated = root;
     bool has_post_process = false;
     std::string global_profile;
     Json layer_effects = Json::array();
 
-    if (root.contains("settings") && root["settings"].is_object()) {
-        Json& settings = root["settings"];
+    if (migrated.contains("settings") && migrated["settings"].is_object()) {
+        Json& settings = migrated["settings"];
         if (settings.contains("post_process_profile_handle")) {
             if (settings["post_process_profile_handle"].is_string()) {
                 global_profile = settings["post_process_profile_handle"].get<std::string>();
@@ -82,12 +83,12 @@ bool migrate_v3_to_v4(Json& root, const ComponentRegistry&, std::string& error) 
     }
 
     if (has_post_process) {
-        if (!root.contains("entities") || !root["entities"].is_array() || root["entities"].empty()) {
+        if (!migrated.contains("entities") || !migrated["entities"].is_array() || migrated["entities"].empty()) {
             error = "Cannot migrate post-processing to CameraComponent: scene has no camera entity.";
             return false;
         }
         Json* target_camera_entity = nullptr;
-        for (auto& entity : root["entities"]) {
+        for (auto& entity : migrated["entities"]) {
             if (entity.is_object() && entity.contains("camera") && entity["camera"].is_object()) {
                 if (entity["camera"].value("is_primary", false)) {
                     target_camera_entity = &entity;
@@ -111,7 +112,8 @@ bool migrate_v3_to_v4(Json& root, const ComponentRegistry&, std::string& error) 
         };
     }
 
-    root["version"] = static_cast<std::uint32_t>(4);
+    migrated["version"] = static_cast<std::uint32_t>(4);
+    root = std::move(migrated);
     return true;
 }
 

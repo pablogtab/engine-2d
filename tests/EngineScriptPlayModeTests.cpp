@@ -11,6 +11,7 @@
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/ScriptingComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
+#include "ecs/components/ParticleComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
 #include "ecs/components/UIComponents.hpp"
 #include "ecs/components/CoreComponents.hpp"
@@ -421,6 +422,7 @@ export class ServiceUser extends Behaviour {
         received = name + ":" + payload;
     }
 }
+
 )";
     write_test_file(root / "Assets/scripts/ServiceUser.e2s", code);
     write_test_file(root / "Assets/Textures/Hud.png", "texture-bytes");
@@ -540,12 +542,106 @@ export class ServiceUser extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_particle_services_and_component() {
+    std::cout << "[Test] ParticleServicesAndComponent... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_enginescript_particle_services_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    const std::string code = R"(
+@behaviour
+export class ParticleUser extends Behaviour {
+    constructor(
+        @inject private particles: Particles,
+        @inject private assets: Assets,
+        @component private emitter: ParticleEmitter2D,
+        @component private transform: Transform2D
+    ) {}
+
+    override on_start(): Void { configureEffect(); }
+
+    async configureEffect(): Task<Void> {
+        let effect: Asset = await assets.load<ParticleEffect2D>("Assets/Particles/dust.particle");
+        if (effect.ready && emitter.setEffect(effect)) {
+            emitter.play();
+            emitter.burst(6);
+            particles.emit(effect, transform.position, 3);
+            let options: ParticleEmitOptions;
+            options.count = 4;
+            options.scale = 1.5;
+            particles.emitWithOptions(effect, transform.position, options);
+            emitter.stop(true);
+        }
+    }
+}
+)";
+    write_test_file(root / "Assets/Scripts/ParticleUser.e2s", code);
+    write_test_file(root / "Assets/Particles/dust.particle", R"({"version":1,"type":"ParticleEffect2D","name":"Dust","appearance":{},"motion":{},"lifetime":{},"collision":{},"emission":{},"rendering":{}})");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* script_record = asset_database.find_by_path(root / "Assets/Scripts/ParticleUser.e2s");
+    const AssetRecord* effect_record = asset_database.find_by_path(root / "Assets/Particles/dust.particle");
+    assert(script_record && effect_record);
+
+    EntityManager entity_manager;
+    const EntityID entity = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(entity, TransformComponent{});
+    entity_manager.add_component<ParticleEmitter2DComponent>(entity, ParticleEmitter2DComponent{});
+    ScriptComponent script;
+    script.enabled = true;
+    script.script_handle = script_record->handle;
+    entity_manager.add_component<ScriptComponent>(entity, script);
+
+    int play_calls = 0;
+    int burst_count = 0;
+    int direct_count = 0;
+    int options_count = 0;
+    bool stopped_and_cleared = false;
+    ScriptRuntimeServices services;
+    services.preload_asset = [&](AssetHandle handle, std::string&) { return handle == effect_record->handle; };
+    services.play_particle_emitter = [&](EntityID id) { assert(id == entity); ++play_calls; return true; };
+    services.burst_particle_emitter = [&](EntityID id, int count) { assert(id == entity); burst_count += count; return true; };
+    services.stop_particle_emitter = [&](EntityID id, bool clear) { assert(id == entity); stopped_and_cleared = clear; return true; };
+    services.emit_particles = [&](AssetHandle handle, const glm::vec2&, int count) {
+        assert(handle == effect_record->handle);
+        direct_count += count;
+        return true;
+    };
+    services.emit_particles_with_options = [&](AssetHandle handle, const glm::vec2&, const EngineScript::ParticleEmitOptions& options) {
+        assert(handle == effect_record->handle);
+        assert(std::abs(options.scale - 1.5f) < 0.001f);
+        options_count += options.count;
+        return true;
+    };
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, nullptr, services);
+    assert(started.started == 1 && started.failed == 0);
+    runtime.update(0.0f);
+    runtime.update(0.0f);
+
+    assert(entity_manager.get_component<ParticleEmitter2DComponent>(entity).effect_handle == effect_record->handle);
+    assert(play_calls == 1);
+    assert(burst_count == 6);
+    assert(direct_count == 3);
+    assert(options_count == 4);
+    assert(stopped_and_cleared);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
     test_dynamic_inspector_field_modifications();
     test_coin_pickup_speed_boost();
     test_audio_and_scene_services();
+    test_particle_services_and_component();
     test_async_scheduler_cancellation();
     test_game_session_transitions();
     test_e2s_script_inspection();

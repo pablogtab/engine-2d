@@ -165,10 +165,12 @@ void test_v3_scene_without_camera_fails_migration_safely() {
         {"gravity", {0.0f, -980.0f}},
         {"post_process_profile_handle", "42"}
     };
+    const Json original = v3_doc;
 
     std::string error;
     assert(!SceneSchema::migrate_to_current(v3_doc, registry, error));
     assert(error.find("Cannot migrate post-processing to CameraComponent: scene has no camera entity.") != std::string::npos);
+    assert(v3_doc == original);
 }
 
 void test_v3_scene_without_post_process_migrates_to_v4() {

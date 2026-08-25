@@ -103,7 +103,7 @@
       "patterns": [
         {
           "name": "support.type.primitive.enginescript",
-          "match": "\\b(Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Int|UInt|Float|Float32|Float64|String|Vec2|Vec3|Vec4|Color|Duration|Entity|Array|FixedArray|Map|Set|Result|Task|Weak|Behaviour|Input|Log|RigidBody2D|Animator2D|Transform2D|SpriteRenderer2D|Audio|Scene)\\b"
+          "match": "\\b(Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Int|UInt|Float|Float32|Float64|String|Vec2|Vec3|Vec4|Color|Duration|Entity|Entities|Array|FixedArray|Map|Set|Result|Task|Weak|Behaviour|Input|Log|RigidBody2D|Animator2D|Transform2D|SpriteRenderer2D|ParticleEmitter2D|Joint2D|Time|Physics|RaycastHit|Display|Audio|Scene|Assets|Asset|Texture|AudioClip|Font|DataAsset|Events|PlayerPrefs|UI|Tilemap|Particles|ParticleEffect2D|ParticleEmitOptions)\\b"
         },
         {
           "name": "entity.name.type.class.enginescript",

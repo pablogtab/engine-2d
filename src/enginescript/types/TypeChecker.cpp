@@ -528,9 +528,10 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                         (call->type_arguments.front().name == "Texture" ||
                          call->type_arguments.front().name == "AudioClip" ||
                          call->type_arguments.front().name == "Font" ||
-                         call->type_arguments.front().name == "DataAsset");
+                         call->type_arguments.front().name == "DataAsset" ||
+                         call->type_arguments.front().name == "ParticleEffect2D");
                     if (!valid_type) {
-                        m_diagnostics.report_error("E3036", "Assets.load requires exactly one resource type: Texture, AudioClip, Font, or DataAsset", call->span);
+                        m_diagnostics.report_error("E3036", "Assets.load requires exactly one resource type: Texture, AudioClip, Font, DataAsset, or ParticleEffect2D", call->span);
                     }
                     if (call->arguments.size() != 1 || !get_type_of_node(call->arguments.front().get())->is_string()) {
                         m_diagnostics.report_error("E3037", "Assets.load requires one String path", call->span);
@@ -796,146 +797,6 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             property_type->is_nullable = property->nullable;
             m_node_types[mem] = property_type;
             return property_type;
-        }
-
-        // Vector fields
-        if (obj_t->kind == TypeKind::Vec2 || obj_t->kind == TypeKind::Vec3 || obj_t->kind == TypeKind::Vec4) {
-            if (mem->member_name == "x" || mem->member_name == "y" || mem->member_name == "z" || mem->member_name == "w") {
-                m_node_types[mem] = m_type_float;
-                return m_type_float;
-            }
-        }
-
-        // RigidBody2D fields
-        if (obj_t->name == "RigidBody2D") {
-            if (mem->member_name == "velocity") {
-                auto v2 = Type::make_primitive(TypeKind::Vec2);
-                m_node_types[mem] = v2;
-                return v2;
-            }
-            if (mem->member_name == "isGrounded") {
-                m_node_types[mem] = m_type_bool;
-                return m_type_bool;
-            }
-        }
-
-        if (obj_t->name == "SpriteRenderer2D" && mem->member_name == "flipX") {
-            m_node_types[mem] = m_type_bool;
-            return m_type_bool;
-        }
-
-        if (obj_t->name == "Transform2D") {
-            if (mem->member_name == "position" || mem->member_name == "scale") {
-                auto v2 = Type::make_primitive(TypeKind::Vec2);
-                m_node_types[mem] = v2;
-                return v2;
-            }
-            if (mem->member_name == "rotation") {
-                m_node_types[mem] = m_type_float;
-                return m_type_float;
-            }
-        }
-
-        if (obj_t->name == "Time") {
-            if (mem->member_name == "deltaTime" || mem->member_name == "realDeltaTime" ||
-                mem->member_name == "elapsed" || mem->member_name == "realElapsed") {
-                m_node_types[mem] = m_type_float;
-                return m_type_float;
-            }
-            if (mem->member_name == "frameCount") {
-                m_node_types[mem] = m_type_int;
-                return m_type_int;
-            }
-        }
-
-        // Display fields
-        if (obj_t->name == "Display") {
-            if (mem->member_name == "width" || mem->member_name == "height" || mem->member_name == "pixelWidth" || mem->member_name == "pixelHeight") {
-                m_node_types[mem] = m_type_int;
-                return m_type_int;
-            }
-            if (mem->member_name == "dpiScale") {
-                m_node_types[mem] = m_type_float;
-                return m_type_float;
-            }
-            if (mem->member_name == "isFullscreen") {
-                m_node_types[mem] = m_type_bool;
-                return m_type_bool;
-            }
-        }
-
-        // RaycastHit fields
-        if (obj_t->name == "RaycastHit") {
-            if (mem->member_name == "hit") {
-                m_node_types[mem] = m_type_bool;
-                return m_type_bool;
-            }
-            if (mem->member_name == "point" || mem->member_name == "normal") {
-                auto v2 = Type::make_primitive(TypeKind::Vec2);
-                m_node_types[mem] = v2;
-                return v2;
-            }
-            if (mem->member_name == "distance") {
-                m_node_types[mem] = m_type_float;
-                return m_type_float;
-            }
-            if (mem->member_name == "entity") {
-                m_node_types[mem] = m_type_entity;
-                return m_type_entity;
-            }
-        }
-
-        if (obj_t->name == "Asset") {
-            if (mem->member_name == "handle") {
-                m_node_types[mem] = Type::make_primitive(TypeKind::UInt64);
-                return m_node_types[mem];
-            }
-            if (mem->member_name == "path") {
-                m_node_types[mem] = m_type_string;
-                return m_type_string;
-            }
-            if (mem->member_name == "ready") {
-                m_node_types[mem] = m_type_bool;
-                return m_type_bool;
-            }
-        }
-
-        if (obj_t->name == "ParticleEmitter2D") {
-            if (mem->member_name == "emitRate") { m_node_types[mem] = m_type_float; return m_type_float; }
-            if (mem->member_name == "burstCount") { m_node_types[mem] = m_type_int; return m_type_int; }
-            if (mem->member_name == "active") { m_node_types[mem] = m_type_bool; return m_type_bool; }
-        }
-        if (obj_t->name == "Joint2D") {
-            if (mem->member_name == "target") { m_node_types[mem] = m_type_entity; return m_type_entity; }
-            if (mem->member_name == "collideConnected") { m_node_types[mem] = m_type_bool; return m_type_bool; }
-        }
-
-        // String fields / properties
-        if (obj_t->kind == TypeKind::String) {
-            if (mem->member_name == "length" || mem->member_name == "size") {
-                m_node_types[mem] = m_type_int;
-                return m_type_int;
-            }
-        }
-
-        // Entity fields
-        if (obj_t->kind == TypeKind::Entity) {
-            if (mem->member_name == "id") {
-                m_node_types[mem] = m_type_int;
-                return m_type_int;
-            }
-            if (mem->member_name == "name" || mem->member_name == "tag") {
-                m_node_types[mem] = m_type_string;
-                return m_type_string;
-            }
-        }
-
-        // Array fields
-        if (obj_t->kind == TypeKind::Array) {
-            if (mem->member_name == "length" || mem->member_name == "size") {
-                m_node_types[mem] = m_type_int;
-                return m_type_int;
-            }
         }
 
         auto field_t = m_type_float;

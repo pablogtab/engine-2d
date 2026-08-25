@@ -57,8 +57,8 @@ inline std::string toString(int value) {
     return std::to_string(value);
 }
 
-constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 20;
-constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v20";
+constexpr uint32_t ENGINE_SCRIPT_ABI_VERSION = 22;
+constexpr const char* ENGINE_SCRIPT_SDK_HASH = "engine2d_abi_v22";
 
 class Input {
 public:
@@ -142,10 +142,42 @@ struct Entity {
     }
 };
 
+struct Asset {
+    uint64_t handle{0};
+    std::string path;
+    std::string type;
+    std::string status;
+    bool ready{false};
+};
+
 struct ParticleEmitter2D {
     float emitRate{0.0f};
     int burstCount{0};
     bool active{false};
+    bool isPlaying{false};
+    uint64_t effectHandle{0};
+
+    using PlayCallback = bool (*)(void*, uint32_t);
+    using StopCallback = bool (*)(void*, uint32_t, bool);
+    using BurstCallback = bool (*)(void*, uint32_t, int);
+    using SetEffectCallback = bool (*)(void*, uint32_t, const Asset*);
+    void* runtime_context{nullptr};
+    uint32_t entity_id{0};
+    PlayCallback play_callback{nullptr};
+    StopCallback stop_callback{nullptr};
+    BurstCallback burst_callback{nullptr};
+    SetEffectCallback set_effect_callback{nullptr};
+
+    bool play() const { return play_callback && play_callback(runtime_context, entity_id); }
+    bool stop(bool clear = false) const {
+        return stop_callback && stop_callback(runtime_context, entity_id, clear);
+    }
+    bool burst(int count = 0) const {
+        return burst_callback && burst_callback(runtime_context, entity_id, count);
+    }
+    bool setEffect(const Asset* effect) const {
+        return set_effect_callback && set_effect_callback(runtime_context, entity_id, effect);
+    }
 };
 
 struct Joint2D {
@@ -256,26 +288,43 @@ public:
     [[nodiscard]] virtual bool save() = 0;
 };
 
-struct Asset {
-    uint64_t handle{0};
-    std::string path;
-    std::string type;
-    std::string status;
-    bool ready{false};
+struct ParticleEmitOptions {
+    int count{1};
+    bool overrideVelocity{false};
+    glm::vec2 velocity{0.0f, 0.0f};
+    bool overrideVelocityVariation{false};
+    glm::vec2 velocityVariation{0.0f, 0.0f};
+    bool overrideColor{false};
+    glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+    float scale{1.0f};
+    float rotation{0.0f};
+};
+
+class Particles {
+public:
+    virtual ~Particles() = default;
+    virtual bool emit(const Asset* effect, const glm::vec2& position, int count = 1) = 0;
+    virtual bool emitWithOptions(
+        const Asset* effect,
+        const glm::vec2& position,
+        const ParticleEmitOptions& options
+    ) = 0;
 };
 
 struct Texture {};
 struct AudioClip {};
 struct Font {};
 struct DataAsset {};
+struct ParticleEffect2D {};
 
-enum class ResourceType : uint8_t { Texture, AudioClip, Font, DataAsset };
+enum class ResourceType : uint8_t { Texture, AudioClip, Font, DataAsset, ParticleEffect };
 
 template <typename T>
 inline constexpr ResourceType resource_type_for = ResourceType::DataAsset;
 template <> inline constexpr ResourceType resource_type_for<Texture> = ResourceType::Texture;
 template <> inline constexpr ResourceType resource_type_for<AudioClip> = ResourceType::AudioClip;
 template <> inline constexpr ResourceType resource_type_for<Font> = ResourceType::Font;
+template <> inline constexpr ResourceType resource_type_for<ParticleEffect2D> = ResourceType::ParticleEffect;
 
 class Assets {
 public:

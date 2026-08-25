@@ -3,6 +3,7 @@
 #include "../../core/AssetManager.hpp"
 #include "../../core/Log.hpp"
 #include "../../core/FileSystem.hpp"
+#include "../../particles/ParticleEffectAsset.hpp"
 #include "../../renderer/postprocess/PostProcessProfile.hpp"
 #include "../../renderer/RenderLayerEffectProfile.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
@@ -125,6 +126,7 @@ const char* asset_tag(const AssetBrowserEntry& entry) {
         case AssetType::Material: return "[MATERIAL]";
         case AssetType::PostProcessProfile: return "[POST FX]";
         case AssetType::RenderLayerEffectProfile: return "[LAYER FX]";
+        case AssetType::ParticleEffect: return "[PARTICLE]";
         case AssetType::Script: return "[SCRIPT]";
         case AssetType::Data: return "[DATA]";
         case AssetType::Unknown: return "[FILE]";
@@ -144,6 +146,7 @@ ImVec4 asset_tag_color(const AssetBrowserEntry& entry) {
         case AssetType::Script: return ImVec4(0.45f, 0.75f, 1.00f, 1.0f);
         case AssetType::PostProcessProfile: return ImVec4(0.35f, 0.85f, 0.85f, 1.0f);
         case AssetType::RenderLayerEffectProfile: return ImVec4(0.55f, 0.80f, 1.00f, 1.0f);
+        case AssetType::ParticleEffect: return ImVec4(1.00f, 0.65f, 0.20f, 1.0f);
         case AssetType::Texture: return ImVec4(0.40f, 0.75f, 1.00f, 1.0f);
         case AssetType::Audio: return ImVec4(0.90f, 0.45f, 0.90f, 1.0f);
         case AssetType::Shader: return ImVec4(0.90f, 0.55f, 0.30f, 1.0f);
@@ -908,6 +911,8 @@ void AssetBrowserPanel::activate_entry(const AssetBrowserEntry& entry) {
         open_script_externally(entry.absolute_path);
     } else if (extension == ".material") {
         open_material_asset(entry.handle);
+    } else if (extension == ".particle") {
+        if (m_on_open_particle_effect) m_on_open_particle_effect(entry.handle);
     } else if (extension == ".layereffect" && m_asset_database) {
         std::string error;
         const auto profile = RenderLayerEffectProfile::load_asset_for_authoring(
@@ -1774,6 +1779,9 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::MenuItem("+ New Render Layer Effect")) {
                 m_show_new_layer_effect_popup = true;
             }
+            if (ImGui::MenuItem("+ New Particle Effect")) {
+                m_show_new_particle_popup = true;
+            }
             if (ImGui::MenuItem("+ New Folder")) {
                 std::filesystem::create_directory(m_current_path / "NewFolder");
             }
@@ -1806,6 +1814,10 @@ void AssetBrowserPanel::on_gui() {
         if (m_show_new_layer_effect_popup) {
             ImGui::OpenPopup("Create New Render Layer Effect");
             m_show_new_layer_effect_popup = false;
+        }
+        if (m_show_new_particle_popup) {
+            ImGui::OpenPopup("Create New Particle Effect");
+            m_show_new_particle_popup = false;
         }
         if (m_show_edit_material_popup) {
             ImGui::OpenPopup("Edit Material");
@@ -2010,6 +2022,25 @@ void AssetBrowserPanel::on_gui() {
                     }
                     m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
                         m_asset_database, m_current_path / (name + ".layereffect"), profile.to_json()
+                    ));
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        if (ImGui::BeginPopupModal("Create New Particle Effect", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextUnformatted("Enter Particle Effect Name:");
+            ImGui::InputText("##particlename", m_new_particle_name_buf, sizeof(m_new_particle_name_buf));
+            ImGui::Spacing();
+            if (ImGui::Button("Create", ImVec2(120, 0))) {
+                const std::string name = m_new_particle_name_buf;
+                if (!name.empty() && m_command_history && m_asset_database) {
+                    ParticleEffectAsset asset;
+                    asset.name = name;
+                    m_command_history->execute_command(std::make_unique<CreateAssetCommand>(
+                        m_asset_database, m_current_path / (name + ".particle"), asset.to_json().dump(2)
                     ));
                 }
                 ImGui::CloseCurrentPopup();

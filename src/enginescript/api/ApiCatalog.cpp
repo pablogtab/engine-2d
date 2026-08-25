@@ -56,6 +56,7 @@ ApiCatalog::ApiCatalog() {
         m_types.push_back({
             type.at("name").get<std::string>(),
             type.value("documentation", ""),
+            type.value("valueType", false),
             parse_availability(type)
         });
     }
@@ -118,10 +119,14 @@ const ApiPropertyDescriptor* ApiCatalog::find_available_property(
 }
 
 bool ApiCatalog::has_available_type(std::string_view name) const {
+    return find_available_type(name) != nullptr;
+}
+
+const ApiTypeDescriptor* ApiCatalog::find_available_type(std::string_view name) const {
     for (const ApiTypeDescriptor& type : m_types) {
-        if (type.name == name && type.availability == ApiAvailability::Available) return true;
+        if (type.name == name && type.availability == ApiAvailability::Available) return &type;
     }
-    return false;
+    return nullptr;
 }
 
 const ApiFunctionDescriptor* ApiCatalog::find_available_function(std::string_view name) const {

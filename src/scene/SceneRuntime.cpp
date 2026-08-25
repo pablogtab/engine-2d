@@ -14,11 +14,19 @@ SceneRuntime::SceneRuntime() : m_game_camera(1920.0f, 1080.0f) {
     m_camera_controller.enable_bounds(false);
 }
 
-void SceneRuntime::attach(Scene& scene) {
+void SceneRuntime::attach(Scene& scene, SDL_Renderer* renderer) {
     PhysicsSystem::clear();
     PhysicsSystem::set_gravity(scene.settings().gravity);
     TransformSystem::update(scene.get_entity_manager());
     m_ui_input.reset();
+    m_particle_world.clear();
+    m_particle_world.set_renderer(renderer);
+    auto& em = scene.get_entity_manager();
+    em.for_each<ParticleEmitter2DComponent>([&](EntityID entity, ParticleEmitter2DComponent& emitter) {
+        if (emitter.play_on_awake) {
+            static_cast<void>(m_particle_world.play_entity(entity, scene, AssetDatabase::get()));
+        }
+    });
     static_cast<void>(m_camera_controller.update_from_entities(
         scene.get_entity_manager(), 0.0f, true
     ));
@@ -28,6 +36,7 @@ void SceneRuntime::attach(Scene& scene) {
 void SceneRuntime::detach() {
     PhysicsSystem::clear();
     m_ui_input.reset();
+    m_particle_world.clear();
     m_camera_controller.reset_entity_tracking();
 }
 
@@ -77,6 +86,7 @@ void SceneRuntime::update(Scene& scene, float delta_time) {
         PhysicsSystem::update(scene.get_entity_manager(), scene.get_event_dispatcher(), delta_time);
     }
     SpriteAnimationSystem::update(scene.get_entity_manager(), delta_time);
+    m_particle_world.update(scene, delta_time, AssetDatabase::get());
     TransformSystem::update(scene.get_entity_manager());
     static_cast<void>(m_camera_controller.update_from_entities(
         scene.get_entity_manager(), delta_time

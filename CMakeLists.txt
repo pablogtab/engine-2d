@@ -50,7 +50,9 @@ set(SOURCES
     src/core/Window.cpp
     src/ecs/CameraSystem.cpp
     src/ecs/EntityManager.cpp
+    src/particles/ParticleEffectAsset.cpp
     src/particles/ParticleSystem2D.cpp
+    src/particles/ParticleWorld.cpp
     src/renderer/Animation2D.cpp
     src/renderer/Font.cpp
     src/renderer/material/FragmentShader.cpp
@@ -106,6 +108,7 @@ set(SOURCES
     src/editor/panels/SceneDiagnosticsPanel.cpp
     src/editor/panels/AssetBrowserPanel.cpp
     src/editor/panels/PostProcessTunerPanel.cpp
+    src/editor/panels/ParticleEffectEditorPanel.cpp
     src/editor/panels/ProjectSettingsPanel.cpp
     src/editor/panels/ShortcutsPreferencesPanel.cpp
     src/editor/panels/TilemapPalettePanel.cpp
@@ -136,6 +139,7 @@ set(SOURCES
     src/editor/inspector/BuiltinEditorComponentRegistrations.cpp
     src/editor/inspector/TransformInspectorDrawer.cpp
     src/editor/inspector/CameraInspectorDrawer.cpp
+    src/editor/inspector/ParticleEmitterInspectorDrawer.cpp
     src/editor/tools/ViewportCameraController.cpp
     src/editor/tools/ViewportNavigation.cpp
     src/editor/tools/ViewportArrangementTool.cpp
@@ -1189,6 +1193,17 @@ target_include_directories(EngineScriptPlayModeTests PRIVATE
 )
 target_link_libraries(EngineScriptPlayModeTests PRIVATE EngineRuntime EngineScriptLib glm::glm)
 add_test(NAME EngineScriptPlayModeTests COMMAND EngineScriptPlayModeTests)
+
+add_executable(ParticleSystemTests
+    tests/ParticleSystemTests.cpp
+)
+target_include_directories(ParticleSystemTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(ParticleSystemTests PRIVATE EngineRuntime)
+add_test(NAME ParticleSystemTests COMMAND ParticleSystemTests)
 
 
 function(engine_use_runtime_for_test target)

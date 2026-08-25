@@ -13,12 +13,14 @@
 #include <optional>
 #include <memory>
 #include <cstdint>
+#include <glm/glm.hpp>
 
 namespace EngineScript {
 class EngineScriptWorkspace;
 class AsyncScheduler;
 class GameModule;
 class NativeBehaviour;
+struct ParticleEmitOptions;
 }
 
 namespace Engine {
@@ -65,6 +67,11 @@ struct ScriptRuntimeServices {
     std::function<bool()> is_scene_loading;
     std::function<std::string()> scene_load_error;
     std::function<bool(AssetHandle, std::string&)> preload_asset;
+    std::function<bool(AssetHandle, const glm::vec2&, int)> emit_particles;
+    std::function<bool(AssetHandle, const glm::vec2&, const EngineScript::ParticleEmitOptions&)> emit_particles_with_options;
+    std::function<bool(EntityID)> play_particle_emitter;
+    std::function<bool(EntityID, bool)> stop_particle_emitter;
+    std::function<bool(EntityID, int)> burst_particle_emitter;
     std::string native_module_path;
 };
 

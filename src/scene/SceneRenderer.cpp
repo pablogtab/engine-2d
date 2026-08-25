@@ -109,6 +109,9 @@ void SceneRenderer::render(
         renderer,
         editing ? editor_view.render_filter() : nullptr
     );
+    if (!editing) {
+        runtime.particle_world().render(renderer, scene.get_entity_manager());
+    }
     if (editing) {
         m_canvas_ui_system.render_editor_preview(
             scene.get_entity_manager(), renderer, database, camera,

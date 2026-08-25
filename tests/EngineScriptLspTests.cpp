@@ -401,6 +401,41 @@ int main() {
     }
     assert(has_sprite_correction);
 
+    // Particle component completion is catalog-driven, including control methods and state.
+    std::string particle_change_req = R"({
+        "jsonrpc":"2.0",
+        "method":"textDocument/didChange",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":11},
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  constructor(@component private emitter: ParticleEmitter2D) {}\n  override update(deltaTime: Float): Void {\n    emitter.\n  }\n}"}]
+        }
+    })";
+    static_cast<void>(server.handle_message(particle_change_req));
+    std::string particle_completion_req = R"({
+        "jsonrpc":"2.0",
+        "id":12,
+        "method":"textDocument/completion",
+        "params":{
+            "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
+            "position":{"line":4,"character":12}
+        }
+    })";
+    json particle_completion = json::parse(server.handle_message(particle_completion_req));
+    bool has_particle_play = false;
+    bool has_particle_burst = false;
+    bool has_particle_stop = false;
+    bool has_particle_state = false;
+    bool leaked_audio_method = false;
+    for (const auto& item : particle_completion["result"]) {
+        has_particle_play |= item["label"] == "play";
+        has_particle_burst |= item["label"] == "burst";
+        has_particle_stop |= item["label"] == "stop";
+        has_particle_state |= item["label"] == "isPlaying";
+        leaked_audio_method |= item["label"] == "playSound";
+    }
+    assert(has_particle_play && has_particle_burst && has_particle_stop && has_particle_state);
+    assert(!leaked_audio_method);
+
     std::cout << "[PASS] EngineScriptLspTests passed!\n";
     return 0;
 }

@@ -10,6 +10,7 @@
 #include "../ecs/CameraSystem.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
 #include "../physics/PhysicsSystem.hpp"
+#include "../enginescript/module/GameModule.hpp"
 #include <algorithm>
 #include <fstream>
 
@@ -227,6 +228,52 @@ void SceneManager::start_scripts(Scene& scene) {
     };
     services.is_scene_loading = [this]() { return is_runtime_scene_loading(); };
     services.scene_load_error = [this]() { return runtime_scene_load_error(); };
+    services.emit_particles = [this, &scene](AssetHandle handle, const glm::vec2& position, int count) {
+        if (!is_playing() || dynamic_cast<CustomScene*>(&scene)) return false;
+        return execution_context(scene).runtime.particle_world().emit_asset(
+            handle,
+            position,
+            m_asset_database ? *m_asset_database : AssetDatabase::get(),
+            count
+        );
+    };
+    services.emit_particles_with_options = [this, &scene](
+        AssetHandle handle,
+        const glm::vec2& position,
+        const EngineScript::ParticleEmitOptions& options
+    ) {
+        if (!is_playing() || dynamic_cast<CustomScene*>(&scene)) return false;
+        ParticleEmissionOverrides overrides;
+        overrides.count = options.count;
+        if (options.overrideVelocity) overrides.velocity = options.velocity;
+        if (options.overrideVelocityVariation) overrides.velocity_variation = options.velocityVariation;
+        if (options.overrideColor) {
+            const auto channel = [](float value) {
+                return static_cast<std::uint8_t>(std::clamp(value, 0.0f, 1.0f) * 255.0f);
+            };
+            overrides.color = SDL_Color{
+                channel(options.color.x), channel(options.color.y),
+                channel(options.color.z), channel(options.color.w)
+            };
+        }
+        overrides.scale = options.scale;
+        overrides.rotation = options.rotation;
+        return execution_context(scene).runtime.particle_world().emit_asset(
+            handle,
+            position,
+            m_asset_database ? *m_asset_database : AssetDatabase::get(),
+            overrides
+        );
+    };
+    services.play_particle_emitter = [this](EntityID entity) {
+        return play_particle_emitter(entity);
+    };
+    services.stop_particle_emitter = [this](EntityID entity, bool clear_particles) {
+        return stop_particle_emitter(entity, clear_particles);
+    };
+    services.burst_particle_emitter = [this](EntityID entity, int count) {
+        return burst_particle_emitter(entity, count);
+    };
 
     const ScriptRuntimeStartResult scripts = m_script_runtime.start(
         scene.get_entity_manager(),
@@ -359,6 +406,9 @@ void SceneManager::update(float delta_time) {
     }
     Scene* active = get_active_scene();
     if (active) {
+        if (m_play_state == ScenePlayState::Play && !dynamic_cast<CustomScene*>(active)) {
+            execution_context(*active).runtime.particle_world().begin_frame();
+        }
         if (m_play_state == ScenePlayState::Play) {
             static_cast<void>(m_script_runtime.reload_changed_scripts());
             m_script_runtime.update(delta_time);
@@ -414,15 +464,27 @@ void SceneManager::invalidate_render_resources() {
     for (const auto& scene : m_scenes) {
         if (!scene) continue;
         if (auto* custom = dynamic_cast<CustomScene*>(scene.get())) custom->on_render_resources_invalidated();
-        else execution_context(*scene).renderer.invalidate_resources();
+        else {
+            auto& context = execution_context(*scene);
+            context.renderer.invalidate_resources();
+            context.runtime.particle_world().invalidate_render_resources();
+        }
     }
     if (m_transient_scene) {
         if (auto* custom = dynamic_cast<CustomScene*>(m_transient_scene.get())) custom->on_render_resources_invalidated();
-        else execution_context(*m_transient_scene).renderer.invalidate_resources();
+        else {
+            auto& context = execution_context(*m_transient_scene);
+            context.renderer.invalidate_resources();
+            context.runtime.particle_world().invalidate_render_resources();
+        }
     }
     if (m_runtime_scene) {
         if (auto* custom = dynamic_cast<CustomScene*>(m_runtime_scene.get())) custom->on_render_resources_invalidated();
-        else execution_context(*m_runtime_scene).renderer.invalidate_resources();
+        else {
+            auto& context = execution_context(*m_runtime_scene);
+            context.renderer.invalidate_resources();
+            context.runtime.particle_world().invalidate_render_resources();
+        }
     }
 }
 
@@ -498,7 +560,7 @@ void SceneManager::attach_scene(Scene& scene) {
         return;
     }
     auto& context = execution_context(scene);
-    context.runtime.attach(scene);
+    context.runtime.attach(scene, m_renderer);
     context.attached = true;
 }
 
@@ -641,6 +703,33 @@ bool SceneManager::refresh_render_layer_effects(const AssetDatabase& database) {
     if (!scene) return false;
     if (auto* custom = dynamic_cast<CustomScene*>(scene)) return custom->refresh_render_layer_effects(database);
     return execution_context(*scene).renderer.refresh_render_layer_effects(*scene, database);
+}
+
+bool SceneManager::play_particle_emitter(EntityID entity) {
+    Scene* scene = get_active_scene();
+    if (!scene || !is_playing() || dynamic_cast<CustomScene*>(scene)) return false;
+    return execution_context(*scene).runtime.particle_world().play_entity(
+        entity, *scene, m_asset_database ? *m_asset_database : AssetDatabase::get()
+    );
+}
+
+bool SceneManager::stop_particle_emitter(EntityID entity, bool clear_particles) {
+    Scene* scene = get_active_scene();
+    if (!scene || !is_playing() || dynamic_cast<CustomScene*>(scene)) return false;
+    return execution_context(*scene).runtime.particle_world().stop_entity(
+        entity, *scene, clear_particles
+    );
+}
+
+bool SceneManager::burst_particle_emitter(EntityID entity, int count) {
+    Scene* scene = get_active_scene();
+    if (!scene || !is_playing() || dynamic_cast<CustomScene*>(scene)) return false;
+    return execution_context(*scene).runtime.particle_world().burst_entity(
+        entity,
+        *scene,
+        m_asset_database ? *m_asset_database : AssetDatabase::get(),
+        count
+    );
 }
 
 } // namespace Engine

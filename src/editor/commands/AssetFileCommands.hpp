@@ -3,6 +3,7 @@
 #include "IEditorCommand.hpp"
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -57,7 +58,9 @@ public:
         std::filesystem::path path,
         std::string before,
         std::string after,
-        std::string description = "Modify Asset"
+        std::string description = "Modify Asset",
+        std::function<void()> on_before = {},
+        std::function<void()> on_after = {}
     );
     bool execute() override;
     bool undo() override;
@@ -72,6 +75,8 @@ private:
     std::string m_before;
     std::string m_after;
     std::string m_description;
+    std::function<void()> m_on_before;
+    std::function<void()> m_on_after;
 };
 
 class MoveAssetCommand final : public IEditorCommand {

@@ -155,6 +155,38 @@ int main() {
     assert(result_diags.has_errors());
     assert(result_diags.error_count() == 3);
 
+    // Test 6: Particle assets, services, emitter controls, and options share one catalog contract.
+    DiagnosticEngine particle_diags;
+    std::string particle_code = R"(
+        function emitEffect(
+            particles: Particles,
+            effect: Asset,
+            position: Vec2,
+            options: ParticleEmitOptions,
+            emitter: ParticleEmitter2D
+        ): Bool {
+            emitter.play();
+            emitter.burst(12);
+            emitter.stop(true);
+            emitter.setEffect(effect);
+            options.scale = 2.0;
+            return particles.emitWithOptions(effect, position, options);
+        }
+
+        async function loadEffect(assets: Assets): Task<Asset> {
+            return await assets.load<ParticleEffect2D>("Assets/Particles/dust.particle");
+        }
+    )";
+    FileId f6 = sm.register_source("Source/Particles.e2s", particle_code);
+    Lexer l6(f6, particle_code, particle_diags);
+    Parser p6(f6, "Source/Particles.e2s", l6.tokenize_all(), particle_diags);
+    auto m6 = p6.parse_module();
+    SymbolResolver res6(sm, particle_diags);
+    res6.resolve_module(m6);
+    TypeChecker check6(res6, particle_diags);
+    assert(check6.check_module(m6));
+    assert(!particle_diags.has_errors());
+
     std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;
 }

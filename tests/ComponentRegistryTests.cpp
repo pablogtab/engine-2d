@@ -3,6 +3,7 @@
 #include "core/FileSystem.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
+#include "ecs/components/ParticleComponents.hpp"
 #include "ecs/components/RenderingComponents.hpp"
 #include "ecs/components/ScriptingComponents.hpp"
 #include "ecs/components/UIComponents.hpp"
@@ -307,7 +308,7 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 19);
+    assert(registry.descriptors().size() == 20);
     assert(registry.find_by_type(typeid(TagComponent)));
     assert(registry.find_by_type(typeid(GroupComponent)));
     assert(registry.find_by_type(typeid(RenderEffectComponent)));
@@ -325,6 +326,7 @@ void test_default_registry_metadata_is_stable() {
     assert(registry.find_by_type(typeid(ColliderComponent)));
     assert(registry.find_by_type(typeid(TilemapComponent)));
     assert(registry.find_by_type(typeid(ScriptComponent)));
+    assert(registry.find_by_type(typeid(ParticleEmitter2DComponent)));
 }
 
 
@@ -528,12 +530,17 @@ void test_builtin_components_round_trip_through_registry() {
     script.public_fields = {{"speed", ScriptFieldType::Number, 8.0}};
     em.add_component<ScriptComponent>(source, script);
 
+    ParticleEmitter2DComponent emitter;
+    emitter.effect_handle = AssetHandle{0x5555};
+    emitter.active = true;
+    em.add_component<ParticleEmitter2DComponent>(source, emitter);
+
     nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
     for (const char* key : {"tag", "group", "render_effect", "light_2d", "shadow_caster_2d",
                             "camera", "canvas", "ui_layout", "ui_text", "ui_image", "ui_button",
-                            "animation", "rigidbody", "collider", "tilemap", "script"}) {
+                            "animation", "rigidbody", "collider", "tilemap", "script", "particle_emitter_2d"}) {
         assert(value.contains(key));
     }
 

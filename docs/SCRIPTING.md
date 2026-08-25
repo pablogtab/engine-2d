@@ -104,7 +104,7 @@ connected execution surface includes:
   Textures are decoded into the renderer cache; audio, font, and data payloads
   are retained as runtime bytes. Requests emit `AssetLoaded` or
   `AssetLoadFailed` through `Events`.
-  `await assets.load<Texture|AudioClip|Font|DataAsset>(path)` is the typed
+  `await assets.load<Texture|AudioClip|Font|DataAsset|ParticleEffect2D>(path)` is the typed
   alternative: it validates the registered asset type, precaches it on the
   next frame, and returns `Asset` on success or `null` when unavailable or the
   requested type does not match.
@@ -112,6 +112,36 @@ connected execution surface includes:
 These services use the same calls in editor Play Mode and generated native
 modules. Audio and scene requests are routed through the host runtime, so a
 headless host may deliberately leave a service unavailable.
+
+`@inject private particles: Particles` emits authored `.particle` assets without
+exposing renderer objects. Load the effect through `Assets`, then emit it at a
+world position:
+
+```enginescript
+async spawnDust(position: Vec2): Task<Void> {
+    let dust: Asset = await assets.load<ParticleEffect2D>(
+        "Assets/Particles/dust.particle"
+    );
+    if (dust.ready) particles.emit(dust, position, 12);
+}
+```
+
+An entity with `ParticleEmitter2DComponent` can bind
+`@component private emitter: ParticleEmitter2D`. `play()`, `stop(clear)`, and
+`burst(count)` control its scene-owned emitter; `setEffect(asset)` accepts only
+a ready `ParticleEffect2D`. `active`, `emitRate`, and `burstCount` are writable
+runtime values, while `isPlaying` and `effectHandle` are read-only. For bounded
+one-shot customization use `ParticleEmitOptions` with
+`particles.emitWithOptions(effect, position, options)`. Per-frame, per-emitter,
+and per-scene limits reject excess emissions instead of overwriting live
+particles.
+
+Create a Particle Effect from the Asset Browser and open it to edit colors,
+texture, motion, lifetime, collision mask, emission defaults, render layer,
+depth, and Alpha/Additive blending. Its isolated preview supports Play/Pause,
+Restart, Burst, and Clear. Asset edits and emitter Inspector changes participate
+in editor Undo/Redo; runtime buttons are intentionally available only in Play
+Mode. Stop and scene detach clear the scene particle pool.
 
 `@inject private prefs: PlayerPrefs` exposes typed preferences only: Bool,
 numbers, String, Vec2, and Vec3 values can be read with fallbacks, written,

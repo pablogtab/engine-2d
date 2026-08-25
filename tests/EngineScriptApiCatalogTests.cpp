@@ -16,6 +16,10 @@ int main() {
     assert(catalog.has_available_type("SpriteRenderer2D"));
     assert(catalog.has_available_type("Audio"));
     assert(catalog.has_available_type("Scene"));
+    assert(catalog.has_available_type("Particles"));
+    assert(catalog.has_available_type("ParticleEffect2D"));
+    assert(catalog.has_available_type("ParticleEmitOptions"));
+    assert(catalog.find_available_type("ParticleEmitOptions")->value_type);
     assert(catalog.has_available_function("delay"));
     assert(catalog.has_available_function("instantiate"));
     assert(catalog.has_available_function("findEntities"));
@@ -38,6 +42,19 @@ int main() {
     const ApiMethodDescriptor* scene_loading = catalog.find_available_method("Scene", "isLoading");
     assert(scene_loading != nullptr);
     assert(scene_loading->return_type == "Bool");
+    const ApiMethodDescriptor* emit_particles = catalog.find_available_method("Particles", "emit");
+    assert(emit_particles != nullptr);
+    assert(emit_particles->return_type == "Bool");
+    assert(emit_particles->min_arguments == 2);
+    assert(emit_particles->max_arguments == 3);
+    const ApiMethodDescriptor* stop_emitter = catalog.find_available_method("ParticleEmitter2D", "stop");
+    assert(stop_emitter != nullptr);
+    assert(stop_emitter->min_arguments == 0);
+    assert(stop_emitter->max_arguments == 1);
+    assert(catalog.find_available_method("ParticleEmitter2D", "setEffect") != nullptr);
+    assert(catalog.find_available_property("ParticleEmitter2D", "effectHandle") != nullptr);
+    const ApiPropertyDescriptor* particle_scale = catalog.find_available_property("ParticleEmitOptions", "scale");
+    assert(particle_scale != nullptr && particle_scale->writable);
 
     std::cout << "[PASS] EngineScriptApiCatalogTests passed!\n";
     return 0;

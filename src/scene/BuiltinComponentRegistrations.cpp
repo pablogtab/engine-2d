@@ -5,6 +5,7 @@
 #include "../core/AssetManager.hpp"
 #include "../ecs/components/AnimationComponents.hpp"
 #include "../ecs/components/CoreComponents.hpp"
+#include "../ecs/components/ParticleComponents.hpp"
 #include "../ecs/components/PhysicsComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
 #include "../ecs/components/ScriptingComponents.hpp"
@@ -911,6 +912,89 @@ void register_script(ComponentRegistry& registry) {
     });
 }
 
+void register_particle_emitter(ComponentRegistry& registry) {
+    register_or_throw<ParticleEmitter2DComponent>(registry, {
+        .display_name = "Particle Emitter 2D",
+        .serialized_key = "particle_emitter_2d",
+        .schema_version = 1,
+        .required = false,
+        .serialize = [](const ParticleEmitter2DComponent& emitter, const ComponentSerializationContext&) {
+            Json json = Json::object();
+            if (emitter.effect_handle.is_valid()) {
+                json["effect_handle"] = emitter.effect_handle.to_string();
+            }
+            json["active"] = emitter.active;
+            json["play_on_awake"] = emitter.play_on_awake;
+            json["local_space"] = emitter.local_space;
+            if (emitter.emit_rate_override.has_value()) {
+                json["emit_rate_override"] = *emitter.emit_rate_override;
+            }
+            if (emitter.burst_count_override.has_value()) {
+                json["burst_count_override"] = *emitter.burst_count_override;
+            }
+            return json;
+        },
+        .deserialize = [](
+            ParticleEmitter2DComponent& emitter,
+            const Json& json,
+            const ComponentSerializationContext&,
+            std::string& error
+        ) {
+            if (!json.is_object()) {
+                error = "Particle emitter component must be an object";
+                return false;
+            }
+            emitter = ParticleEmitter2DComponent{};
+            if (json.contains("effect_handle")) {
+                if (!json["effect_handle"].is_string()) {
+                    error = "Particle emitter effect_handle must be a string";
+                    return false;
+                }
+                const auto handle = AssetHandle::from_string(json["effect_handle"].get<std::string>());
+                if (!handle) {
+                    error = "Particle emitter effect_handle is invalid";
+                    return false;
+                }
+                emitter.effect_handle = *handle;
+            }
+            try {
+                emitter.active = json.value("active", true);
+                emitter.play_on_awake = json.value("play_on_awake", true);
+                emitter.local_space = json.value("local_space", false);
+                if (json.contains("emit_rate_override") && !json["emit_rate_override"].is_null()) {
+                    emitter.emit_rate_override = json["emit_rate_override"].get<float>();
+                    if (!std::isfinite(*emitter.emit_rate_override) || *emitter.emit_rate_override < 0.0f) {
+                        error = "Particle emitter rate override must be finite and non-negative";
+                        return false;
+                    }
+                }
+                if (json.contains("burst_count_override") && !json["burst_count_override"].is_null()) {
+                    emitter.burst_count_override = json["burst_count_override"].get<int>();
+                    if (*emitter.burst_count_override < 0) {
+                        error = "Particle emitter burst override must be non-negative";
+                        return false;
+                    }
+                }
+            } catch (const Json::exception&) {
+                error = "Particle emitter contains a field with an invalid type";
+                return false;
+            }
+            return true;
+        },
+        .validate = [](const ParticleEmitter2DComponent& emitter) -> std::optional<std::string> {
+            if (!emitter.effect_handle.is_valid()) return "Particle effect asset is not assigned";
+            if (emitter.emit_rate_override &&
+                (!std::isfinite(*emitter.emit_rate_override) || *emitter.emit_rate_override < 0.0f)) {
+                return "Particle emitter rate override must be finite and non-negative";
+            }
+            if (emitter.burst_count_override && *emitter.burst_count_override < 0) {
+                return "Particle emitter burst override must be non-negative";
+            }
+            return std::nullopt;
+        }
+    });
+}
+
 } // namespace
 
 void register_additional_builtin_components(ComponentRegistry& registry) {
@@ -926,6 +1010,7 @@ void register_additional_builtin_components(ComponentRegistry& registry) {
     register_collider(registry);
     register_tilemap(registry);
     register_script(registry);
+    register_particle_emitter(registry);
     register_ui_components(registry);
 }
 

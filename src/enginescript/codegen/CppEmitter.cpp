@@ -75,13 +75,16 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
             break;
     }
 
+    const ApiTypeDescriptor* api_type = type->kind == TypeKind::Class
+        ? ApiCatalog::instance().find_available_type(type->name) : nullptr;
+    const bool is_value_type = api_type && api_type->value_type;
     if (type->is_nullable) {
         if (type->kind == TypeKind::Class) {
-            s = s + "*";
+            s = is_value_type ? std::format("std::optional<{}>", s) : s + "*";
         } else {
             s = std::format("std::optional<{}>", s);
         }
-    } else if (type->kind == TypeKind::Class && s != "void") {
+    } else if (type->kind == TypeKind::Class && s != "void" && !is_value_type) {
         s = s + "*";
     }
 
@@ -275,7 +278,10 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
     // Methods
     for (const auto& m : cls.methods) {
         std::string ret = type_to_cpp(m.return_type.get());
-        std::string virt = m.is_override ? " override" : "";
+        const bool overrides_lifecycle = cls.is_behaviour &&
+            (m.name == "on_start" || m.name == "update" || m.name == "on_destroy" ||
+             m.name == "on_collision_enter" || m.name == "on_event");
+        std::string virt = (m.is_override || overrides_lifecycle) ? " override" : "";
         out += std::format("    {} {}(", ret, m.name);
         for (size_t i = 0; i < m.params.size(); ++i) {
             const auto& p = m.params[i];
@@ -510,7 +516,12 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
             emit_operation_cpp(m_set->value.get())
         );
     } else if (auto branch = dynamic_cast<const IRIf*>(op)) {
-        out += std::format("{}if ({}) {{\n", ind, emit_operation_cpp(branch->condition.get()));
+        const std::string condition = emit_operation_cpp(branch->condition.get());
+        const bool already_parenthesized = condition.size() >= 2 &&
+            condition.front() == '(' && condition.back() == ')';
+        out += already_parenthesized
+            ? std::format("{}if {} {{\n", ind, condition)
+            : std::format("{}if ({}) {{\n", ind, condition);
         for (const auto& nested : branch->then_operations) {
             emit_operation_statement_cpp(nested.get(), out, indent + 1);
         }
@@ -683,7 +694,10 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
 }
 
 std::string CppEmitter::member_access_operator(const IROperation* target) const {
-    if (target && target->result_type && target->result_type->kind == TypeKind::Class) return "->";
+    if (target && target->result_type && target->result_type->kind == TypeKind::Class) {
+        const ApiTypeDescriptor* type = ApiCatalog::instance().find_available_type(target->result_type->name);
+        if (!type || !type->value_type) return "->";
+    }
     return ".";
 }
 

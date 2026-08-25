@@ -21,6 +21,7 @@
 #include "../editor/panels/ShortcutsPreferencesPanel.hpp"
 #include "../editor/panels/TilemapPalettePanel.hpp"
 #include "../editor/panels/SpriteAnimationStudioPanel.hpp"
+#include "../editor/panels/ParticleEffectEditorPanel.hpp"
 #include "../editor/panels/AiAssistantPanel.hpp"
 #endif
 #include "../scene/Scene.hpp"
@@ -383,6 +384,14 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     anim_studio_panel->set_command_history(command_history);
     inspector_panel->set_animation_studio(anim_studio_panel.get());
 
+    auto particle_editor_panel = std::make_shared<ParticleEffectEditorPanel>(
+        m_window->get_sdl_renderer(), command_history
+    );
+    particle_editor_panel->is_open = false;
+    asset_browser->set_on_open_particle_effect([particle_editor_panel](AssetHandle handle) {
+        particle_editor_panel->open_asset(handle);
+        particle_editor_panel->is_open = true;
+    });
 
     viewport_panel->set_palette_panel(palette_panel.get());
     m_editor_layer->set_viewport_panel(viewport_panel.get());
@@ -395,6 +404,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_editor_layer->register_panel(stats_panel);
     m_editor_layer->register_panel(diagnostics_panel);
     m_editor_layer->register_panel(postprocess_panel);
+    m_editor_layer->register_panel(particle_editor_panel);
     m_editor_layer->register_panel(project_settings_panel);
     m_editor_layer->register_panel(shortcuts_panel);
     m_editor_layer->register_panel(palette_panel);

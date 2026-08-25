@@ -22,6 +22,7 @@
 #include "panels/SceneDiagnosticsPanel.hpp"
 #include "panels/SpriteAnimationStudioPanel.hpp"
 #include "panels/PostProcessTunerPanel.hpp"
+#include "panels/ParticleEffectEditorPanel.hpp"
 #include "panels/ProjectSettingsPanel.hpp"
 #include "panels/AiAssistantPanel.hpp"
 #include "../ecs/components/CoreComponents.hpp"
@@ -442,6 +443,8 @@ void EditorLayer::update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch
         } else if (auto p = std::dynamic_pointer_cast<SpriteAnimationStudioPanel>(panel)) {
             p->set_command_history(ch);
         } else if (auto p = std::dynamic_pointer_cast<PostProcessTunerPanel>(panel)) {
+            p->set_command_history(ch);
+        } else if (auto p = std::dynamic_pointer_cast<ParticleEffectEditorPanel>(panel)) {
             p->set_command_history(ch);
         } else if (auto p = std::dynamic_pointer_cast<AiAssistantPanel>(panel)) {
             p->set_command_history(ch);

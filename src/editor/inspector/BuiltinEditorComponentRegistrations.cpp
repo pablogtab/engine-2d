@@ -5,12 +5,14 @@
 #include "ColliderInspectorDrawer.hpp"
 #include "LightingInspectorDrawer.hpp"
 #include "RigidBodyInspectorDrawer.hpp"
+#include "ParticleEmitterInspectorDrawer.hpp"
 #include "RenderEffectInspectorDrawer.hpp"
 #include "ScriptInspectorDrawer.hpp"
 #include "SpriteInspectorDrawer.hpp"
 #include "TilemapInspectorDrawer.hpp"
 #include "TransformInspectorDrawer.hpp"
 #include "UIInspectorDrawer.hpp"
+#include "../../ecs/components/ParticleComponents.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../ecs/CameraSystem.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
@@ -402,6 +404,23 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
             const EditorInspectorContext&,
             ComponentSnapshotSet& snapshot
         ) { snapshot.set(UIButtonComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "particle_emitter_2d",
+        .drawer_key = "ParticleEmitterHeader",
+        .display_name = "Particle Emitter 2D",
+        .category = EditorComponentCategory::Rendering,
+        .icon = EditorIcon::Component,
+        .dependencies = {"transform"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            ParticleEmitterInspectorDrawer::draw(em, entity, context);
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(ParticleEmitter2DComponent{}); }
     });
 }
 

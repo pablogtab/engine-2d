@@ -21,6 +21,7 @@ enum class AssetType {
     Material,
     PostProcessProfile,
     RenderLayerEffectProfile,
+    ParticleEffect,
     Script,
     Data
 };

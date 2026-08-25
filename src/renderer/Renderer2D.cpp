@@ -311,7 +311,8 @@ void Renderer2D::submit_sprite(
     std::shared_ptr<const Material> material,
     RenderLayer render_layer,
     AssetHandle entity_effect_profile,
-    std::uint64_t entity_effect_scope
+    std::uint64_t entity_effect_scope,
+    SDL_BlendMode blend_mode
 ) {
     render_layer = std::min<RenderLayer>(render_layer, 31);
     if (m_active_camera && !m_active_camera->renders_layer(render_layer)) {
@@ -337,6 +338,7 @@ void Renderer2D::submit_sprite(
     cmd.material = std::move(material);
     cmd.entity_effect_profile = entity_effect_profile;
     cmd.entity_effect_scope = entity_effect_profile.is_valid() ? entity_effect_scope : 0;
+    cmd.blend_mode = blend_mode;
 
     if (is_overlay) {
         cmd.sort_key = 0xFFFFFFFFFFFFFFFFULL; // Force overlay to sort after all game world sprites!
@@ -555,7 +557,18 @@ void Renderer2D::submit_sprites_batch(const SpriteCommand* commands, size_t coun
                 commands[i].size,
                 commands[i].rotation,
                 commands[i].color,
-                commands[i].has_src_rect ? &commands[i].src_rect : nullptr
+                commands[i].has_src_rect ? &commands[i].src_rect : nullptr,
+                commands[i].pivot,
+                false,
+                commands[i].flip_x,
+                commands[i].flip_y,
+                commands[i].sorting_layer,
+                commands[i].order_in_layer,
+                commands[i].material,
+                commands[i].render_layer,
+                commands[i].entity_effect_profile,
+                commands[i].entity_effect_scope,
+                commands[i].blend_mode
             );
         }
     }
@@ -766,17 +779,23 @@ void Renderer2D::end_scene() {
         size_t batch_start = start_idx;
         Texture* current_texture = m_sprite_queue[start_idx].texture;
         auto current_material = m_sprite_queue[start_idx].material;
+        SDL_BlendMode current_blend_mode = m_sprite_queue[start_idx].blend_mode;
 
         for (size_t i = start_idx + 1; i <= end_idx; ++i) {
             Texture* tex = (i < end_idx) ? m_sprite_queue[i].texture : nullptr;
             auto material = (i < end_idx) ? m_sprite_queue[i].material : nullptr;
-            if (tex != current_texture || material != current_material || i == end_idx) {
+            const SDL_BlendMode blend_mode = (i < end_idx)
+                ? m_sprite_queue[i].blend_mode : SDL_BLENDMODE_INVALID;
+            if (tex != current_texture || material != current_material ||
+                blend_mode != current_blend_mode || i == end_idx) {
                 size_t batch_count = i - batch_start;
                 if (batch_count > 0) {
                     const bool material_bound = current_material && m_material_backend &&
                         m_material_backend->bind(*current_material, material_context);
                     if (material_bound) ++metrics.material_switches;
                     SDL_Texture* sdl_tex = current_texture ? current_texture->get_sdl_texture() : nullptr;
+                    if (sdl_tex) SDL_SetTextureBlendMode(sdl_tex, current_blend_mode);
+                    else SDL_SetRenderDrawBlendMode(m_sdl_renderer, current_blend_mode);
                     SDL_RenderGeometry(
                         m_sdl_renderer,
                         sdl_tex,
@@ -794,6 +813,7 @@ void Renderer2D::end_scene() {
                 batch_start = i;
                 current_texture = tex;
                 current_material = std::move(material);
+                current_blend_mode = blend_mode;
             }
         }
         metrics.cpu_milliseconds += std::chrono::duration<float, std::milli>(

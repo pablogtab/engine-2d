@@ -97,6 +97,9 @@ public:
         const AssetDatabase& database
     );
     [[nodiscard]] bool refresh_render_layer_effects(const AssetDatabase& database);
+    [[nodiscard]] bool play_particle_emitter(EntityID entity);
+    [[nodiscard]] bool stop_particle_emitter(EntityID entity, bool clear_particles);
+    [[nodiscard]] bool burst_particle_emitter(EntityID entity, int count = 0);
     [[nodiscard]] MaterialAssetRefreshResult refresh_material_assets(const AssetDatabase& database);
     [[nodiscard]] std::size_t preview_material_asset(
         AssetHandle handle,

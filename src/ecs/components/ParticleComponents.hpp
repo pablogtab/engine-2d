@@ -1,9 +1,11 @@
 #pragma once
 
+#include "../../core/AssetHandle.hpp"
 #include "../../renderer/Texture.hpp"
 #include "../../renderer/RenderLayer.hpp"
 #include <SDL3/SDL.h>
 #include <glm/glm.hpp>
+#include <optional>
 
 namespace Engine {
 
@@ -30,18 +32,28 @@ struct ParticleProps {
 };
 
 struct ParticleEmitter2DComponent {
-    ParticleProps props;
-    float emit_rate{30.0f};
-    float emit_timer{0.0f};
+    AssetHandle effect_handle{};
     bool active{true};
-    int burst_count{1};
+    bool play_on_awake{true};
+    bool local_space{false};
+    std::optional<float> emit_rate_override{};
+    std::optional<int> burst_count_override{};
+
+    float emission_accumulator{0.0f};
+    float lifetime_timer{0.0f};
+    float delay_remaining{0.0f};
+    bool is_playing{false};
 
     ParticleEmitter2DComponent() = default;
-    explicit ParticleEmitter2DComponent(
-        const ParticleProps& properties,
-        float rate = 30.0f,
-        bool start_active = true
-    ) : props(properties), emit_rate(rate), active(start_active) {}
+
+    bool operator==(const ParticleEmitter2DComponent& other) const {
+        return effect_handle == other.effect_handle &&
+               active == other.active &&
+               play_on_awake == other.play_on_awake &&
+               local_space == other.local_space &&
+               emit_rate_override == other.emit_rate_override &&
+               burst_count_override == other.burst_count_override;
+    }
 };
 
 } // namespace Engine

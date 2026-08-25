@@ -112,12 +112,16 @@ ModifyAssetCommand::ModifyAssetCommand(
     fs::path path,
     std::string before,
     std::string after,
-    std::string description
+    std::string description,
+    std::function<void()> on_before,
+    std::function<void()> on_after
 ) : m_database(database),
     m_path(std::move(path)),
     m_before(std::move(before)),
     m_after(std::move(after)),
-    m_description(std::move(description)) {}
+    m_description(std::move(description)),
+    m_on_before(std::move(on_before)),
+    m_on_after(std::move(on_after)) {}
 
 bool ModifyAssetCommand::apply(const std::string& content) {
     std::error_code error;
@@ -133,8 +137,16 @@ bool ModifyAssetCommand::apply(const std::string& content) {
     return true;
 }
 
-bool ModifyAssetCommand::execute() { return apply(m_after); }
-bool ModifyAssetCommand::undo() { return apply(m_before); }
+bool ModifyAssetCommand::execute() {
+    if (!apply(m_after)) return false;
+    if (m_on_after) m_on_after();
+    return true;
+}
+bool ModifyAssetCommand::undo() {
+    if (!apply(m_before)) return false;
+    if (m_on_before) m_on_before();
+    return true;
+}
 
 MoveAssetCommand::MoveAssetCommand(AssetDatabase* database, fs::path source, fs::path destination)
     : m_database(database), m_source(std::move(source)), m_destination(std::move(destination)) {}

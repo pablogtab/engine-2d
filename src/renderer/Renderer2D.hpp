@@ -76,6 +76,7 @@ struct SpriteCommand {
     std::shared_ptr<const Material> material;
     AssetHandle entity_effect_profile{};
     std::uint64_t entity_effect_scope{0};
+    SDL_BlendMode blend_mode{SDL_BLENDMODE_BLEND};
 };
 
 class Renderer2D {
@@ -155,7 +156,8 @@ public:
         std::shared_ptr<const Material> material = nullptr,
         RenderLayer render_layer = DEFAULT_RENDER_LAYER,
         AssetHandle entity_effect_profile = {},
-        std::uint64_t entity_effect_scope = 0
+        std::uint64_t entity_effect_scope = 0,
+        SDL_BlendMode blend_mode = SDL_BLENDMODE_BLEND
     );
     void submit_screen_sprite(
         Texture* texture,

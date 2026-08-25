@@ -14,6 +14,7 @@ enum class ApiAvailability {
 struct ApiTypeDescriptor {
     std::string name;
     std::string documentation;
+    bool value_type{false};
     ApiAvailability availability{ApiAvailability::Available};
 };
 
@@ -66,6 +67,7 @@ public:
     [[nodiscard]] const std::vector<ApiMethodDescriptor>& methods() const { return m_methods; }
     [[nodiscard]] const std::vector<ApiPropertyDescriptor>& properties() const { return m_properties; }
     [[nodiscard]] bool has_available_type(std::string_view name) const;
+    [[nodiscard]] const ApiTypeDescriptor* find_available_type(std::string_view name) const;
     [[nodiscard]] bool has_available_function(std::string_view name) const;
     [[nodiscard]] const ApiFunctionDescriptor* find_available_function(std::string_view name) const;
     [[nodiscard]] const ApiMethodDescriptor* find_available_method(

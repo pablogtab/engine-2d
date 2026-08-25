@@ -20,6 +20,7 @@ class EditorCommandHistory;
 class EditorPropertyTransaction;
 class SpriteAnimationStudioPanel;
 class ScriptRuntime;
+class SceneManager;
 
 enum class EditorComponentCategory {
     Core,
@@ -43,6 +44,7 @@ struct EditorInspectorContext {
     std::function<void(AssetHandle)> open_material;
     std::function<SDL_Texture*(AssetHandle)> preview_material;
     const ScriptRuntime* script_runtime{nullptr};
+    SceneManager* scene_manager{nullptr};
 };
 
 struct EditorComponentDescriptor {

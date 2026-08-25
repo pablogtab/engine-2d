@@ -15,6 +15,7 @@
 #include "../ecs/components/UIComponents.hpp"
 #include "../tilemap/Tilemap.hpp"
 #include "../physics/PhysicsSystem.hpp"
+#include "../particles/ParticleEffectAsset.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
 #include "../events/Event.hpp"
 #include "../events/EventDispatcher.hpp"
@@ -50,7 +51,7 @@ struct ScriptRuntimeBinding {
 class NativeBehaviourHost {
 public:
     explicit NativeBehaviourHost(ScriptRuntimeBinding& binding)
-        : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding), m_events(binding), m_prefs(), m_assets(binding), m_ui(binding), m_tilemap(binding), m_display(binding), m_physics(binding), m_animator(binding) {}
+        : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding), m_events(binding), m_prefs(), m_assets(binding), m_particles(binding), m_ui(binding), m_tilemap(binding), m_display(binding), m_physics(binding), m_animator(binding) {}
 
     bool prepare(const EngineScript::BehaviourTypeRegistration& registration, std::string& error) {
         for (const auto& [type, kind] : registration.constructor_dependencies) {
@@ -61,6 +62,7 @@ public:
             else if (type == "Events") m_arguments.push_back(&m_events);
             else if (type == "PlayerPrefs") m_arguments.push_back(&m_prefs);
             else if (type == "Assets") m_arguments.push_back(&m_assets);
+            else if (type == "Particles") m_arguments.push_back(&m_particles);
             else if (type == "UI") m_arguments.push_back(&m_ui);
             else if (type == "Tilemap") m_arguments.push_back(&m_tilemap);
             else if (type == "RigidBody2D") m_arguments.push_back(&m_rigid_body);
@@ -71,6 +73,16 @@ public:
             else if (type == "Entities") m_arguments.push_back(&m_entities);
             else if (type == "Display") m_arguments.push_back(&m_display);
             else if (type == "Physics") m_arguments.push_back(&m_physics);
+            else if (type == "ParticleEmitter2D") {
+                EngineScript::Entity entity;
+                entity.id = m_binding.entity;
+                auto* emitter = m_entities.particleEmitter(entity);
+                if (!emitter && kind != EngineScript::NativeDependencyKind::OptionalComponent) {
+                    error = "missing required ParticleEmitter2D component";
+                    return false;
+                }
+                m_arguments.push_back(emitter);
+            }
             else if (kind == EngineScript::NativeDependencyKind::OptionalComponent) m_arguments.push_back(nullptr);
             else { error = "unsupported native EngineScript dependency: " + type; return false; }
         }
@@ -262,6 +274,7 @@ private:
                 case EngineScript::ResourceType::AudioClip: return actual == AssetType::Audio;
                 case EngineScript::ResourceType::Font: return actual == AssetType::Font;
                 case EngineScript::ResourceType::DataAsset: return actual == AssetType::Data;
+                case EngineScript::ResourceType::ParticleEffect: return actual == AssetType::ParticleEffect;
             }
             return false;
         }
@@ -271,6 +284,28 @@ private:
         }
         const ScriptRuntimeBinding& m_binding;
         EngineScript::Asset m_asset;
+    };
+    class Particles final : public EngineScript::Particles {
+    public:
+        explicit Particles(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        bool emit(const EngineScript::Asset* effect, const glm::vec2& position, int count) override {
+            return effect && effect->ready && effect->handle != 0 && m_binding.services &&
+                m_binding.services->emit_particles &&
+                m_binding.services->emit_particles(AssetHandle{effect->handle}, position, count);
+        }
+        bool emitWithOptions(
+            const EngineScript::Asset* effect,
+            const glm::vec2& position,
+            const EngineScript::ParticleEmitOptions& options
+        ) override {
+            return effect && effect->ready && effect->handle != 0 && m_binding.services &&
+                m_binding.services->emit_particles_with_options &&
+                m_binding.services->emit_particles_with_options(
+                    AssetHandle{effect->handle}, position, options
+                );
+        }
+    private:
+        const ScriptRuntimeBinding& m_binding;
     };
     class UI final : public EngineScript::UI {
     public:
@@ -488,9 +523,57 @@ private:
             if (!hasParticleEmitter(entity)) return nullptr;
             const ParticleEmitter2DComponent& source = m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(entity.id);
             m_particle.id = entity.id;
-            m_particle.value.emitRate = source.emit_rate;
-            m_particle.value.burstCount = source.burst_count;
+            float asset_rate = 0.0f;
+            int asset_burst = 0;
+            if (m_binding.asset_database && source.effect_handle.is_valid()) {
+                if (const auto asset = ParticleEffectAsset::load_asset(source.effect_handle, *m_binding.asset_database)) {
+                    asset_rate = asset->emission.continuous_rate;
+                    asset_burst = asset->emission.burst_count;
+                }
+            }
+            m_particle.value.emitRate = source.emit_rate_override.value_or(asset_rate);
+            m_particle.value.burstCount = source.burst_count_override.value_or(asset_burst);
             m_particle.value.active = source.active;
+            m_particle.initial_emit_rate = m_particle.value.emitRate;
+            m_particle.initial_burst_count = m_particle.value.burstCount;
+            m_particle.initial_active = m_particle.value.active;
+            m_particle.value.isPlaying = source.is_playing;
+            m_particle.value.effectHandle = source.effect_handle.value;
+            m_particle.value.runtime_context = const_cast<ScriptRuntimeBinding*>(&m_binding);
+            m_particle.value.entity_id = entity.id;
+            m_particle.value.play_callback = [](void* context, uint32_t id) {
+                const auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+                const auto* services = binding ? binding->services : nullptr;
+                return services && services->play_particle_emitter && services->play_particle_emitter(id);
+            };
+            m_particle.value.stop_callback = [](void* context, uint32_t id, bool clear_particles) {
+                const auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+                const auto* services = binding ? binding->services : nullptr;
+                return services && services->stop_particle_emitter &&
+                    services->stop_particle_emitter(id, clear_particles);
+            };
+            m_particle.value.burst_callback = [](void* context, uint32_t id, int count) {
+                const auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+                const auto* services = binding ? binding->services : nullptr;
+                return services && services->burst_particle_emitter &&
+                    services->burst_particle_emitter(id, count);
+            };
+            m_particle.value.set_effect_callback = [](void* context, uint32_t id, const EngineScript::Asset* effect) {
+                auto* binding = static_cast<ScriptRuntimeBinding*>(context);
+                if (!binding || !binding->entity_manager || !binding->asset_database ||
+                    !effect || !effect->ready || effect->handle == 0 ||
+                    !binding->entity_manager->is_alive(id) ||
+                    !binding->entity_manager->has_component<ParticleEmitter2DComponent>(id)) return false;
+                const AssetRecord* record = binding->asset_database->find(AssetHandle{effect->handle});
+                if (!record || record->status != AssetStatus::Ready || record->type != AssetType::ParticleEffect) return false;
+                auto& target = binding->entity_manager->get_component<ParticleEmitter2DComponent>(id);
+                target.effect_handle = record->handle;
+                target.is_playing = false;
+                target.emission_accumulator = 0.0f;
+                target.lifetime_timer = 0.0f;
+                target.delay_remaining = 0.0f;
+                return true;
+            };
             return &m_particle.value;
         }
         bool hasJoint(const EngineScript::Entity& entity) const override { return alive_with<JointComponent>(entity.id); }
@@ -518,9 +601,15 @@ private:
             }
             if (m_particle.id != 0 && alive_with<ParticleEmitter2DComponent>(m_particle.id)) {
                 ParticleEmitter2DComponent& target = m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(m_particle.id);
-                target.emit_rate = m_particle.value.emitRate;
-                target.burst_count = m_particle.value.burstCount;
-                target.active = m_particle.value.active;
+                if (m_particle.value.emitRate != m_particle.initial_emit_rate) {
+                    target.emit_rate_override = m_particle.value.emitRate;
+                }
+                if (m_particle.value.burstCount != m_particle.initial_burst_count) {
+                    target.burst_count_override = m_particle.value.burstCount;
+                }
+                if (m_particle.value.active != m_particle.initial_active) {
+                    target.active = m_particle.value.active;
+                }
             }
             if (m_joint.id != 0 && alive_with<JointComponent>(m_joint.id)) {
                 JointComponent& target = m_binding.entity_manager->get_component<JointComponent>(m_joint.id);
@@ -570,7 +659,13 @@ private:
         struct { EntityID id{0}; EngineScript::Transform2D value; } m_transform;
         struct { EntityID id{0}; EngineScript::RigidBody2D value; } m_rigid_body;
         struct { EntityID id{0}; EngineScript::SpriteRenderer2D value; } m_sprite_renderer;
-        struct { EntityID id{0}; EngineScript::ParticleEmitter2D value; } m_particle;
+        struct {
+            EntityID id{0};
+            EngineScript::ParticleEmitter2D value;
+            float initial_emit_rate{0.0f};
+            int initial_burst_count{0};
+            bool initial_active{false};
+        } m_particle;
         struct { EntityID id{0}; EngineScript::Joint2D value; } m_joint;
     };
 
@@ -582,6 +677,7 @@ private:
     Events m_events;
     PlayerPrefs m_prefs;
     Assets m_assets;
+    Particles m_particles;
     UI m_ui;
     Tilemap m_tilemap;
     Display m_display;
@@ -1521,11 +1617,18 @@ ScriptRuntimeStartResult ScriptRuntime::start(
                 set_error(entity, "missing required Transform2D component");
                 return;
             }
+            if (dependency.is_component && dependency.type == "ParticleEmitter2D" &&
+                !entity_manager.has_component<ParticleEmitter2DComponent>(entity)) {
+                ++result.failed;
+                set_error(entity, "missing required ParticleEmitter2D component");
+                return;
+            }
             if (dependency.is_service && dependency.type != "Input" && dependency.type != "Log" &&
                 dependency.type != "Audio" && dependency.type != "Scene" && dependency.type != "Time" &&
                 dependency.type != "Entities" && dependency.type != "Display" && dependency.type != "Physics" &&
                 dependency.type != "Events" && dependency.type != "Assets" && dependency.type != "UI" &&
-                dependency.type != "Tilemap" && dependency.type != "PlayerPrefs") {
+                dependency.type != "Tilemap" && dependency.type != "PlayerPrefs" &&
+                dependency.type != "Particles") {
                 ++result.failed;
                 set_error(entity, "unsupported injected service: " + dependency.type);
                 return;
