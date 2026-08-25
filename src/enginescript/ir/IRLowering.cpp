@@ -521,6 +521,16 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
             }
         }
         if (auto id = dynamic_cast<const IdentifierExpr*>(call->callee.get())) {
+            if (id->name == "String") {
+                auto conversion = std::make_shared<IRStringConvert>();
+                conversion->kind = IROpKind::StringConvert;
+                if (call->arguments.size() == 1) {
+                    conversion->operand = lower_expression(call->arguments.front());
+                }
+                conversion->result_type = m_type_checker.get_type_of_node(call);
+                conversion->span = call->span;
+                return conversion;
+            }
             if (const auto target_kind = numeric_type_for_name(id->name)) {
                 auto conversion = std::make_shared<IRNumericConvert>();
                 conversion->kind = IROpKind::NumericConvert;

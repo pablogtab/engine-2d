@@ -145,10 +145,10 @@ removed, cleared, and saved. It never exposes project paths or arbitrary file
 access. Use the canonical camelCase SDK names; unsupported legacy aliases are
 compiler errors rather than calls that can fail later during native compilation.
 
-EngineScript 2.0 intentionally has no numeric-to-String conversion. `toString`
-was removed from the language, SDK, generated runtime, and editor tooling.
-String interpolation and explicit text formatting remain outside the current
-language contract; UI and log calls therefore require an existing `String`.
+EngineScript 2.0 removes the legacy `toString(value)` helper. Use the `String`
+type as an explicit numeric conversion instead: `String(score)`. Numeric values
+are never converted implicitly, so `"Score: " + score` is rejected while
+`"Score: " + String(score)` is valid and remains statically typed.
 
 Numeric types use their type name as an explicit conversion: `Int(speed)`
 truncates a floating value toward zero and saturates to the `Int32` range, while

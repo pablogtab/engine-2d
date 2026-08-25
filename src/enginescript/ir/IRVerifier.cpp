@@ -125,6 +125,18 @@ bool IRVerifier::verify_operation(const IROperation* op) {
             }
             return verify_operation(value->operand.get());
         }
+        case IROpKind::StringConvert: {
+            const auto* value = dynamic_cast<const IRStringConvert*>(op);
+            if (!value || !value->result_type || value->result_type->kind != TypeKind::String) {
+                m_diagnostics.report_error("E4039", "IRStringConvert must produce String", op->span);
+                return false;
+            }
+            if (!value->operand || !value->operand->result_type || !value->operand->result_type->is_numeric()) {
+                m_diagnostics.report_error("E4040", "IRStringConvert requires one numeric operand", op->span);
+                return false;
+            }
+            return verify_operation(value->operand.get());
+        }
         case IROpKind::ValueConstruct: {
             const auto* value = dynamic_cast<const IRValueConstruct*>(op);
             const std::size_t expected = value && value->target_kind == TypeKind::Vec2 ? 2 :

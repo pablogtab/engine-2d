@@ -169,6 +169,8 @@ void GenericsManager::analyze_operation(const IROperation* operation) {
         analyze_operation(value->operand.get());
     } else if (const auto* value = dynamic_cast<const IRNumericConvert*>(operation)) {
         analyze_operation(value->operand.get());
+    } else if (const auto* value = dynamic_cast<const IRStringConvert*>(operation)) {
+        analyze_operation(value->operand.get());
     } else if (const auto* value = dynamic_cast<const IRValueConstruct*>(operation)) {
         analyze_all(value->args);
     } else if (const auto* value = dynamic_cast<const IRClassConstruct*>(operation)) {

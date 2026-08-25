@@ -31,6 +31,7 @@ int main() {
             override update(deltaTime: Float): Void {
                 let axis: Float = input.axis("Horizontal");
                 let score: Int = Int(walkSpeed);
+                let label: String = String(score);
                 let position: Vec2 = Vec2(10.0, 20.0);
                 body.velocity.x = axis * walkSpeed;
             }
@@ -70,12 +71,16 @@ int main() {
     const auto& update_statements = ir_cls.methods[0].blocks[0].statements;
     assert(update_statements.size() >= 3);
     const auto* score_declaration = dynamic_cast<const IRVarDecl*>(update_statements[1].op.get());
-    const auto* position_declaration = dynamic_cast<const IRVarDecl*>(update_statements[2].op.get());
+    const auto* label_declaration = dynamic_cast<const IRVarDecl*>(update_statements[2].op.get());
+    const auto* position_declaration = dynamic_cast<const IRVarDecl*>(update_statements[3].op.get());
     const auto* numeric_conversion = score_declaration
         ? dynamic_cast<const IRNumericConvert*>(score_declaration->initializer.get()) : nullptr;
     const auto* value_construction = position_declaration
         ? dynamic_cast<const IRValueConstruct*>(position_declaration->initializer.get()) : nullptr;
+    const auto* string_conversion = label_declaration
+        ? dynamic_cast<const IRStringConvert*>(label_declaration->initializer.get()) : nullptr;
     assert(numeric_conversion && numeric_conversion->kind == IROpKind::NumericConvert);
+    assert(string_conversion && string_conversion->kind == IROpKind::StringConvert);
     assert(value_construction && value_construction->kind == IROpKind::ValueConstruct);
     assert(!dynamic_cast<const IRCall*>(score_declaration->initializer.get()));
     assert(!dynamic_cast<const IRCall*>(position_declaration->initializer.get()));
@@ -94,6 +99,10 @@ int main() {
     invalid_conversion->target_kind = TypeKind::Int32;
     invalid_conversion->result_type = Type::make_primitive(TypeKind::Int32);
     invalid_conversion->operand = invalid_source;
+    auto invalid_string_conversion = std::make_shared<IRStringConvert>();
+    invalid_string_conversion->kind = IROpKind::StringConvert;
+    invalid_string_conversion->result_type = Type::make_primitive(TypeKind::String);
+    invalid_string_conversion->operand = invalid_source;
     auto invalid_construction = std::make_shared<IRValueConstruct>();
     invalid_construction->kind = IROpKind::ValueConstruct;
     invalid_construction->target_kind = TypeKind::Vec2;
@@ -105,6 +114,7 @@ int main() {
     invalid_method.name = "test";
     IRBlock invalid_block;
     invalid_block.statements.push_back({invalid_conversion, {}});
+    invalid_block.statements.push_back({invalid_string_conversion, {}});
     invalid_block.statements.push_back({invalid_construction, {}});
     invalid_method.blocks.push_back(std::move(invalid_block));
     invalid_class.methods.push_back(std::move(invalid_method));
@@ -112,12 +122,14 @@ int main() {
     IRVerifier invalid_verifier(invalid_ir_diagnostics);
     assert(!invalid_verifier.verify_module(invalid_module));
     bool rejected_conversion = false;
+    bool rejected_string_conversion = false;
     bool rejected_construction = false;
     for (const Diagnostic& diagnostic : invalid_ir_diagnostics.get_diagnostics()) {
         rejected_conversion |= diagnostic.code == "E4026";
+        rejected_string_conversion |= diagnostic.code == "E4040";
         rejected_construction |= diagnostic.code == "E4027";
     }
-    assert(rejected_conversion && rejected_construction);
+    assert(rejected_conversion && rejected_string_conversion && rejected_construction);
 
     DiagnosticEngine service_diags;
     const std::string service_code = R"(

@@ -1,8 +1,8 @@
 # EngineScript Language and Compiler Roadmap
 
 > **Status:** EngineScript 2.0 implementation increment. The public contract is
-> language version 2, ABI/SDK 25, and compiler cache identity
-> `enginescript_codegen_v2`. Frontend, structured TypedIR, C++ emission,
+> language version 2, ABI/SDK 26, and compiler cache identity
+> `enginescript_codegen_v2_string_cast`. Frontend, structured TypedIR, C++ emission,
 > runtime services, deterministic collections, typed events, scoped async work,
 > LSP, and the VS Code 2.0 extension advance through one macOS acceptance gate.
 > Windows and iOS validation remain separate non-blocking platform work.

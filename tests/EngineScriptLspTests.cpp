@@ -87,6 +87,7 @@ int main() {
     assert(j_comp["result"].size() > 5);
     bool has_behaviour_template = false;
     bool has_to_string = false;
+    bool has_string_conversion = false;
     bool has_int_conversion = false;
     bool has_uint8_conversion = false;
     bool has_float64_conversion = false;
@@ -95,6 +96,8 @@ int main() {
             has_behaviour_template = item["insertTextFormat"] == 2;
         }
         has_to_string |= item["label"] == "toString";
+        has_string_conversion |= item["label"] == "String" &&
+            item.value("detail", "") == "String(value: Numeric) -> String";
         has_int_conversion |= item["label"] == "Int" &&
             item.value("detail", "") == "Int(value: Numeric) -> Int";
         has_uint8_conversion |= item["label"] == "UInt8" &&
@@ -104,6 +107,7 @@ int main() {
     }
     assert(has_behaviour_template);
     assert(!has_to_string);
+    assert(has_string_conversion);
     assert(has_int_conversion && has_uint8_conversion && has_float64_conversion);
 
     // Definitions resolve to the declaration span instead of a placeholder range.
@@ -574,12 +578,13 @@ int main() {
     // The request is valid even while its document contains an incomplete edit.
     assert(signature_help.contains("result"));
 
-    const std::array<std::string, 8> conversion_lines{{
+    const std::array<std::string, 9> conversion_lines{{
         "function conversions(score: Int, speed: Float64): Void {",
         "  let a: Int = Int(score);",
         "  let b: UInt8 = UInt8(score);",
         "  let c: Float64 = Float64(speed);",
         "  let d: Float = Float(score);",
+        "  let label: String = String(score);",
         "  let inferred = 1;",
         "  let text = \"NotAType\"; // ignoredName",
         "}"
@@ -609,12 +614,14 @@ int main() {
         const json result = json::parse(server.handle_message(request.dump()));
         assert(result["result"]["signatures"][0]["label"] ==
             expected_name + "(value: Numeric) -> " + expected_name);
-        assert(result["result"]["signatures"][0]["documentation"].get<std::string>().find("saturate") !=
-            std::string::npos || expected_name == "Float64");
+        const std::string documentation = result["result"]["signatures"][0]["documentation"];
+        assert(documentation.find("saturate") != std::string::npos ||
+            expected_name == "Float64" || documentation.find("formats") != std::string::npos);
     };
     require_conversion_signature(22, 1, "Int");
     require_conversion_signature(23, 2, "UInt8");
     require_conversion_signature(24, 3, "Float64");
+    require_conversion_signature(241, 5, "String");
 
     json numeric_hover_request = {
         {"jsonrpc", "2.0"}, {"id", 25}, {"method", "textDocument/hover"},

@@ -12,6 +12,9 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <array>
+#include <charconv>
+#include <system_error>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -35,6 +38,21 @@ template <typename Interface, typename Value>
 }
 
 namespace StringOps {
+
+template <typename Value>
+requires (std::is_arithmetic_v<Value> && !std::is_same_v<Value, bool>)
+[[nodiscard]] inline std::string from_numeric(Value value) {
+    if constexpr (std::is_floating_point_v<Value>) {
+        if (std::isnan(value)) return "nan";
+        if (std::isinf(value)) return value < Value{0} ? "-inf" : "inf";
+    }
+
+    std::array<char, 128> buffer{};
+    const auto [end, error] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+    return error == std::errc{}
+        ? std::string(buffer.data(), end)
+        : std::string{};
+}
 
 inline bool includes(const std::string& value, const std::string& needle) {
     return value.find(needle) != std::string::npos;

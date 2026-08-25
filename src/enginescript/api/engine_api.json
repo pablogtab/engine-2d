@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "languageVersion": 2,
-  "compilerCacheId": "enginescript_codegen_v2",
-  "abiVersion": 25,
-  "sdkHash": "engine2d_abi_v25",
+  "compilerCacheId": "enginescript_codegen_v2_string_cast",
+  "abiVersion": 26,
+  "sdkHash": "engine2d_abi_v26",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",

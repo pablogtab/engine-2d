@@ -335,6 +335,7 @@ int main() {
                 if (index == 0) { continue; }
                 sum = sum + Int(axis[index]);
             }
+            let scoreText: String = "Score: " + String(sum);
             let counter: Counter = Counter(sum);
             let weak: Weak<Counter> = Weak<Counter>(counter);
             let exact: Int = identity<Int>(3);
@@ -363,6 +364,7 @@ int main() {
     assert(v2_output.source_content.find("EngineScript::popValue") != std::string::npos);
     assert(v2_output.source_content.find("EngineScript::mapKeys") != std::string::npos);
     assert(v2_output.source_content.find("EngineScript::mapValues") != std::string::npos);
+    assert(v2_output.source_content.find("EngineScript::StringOps::from_numeric(sum)") != std::string::npos);
     assert(v2_output.source_content.find("static_cast<int32_t>(axis.size())") != std::string::npos);
     assert(v2_output.source_content.find("EngineScript::boxInterface<Named, Label>") != std::string::npos);
     assert(v2_output.source_content.find("std::weak_ptr<Counter>") != std::string::npos);

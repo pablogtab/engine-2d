@@ -172,6 +172,15 @@ std::string numeric_conversion_documentation(std::string_view name, const Numeri
     return documentation;
 }
 
+std::string string_conversion_signature() {
+    return "String(value: Numeric) -> String";
+}
+
+std::string string_conversion_documentation() {
+    return "Explicitly formats any EngineScript numeric value as UTF-8 text. "
+        "This conversion is required before concatenating a number with String.";
+}
+
 std::string callable_snippet(
     std::string_view name,
     const std::vector<ApiParameterDescriptor>& parameters,
@@ -903,6 +912,9 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
                 const NumericTypeInfo* info = numeric_type_info(*numeric_kind);
                 item["detail"] = numeric_conversion_signature(type.name);
                 item["documentation"] = numeric_conversion_documentation(type.name, *info);
+            } else if (type.name == "String") {
+                item["detail"] = string_conversion_signature();
+                item["documentation"] = string_conversion_documentation();
             }
             items.push_back(std::move(item));
         }
@@ -967,7 +979,8 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
     } else if (word == "Bool") {
         markdown = "### `Bool`\n\nBoolean type representing `true` or `false`.";
     } else if (word == "String") {
-        markdown = "### `String`\n\nUTF-8 encoded string.";
+        markdown = "### `String`\n\n```enginescript\n" + string_conversion_signature() +
+            "\n```\n\n" + string_conversion_documentation();
     } else if (word == "Void") {
         markdown = "### `Void`\n\nIndicates the absence of a value or return type.";
     } else if (word == "Vec2") {
@@ -1124,6 +1137,19 @@ std::string LanguageServer::on_signature_help(
             {"signatures", {{
                 {"label", numeric_conversion_signature(name)},
                 {"documentation", numeric_conversion_documentation(name, *info)},
+                {"parameters", {{{"label", "value: Numeric"},
+                    {"documentation", "Any EngineScript numeric value."}}}}
+            }}},
+            {"activeSignature", 0},
+            {"activeParameter", 0}
+        };
+        return response.dump();
+    }
+    if (name == "String") {
+        response["result"] = {
+            {"signatures", {{
+                {"label", string_conversion_signature()},
+                {"documentation", string_conversion_documentation()},
                 {"parameters", {{{"label", "value: Numeric"},
                     {"documentation", "Any EngineScript numeric value."}}}}
             }}},

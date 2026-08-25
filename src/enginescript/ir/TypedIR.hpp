@@ -20,6 +20,7 @@ enum class IROpKind {
     Binary,
     Unary,
     NumericConvert,
+    StringConvert,
     ValueConstruct,
     ClassConstruct,
     WeakConstruct,
@@ -96,6 +97,10 @@ struct IRUnary : public IROperation {
 
 struct IRNumericConvert : public IROperation {
     TypeKind target_kind = TypeKind::Error;
+    std::shared_ptr<IROperation> operand;
+};
+
+struct IRStringConvert : public IROperation {
     std::shared_ptr<IROperation> operand;
 };
 

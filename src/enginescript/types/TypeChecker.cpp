@@ -1604,6 +1604,28 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Global async functions
         if (auto id = dynamic_cast<IdentifierExpr*>(call->callee.get())) {
+            if (id->name == "String") {
+                if (call->arguments.size() != 1) {
+                    m_diagnostics.report_error(
+                        "E3093",
+                        std::format("String conversion expects exactly 1 numeric argument, got {}",
+                            call->arguments.size()),
+                        call->span
+                    );
+                } else {
+                    const auto source_type = get_type_of_node(call->arguments.front().get());
+                    if (!source_type || !source_type->is_numeric()) {
+                        m_diagnostics.report_error(
+                            "E3094",
+                            std::format("String conversion requires a numeric source, got '{}'",
+                                source_type ? source_type->to_string() : "<unknown>"),
+                            call->arguments.front()->span
+                        );
+                    }
+                }
+                m_node_types[call] = m_type_string;
+                return m_type_string;
+            }
             if (const auto target_kind = numeric_type_for_name(id->name)) {
                 if (call->arguments.size() != 1) {
                     m_diagnostics.report_error(

@@ -1,15 +1,15 @@
 # EngineScript 2.0 Migration
 
 EngineScript 2.0 is a clean language and runtime boundary. Generated 1.x
-modules are invalidated by language version 2, ABI/SDK 25, and compiler cache
-identity `enginescript_codegen_v2`; there is no compatibility adapter.
+modules are invalidated by language version 2, ABI/SDK 26, and compiler cache
+identity `enginescript_codegen_v2_string_cast`; there is no compatibility adapter.
 
 ## Removed APIs
 
 - `toString(value)` was removed from the SDK, runtime, generated C++, and LSP.
-  EngineScript 2.0 does not implicitly or explicitly convert numbers to
-  `String`. `String + number` remains a type error. Text interpolation and
-  formatting are outside this version.
+  Replace it with the explicit type conversion `String(value)`. Concatenating
+  a `String` and a number remains a type error; write `"Score: " +
+  String(score)` instead.
 - String-named gameplay events were replaced by authored struct events.
 - `Assets.request(path)` and its string completion events were replaced by the
   typed fallible `assets.load<T>(path)` operation.
@@ -26,6 +26,7 @@ output; neither is an EngineScript API.
 ```enginescript
 let scoreFloat: Float = Float(score);
 let scoreInt: Int = Int(speed);
+let scoreLabel: String = "Score: " + String(score);
 
 let loaded: Result<Asset<Texture>, String> =
     await assets.load<Texture>("Assets/player.png");

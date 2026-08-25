@@ -960,6 +960,13 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             : "0";
     }
 
+    if (auto conversion = dynamic_cast<const IRStringConvert*>(op)) {
+        return conversion->operand
+            ? std::format("EngineScript::StringOps::from_numeric({})",
+                emit_operation_cpp(conversion->operand.get()))
+            : "std::string{}";
+    }
+
     if (auto assignment = dynamic_cast<const IRAssign*>(op)) {
         return std::format("{} {} {}", identifier_to_cpp(assignment->target_name),
             token_type_to_string(assignment->assignment_op), emit_operation_cpp(assignment->value.get()));

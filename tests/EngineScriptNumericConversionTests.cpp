@@ -71,6 +71,11 @@ int main() {
             let d: Float = Float(score);
         }
     )";
+    for (const NumericTypeInfo& source : NUMERIC_TYPES) {
+        explicit_matrix += "function stringFrom" + std::string(source.canonical_name) +
+            "(value: " + std::string(source.canonical_name) +
+            "): String { return String(value); }\n";
+    }
     DiagnosticEngine matrix_diagnostics;
     assert(check_source("Source/NumericMatrix.e2s", explicit_matrix, matrix_diagnostics));
     assert(!matrix_diagnostics.has_errors());
@@ -143,6 +148,26 @@ int main() {
     assert(arity_errors == 2);
     assert(source_errors == 6);
 
+    DiagnosticEngine invalid_string_diagnostics;
+    const std::string invalid_string_sources = R"(
+        function invalidString(entity: Entity): Void {
+            let arity0: String = String();
+            let arity2: String = String(1, 2);
+            let boolean: String = String(true);
+            let text: String = String("already text");
+            let entityValue: String = String(entity);
+        }
+    )";
+    assert(!check_source("Source/InvalidStringConversions.e2s", invalid_string_sources, invalid_string_diagnostics));
+    std::size_t string_arity_errors = 0;
+    std::size_t string_source_errors = 0;
+    for (const Diagnostic& diagnostic : invalid_string_diagnostics.get_diagnostics()) {
+        string_arity_errors += diagnostic.code == "E3093";
+        string_source_errors += diagnostic.code == "E3094";
+    }
+    assert(string_arity_errors == 2);
+    assert(string_source_errors == 3);
+
     assert(numericConvert<int8_t>(int64_t{500}) == std::numeric_limits<int8_t>::max());
     assert(numericConvert<int8_t>(int64_t{-500}) == std::numeric_limits<int8_t>::lowest());
     assert(numericConvert<uint8_t>(int64_t{-1}) == 0);
@@ -160,6 +185,12 @@ int main() {
     assert(std::isnan(numericConvert<float>(std::numeric_limits<double>::quiet_NaN())));
     assert(std::isinf(numericConvert<float>(std::numeric_limits<double>::infinity())));
     assert(numericConvert<double>(1.25f) == 1.25);
+    assert(StringOps::from_numeric(int32_t{-42}) == "-42");
+    assert(StringOps::from_numeric(uint64_t{18'446'744'073'709'551'615ULL}) == "18446744073709551615");
+    assert(StringOps::from_numeric(1.25f) == "1.25");
+    assert(StringOps::from_numeric(std::numeric_limits<double>::quiet_NaN()) == "nan");
+    assert(StringOps::from_numeric(std::numeric_limits<double>::infinity()) == "inf");
+    assert(StringOps::from_numeric(-std::numeric_limits<double>::infinity()) == "-inf");
 
     std::cout << "[PASS] EngineScriptNumericConversionTests passed!\n";
     return 0;
