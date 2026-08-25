@@ -24,6 +24,21 @@ ImU32 collider_color(const ColliderShape& shape, bool selected) {
 
 } // namespace
 
+void ViewportColliderOverlay::cycle_mode() {
+    switch (m_mode) {
+        case PhysicsOverlayMode::Selected: m_mode = PhysicsOverlayMode::All; break;
+        case PhysicsOverlayMode::All: m_mode = PhysicsOverlayMode::None; break;
+        case PhysicsOverlayMode::None: m_mode = PhysicsOverlayMode::Selected; break;
+    }
+}
+
+PhysicsDebugOptions ViewportColliderOverlay::effective_debug_options() const {
+    if (m_mode == PhysicsOverlayMode::None) return {};
+    PhysicsDebugOptions options = m_debug_options;
+    options.selection_only = m_mode == PhysicsOverlayMode::Selected;
+    return options;
+}
+
 void ViewportColliderOverlay::render(
     EntityManager& entity_manager,
     const EditorSelection* selection,
@@ -34,6 +49,7 @@ void ViewportColliderOverlay::render(
     const ImVec2& uv_max,
     const EditorEntityVisibilityFilter* visibility_filter
 ) const {
+    if (m_mode == PhysicsOverlayMode::None) return;
     if (image_size.x <= 0.0f || image_size.y <= 0.0f) return;
     const float uv_width = uv_max.x - uv_min.x;
     const float uv_height = uv_max.y - uv_min.y;
@@ -59,14 +75,15 @@ void ViewportColliderOverlay::render(
 
     // Runtime data is deliberately copied by PhysicsSystem.  This path never
     // reaches into Box2D and retains the last completed frame while paused.
+    const PhysicsDebugOptions options = effective_debug_options();
     const PhysicsDebugFrame& debug = PhysicsSystem::debug_frame();
-    if (m_debug_options.enabled() && debug.revision != 0) {
+    if (options.enabled() && debug.revision != 0) {
         const auto selected = [selection](EntityID entity) { return selection && selection->is_selected(entity); };
         for (const PhysicsDebugCollider& collider : debug.colliders) {
-            if (m_debug_options.selection_only && !selected(collider.entity)) continue;
+            if (options.selection_only && !selected(collider.entity)) continue;
             const ImU32 color = collider.trigger ? IM_COL32(69, 220, 235, 220)
                 : collider.one_way ? IM_COL32(244, 183, 64, 220) : IM_COL32(91, 219, 132, 220);
-            if (m_debug_options.colliders) {
+            if (options.colliders) {
                 if (collider.type == PhysicsDebugShapeType::Circle && !collider.points.empty()) {
                     const ImVec2 center = to_screen(collider.points.front());
                     const ImVec2 edge = to_screen(collider.points.front() + glm::vec2(collider.radius, 0.0f));
@@ -77,29 +94,29 @@ void ViewportColliderOverlay::render(
                     draw_list->AddPolyline(points.data(), static_cast<int>(points.size()), color, ImDrawFlags_Closed, 1.25f);
                 }
             }
-            if (m_debug_options.layers && !collider.points.empty()) {
+            if (options.layers && !collider.points.empty()) {
                 const ImVec2 label = to_screen(collider.points.front());
                 draw_list->AddText(label, color, ("C:" + std::to_string(collider.category) + " M:" + std::to_string(collider.mask)).c_str());
             }
         }
         for (const PhysicsDebugBody& body : debug.bodies) {
-            if (m_debug_options.selection_only && !selected(body.entity)) continue;
+            if (options.selection_only && !selected(body.entity)) continue;
             const ImVec2 origin = to_screen(body.position);
-            if (m_debug_options.velocities) draw_list->AddLine(origin, to_screen(body.position + body.velocity * 0.15f), IM_COL32(110, 180, 255, 230), 2.0f);
-            if (m_debug_options.centers_of_mass) draw_list->AddCircleFilled(to_screen(body.center_of_mass), 3.0f, IM_COL32(255, 220, 86, 240));
+            if (options.velocities) draw_list->AddLine(origin, to_screen(body.position + body.velocity * 0.15f), IM_COL32(110, 180, 255, 230), 2.0f);
+            if (options.centers_of_mass) draw_list->AddCircleFilled(to_screen(body.center_of_mass), 3.0f, IM_COL32(255, 220, 86, 240));
         }
         for (const PhysicsDebugContact& contact : debug.contacts) {
-            if (m_debug_options.selection_only && !selected(contact.entity_a) && !selected(contact.entity_b)) continue;
+            if (options.selection_only && !selected(contact.entity_a) && !selected(contact.entity_b)) continue;
             const ImVec2 point = to_screen(contact.point);
-            if (m_debug_options.contacts) draw_list->AddCircleFilled(point, 4.0f, contact.trigger ? IM_COL32(69,220,235,240) : IM_COL32(255,100,100,240));
-            if (m_debug_options.normals) draw_list->AddLine(point, to_screen(contact.point + contact.normal * 28.0f), IM_COL32(255,255,255,240), 2.0f);
+            if (options.contacts) draw_list->AddCircleFilled(point, 4.0f, contact.trigger ? IM_COL32(69,220,235,240) : IM_COL32(255,100,100,240));
+            if (options.normals) draw_list->AddLine(point, to_screen(contact.point + contact.normal * 28.0f), IM_COL32(255,255,255,240), 2.0f);
         }
     } else entity_manager.for_each<TransformComponent, ColliderComponent>(
         [&](EntityID id, const TransformComponent& transform, const ColliderComponent& collider) {
             if (visibility_filter && !visibility_filter->should_render(id)) return;
             if (!transform.world_visible) return;
             const bool selected = selection && selection->is_selected(id);
-            if (!m_show_all && !selected) return;
+            if (m_mode == PhysicsOverlayMode::Selected && !selected) return;
 
             for (const ColliderShape& shape : collider.shapes) {
                 const ImU32 color = collider_color(shape, selected);

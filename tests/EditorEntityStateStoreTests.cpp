@@ -38,6 +38,25 @@ void test_mutations() {
     std::cout << "[PASS] test_mutations" << std::endl;
 }
 
+void test_state_snapshot_is_sorted_and_complete() {
+    EditorEntityStateStore store;
+    const std::uint64_t initial_revision = store.persistence_revision();
+    store.set_visible(9, false);
+    store.set_locked(3, true);
+    store.set_component_order(6, {"transform", "sprite"});
+
+    assert(store.persistence_revision() == initial_revision + 2);
+    store.set_locked(3, true);
+    assert(store.persistence_revision() == initial_revision + 2);
+
+    const auto states = store.states();
+    assert(states.size() == 3);
+    assert(states[0].first == 3 && states[0].second.locked);
+    assert(states[1].first == 6 && states[1].second.component_order.size() == 2);
+    assert(states[2].first == 9 && !states[2].second.visible_in_editor);
+    std::cout << "[PASS] test_state_snapshot_is_sorted_and_complete" << std::endl;
+}
+
 void test_component_order_resolution_and_authoring_command() {
     EntityManager em;
     const EntityID entity = em.create_entity();
@@ -171,6 +190,7 @@ void test_state_commands_multi() {
 int main() {
     test_default_state();
     test_mutations();
+    test_state_snapshot_is_sorted_and_complete();
     test_component_order_resolution_and_authoring_command();
     test_pruning();
     test_state_commands_single();

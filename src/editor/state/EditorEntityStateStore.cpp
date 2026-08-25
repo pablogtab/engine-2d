@@ -63,6 +63,14 @@ std::vector<std::pair<EntityID, std::vector<std::string>>> EditorEntityStateStor
     return result;
 }
 
+std::vector<std::pair<EntityID, EditorEntityState>> EditorEntityStateStore::states() const {
+    std::vector<std::pair<EntityID, EditorEntityState>> result(m_states.begin(), m_states.end());
+    std::sort(result.begin(), result.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.first < rhs.first;
+    });
+    return result;
+}
+
 void EditorEntityStateStore::erase_if_default(EntityID id) {
     const auto it = m_states.find(id);
     if (it != m_states.end() && !it->second.locked && it->second.visible_in_editor &&
@@ -73,16 +81,20 @@ void EditorEntityStateStore::erase_if_default(EntityID id) {
 
 void EditorEntityStateStore::set_locked(EntityID id, bool value) {
     if (id == 0) return;
+    if (is_locked(id) == value) return;
     auto& state = m_states[id];
     state.locked = value;
     erase_if_default(id);
+    ++m_persistence_revision;
 }
 
 void EditorEntityStateStore::set_visible(EntityID id, bool value) {
     if (id == 0) return;
+    if (is_visible(id) == value) return;
     auto& state = m_states[id];
     state.visible_in_editor = value;
     erase_if_default(id);
+    ++m_persistence_revision;
 }
 
 void EditorEntityStateStore::set_component_order(EntityID id, std::vector<std::string> order) {
@@ -103,14 +115,22 @@ void EditorEntityStateStore::clear_component_orders() {
 
 void EditorEntityStateStore::set(EntityID id, EditorEntityState state) {
     if (id == 0) return;
+    const EditorEntityState previous = get(id);
+    const bool persistence_changed = previous.locked != state.locked ||
+        previous.visible_in_editor != state.visible_in_editor;
     if (!state.locked && state.visible_in_editor && state.component_order.empty()) {
         m_states.erase(id);
     } else {
         m_states[id] = state;
     }
+    if (persistence_changed) ++m_persistence_revision;
 }
 
 void EditorEntityStateStore::remove(EntityID id) {
+    const auto it = m_states.find(id);
+    if (it != m_states.end() && (it->second.locked || !it->second.visible_in_editor)) {
+        ++m_persistence_revision;
+    }
     m_states.erase(id);
 }
 
@@ -123,11 +143,16 @@ void EditorEntityStateStore::prune(const EntityManager& em) {
         }
     }
     for (EntityID id : to_remove) {
-        m_states.erase(id);
+        remove(id);
     }
 }
 
 void EditorEntityStateStore::clear() {
+    if (std::any_of(m_states.begin(), m_states.end(), [](const auto& entry) {
+            return entry.second.locked || !entry.second.visible_in_editor;
+        })) {
+        ++m_persistence_revision;
+    }
     m_states.clear();
 }
 

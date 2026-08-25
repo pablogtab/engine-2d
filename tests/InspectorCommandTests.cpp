@@ -223,6 +223,7 @@ void test_registered_component_presence_command_round_trips() {
 
 void test_physics_rebuild_updates_fixture_without_preview_churn() {
     PhysicsSystem::clear();
+    PhysicsSystem::set_debug_options(PhysicsDebugOptions{.colliders = true});
     EntityManager em;
     EventDispatcher events;
     const EntityID entity = em.create_entity();
@@ -231,6 +232,7 @@ void test_physics_rebuild_updates_fixture_without_preview_churn() {
     em.add_component<ColliderComponent>(entity, ColliderComponent::Box({20.0f, 20.0f}));
 
     PhysicsSystem::update(em, events, 0.0f);
+    assert(PhysicsSystem::debug_frame().revision != 0);
     assert(PhysicsSystem::raycast({-30.0f, 0.0f}, {30.0f, 0.0f}).entity_id == entity);
     assert(!PhysicsSystem::raycast({70.0f, 0.0f}, {130.0f, 0.0f}).hit);
 
@@ -241,6 +243,8 @@ void test_physics_rebuild_updates_fixture_without_preview_churn() {
     assert(!PhysicsSystem::raycast({-30.0f, 0.0f}, {30.0f, 0.0f}).hit);
     assert(PhysicsSystem::raycast({70.0f, 0.0f}, {130.0f, 0.0f}).entity_id == entity);
     PhysicsSystem::clear();
+    assert(PhysicsSystem::debug_frame().revision == 0);
+    PhysicsSystem::set_debug_options({});
 }
 
 void test_tilemap_edit_rebuilds_only_on_commit_and_round_trips() {

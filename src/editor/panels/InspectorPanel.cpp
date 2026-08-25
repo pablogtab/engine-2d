@@ -28,7 +28,6 @@
 #include "../../core/AssetManager.hpp"
 #include "../../core/FileSystem.hpp"
 #include "../../scene/ComponentRegistry.hpp"
-#include "../../scene/PrefabSerializer.hpp"
 #include "../../scene/PrefabOverrides.hpp"
 #include <imgui.h>
 
@@ -465,7 +464,8 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         }
     }
 
-    // Prefab Instance Card or Save As Prefab button
+    // Existing prefab instances keep their prefab-specific controls here.
+    // Creating a new prefab is an entity action owned by Scene Hierarchy.
     if (em.has_component<PrefabLinkComponent>(entity)) {
         const auto& link = em.get_component<PrefabLinkComponent>(entity);
         const bool is_variant = link.is_variant();
@@ -640,21 +640,6 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         ImGui::EndChild();
         ImGui::PopStyleVar();
         ImGui::PopStyleColor();
-    } else {
-        const std::string prefab_btn_label = editor_icon_label(EditorIcon::Component, "Save As Prefab...");
-
-
-        if (ImGui::Button(prefab_btn_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 22.0f))) {
-            std::string tag_name = em.has_component<TagComponent>(entity) ? em.get_component<TagComponent>(entity).tag : "Entity";
-            std::string clean_name = tag_name;
-            for (char& c : clean_name) {
-                if (c == ' ' || c == '/' || c == '\\' || c == ':') c = '_';
-            }
-            if (clean_name.empty()) clean_name = "Prefab";
-            const std::string filepath = (std::filesystem::path(FileSystem::get_project_directory()) /
-                "Assets/Prefabs" / (clean_name + ".prefab")).string();
-            static_cast<void>(PrefabSerializer::save_to_file(em, entity, filepath, m_renderer));
-        }
     }
 
     ImGui::Separator();

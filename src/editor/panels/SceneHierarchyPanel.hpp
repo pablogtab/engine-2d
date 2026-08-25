@@ -47,6 +47,8 @@ public:
     [[nodiscard]] bool matches_filter_recursive(EntityManager& em, EntityID id, const std::string& filter_str) const;
 
 private:
+    void begin_rename(EntityManager& em, EntityID id);
+    void finish_rename(EntityManager& em, bool commit);
     void draw_entity_node(EntityManager& em, EntityID id, const std::string& filter_str, bool is_multi_key);
     bool is_descendant(EntityManager& em, EntityID potential_descendant, EntityID ancestor) const;
     void render_create_menu(EntityManager& em, EntityID parent_id);
@@ -68,6 +70,9 @@ private:
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     std::shared_ptr<class EditorEntityStateStore> m_entity_state_store{nullptr};
     char m_search_filter[64]{""};
+    EntityID m_renaming_entity{0};
+    char m_rename_buffer[128]{""};
+    bool m_focus_rename{false};
 };
 
 

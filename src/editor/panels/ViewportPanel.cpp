@@ -12,12 +12,16 @@
 #include "../../core/Log.hpp"
 #include "../../core/Time.hpp"
 #include "../../ecs/CameraSystem.hpp"
+#include "../../ecs/TransformSystem.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../physics/PhysicsSystem.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
 #include "../../core/AssetManager.hpp"
+#include "../../core/AssetDatabase.hpp"
 #include "../../renderer/Renderer2D.hpp"
+#include "../../scene/EntitySubtreeArchive.hpp"
+#include "../../scene/PrefabSerializer.hpp"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
@@ -522,6 +526,132 @@ bool ViewportPanel::capture_viewport_png(
     return true;
 }
 
+bool ViewportPanel::prepare_prefab_preview(
+    const std::string& path,
+    const glm::vec2& world_position
+) {
+    if (path.empty()) return false;
+    if (m_prefab_preview_path != path || !m_prefab_preview_entities ||
+        !m_prefab_preview_entities->is_alive(m_prefab_preview_root)) {
+        const std::string json = PrefabSerializer::read_json_from_file(path);
+        if (json.empty()) return false;
+
+        auto entities = std::make_unique<EntityManager>();
+        ComponentSerializationContext context{
+            .renderer = m_renderer,
+            .asset_manager = &AssetManager::get(),
+            .asset_database = &AssetDatabase::get()
+        };
+        const TransformComponent desired{glm::vec3(world_position, 0.0f)};
+        SubtreeInstantiationResult result = EntitySubtreeArchive::instantiate_from_json(
+            *entities, json, desired, 0, context
+        );
+        if (!result.success || result.root_entity == 0) return false;
+
+        m_prefab_preview_path = path;
+        m_prefab_preview_root = result.root_entity;
+        m_prefab_preview_entities = std::move(entities);
+    }
+
+    m_prefab_preview_position = world_position;
+    if (m_prefab_preview_entities->has_component<TransformComponent>(m_prefab_preview_root)) {
+        auto& root = m_prefab_preview_entities->get_component<TransformComponent>(m_prefab_preview_root);
+        root.position.x = world_position.x;
+        root.position.y = world_position.y;
+    }
+    TransformSystem::update(*m_prefab_preview_entities);
+    return true;
+}
+
+void ViewportPanel::render_prefab_preview(
+    const Camera2D& camera,
+    const ImVec2& image_min,
+    const ImVec2& image_size
+) {
+    if (!m_prefab_preview_visible || !m_prefab_preview_entities) return;
+    const glm::vec2 camera_size = camera.get_viewport_size();
+    if (camera_size.x <= 0.0f || camera_size.y <= 0.0f) return;
+
+    const auto to_screen = [&](const glm::vec2& world) {
+        const glm::vec2 point = camera.world_to_screen(glm::vec3(world, 0.0f));
+        return ImVec2(
+            image_min.x + point.x * image_size.x / camera_size.x,
+            image_min.y + point.y * image_size.y / camera_size.y
+        );
+    };
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    std::size_t sprite_count = 0;
+    m_prefab_preview_entities->for_each<TransformComponent, SpriteComponent>(
+        [&](EntityID, const TransformComponent& transform, const SpriteComponent& sprite) {
+            if (!transform.world_visible || !sprite.visible) return;
+            Texture* texture = sprite.texture
+                ? sprite.texture : AssetManager::get().get_white_texture(m_renderer);
+            if (!texture || !texture->get_sdl_texture()) return;
+
+            const glm::vec2 size = sprite.size * glm::abs(transform.world_scale);
+            const float min_x = -transform.world_pivot.x * size.x;
+            const float max_x = (1.0f - transform.world_pivot.x) * size.x;
+            const float min_y = -transform.world_pivot.y * size.y;
+            const float max_y = (1.0f - transform.world_pivot.y) * size.y;
+            const float radians = glm::radians(transform.world_rotation);
+            const float cosine = std::cos(radians);
+            const float sine = std::sin(radians);
+            // Camera2D converts Cartesian Y-up into screen Y-down. Therefore
+            // the texture's top edge corresponds to max_y in world space.
+            const std::array<glm::vec2, 4> local{{
+                {min_x, max_y}, {max_x, max_y}, {max_x, min_y}, {min_x, min_y}
+            }};
+            ImVec2 corners[4];
+            for (std::size_t index = 0; index < local.size(); ++index) {
+                const glm::vec2 rotated(
+                    local[index].x * cosine - local[index].y * sine,
+                    local[index].x * sine + local[index].y * cosine
+                );
+                corners[index] = to_screen(glm::vec2(transform.world_position) + rotated);
+            }
+
+            ImVec2 uv0{0.0f, 0.0f};
+            ImVec2 uv1{1.0f, 0.0f};
+            ImVec2 uv2{1.0f, 1.0f};
+            ImVec2 uv3{0.0f, 1.0f};
+            if (sprite.use_src_rect && texture->get_width() > 0 && texture->get_height() > 0) {
+                const float width = static_cast<float>(texture->get_width());
+                const float height = static_cast<float>(texture->get_height());
+                uv0 = {sprite.src_rect.x / width, sprite.src_rect.y / height};
+                uv1 = {(sprite.src_rect.x + sprite.src_rect.w) / width, sprite.src_rect.y / height};
+                uv2 = {(sprite.src_rect.x + sprite.src_rect.w) / width, (sprite.src_rect.y + sprite.src_rect.h) / height};
+                uv3 = {sprite.src_rect.x / width, (sprite.src_rect.y + sprite.src_rect.h) / height};
+            }
+            if (sprite.flip_x) { std::swap(uv0, uv1); std::swap(uv3, uv2); }
+            if (sprite.flip_y) { std::swap(uv0, uv3); std::swap(uv1, uv2); }
+            const int alpha = std::clamp(static_cast<int>(sprite.color.a) * 3 / 4, 70, 190);
+            draw_list->AddImageQuad(
+                texture->get_sdl_texture(), corners[0], corners[1], corners[2], corners[3],
+                uv0, uv1, uv2, uv3,
+                IM_COL32(sprite.color.r, sprite.color.g, sprite.color.b, alpha)
+            );
+            draw_list->AddPolyline(corners, 4, IM_COL32(103, 220, 190, 230), ImDrawFlags_Closed, 1.2f);
+            ++sprite_count;
+        }
+    );
+
+    if (sprite_count == 0) {
+        const ImVec2 center = to_screen(m_prefab_preview_position);
+        draw_list->AddRect(
+            ImVec2(center.x - 18.0f, center.y - 18.0f),
+            ImVec2(center.x + 18.0f, center.y + 18.0f),
+            IM_COL32(103, 220, 190, 230), 2.0f, 0, 1.5f
+        );
+    }
+    const ImVec2 label = to_screen(m_prefab_preview_position);
+    const std::string name = std::filesystem::path(m_prefab_preview_path).stem().string();
+    draw_list->AddText(
+        ImVec2(label.x + 12.0f, label.y + 12.0f),
+        IM_COL32(175, 245, 225, 245),
+        name.c_str()
+    );
+}
+
 void ViewportPanel::on_render_resources_invalidated() {
     if (m_viewport_texture) SDL_DestroyTexture(m_viewport_texture);
     m_viewport_texture = nullptr;
@@ -633,15 +763,34 @@ void ViewportPanel::render_transform_toolbar() {
         snap.enabled = !snap.enabled;
     }
     ImGui::SameLine(0.0f, 1.0f);
+    PhysicsOverlayMode physics_overlay_mode = m_collider_overlay.mode();
+    const char* physics_overlay_tooltip = physics_overlay_mode == PhysicsOverlayMode::Selected
+        ? "Physics overlay: selected (click for all)"
+        : physics_overlay_mode == PhysicsOverlayMode::All
+            ? "Physics overlay: all (click to hide)"
+            : "Physics overlay: hidden (click for selected)";
     if (editor_icon_button(
             "colliders",
             EditorIcon::Collider,
-            m_collider_overlay.show_all()
-                ? "Collider outlines: all (click to show selected only)"
-                : "Collider outlines: selected only (click to show all)",
-            m_collider_overlay.show_all()
+            physics_overlay_tooltip,
+            physics_overlay_mode == PhysicsOverlayMode::All
     )) {
-        m_collider_overlay.toggle_show_all();
+        m_collider_overlay.cycle_mode();
+        physics_overlay_mode = m_collider_overlay.mode();
+    }
+    const ImVec2 collider_button_min = ImGui::GetItemRectMin();
+    const ImVec2 collider_button_max = ImGui::GetItemRectMax();
+    if (physics_overlay_mode == PhysicsOverlayMode::None) {
+        ImGui::GetWindowDrawList()->AddLine(
+            ImVec2(collider_button_min.x + 4.0f, collider_button_max.y - 4.0f),
+            ImVec2(collider_button_max.x - 4.0f, collider_button_min.y + 4.0f),
+            IM_COL32(235, 92, 92, 240), 1.8f
+        );
+    } else if (physics_overlay_mode == PhysicsOverlayMode::Selected) {
+        ImGui::GetWindowDrawList()->AddText(
+            ImVec2(collider_button_max.x - 8.0f, collider_button_max.y - 10.0f),
+            IM_COL32(244, 183, 64, 255), "S"
+        );
     }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("Physics Overlay Settings");
     if (ImGui::BeginPopup("Physics Overlay Settings")) {
@@ -650,7 +799,9 @@ void ViewportPanel::render_transform_toolbar() {
         ImGui::Checkbox("Colliders", &options.colliders); ImGui::Checkbox("Contacts", &options.contacts);
         ImGui::Checkbox("Normals", &options.normals); ImGui::Checkbox("Velocities", &options.velocities);
         ImGui::Checkbox("Centers of mass", &options.centers_of_mass); ImGui::Checkbox("Layers", &options.layers);
-        ImGui::Checkbox("Selection only", &options.selection_only);
+        const char* mode_label = m_collider_overlay.mode() == PhysicsOverlayMode::All
+            ? "All" : m_collider_overlay.mode() == PhysicsOverlayMode::Selected ? "Selected" : "None";
+        ImGui::Text("Visibility: %s", mode_label);
         int category = options.category_filter, mask = options.mask_filter;
         if (ImGui::InputInt("Category filter", &category)) options.category_filter = static_cast<std::uint16_t>(std::clamp(category, 0, 65535));
         if (ImGui::InputInt("Mask filter", &mask)) options.mask_filter = static_cast<std::uint16_t>(std::clamp(mask, 0, 65535));
@@ -1295,15 +1446,20 @@ void ViewportPanel::on_gui() {
             }
 
             // --- 2.5 Drag and Drop Target for Content Browser Assets ---
+            m_prefab_preview_visible = false;
             if (is_editing && ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET")) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(
+                        "CONTENT_BROWSER_ASSET",
+                        ImGuiDragDropFlags_AcceptBeforeDelivery
+                    )) {
                     const char* path_str = static_cast<const char*>(payload->Data);
                     if (path_str && active_scene) {
                         std::filesystem::path asset_path(path_str);
                         std::string ext = asset_path.extension().string();
                         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-                        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") {
+                        if ((ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp") &&
+                            payload->IsDelivery()) {
                             glm::vec2 world_pos(0.0f, 0.0f);
                             if (active_cam) {
                                 world_pos = active_cam->screen_to_world(m_viewport_mouse_pos);
@@ -1347,35 +1503,39 @@ void ViewportPanel::on_gui() {
                                 world_pos.y = std::round(world_pos.y / step) * step;
                             }
 
-                            EntityManager& em = active_scene->get_entity_manager();
-                            EntityID target_parent = 0;
-                            bool can_instantiate = true;
-                            if (m_prefab_stage && m_prefab_stage->is_active()) {
-                                target_parent = m_prefab_stage->get_root_entity();
-                                if (target_parent == 0 || !em.is_alive(target_parent)) {
-                                    ENGINE_LOG_WARN("[VIEWPORT] Cannot instantiate prefab: Prefab Stage root entity is zero or invalid.");
-                                    can_instantiate = false;
-                                } else if (m_entity_state_store && m_entity_state_store->is_locked(target_parent)) {
-                                    ENGINE_LOG_WARN("[VIEWPORT] Cannot instantiate prefab: Prefab Stage root entity is locked.");
-                                    can_instantiate = false;
-                                }
-                            }
+                            m_prefab_preview_visible = prepare_prefab_preview(path_str, world_pos);
 
-
-                            if (can_instantiate) {
-                                TransformComponent desired_tr{glm::vec3(world_pos.x, world_pos.y, 0.0f)};
-                                if (m_command_history) {
-                                    m_command_history->execute_command(
-                                        std::make_unique<InstantiatePrefabCommand>(
-                                            &em, m_selection, path_str, false, desired_tr, target_parent, m_renderer, m_entity_state_store.get()
-                                        )
-                                    );
-                                } else {
-                                    InstantiatePrefabCommand cmd(&em, m_selection, path_str, false, desired_tr, target_parent, m_renderer, m_entity_state_store.get());
-                                    cmd.execute();
+                            if (payload->IsDelivery()) {
+                                EntityManager& em = active_scene->get_entity_manager();
+                                EntityID target_parent = 0;
+                                bool can_instantiate = true;
+                                if (m_prefab_stage && m_prefab_stage->is_active()) {
+                                    target_parent = m_prefab_stage->get_root_entity();
+                                    if (target_parent == 0 || !em.is_alive(target_parent)) {
+                                        ENGINE_LOG_WARN("[VIEWPORT] Cannot instantiate prefab: Prefab Stage root entity is zero or invalid.");
+                                        can_instantiate = false;
+                                    } else if (m_entity_state_store && m_entity_state_store->is_locked(target_parent)) {
+                                        ENGINE_LOG_WARN("[VIEWPORT] Cannot instantiate prefab: Prefab Stage root entity is locked.");
+                                        can_instantiate = false;
+                                    }
                                 }
+
+                                if (can_instantiate) {
+                                    TransformComponent desired_tr{glm::vec3(world_pos.x, world_pos.y, 0.0f)};
+                                    if (m_command_history) {
+                                        m_command_history->execute_command(
+                                            std::make_unique<InstantiatePrefabCommand>(
+                                                &em, m_selection, path_str, false, desired_tr, target_parent, m_renderer, m_entity_state_store.get()
+                                            )
+                                        );
+                                    } else {
+                                        InstantiatePrefabCommand cmd(&em, m_selection, path_str, false, desired_tr, target_parent, m_renderer, m_entity_state_store.get());
+                                        cmd.execute();
+                                    }
+                                }
+                                m_prefab_preview_visible = false;
                             }
-                        } else if (ext == ".scene") {
+                        } else if (ext == ".scene" && payload->IsDelivery()) {
 
                             if (m_on_load_scene) {
                                 m_on_load_scene(path_str);
@@ -1390,6 +1550,17 @@ void ViewportPanel::on_gui() {
             if (is_editing && active_cam && active_scene && m_selection) {
                 m_camera_controller.handle_input(active_scene, active_cam, *m_selection, viewport_tools_hovered, m_is_focused, m_viewport_mouse_pos, viewport_mouse_delta);
             }
+
+            // Every editor decoration shares the exact image bounds. Individual
+            // overlays may add tighter clips, but none may draw into dock tabs,
+            // rulers, adjacent panels, or the console below the viewport.
+            ImDrawList* viewport_draw_list = ImGui::GetWindowDrawList();
+            viewport_draw_list->PushClipRect(
+                img_min,
+                ImVec2(img_min.x + img_size.x, img_min.y + img_size.y),
+                true
+            );
+            if (active_cam) render_prefab_preview(*active_cam, img_min, img_size);
 
             const bool is_guide_interaction = is_editing && active_cam
                 ? m_reference_overlay.render(*active_cam, img_min, img_size, m_viewport_mouse_pos, m_gizmo.snap_settings().position_step, viewport_tools_hovered)
@@ -1444,10 +1615,16 @@ void ViewportPanel::on_gui() {
             // scene in both Edit and Play. Selected entities are always shown;
             // the toolbar toggle reveals the complete physics layout.
             if (active_scene && active_cam) {
-                PhysicsSystem::set_debug_options(m_collider_overlay.debug_options());
+                PhysicsSystem::set_debug_options(m_collider_overlay.effective_debug_options());
+                EditorSelection runtime_selection;
+                const EditorSelection* overlay_selection = m_selection.get();
+                if (!is_editing && m_scene_manager && m_scene_manager->runtime_selected_entity() != 0) {
+                    runtime_selection.select(m_scene_manager->runtime_selected_entity(), false);
+                    overlay_selection = &runtime_selection;
+                }
                 m_collider_overlay.render(
                     active_scene->get_entity_manager(),
-                    m_selection.get(),
+                    overlay_selection,
                     *active_cam,
                     img_min,
                     img_size,
@@ -1667,6 +1844,8 @@ void ViewportPanel::on_gui() {
                     m_command_history.get()
                 );
             }
+
+            viewport_draw_list->PopClipRect();
 
             // --- 7. Duplicate Selected Entities ---
             if (is_editing && (m_is_focused || m_is_hovered) && !io.WantTextInput && ShortcutManager::get().is_triggered("editor.duplicate") && m_selection && !m_selection->empty() && active_scene) {

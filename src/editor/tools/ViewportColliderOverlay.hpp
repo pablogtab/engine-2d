@@ -10,15 +10,22 @@ namespace Engine {
 
 class EditorEntityVisibilityFilter;
 
+enum class PhysicsOverlayMode {
+    None,
+    Selected,
+    All
+};
+
 // Session-only collider visualization. Selected colliders remain visible like
 // Unity gizmos; debug mode additionally reveals every collider in the scene.
 class ViewportColliderOverlay {
 public:
-    void set_show_all(bool show) { m_show_all = show; }
-    [[nodiscard]] bool show_all() const { return m_show_all; }
-    void toggle_show_all() { m_show_all = !m_show_all; }
+    void set_mode(PhysicsOverlayMode mode) { m_mode = mode; }
+    [[nodiscard]] PhysicsOverlayMode mode() const { return m_mode; }
+    void cycle_mode();
     [[nodiscard]] PhysicsDebugOptions& debug_options() { return m_debug_options; }
     [[nodiscard]] const PhysicsDebugOptions& debug_options() const { return m_debug_options; }
+    [[nodiscard]] PhysicsDebugOptions effective_debug_options() const;
 
     void render(
         EntityManager& entity_manager,
@@ -32,7 +39,7 @@ public:
     ) const;
 
 private:
-    bool m_show_all{false};
+    PhysicsOverlayMode m_mode{PhysicsOverlayMode::Selected};
     PhysicsDebugOptions m_debug_options{.colliders = true};
 };
 

@@ -32,6 +32,7 @@ namespace Engine {
 
 using EditorPlayState = ScenePlayState;
 class Renderer2D;
+class EntityManager;
 
 struct ViewportGridSettings {
     bool visible{true};
@@ -177,6 +178,11 @@ private:
     ViewportGridSettings m_grid_settings;
     SafeAreaInsets m_safe_area_preview{};
     bool m_show_safe_area_overlay{true};
+    std::unique_ptr<EntityManager> m_prefab_preview_entities;
+    std::string m_prefab_preview_path;
+    EntityID m_prefab_preview_root{0};
+    bool m_prefab_preview_visible{false};
+    glm::vec2 m_prefab_preview_position{0.0f, 0.0f};
     std::size_t m_device_preview_profile{0};
     DevicePreviewOrientation m_device_preview_orientation{DevicePreviewOrientation::Portrait};
     DevicePreviewProfile m_custom_device_preview{
@@ -198,6 +204,12 @@ private:
     [[nodiscard]] bool has_device_preview() const;
     [[nodiscard]] DevicePreviewProfile active_device_preview() const;
     [[nodiscard]] bool is_position_snap_active() const;
+    bool prepare_prefab_preview(const std::string& path, const glm::vec2& world_position);
+    void render_prefab_preview(
+        const Camera2D& camera,
+        const ImVec2& image_min,
+        const ImVec2& image_size
+    );
 
     // Sub-tools
     TransformGizmo2D m_gizmo;

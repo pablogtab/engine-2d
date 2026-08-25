@@ -266,8 +266,10 @@ void AssetBrowserPanel::load_preferences() {
     m_view_mode = state.view_mode;
     m_collection = state.collection;
     m_search_scope = state.scope;
-    m_type_filter = state.type_filter;
-    m_status_filter = state.status_filter;
+    // Type and status remain available as search tokens (t:/status:), but are
+    // no longer hidden persistent filters now that the toolbar is compact.
+    m_type_filter = AssetBrowserTypeFilter::All;
+    m_status_filter = AssetBrowserStatusFilter::All;
     m_sort = state.sort;
     m_sort_ascending = state.sort_ascending;
     m_thumbnail_size = state.thumbnail_size;
@@ -1443,11 +1445,9 @@ void AssetBrowserPanel::draw_toolbar() {
             m_search_scope = AssetBrowserScope::Project;
             ImGui::SetKeyboardFocusHere();
         }
-        const float clear_width = ImGui::CalcTextSize("Clear").x +
-            ImGui::GetStyle().FramePadding.x * 2.0f;
         ImGui::SetNextItemWidth(std::max(
             140.0f,
-            ImGui::GetContentRegionAvail().x - clear_width - ImGui::GetStyle().ItemSpacing.x
+            ImGui::GetContentRegionAvail().x - 455.0f
         ));
         ImGui::InputTextWithHint(
             "##asset_search",
@@ -1467,71 +1467,9 @@ void AssetBrowserPanel::draw_toolbar() {
                 "id:12ab"
             );
         }
-        ImGui::SameLine();
-        ImGui::BeginDisabled(m_search_query.front() == '\0');
-        if (ImGui::Button("Clear")) m_search_query.fill('\0');
-        ImGui::EndDisabled();
     };
 
-    const auto draw_scope = [this]() {
-        ImGui::TextDisabled("Scope");
-        ImGui::SameLine();
-        const char* scope_label = m_collection == AssetBrowserCollection::All &&
-                m_search_scope == AssetBrowserScope::CurrentFolder
-            ? "Current folder" : "Entire project";
-        ImGui::SetNextItemWidth(std::max(130.0f, ImGui::GetContentRegionAvail().x));
-        ImGui::BeginDisabled(m_collection != AssetBrowserCollection::All);
-        if (ImGui::BeginCombo("##asset_scope", scope_label)) {
-            if (ImGui::Selectable(
-                    "Current folder", m_search_scope == AssetBrowserScope::CurrentFolder
-                )) {
-                m_search_scope = AssetBrowserScope::CurrentFolder;
-                save_preferences();
-            }
-            if (ImGui::Selectable(
-                    "Entire project", m_search_scope == AssetBrowserScope::Project
-                )) {
-                m_search_scope = AssetBrowserScope::Project;
-                save_preferences();
-            }
-            ImGui::EndCombo();
-        }
-        ImGui::EndDisabled();
-    };
-
-    const auto draw_filters = [this](bool split_sort) {
-        ImGui::SetNextItemWidth(125.0f);
-        if (ImGui::BeginCombo("##asset_type", AssetBrowserQuery::type_filter_name(m_type_filter))) {
-            for (int value = static_cast<int>(AssetBrowserTypeFilter::All);
-                 value <= static_cast<int>(AssetBrowserTypeFilter::Other); ++value) {
-                const auto filter = static_cast<AssetBrowserTypeFilter>(value);
-                if (ImGui::Selectable(
-                        AssetBrowserQuery::type_filter_name(filter), filter == m_type_filter
-                    )) {
-                    m_type_filter = filter;
-                    save_preferences();
-                }
-            }
-            ImGui::EndCombo();
-        }
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(115.0f);
-        if (ImGui::BeginCombo(
-                "##asset_status", AssetBrowserQuery::status_filter_name(m_status_filter)
-            )) {
-            for (int value = static_cast<int>(AssetBrowserStatusFilter::All);
-                 value <= static_cast<int>(AssetBrowserStatusFilter::Issues); ++value) {
-                const auto filter = static_cast<AssetBrowserStatusFilter>(value);
-                if (ImGui::Selectable(
-                        AssetBrowserQuery::status_filter_name(filter), filter == m_status_filter
-                    )) {
-                    m_status_filter = filter;
-                    save_preferences();
-                }
-            }
-            ImGui::EndCombo();
-        }
-        if (!split_sort) ImGui::SameLine();
+    const auto draw_sort = [this]() {
         ImGui::SetNextItemWidth(105.0f);
         if (ImGui::BeginCombo("##asset_sort", AssetBrowserQuery::sort_name(m_sort))) {
             for (int value = static_cast<int>(AssetBrowserSort::Name);
@@ -1545,7 +1483,7 @@ void AssetBrowserPanel::draw_toolbar() {
             ImGui::EndCombo();
         }
         ImGui::SameLine();
-        if (ImGui::Button(m_sort_ascending ? "Ascending" : "Descending")) {
+        if (ImGui::Button(m_sort_ascending ? "A-Z" : "Z-A")) {
             m_sort_ascending = !m_sort_ascending;
             save_preferences();
         }
@@ -1579,40 +1517,13 @@ void AssetBrowserPanel::draw_toolbar() {
         view_button("List", AssetBrowserViewMode::List);
         ImGui::SameLine();
         view_button("Details", AssetBrowserViewMode::Details);
-        if (m_view_mode == AssetBrowserViewMode::Grid) {
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(std::max(95.0f, ImGui::GetContentRegionAvail().x));
-            ImGui::SliderFloat(
-                "##asset_size", &m_thumbnail_size, 48.0f, 112.0f, "Tiles %.0f"
-            );
-            if (ImGui::IsItemDeactivatedAfterEdit()) save_preferences();
-        }
     };
 
-    const float available_width = ImGui::GetContentRegionAvail().x;
-    if (available_width >= 900.0f && ImGui::BeginTable(
-            "AssetBrowserToolbar", 2,
-            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoPadOuterX
-        )) {
-        ImGui::TableSetupColumn("SearchFilters", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("ScopeView", ImGuiTableColumnFlags_WidthFixed, 410.0f);
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        draw_search();
-        ImGui::TableSetColumnIndex(1);
-        draw_scope();
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        draw_filters(false);
-        ImGui::TableSetColumnIndex(1);
-        draw_view();
-        ImGui::EndTable();
-    } else {
-        draw_search();
-        draw_scope();
-        draw_filters(available_width < 560.0f);
-        draw_view();
-    }
+    draw_search();
+    ImGui::SameLine();
+    draw_sort();
+    ImGui::SameLine();
+    draw_view();
 }
 
 void AssetBrowserPanel::on_gui() {
@@ -1628,7 +1539,7 @@ void AssetBrowserPanel::on_gui() {
 
         std::filesystem::path breadcrumb = m_root_path;
         ImGui::PushID("asset_breadcrumb_root");
-        if (ImGui::SmallButton(m_root_path.filename().string().c_str())) navigate_to(m_root_path);
+        if (ImGui::Button(m_root_path.filename().string().c_str())) navigate_to(m_root_path);
         ImGui::PopID();
         const std::filesystem::path relative = m_current_path.lexically_relative(m_root_path);
         int breadcrumb_index = 0;
@@ -1639,7 +1550,7 @@ void AssetBrowserPanel::on_gui() {
             ImGui::TextDisabled("/");
             ImGui::SameLine();
             ImGui::PushID(breadcrumb_index++);
-            if (ImGui::SmallButton(part.string().c_str())) navigate_to(breadcrumb);
+            if (ImGui::Button(part.string().c_str())) navigate_to(breadcrumb);
             ImGui::PopID();
         }
         ImGui::SameLine();

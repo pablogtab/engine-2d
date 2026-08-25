@@ -11,6 +11,7 @@
 #include <functional>
 #include <utility>
 #include <filesystem>
+#include <cstdint>
 
 namespace Engine {
 
@@ -29,6 +30,7 @@ struct EditorSceneSession {
     std::string initial_snapshot_json;
     std::string autosave_identity;
     bool recovery_source_conflicted{false};
+    std::uint64_t persisted_entity_state_revision{0};
 };
 
 enum class PendingActionType {
@@ -131,6 +133,8 @@ private:
     void recover_autosave(const AutosaveRecord& record);
     void load_autosave_preferences();
     void save_autosave_preferences() const;
+    void load_entity_state_preferences(const Scene* scene, EditorSceneSession& session) const;
+    void save_entity_state_preferences();
     void record_recent_scene(const std::string& path);
     void open_scene_tab(const Scene* scene);
     [[nodiscard]] bool has_loaded_scene_path(const std::string& path, std::size_t& index);
@@ -152,6 +156,7 @@ private:
     std::filesystem::path m_project_root{"."};
     std::filesystem::path m_recent_scenes_path{"ProjectSettings/EditorRecentScenes.json"};
     std::filesystem::path m_autosave_preferences_path{"ProjectSettings/EditorAutosave.json"};
+    std::filesystem::path m_entity_state_preferences_path{"Library/Editor/EntityStates.json"};
     std::vector<AutosaveRecord> m_pending_recoveries;
     const Scene* m_last_active_scene{nullptr};
 

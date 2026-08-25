@@ -2,6 +2,7 @@
 
 #include "../../ecs/EntityManager.hpp"
 #include <string>
+#include <cstdint>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -27,6 +28,8 @@ public:
         const std::vector<std::string>& present_components
     ) const;
     [[nodiscard]] std::vector<std::pair<EntityID, std::vector<std::string>>> component_orders() const;
+    [[nodiscard]] std::vector<std::pair<EntityID, EditorEntityState>> states() const;
+    [[nodiscard]] std::uint64_t persistence_revision() const { return m_persistence_revision; }
 
     void set_locked(EntityID id, bool value);
     void set_visible(EntityID id, bool value);
@@ -41,6 +44,7 @@ private:
     void erase_if_default(EntityID id);
 
     std::unordered_map<EntityID, EditorEntityState> m_states;
+    std::uint64_t m_persistence_revision{0};
 };
 
 } // namespace Engine

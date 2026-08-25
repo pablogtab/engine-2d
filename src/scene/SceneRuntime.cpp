@@ -60,8 +60,9 @@ void SceneRuntime::configure_game_view(const RenderViewConfiguration& configurat
 void SceneRuntime::update(Scene& scene, float delta_time, FrameProfiler* profiler) {
     FrameProfiler::Scope runtime_scope(profiler, "runtime.systems");
     const bool ui_had_focus = m_ui_input.focused_entity() != 0;
-    const bool navigate_previous = Input::is_key_just_pressed(SDL_SCANCODE_UP);
-    const bool navigate_next = Input::is_key_just_pressed(SDL_SCANCODE_DOWN);
+    // Gameplay owns arrow keys until a UI control explicitly gains focus.
+    const bool navigate_previous = ui_had_focus && Input::is_key_just_pressed(SDL_SCANCODE_UP);
+    const bool navigate_next = ui_had_focus && Input::is_key_just_pressed(SDL_SCANCODE_DOWN);
     const bool activate_pressed = ui_had_focus &&
         (Input::is_key_just_pressed(SDL_SCANCODE_RETURN) || Input::is_key_just_pressed(SDL_SCANCODE_SPACE));
     const bool activate_released = ui_had_focus &&

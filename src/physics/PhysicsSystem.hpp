@@ -369,6 +369,7 @@ public:
     s_ignore_one_way.clear();
     s_contact_listener.reset();
     s_b2_world.reset();
+    s_debug_frame = {};
   }
 
   // Recreates one ECS-backed body and its fixtures from the current authored

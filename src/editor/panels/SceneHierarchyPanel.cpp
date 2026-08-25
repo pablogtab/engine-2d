@@ -23,6 +23,7 @@
 #include "../../core/FileSystem.hpp"
 #include "../tools/EditorHierarchyFilter.hpp"
 #include <imgui.h>
+#include <cstdio>
 #include <cstring>
 #include <algorithm>
 #include <filesystem>
@@ -44,6 +45,47 @@ bool has_canvas_ancestor(const EntityManager& em, EntityID entity) {
 }
 
 } // namespace
+
+void SceneHierarchyPanel::begin_rename(EntityManager& em, EntityID id) {
+    if (id == 0 || !em.is_alive(id) || !em.has_component<TagComponent>(id)) return;
+    if (m_entity_state_store && m_entity_state_store->is_locked(id)) return;
+    m_renaming_entity = id;
+    std::snprintf(
+        m_rename_buffer,
+        sizeof(m_rename_buffer),
+        "%s",
+        em.get_component<TagComponent>(id).tag.c_str()
+    );
+    m_focus_rename = true;
+}
+
+void SceneHierarchyPanel::finish_rename(EntityManager& em, bool commit) {
+    const EntityID entity = m_renaming_entity;
+    m_renaming_entity = 0;
+    m_focus_rename = false;
+    if (!commit || entity == 0 || !em.is_alive(entity) ||
+        !em.has_component<TagComponent>(entity)) {
+        return;
+    }
+
+    std::string name = m_rename_buffer;
+    const auto first = name.find_first_not_of(" \t\r\n");
+    const auto last = name.find_last_not_of(" \t\r\n");
+    if (first == std::string::npos) return;
+    name = name.substr(first, last - first + 1);
+
+    const TagComponent before = em.get_component<TagComponent>(entity);
+    if (before.tag == name) return;
+    TagComponent after = before;
+    after.tag = std::move(name);
+    if (m_command_history) {
+        m_command_history->execute_command(std::make_unique<SetComponentCommand<TagComponent>>(
+            &em, entity, before, after, "Rename Entity"
+        ));
+    } else {
+        em.get_component<TagComponent>(entity) = std::move(after);
+    }
+}
 
 SceneHierarchyPanel::SceneHierarchyPanel(
     SceneManager* scene_manager, 
@@ -109,6 +151,7 @@ void SceneHierarchyPanel::on_gui() {
 
         EntityManager& em = active_scene->get_entity_manager();
         const bool runtime_mode = !m_scene_manager->is_editing();
+        if (runtime_mode && m_renaming_entity != 0) finish_rename(em, false);
         const auto& living_entities = em.get_living_entities();
 
         if (runtime_mode) {
@@ -132,16 +175,27 @@ void SceneHierarchyPanel::on_gui() {
         ImGuiIO& io = ImGui::GetIO();
         bool is_multi_key = io.KeyCtrl || io.KeyShift;
 
+        const ImVec2 hierarchy_spacing = ImGui::GetStyle().ItemSpacing;
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(hierarchy_spacing.x, 0.0f));
+
         // Iterate through root-level entities in authored visual order
         for (EntityID id : em.get_root_entities()) {
             if (!em.is_alive(id)) continue;
             draw_entity_node(em, id, filter_str, is_multi_key);
         }
+        ImGui::PopStyleVar();
 
         // Empty space at bottom of tree to allow dropping to unparent (make root entity)
         ImVec2 avail = ImGui::GetContentRegionAvail();
         if (avail.y > 10.0f) {
             ImGui::Dummy(avail);
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+                if (runtime_mode) {
+                    m_scene_manager->clear_runtime_selection();
+                } else if (m_selection) {
+                    m_selection->clear();
+                }
+            }
             if (!runtime_mode && ImGui::BeginDragDropTarget()) {
                 const ImGuiPayload* multi_payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_MULTI_DRAG");
                 const ImGuiPayload* single_payload = multi_payload ? nullptr : ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG");
@@ -177,10 +231,9 @@ void SceneHierarchyPanel::on_gui() {
 
         // Right-click on empty area in tree window
         if (!runtime_mode && ImGui::BeginPopupContextWindow(nullptr, ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-            if (ImGui::BeginMenu("Create")) {
-                render_create_menu(em, 0);
-                ImGui::EndMenu();
-            }
+            ImGui::TextDisabled("Create");
+            ImGui::Separator();
+            render_create_menu(em, 0);
             ImGui::EndPopup();
         }
 
@@ -190,6 +243,9 @@ void SceneHierarchyPanel::on_gui() {
             if (em.is_alive(selected_entity)) {
                 bool is_locked = m_entity_state_store && m_entity_state_store->is_locked(selected_entity);
                 if (!is_locked) {
+                    if (m_renaming_entity == 0 && ImGui::IsKeyPressed(ImGuiKey_F2)) {
+                        begin_rename(em, selected_entity);
+                    }
                     size_t sib_idx = em.get_sibling_index(selected_entity);
                     size_t sib_count = em.get_sibling_count(selected_entity);
                     if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_UpArrow) && sib_idx > 0) {
@@ -382,7 +438,19 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
         style_color_count++;
     }
 
-    bool node_open = ImGui::TreeNodeEx((void*)(uintptr_t)id, flags, "%s", display_name.c_str());
+    const bool is_renaming = !runtime_mode && m_renaming_entity == id;
+    bool node_open = ImGui::TreeNodeEx(
+        (void*)(uintptr_t)id,
+        flags,
+        "%s",
+        is_renaming ? "" : display_name.c_str()
+    );
+    const ImVec2 node_min = ImGui::GetItemRectMin();
+    const ImVec2 node_max = ImGui::GetItemRectMax();
+    if (!runtime_mode && !is_locked && ImGui::IsItemHovered() &&
+        ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        begin_rename(em, id);
+    }
     if (style_color_count > 0) {
         ImGui::PopStyleColor(style_color_count);
     }
@@ -574,6 +642,10 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             m_selection->select(id, false);
         }
 
+        if (ImGui::MenuItem("Rename", "F2", false, !is_locked)) {
+            begin_rename(em, id);
+        }
+        ImGui::Separator();
         if (ImGui::BeginMenu("Create Child", !is_locked)) {
             render_create_menu(em, id);
             ImGui::EndMenu();
@@ -749,6 +821,39 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             }
         }
         ImGui::EndPopup();
+    }
+
+    if (!runtime_mode && m_renaming_entity == id) {
+        const ImVec2 cursor_after_row = ImGui::GetCursorScreenPos();
+        const float label_x = node_min.x + ImGui::GetTreeNodeToLabelSpacing();
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 1.0f);
+        const float editor_height = ImGui::GetFrameHeight();
+        const float editor_y = node_min.y + std::max(
+            0.0f,
+            ((node_max.y - node_min.y) - editor_height) * 0.5f
+        );
+        ImGui::SetCursorScreenPos(ImVec2(label_x, editor_y));
+        ImGui::SetNextItemWidth(std::max(60.0f, node_max.x - label_x - 44.0f));
+        if (m_focus_rename) {
+            ImGui::SetKeyboardFocusHere();
+            m_focus_rename = false;
+        }
+        const bool submitted = ImGui::InputText(
+            ("##rename_entity_" + std::to_string(id)).c_str(),
+            m_rename_buffer,
+            sizeof(m_rename_buffer),
+            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll
+        );
+        const bool cancelled = ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape);
+        const bool lost_focus = ImGui::IsItemDeactivated() && !submitted && !cancelled;
+        if (submitted || lost_focus) {
+            finish_rename(em, true);
+        } else if (cancelled) {
+            finish_rename(em, false);
+        }
+        ImGui::PopStyleVar(2);
+        ImGui::SetCursorScreenPos(cursor_after_row);
     }
 
     // Editor-only authoring state controls. Runtime hierarchy is structural read-only.

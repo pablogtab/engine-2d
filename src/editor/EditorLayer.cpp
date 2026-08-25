@@ -47,6 +47,14 @@ namespace {
 constexpr int MIN_AUTOSAVE_INTERVAL_SECONDS = 15;
 constexpr int MAX_AUTOSAVE_INTERVAL_SECONDS = 3600;
 
+std::string normalized_scene_identity(const std::string& path) {
+    if (path.empty()) return {};
+    std::error_code error;
+    const std::filesystem::path absolute = std::filesystem::absolute(path, error);
+    return (error ? std::filesystem::path(path) : absolute)
+        .lexically_normal().generic_string();
+}
+
 SceneEditorMetadata capture_scene_editor_metadata(const EditorEntityStateStore* store) {
     SceneEditorMetadata metadata;
     if (!store) return metadata;
@@ -86,6 +94,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     m_project_root = std::filesystem::absolute(project_root).lexically_normal();
     m_recent_scenes_path = m_project_root / "ProjectSettings/EditorRecentScenes.json";
     m_autosave_preferences_path = m_project_root / "ProjectSettings/EditorAutosave.json";
+    m_entity_state_preferences_path = m_project_root / "Library/Editor/EntityStates.json";
     const std::string autosave_directory = (m_project_root / "Library/Autosaves").string();
     std::snprintf(m_autosave_directory, sizeof(m_autosave_directory), "%s", autosave_directory.c_str());
     m_autosave_recovery.set_directory(autosave_directory);
@@ -311,6 +320,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
 void EditorLayer::shutdown() {
     if (!m_initialized) return;
 
+    save_entity_state_preferences();
     ImGui_ImplSDLRenderer3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
@@ -345,6 +355,97 @@ void EditorLayer::save_autosave_preferences() const {
     };
     if (!FileSystem::write_text_atomically(m_autosave_preferences_path.string(), preferences.dump(2))) {
         ENGINE_LOG_ERROR("[AUTOSAVE] Failed saving editor preferences");
+    }
+}
+
+void EditorLayer::load_entity_state_preferences(
+    const Scene* scene,
+    EditorSceneSession& session
+) const {
+    if (!scene || !session.entity_state_store || session.autosave_identity.empty() ||
+        !std::filesystem::exists(m_entity_state_preferences_path)) {
+        return;
+    }
+    try {
+        const nlohmann::json root = nlohmann::json::parse(
+            FileSystem::read_text(m_entity_state_preferences_path.string())
+        );
+        const auto scenes_it = root.find("scenes");
+        if (scenes_it == root.end() || !scenes_it->is_object()) return;
+        const auto scene_it = scenes_it->find(session.autosave_identity);
+        if (scene_it == scenes_it->end() || !scene_it->is_array()) return;
+
+        // Component ordering is scene metadata. Only the ephemeral visibility
+        // and lock fields are replaced from the local editor preference file.
+        for (const auto& [entity, previous] : session.entity_state_store->states()) {
+            EditorEntityState reset = previous;
+            reset.locked = false;
+            reset.visible_in_editor = true;
+            session.entity_state_store->set(entity, std::move(reset));
+        }
+        const EntityManager& em = scene->get_entity_manager();
+        for (const nlohmann::json& entry : *scene_it) {
+            if (!entry.is_object()) continue;
+            const EntityID entity = entry.value("entity", EntityID{0});
+            if (entity == 0 || !em.is_alive(entity)) continue;
+            EditorEntityState state = session.entity_state_store->get(entity);
+            state.locked = entry.value("locked", false);
+            state.visible_in_editor = entry.value("visible", true);
+            session.entity_state_store->set(entity, std::move(state));
+        }
+    } catch (const std::exception& exception) {
+        ENGINE_LOG_WARN("[EDITOR] Ignoring invalid entity-state preferences: {}", exception.what());
+    }
+}
+
+void EditorLayer::save_entity_state_preferences() {
+    nlohmann::json root{{"version", 1}, {"scenes", nlohmann::json::object()}};
+    if (std::filesystem::exists(m_entity_state_preferences_path)) {
+        try {
+            nlohmann::json existing = nlohmann::json::parse(
+                FileSystem::read_text(m_entity_state_preferences_path.string())
+            );
+            if (existing.is_object()) root = std::move(existing);
+        } catch (const std::exception&) {
+            // Replace malformed local state; it is cache-like editor data.
+        }
+    }
+    root["version"] = 1;
+    if (!root.contains("scenes") || !root["scenes"].is_object()) {
+        root["scenes"] = nlohmann::json::object();
+    }
+
+    for (const auto& [scene, session] : m_scene_sessions) {
+        if (!scene || !session.entity_state_store || session.autosave_identity.empty()) continue;
+        nlohmann::json entries = nlohmann::json::array();
+        const EntityManager& em = scene->get_entity_manager();
+        for (const auto& [entity, state] : session.entity_state_store->states()) {
+            if (!em.is_alive(entity) || (!state.locked && state.visible_in_editor)) continue;
+            entries.push_back({
+                {"entity", entity},
+                {"locked", state.locked},
+                {"visible", state.visible_in_editor}
+            });
+        }
+        if (entries.empty()) {
+            root["scenes"].erase(session.autosave_identity);
+        } else {
+            root["scenes"][session.autosave_identity] = std::move(entries);
+        }
+    }
+
+    std::error_code error;
+    std::filesystem::create_directories(m_entity_state_preferences_path.parent_path(), error);
+    if (error || !FileSystem::write_text_atomically(
+            m_entity_state_preferences_path.string(), root.dump(2))) {
+        ENGINE_LOG_ERROR("[EDITOR] Failed saving entity-state preferences");
+        return;
+    }
+    for (auto& [_, session] : m_scene_sessions) {
+        if (session.entity_state_store) {
+            session.persisted_entity_state_revision =
+                session.entity_state_store->persistence_revision();
+        }
     }
 }
 
@@ -413,10 +514,13 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
             session.initial_snapshot_json = serializer.serialize_to_string();
         }
         session.autosave_identity = !session.file_path.empty()
-            ? std::filesystem::path(session.file_path).lexically_normal().generic_string()
+            ? normalized_scene_identity(session.file_path)
             : "untitled:" + scene_name + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(scene));
 
         it = m_scene_sessions.emplace(scene, std::move(session)).first;
+        load_entity_state_preferences(scene, it->second);
+        it->second.persisted_entity_state_revision =
+            it->second.entity_state_store->persistence_revision();
     }
     return it->second;
 }
@@ -611,6 +715,17 @@ void EditorLayer::begin_frame() {
     sync_active_scene_session();
     update_window_title();
 
+    // While the running game owns the focused viewport, arrow keys and other
+    // gameplay input must not also move Dear ImGui's keyboard-navigation cursor.
+    ImGuiIO& io = ImGui::GetIO();
+    const bool gameplay_owns_keyboard = m_scene_manager && !m_scene_manager->is_editing() &&
+        m_viewport_panel && m_viewport_panel->is_viewport_focused();
+    if (gameplay_owns_keyboard) {
+        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+    } else {
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    }
+
     ImGui_ImplSDLRenderer3_NewFrame();
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
@@ -704,7 +819,8 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
     session.recovery_source_conflicted = false;
     if (session.command_history) session.command_history->mark_saved();
     static_cast<void>(m_autosave_recovery.remove(session.autosave_identity));
-    session.autosave_identity = std::filesystem::path(path).lexically_normal().generic_string();
+    session.autosave_identity = normalized_scene_identity(path);
+    save_entity_state_preferences();
     record_recent_scene(path);
     ENGINE_LOG_INFO("[EDITOR] Successfully saved scene '{}' to '{}'", scene->get_name(), path);
     return true;
@@ -878,7 +994,10 @@ void EditorLayer::load_scene(const std::string& path) {
         session.command_history->reset_clean_baseline(0);
         session.file_path = path;
         session.initial_snapshot_json.clear();
-        session.autosave_identity = std::filesystem::path(path).lexically_normal().generic_string();
+        session.autosave_identity = normalized_scene_identity(path);
+        load_entity_state_preferences(new_scene.get(), session);
+        session.persisted_entity_state_revision =
+            session.entity_state_store->persistence_revision();
         record_recent_scene(path);
 
         activate_scene(static_cast<std::size_t>(m_scene_manager->get_active_index()));
@@ -1371,6 +1490,16 @@ void EditorLayer::render_panels(float delta_time) {
             panel->on_gui();
         }
     }
+
+    const bool entity_state_changed = std::any_of(
+        m_scene_sessions.begin(), m_scene_sessions.end(), [](const auto& entry) {
+            const EditorSceneSession& session = entry.second;
+            return session.entity_state_store &&
+                session.entity_state_store->persistence_revision() !=
+                    session.persisted_entity_state_revision;
+        }
+    );
+    if (entity_state_changed) save_entity_state_preferences();
 }
 
 void EditorLayer::update_autosaves(float delta_time) {
@@ -1447,6 +1576,9 @@ void EditorLayer::recover_autosave(const AutosaveRecord& record) {
     session.initial_snapshot_json.clear();
     session.autosave_identity = record.identity;
     session.recovery_source_conflicted = record.source_conflicted;
+    load_entity_state_preferences(recovered_scene.get(), session);
+    session.persisted_entity_state_revision =
+        session.entity_state_store->persistence_revision();
     if (!record.source_conflicted && !record.source_path.empty()) record_recent_scene(record.source_path);
 
     const auto& scenes = m_scene_manager->get_scenes();
