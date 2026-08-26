@@ -58,7 +58,11 @@ void ConsolePanel::on_gui() {
     if (!is_open) return;
 
     ImGui::SetNextWindowSize(ImVec2(500, 220), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(m_name.c_str(), &is_open)) {
+    if (ImGui::Begin(
+        m_name.c_str(),
+        &is_open,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+    )) {
         // --- 1. Top Controls Bar ---
         if (ImGui::Button("Clear")) {
             clear();
@@ -86,7 +90,7 @@ void ConsolePanel::on_gui() {
 
         // --- 2. Log History List ---
         float footer_height_to_reserve = ImGui::GetStyle().ItemSpacing.y + ImGui::GetFrameHeightWithSpacing();
-        ImGui::BeginChild("ScrollingRegion", ImVec2(0, -footer_height_to_reserve), false, ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::BeginChild("ScrollingRegion", ImVec2(0, -footer_height_to_reserve), false);
 
         std::string filter_str = m_filter_buffer;
         std::transform(filter_str.begin(), filter_str.end(), filter_str.begin(), ::tolower);
@@ -148,7 +152,7 @@ void ConsolePanel::on_gui() {
                 ImGui::TextDisabled("[%s:%u:%u]", entry.metadata.source->path.c_str(), entry.metadata.source->line, entry.metadata.source->column);
             }
             ImGui::SameLine();
-            ImGui::TextUnformatted(entry.message.c_str());
+            ImGui::TextWrapped("%s", entry.message.c_str());
         }
 
         if (m_auto_scroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
