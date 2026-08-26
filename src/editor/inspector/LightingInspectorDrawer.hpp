@@ -16,6 +16,21 @@ public:
         EntityID entity,
         const ComponentTransactionContext& context
     );
+    static void draw_sprite_lighting(
+        EntityManager& em,
+        EntityID entity,
+        const ComponentTransactionContext& context
+    );
+    static void draw_sprite_shadow(
+        EntityManager& em,
+        EntityID entity,
+        const ComponentTransactionContext& context
+    );
+    static void draw_bake_volume(
+        EntityManager& em,
+        EntityID entity,
+        const ComponentTransactionContext& context
+    );
 };
 
 } // namespace Engine

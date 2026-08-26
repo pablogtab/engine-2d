@@ -16,6 +16,7 @@
 #include "../ui/UIComponentRegistrations.hpp"
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <stdexcept>
 
 namespace Engine {
@@ -54,6 +55,9 @@ const char* light_type_to_string(Light2DType type) {
     switch (type) {
         case Light2DType::Ambient: return "Ambient";
         case Light2DType::Point: return "Point";
+        case Light2DType::Spot: return "Spot";
+        case Light2DType::Directional: return "Directional";
+        case Light2DType::Area: return "Area";
     }
     return "Point";
 }
@@ -61,6 +65,39 @@ const char* light_type_to_string(Light2DType type) {
 bool light_type_from_string(std::string_view value, Light2DType& result) {
     if (value == "Ambient") result = Light2DType::Ambient;
     else if (value == "Point") result = Light2DType::Point;
+    else if (value == "Spot") result = Light2DType::Spot;
+    else if (value == "Directional") result = Light2DType::Directional;
+    else if (value == "Area") result = Light2DType::Area;
+    else return false;
+    return true;
+}
+
+const char* mobility_to_string(Light2DMobility mobility) {
+    return mobility == Light2DMobility::Baked ? "Baked" : "Realtime";
+}
+
+bool mobility_from_string(std::string_view value, Light2DMobility& result) {
+    if (value == "Realtime") result = Light2DMobility::Realtime;
+    else if (value == "Baked") result = Light2DMobility::Baked;
+    else return false;
+    return true;
+}
+
+const char* shadow_mode_to_string(ShadowMode mode) {
+    switch (mode) {
+        case ShadowMode::None: return "None";
+        case ShadowMode::Hard: return "Hard";
+        case ShadowMode::SoftFast: return "SoftFast";
+        case ShadowMode::ContactHardening: return "ContactHardening";
+    }
+    return "Hard";
+}
+
+bool shadow_mode_from_string(std::string_view value, ShadowMode& result) {
+    if (value == "None") result = ShadowMode::None;
+    else if (value == "Hard") result = ShadowMode::Hard;
+    else if (value == "SoftFast") result = ShadowMode::SoftFast;
+    else if (value == "ContactHardening") result = ShadowMode::ContactHardening;
     else return false;
     return true;
 }
@@ -86,6 +123,7 @@ const char* shadow_source_to_string(ShadowGeometrySource source) {
     switch (source) {
         case ShadowGeometrySource::Collider: return "Collider";
         case ShadowGeometrySource::StaticPolygon: return "StaticPolygon";
+        case ShadowGeometrySource::SpriteAlphaContour: return "SpriteAlphaContour";
     }
     return "Collider";
 }
@@ -93,6 +131,7 @@ const char* shadow_source_to_string(ShadowGeometrySource source) {
 bool shadow_source_from_string(std::string_view value, ShadowGeometrySource& result) {
     if (value == "Collider") result = ShadowGeometrySource::Collider;
     else if (value == "StaticPolygon") result = ShadowGeometrySource::StaticPolygon;
+    else if (value == "SpriteAlphaContour") result = ShadowGeometrySource::SpriteAlphaContour;
     else return false;
     return true;
 }
@@ -351,11 +390,24 @@ void register_light(ComponentRegistry& registry) {
                 {"type", light_type_to_string(light.type)},
                 {"color", {light.color.r, light.color.g, light.color.b, light.color.a}},
                 {"intensity", light.intensity},
-                {"radius", light.radius},
+                {"range", light.range},
                 {"falloff", light.falloff},
+                {"height", light.height},
+                {"spot_inner_angle", light.spot_inner_angle},
+                {"spot_outer_angle", light.spot_outer_angle},
+                {"area_size", {light.area_size.x, light.area_size.y}},
+                {"source_radius", light.source_radius},
+                {"directional_angular_radius", light.directional_angular_radius},
                 {"blend_mode", light_blend_to_string(light.blend_mode)},
+                {"mobility", mobility_to_string(light.mobility)},
+                {"shadow_mode", shadow_mode_to_string(light.shadow_mode)},
+                {"shadow_color", {light.shadow_color.r, light.shadow_color.g, light.shadow_color.b, light.shadow_color.a}},
+                {"shadow_strength", light.shadow_strength},
+                {"shadow_softness", light.shadow_softness},
+                {"shadow_bias", light.shadow_bias},
+                {"shadow_max_distance", light.shadow_max_distance},
+                {"shadow_priority", light.shadow_priority},
                 {"affected_layers", light.affected_layers},
-                {"casts_shadows", light.casts_shadows},
                 {"enabled", light.enabled}
             };
         },
@@ -370,8 +422,17 @@ void register_light(ComponentRegistry& registry) {
                 error = "Light 2D type is invalid";
                 return false;
             }
-            if (!light_blend_from_string(value.at("blend_mode").get<std::string>(), light.blend_mode)) {
+            if (!light_blend_from_string(value.at("blend_mode").get<std::string>(), light.blend_mode) ||
+                !mobility_from_string(value.at("mobility").get<std::string>(), light.mobility) ||
+                !shadow_mode_from_string(value.at("shadow_mode").get<std::string>(), light.shadow_mode)) {
                 error = "Light 2D blend mode is invalid";
+                return false;
+            }
+            const auto& area_size = value.at("area_size");
+            const auto& shadow_color = value.at("shadow_color");
+            if (!area_size.is_array() || area_size.size() != 2 ||
+                !shadow_color.is_array() || shadow_color.size() != 4) {
+                error = "Light 2D area size or shadow color is invalid";
                 return false;
             }
             light.color = {
@@ -379,10 +440,22 @@ void register_light(ComponentRegistry& registry) {
                 color[2].get<std::uint8_t>(), color[3].get<std::uint8_t>()
             };
             light.intensity = value.at("intensity").get<float>();
-            light.radius = value.at("radius").get<float>();
-            light.falloff = value.value("falloff", 1.0f);
+            light.range = value.at("range").get<float>();
+            light.falloff = value.at("falloff").get<float>();
+            light.height = value.at("height").get<float>();
+            light.spot_inner_angle = value.at("spot_inner_angle").get<float>();
+            light.spot_outer_angle = value.at("spot_outer_angle").get<float>();
+            light.area_size = {area_size[0].get<float>(), area_size[1].get<float>()};
+            light.source_radius = value.at("source_radius").get<float>();
+            light.directional_angular_radius = value.at("directional_angular_radius").get<float>();
+            light.shadow_color = {shadow_color[0].get<std::uint8_t>(), shadow_color[1].get<std::uint8_t>(),
+                                  shadow_color[2].get<std::uint8_t>(), shadow_color[3].get<std::uint8_t>()};
+            light.shadow_strength = value.at("shadow_strength").get<float>();
+            light.shadow_softness = value.at("shadow_softness").get<float>();
+            light.shadow_bias = value.at("shadow_bias").get<float>();
+            light.shadow_max_distance = value.at("shadow_max_distance").get<float>();
+            light.shadow_priority = value.at("shadow_priority").get<std::int16_t>();
             light.affected_layers = value.at("affected_layers").get<RenderLayerMask>();
-            light.casts_shadows = value.at("casts_shadows").get<bool>();
             light.enabled = value.at("enabled").get<bool>();
             return true;
         },
@@ -390,13 +463,28 @@ void register_light(ComponentRegistry& registry) {
             if (!std::isfinite(light.intensity) || light.intensity < 0.0f || light.intensity > 1.0f) {
                 return "Light intensity must be between 0 and 1";
             }
-            if (!std::isfinite(light.radius) || (light.type == Light2DType::Point && light.radius <= 0.0f)) {
-                return "Point light radius must be positive";
+            if (!std::isfinite(light.range) ||
+                (light.type != Light2DType::Ambient && light.type != Light2DType::Directional && light.range <= 0.0f)) {
+                return "Light range must be positive";
             }
             if (!std::isfinite(light.falloff) || light.falloff < 0.1f || light.falloff > 8.0f) {
                 return "Light falloff must be between 0.1 and 8";
             }
             if (light.affected_layers == 0) return "Light must affect at least one render layer";
+            if (!std::isfinite(light.height) || light.height < 0.0f ||
+                !std::isfinite(light.source_radius) || light.source_radius < 0.0f ||
+                !std::isfinite(light.shadow_strength) || light.shadow_strength < 0.0f || light.shadow_strength > 1.0f ||
+                !std::isfinite(light.shadow_softness) || light.shadow_softness < 0.0f || light.shadow_softness > 1.0f ||
+                !std::isfinite(light.shadow_bias) || light.shadow_bias < 0.0f ||
+                !std::isfinite(light.shadow_max_distance) || light.shadow_max_distance < 0.0f) {
+                return "Light shadow settings are invalid";
+            }
+            if (light.type == Light2DType::Spot &&
+                (light.spot_inner_angle < 0.0f || light.spot_outer_angle < light.spot_inner_angle || light.spot_outer_angle > 180.0f)) {
+                return "Spot angles are invalid";
+            }
+            if (light.type == Light2DType::Area &&
+                (light.area_size.x <= 0.0f || light.area_size.y <= 0.0f)) return "Area light size must be positive";
             return std::nullopt;
         }
     });
@@ -413,6 +501,11 @@ void register_shadow_caster(ComponentRegistry& registry) {
                 {"source", shadow_source_to_string(caster.source)},
                 {"vertices", std::move(vertices)},
                 {"affected_layers", caster.affected_layers},
+                {"mobility", caster.mobility == ShadowCasterMobility::Baked ? "Baked" : "Realtime"},
+                {"height", caster.height},
+                {"opacity", caster.opacity},
+                {"alpha_threshold", caster.alpha_threshold},
+                {"contour_tolerance", caster.contour_tolerance},
                 {"enabled", caster.enabled}
             };
         },
@@ -434,6 +527,14 @@ void register_shadow_caster(ComponentRegistry& registry) {
                 caster.vertices.emplace_back(vertex[0].get<float>(), vertex[1].get<float>());
             }
             caster.affected_layers = value.at("affected_layers").get<RenderLayerMask>();
+            const std::string mobility = value.at("mobility").get<std::string>();
+            if (mobility == "Realtime") caster.mobility = ShadowCasterMobility::Realtime;
+            else if (mobility == "Baked") caster.mobility = ShadowCasterMobility::Baked;
+            else { error = "Shadow caster mobility is invalid"; return false; }
+            caster.height = value.at("height").get<float>();
+            caster.opacity = value.at("opacity").get<float>();
+            caster.alpha_threshold = value.at("alpha_threshold").get<float>();
+            caster.contour_tolerance = value.at("contour_tolerance").get<float>();
             caster.enabled = value.at("enabled").get<bool>();
             return true;
         },
@@ -447,8 +548,71 @@ void register_shadow_caster(ComponentRegistry& registry) {
                     return "Shadow caster vertices must be finite";
                 }
             }
+            if (!std::isfinite(caster.height) || caster.height < 0.0f ||
+                !std::isfinite(caster.opacity) || caster.opacity < 0.0f || caster.opacity > 1.0f ||
+                !std::isfinite(caster.alpha_threshold) || caster.alpha_threshold < 0.0f || caster.alpha_threshold > 1.0f ||
+                !std::isfinite(caster.contour_tolerance) || caster.contour_tolerance < 0.0f) {
+                return "Shadow caster settings are invalid";
+            }
             return std::nullopt;
         }
+    });
+}
+
+void register_sprite_lighting(ComponentRegistry& registry) {
+    register_or_throw<SpriteLighting2DComponent>(registry, {
+        .display_name = "Sprite Lighting 2D",
+        .serialized_key = "sprite_lighting_2d",
+        .serialize = [](const SpriteLighting2DComponent& value, const ComponentSerializationContext&) {
+            return Json{{"normal_map", value.normal_map_handle.to_string()}, {"emissive_map", value.emissive_map_handle.to_string()},
+                {"normal_strength", value.normal_strength}, {"emissive_tint", {value.emissive_tint.r, value.emissive_tint.g, value.emissive_tint.b, value.emissive_tint.a}},
+                {"emissive_intensity", value.emissive_intensity}, {"surface_height", value.surface_height},
+                {"specular_strength", value.specular_strength}, {"shininess", value.shininess},
+                {"receives_lighting", value.receives_lighting}, {"receives_shadows", value.receives_shadows}, {"baked_receiver", value.baked_receiver}};
+        },
+        .deserialize = [](SpriteLighting2DComponent& target, const Json& value, const ComponentSerializationContext&, std::string& error) {
+            try {
+                if (!value.is_object()) throw Json::type_error::create(302, "Sprite Lighting 2D must be an object", nullptr);
+                const auto parse_optional_handle = [](const std::string& text) -> std::optional<AssetHandle> {
+                    if (text == "0000000000000000") return AssetHandle{};
+                    return AssetHandle::from_string(text);
+                };
+                const auto normal = parse_optional_handle(value.at("normal_map").get<std::string>());
+                const auto emissive = parse_optional_handle(value.at("emissive_map").get<std::string>());
+                if (!normal || !emissive) { error = "Sprite Lighting 2D texture handle is invalid"; return false; }
+                const auto& tint = value.at("emissive_tint");
+                if (!tint.is_array() || tint.size() != 4) { error = "Sprite Lighting 2D emissive tint is invalid"; return false; }
+                target.normal_map_handle = *normal; target.emissive_map_handle = *emissive;
+                target.normal_strength = value.at("normal_strength").get<float>();
+                target.emissive_tint = {tint[0].get<std::uint8_t>(), tint[1].get<std::uint8_t>(), tint[2].get<std::uint8_t>(), tint[3].get<std::uint8_t>()};
+                target.emissive_intensity = value.at("emissive_intensity").get<float>(); target.surface_height = value.at("surface_height").get<float>();
+                target.specular_strength = value.at("specular_strength").get<float>(); target.shininess = value.at("shininess").get<float>();
+                target.receives_lighting = value.at("receives_lighting").get<bool>(); target.receives_shadows = value.at("receives_shadows").get<bool>(); target.baked_receiver = value.at("baked_receiver").get<bool>();
+            } catch (const Json::exception&) { error = "Sprite Lighting 2D contains an invalid field"; return false; }
+            return true;
+        },
+        .validate = [](const SpriteLighting2DComponent& value) -> std::optional<std::string> {
+            if (!std::isfinite(value.normal_strength) || value.normal_strength < 0.0f || !std::isfinite(value.emissive_intensity) || value.emissive_intensity < 0.0f || !std::isfinite(value.surface_height) || value.surface_height < 0.0f || !std::isfinite(value.specular_strength) || value.specular_strength < 0.0f || !std::isfinite(value.shininess) || value.shininess < 1.0f) return "Sprite Lighting 2D settings are invalid";
+            return std::nullopt;
+        }
+    });
+}
+
+void register_sprite_shadow(ComponentRegistry& registry) {
+    register_or_throw<SpriteShadow2DComponent>(registry, {
+        .display_name = "Sprite Shadow 2D", .serialized_key = "sprite_shadow_2d",
+        .serialize = [](const SpriteShadow2DComponent& value, const ComponentSerializationContext&) { return Json{{"mode", value.mode == SpriteShadowMode::DominantLight ? "DominantLight" : "FixedContact"}, {"shape", value.shape == SpriteShadowShape::Texture ? "Texture" : "Ellipse"}, {"texture", value.texture_handle.to_string()}, {"offset", {value.offset.x, value.offset.y}}, {"size", {value.size.x, value.size.y}}, {"opacity", value.opacity}, {"softness", value.softness}, {"elevation", value.elevation}, {"max_projection", value.max_projection}, {"light_layers", value.light_layers}, {"sorting_offset", value.sorting_offset}, {"enabled", value.enabled}}; },
+        .deserialize = [](SpriteShadow2DComponent& target, const Json& value, const ComponentSerializationContext&, std::string& error) { try { const std::string texture_text = value.at("texture").get<std::string>(); const auto texture = texture_text == "0000000000000000" ? std::optional<AssetHandle>{AssetHandle{}} : AssetHandle::from_string(texture_text); const auto& offset = value.at("offset"); const auto& size = value.at("size"); if (!texture || !offset.is_array() || offset.size() != 2 || !size.is_array() || size.size() != 2) { error = "Sprite Shadow 2D fields are invalid"; return false; } const auto mode = value.at("mode").get<std::string>(); const auto shape = value.at("shape").get<std::string>(); if (mode == "FixedContact") target.mode = SpriteShadowMode::FixedContact; else if (mode == "DominantLight") target.mode = SpriteShadowMode::DominantLight; else { error = "Sprite Shadow 2D mode is invalid"; return false; } if (shape == "Ellipse") target.shape = SpriteShadowShape::Ellipse; else if (shape == "Texture") target.shape = SpriteShadowShape::Texture; else { error = "Sprite Shadow 2D shape is invalid"; return false; } target.texture_handle = *texture; target.offset = {offset[0].get<float>(), offset[1].get<float>()}; target.size = {size[0].get<float>(), size[1].get<float>()}; target.opacity = value.at("opacity").get<float>(); target.softness = value.at("softness").get<float>(); target.elevation = value.at("elevation").get<float>(); target.max_projection = value.at("max_projection").get<float>(); target.light_layers = value.at("light_layers").get<RenderLayerMask>(); target.sorting_offset = value.at("sorting_offset").get<std::int16_t>(); target.enabled = value.at("enabled").get<bool>(); } catch (const Json::exception&) { error = "Sprite Shadow 2D contains an invalid field"; return false; } return true; },
+        .validate = [](const SpriteShadow2DComponent& value) -> std::optional<std::string> { if (value.size.x <= 0.0f || value.size.y <= 0.0f || value.light_layers == 0 || !std::isfinite(value.opacity) || value.opacity < 0.0f || value.opacity > 1.0f || !std::isfinite(value.softness) || value.softness < 0.0f || value.softness > 1.0f || !std::isfinite(value.elevation) || value.elevation < 0.0f || !std::isfinite(value.max_projection) || value.max_projection < 0.0f) return "Sprite Shadow 2D settings are invalid"; return std::nullopt; }
+    });
+}
+
+void register_lighting_bake_volume(ComponentRegistry& registry) {
+    register_or_throw<LightingBakeVolume2DComponent>(registry, {
+        .display_name = "Lighting Bake Volume 2D", .serialized_key = "lighting_bake_volume_2d",
+        .serialize = [](const LightingBakeVolume2DComponent& value, const ComponentSerializationContext&) { return Json{{"size", {value.size.x, value.size.y}}, {"texels_per_unit", value.texels_per_unit}, {"affected_layers", value.affected_layers}, {"enabled", value.enabled}}; },
+        .deserialize = [](LightingBakeVolume2DComponent& target, const Json& value, const ComponentSerializationContext&, std::string& error) { try { const auto& size = value.at("size"); if (!size.is_array() || size.size() != 2) { error = "Lighting Bake Volume size is invalid"; return false; } target.size = {size[0].get<float>(), size[1].get<float>()}; target.texels_per_unit = value.at("texels_per_unit").get<float>(); target.affected_layers = value.at("affected_layers").get<RenderLayerMask>(); target.enabled = value.at("enabled").get<bool>(); } catch (const Json::exception&) { error = "Lighting Bake Volume contains an invalid field"; return false; } return true; },
+        .validate = [](const LightingBakeVolume2DComponent& value) -> std::optional<std::string> { if (value.size.x <= 0.0f || value.size.y <= 0.0f || !std::isfinite(value.texels_per_unit) || value.texels_per_unit <= 0.0f || value.affected_layers == 0) return "Lighting Bake Volume settings are invalid"; return std::nullopt; }
     });
 }
 
@@ -1129,6 +1293,9 @@ void register_additional_builtin_components(ComponentRegistry& registry) {
     register_render_effect(registry);
     register_light(registry);
     register_shadow_caster(registry);
+    register_sprite_lighting(registry);
+    register_sprite_shadow(registry);
+    register_lighting_bake_volume(registry);
     register_prefab_link(registry);
     register_camera(registry);
     register_animation(registry);

@@ -49,8 +49,11 @@ bool SDLGPUMaterialBackend::supports(
         set_error(error, "The current renderer does not provide an SDL GPU shader backend");
         return false;
     }
-    if (shader.sampler_count() != 1) {
-        set_error(error, "This renderer supports exactly one sprite source sampler");
+    // SDL GPU render states accept the sampler count declared by the fragment
+    // shader. The old one-sampler restriction was an engine policy, not a
+    // backend limitation, and prevented normal/emissive material variants.
+    if (shader.sampler_count() > 8) {
+        set_error(error, "This renderer supports at most eight fragment samplers");
         return false;
     }
 

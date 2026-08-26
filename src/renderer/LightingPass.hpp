@@ -7,10 +7,12 @@
 namespace Engine {
 
 class Camera2D;
+class RenderTargetPool;
 
 struct LightingContext {
     SDL_Renderer* renderer{nullptr};
     SDL_Texture* scene_target{nullptr};
+    RenderTargetPool* render_targets{nullptr};
     const Camera2D* camera{nullptr};
     RenderLayer render_layer{DEFAULT_RENDER_LAYER};
     int width{0};

@@ -358,8 +358,8 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
         if (entities.has_component<Light2DComponent>(entity)) {
             const auto& light = entities.get_component<Light2DComponent>(entity);
             if (!std::isfinite(light.intensity) || light.intensity < 0.0f || light.intensity > 1.0f ||
-                !std::isfinite(light.radius) ||
-                (light.type == Light2DType::Point && light.radius <= 0.0f) ||
+                !std::isfinite(light.range) ||
+                ((light.type != Light2DType::Ambient && light.type != Light2DType::Directional) && light.range <= 0.0f) ||
                 !std::isfinite(light.falloff) || light.falloff < 0.1f || light.falloff > 8.0f ||
                 light.affected_layers == 0) {
                 add_diagnostic(
@@ -367,7 +367,7 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
                     SceneDiagnosticSeverity::Error,
                     SceneDiagnosticCode::InvalidLight2D,
                     entity,
-                    "Light 2D has invalid intensity, radius, falloff, or affected layers"
+                    "Light 2D has invalid intensity, range, falloff, or affected layers"
                 );
             }
         }

@@ -190,6 +190,33 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         }
     });
     register_or_throw(registry, {
+        .component_key = "sprite_lighting_2d", .drawer_key = "SpriteLighting2DHeader",
+        .display_name = "Sprite Lighting 2D", .category = EditorComponentCategory::Rendering,
+        .icon = EditorIcon::Zap, .dependencies = {"transform", "sprite"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            LightingInspectorDrawer::draw_sprite_lighting(em, entity, {context.command_history, context.transactions});
+        },
+        .create_default = [](EntityManager&, EntityID, const EditorInspectorContext&, ComponentSnapshotSet& snapshot) { snapshot.set(SpriteLighting2DComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "sprite_shadow_2d", .drawer_key = "SpriteShadow2DHeader",
+        .display_name = "Sprite Shadow 2D", .category = EditorComponentCategory::Rendering,
+        .icon = EditorIcon::Zap, .dependencies = {"transform", "sprite"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            LightingInspectorDrawer::draw_sprite_shadow(em, entity, {context.command_history, context.transactions});
+        },
+        .create_default = [](EntityManager&, EntityID, const EditorInspectorContext&, ComponentSnapshotSet& snapshot) { snapshot.set(SpriteShadow2DComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "lighting_bake_volume_2d", .drawer_key = "LightingBakeVolume2DHeader",
+        .display_name = "Lighting Bake Volume 2D", .category = EditorComponentCategory::Rendering,
+        .icon = EditorIcon::Zap, .dependencies = {"transform"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            LightingInspectorDrawer::draw_bake_volume(em, entity, {context.command_history, context.transactions});
+        },
+        .create_default = [](EntityManager&, EntityID, const EditorInspectorContext&, ComponentSnapshotSet& snapshot) { snapshot.set(LightingBakeVolume2DComponent{}); }
+    });
+    register_or_throw(registry, {
         .component_key = "rigidbody",
         .drawer_key = "RigidBodyHeader",
         .display_name = "RigidBody 2D",

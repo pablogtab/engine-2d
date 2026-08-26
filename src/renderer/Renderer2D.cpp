@@ -198,6 +198,7 @@ void Renderer2D::execute_lighting_stage(
         if (pass->apply({
                 m_sdl_renderer,
                 scene_target,
+                &m_render_target_pool,
                 m_active_camera,
                 layer,
                 width,

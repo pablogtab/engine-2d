@@ -58,7 +58,7 @@ public:
                 const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
                 const RenderEffectComponent* effect = entity_manager.has_component<RenderEffectComponent>(id)
                     ? &entity_manager.get_component<RenderEffectComponent>(id) : nullptr;
-                submit_sprite_with_outline(renderer, id, transform, sprite, src_rect_ptr, effect);
+                submit_sprite_with_outline(renderer, entity_manager, id, transform, sprite, src_rect_ptr, effect);
             }
         } else {
             // Fallback for un-camera-bound rendering
@@ -70,7 +70,7 @@ public:
                     const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
                     const RenderEffectComponent* effect = entity_manager.has_component<RenderEffectComponent>(id)
                         ? &entity_manager.get_component<RenderEffectComponent>(id) : nullptr;
-                    submit_sprite_with_outline(renderer, id, transform, sprite, src_rect_ptr, effect);
+                    submit_sprite_with_outline(renderer, entity_manager, id, transform, sprite, src_rect_ptr, effect);
                 }
             );
         }
@@ -146,6 +146,7 @@ public:
 private:
     static inline void submit_sprite_with_outline(
         Renderer2D& renderer,
+        EntityManager& entity_manager,
         EntityID entity,
         const TransformComponent& transform,
         const SpriteComponent& sprite,
@@ -154,6 +155,45 @@ private:
     ) {
         const AssetHandle effect_profile = effect && effect->enabled ? effect->profile_handle : AssetHandle{};
         const std::uint64_t effect_scope = effect_profile.is_valid() ? static_cast<std::uint64_t>(entity) : 0;
+        if (entity_manager.has_component<SpriteShadow2DComponent>(entity)) {
+            const auto& shadow = entity_manager.get_component<SpriteShadow2DComponent>(entity);
+            if (shadow.enabled && shadow.opacity > 0.0f) {
+                glm::vec2 projected = shadow.offset;
+                if (shadow.mode == SpriteShadowMode::DominantLight) {
+                    float best_score = -1.0f;
+                    glm::vec2 direction{0.0f, 1.0f};
+                    entity_manager.for_each<TransformComponent, Light2DComponent>(
+                        [&](EntityID light_id, const TransformComponent& light_transform, const Light2DComponent& light) {
+                            if (light_id == entity || !light.enabled || light.mobility != Light2DMobility::Realtime ||
+                                !renders_layer(light.affected_layers & shadow.light_layers, sprite.render_layer)) return;
+                            const glm::vec2 delta = glm::vec2(transform.world_position) - glm::vec2(light_transform.world_position);
+                            const float distance = glm::length(delta);
+                            const float influence = light.type == Light2DType::Directional ? light.intensity :
+                                (light.range > 0.0f && distance < light.range ? light.intensity * (1.0f - distance / light.range) : 0.0f);
+                            if (influence > best_score && distance > 0.001f) { best_score = influence; direction = glm::normalize(delta); }
+                        }
+                    );
+                    if (best_score >= 0.0f) projected += direction * std::min(shadow.elevation, shadow.max_projection);
+                }
+                const SDL_Color color{0, 0, 0, static_cast<std::uint8_t>(std::clamp(shadow.opacity, 0.0f, 1.0f) * 255.0f)};
+                renderer.submit_sprite(
+                    sprite.texture,
+                    transform.world_position + glm::vec3(projected, -0.001f),
+                    shadow.size,
+                    0.0f,
+                    color,
+                    src_rect_ptr,
+                    transform.world_pivot,
+                    false,
+                    sprite.flip_x,
+                    sprite.flip_y,
+                    sprite.sorting_layer,
+                    sprite.order_in_layer + shadow.sorting_offset,
+                    nullptr,
+                    sprite.render_layer
+                );
+            }
+        }
         if (sprite.has_outline && sprite.outline_thickness > 0.0f) {
             float thick = sprite.outline_thickness;
             SDL_Color out_col = sprite.outline_color;

@@ -43,8 +43,8 @@ void ViewportLightingOverlay::render(
                 (visibility_filter && !visibility_filter->should_render(entity))) return;
             const ImVec2 center = to_screen(glm::vec2(transform.world_position));
             const ImU32 color = IM_COL32(light.color.r, light.color.g, light.color.b, 230);
-            if (light.type == Light2DType::Point) {
-                const ImVec2 edge = to_screen(glm::vec2(transform.world_position) + glm::vec2(light.radius, 0.0f));
+            if (light.type != Light2DType::Ambient && light.type != Light2DType::Directional) {
+                const ImVec2 edge = to_screen(glm::vec2(transform.world_position) + glm::vec2(light.range, 0.0f));
                 const float radius = std::hypot(edge.x - center.x, edge.y - center.y);
                 draw_list->AddCircle(center, radius, color, 64, 2.0f);
                 draw_list->AddLine({center.x - 7.0f, center.y}, {center.x + 7.0f, center.y}, color, 2.0f);

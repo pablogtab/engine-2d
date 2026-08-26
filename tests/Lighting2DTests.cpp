@@ -114,7 +114,7 @@ void test_components_serialize_validate_and_restore_commands() {
     Light2DComponent light;
     light.color = {20, 40, 80, 200};
     light.intensity = 0.7f;
-    light.radius = 350.0f;
+    light.range = 350.0f;
     light.falloff = 0.65f;
     light.blend_mode = Light2DBlendMode::Screen;
     light.affected_layers = render_layer_mask(1) | render_layer_mask(4);
@@ -138,7 +138,7 @@ void test_components_serialize_validate_and_restore_commands() {
     assert(entities.get_component<Light2DComponent>(target) == light);
     assert(entities.get_component<ShadowCaster2DComponent>(target) == caster);
 
-    entities.get_component<Light2DComponent>(target).radius = 0.0f;
+    entities.get_component<Light2DComponent>(target).range = 0.0f;
     entities.get_component<ShadowCaster2DComponent>(target).vertices.resize(2);
     const auto issues = registry.validate_entity(entities, target);
     assert(issues.size() == 2);
@@ -146,7 +146,7 @@ void test_components_serialize_validate_and_restore_commands() {
     EditorCommandHistory history;
     Light2DComponent changed = light;
     changed.intensity = 0.25f;
-    changed.radius = 512.0f;
+    changed.range = 512.0f;
     history.execute_command(std::make_unique<SetComponentCommand<Light2DComponent>>(
         &entities, source, light, changed, "Edit Light 2D"
     ));

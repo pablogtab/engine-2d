@@ -1,9 +1,11 @@
 #include "Lighting2DSystem.hpp"
 
 #include "Renderer2D.hpp"
+#include "RenderTargetPool.hpp"
 #include "../ecs/EntityManager.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/PhysicsComponents.hpp"
+#include "../ecs/components/RenderingComponents.hpp"
 #include "../physics/ColliderGeometry.hpp"
 #include "../scene/Camera2D.hpp"
 #include <SDL3/SDL.h>
@@ -110,6 +112,16 @@ std::vector<glm::vec2> static_polygon(
     return result;
 }
 
+std::vector<glm::vec2> sprite_alpha_contour(const SpriteComponent& sprite, const TransformComponent& transform) {
+    const glm::vec2 half = sprite.size * transform.world_scale * 0.5f;
+    return {
+        collider_local_to_world({-half.x, -half.y}, transform),
+        collider_local_to_world({ half.x, -half.y}, transform),
+        collider_local_to_world({ half.x,  half.y}, transform),
+        collider_local_to_world({-half.x,  half.y}, transform)
+    };
+}
+
 } // namespace
 
 float point_light_falloff(float distance, float radius, float intensity, float exponent) {
@@ -196,12 +208,40 @@ std::vector<glm::vec2> build_shadow_triangles(
     return triangles;
 }
 
-Lighting2DPass::~Lighting2DPass() { release_resources(); }
+std::vector<glm::vec2> build_directional_shadow_triangles(
+    const glm::vec2& light_direction,
+    const std::vector<glm::vec2>& polygon,
+    float extrusion_distance
+) {
+    std::vector<glm::vec2> triangles;
+    if (polygon.size() < 3 || extrusion_distance <= 0.0f || glm::length(light_direction) < 0.0001f) return triangles;
+    const glm::vec2 direction = glm::normalize(light_direction);
+    triangles.reserve((polygon.size() + polygon.size() - 2) * 3);
+    for (std::size_t index = 1; index + 1 < polygon.size(); ++index) {
+        triangles.insert(triangles.end(), {polygon[0], polygon[index], polygon[index + 1]});
+    }
+    for (std::size_t index = 0; index < polygon.size(); ++index) {
+        const glm::vec2 a = polygon[index];
+        const glm::vec2 b = polygon[(index + 1) % polygon.size()];
+        const glm::vec2 edge = b - a;
+        const glm::vec2 normal{edge.y, -edge.x};
+        if (glm::dot(normal, direction) <= 0.0f) continue;
+        const glm::vec2 far_a = a - direction * extrusion_distance;
+        const glm::vec2 far_b = b - direction * extrusion_distance;
+        triangles.insert(triangles.end(), {a, b, far_b, a, far_b, far_a});
+    }
+    return triangles;
+}
 
 void Lighting2DPass::update(
     std::vector<Light2DInstance> lights,
     std::vector<ShadowPolygon2D> casters
 ) {
+    std::stable_sort(lights.begin(), lights.end(), [](const Light2DInstance& lhs, const Light2DInstance& rhs) {
+        if (lhs.light.shadow_priority != rhs.light.shadow_priority) return lhs.light.shadow_priority > rhs.light.shadow_priority;
+        if (lhs.light.intensity != rhs.light.intensity) return lhs.light.intensity > rhs.light.intensity;
+        return lhs.entity < rhs.entity;
+    });
     m_lights = std::move(lights);
     m_casters = std::move(casters);
     m_affected_layers = 0;
@@ -212,39 +252,12 @@ void Lighting2DPass::update(
     }
 }
 
-void Lighting2DPass::release_resources() {
-    if (m_light_map) SDL_DestroyTexture(m_light_map);
-    m_light_map = nullptr;
-    m_resource_renderer = nullptr;
-    m_light_map_width = 0;
-    m_light_map_height = 0;
-}
-
-bool Lighting2DPass::ensure_resources(SDL_Renderer* renderer, int width, int height) {
-    if (!renderer || width <= 0 || height <= 0) return false;
-    if (renderer != m_resource_renderer) release_resources();
-    m_resource_renderer = renderer;
-
-    if (!m_light_map || width != m_light_map_width || height != m_light_map_height) {
-        if (m_light_map) SDL_DestroyTexture(m_light_map);
-        m_light_map = SDL_CreateTexture(
-            renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, width, height
-        );
-        if (!m_light_map) {
-            release_resources();
-            return false;
-        }
-        m_light_map_width = width;
-        m_light_map_height = height;
-    }
-    return true;
-}
-
 bool Lighting2DPass::draw_point_gradient(
     SDL_Renderer* renderer,
     const glm::vec2& center,
     float radius,
-    const Light2DComponent& light
+    const Light2DComponent& light,
+    float world_rotation
 ) {
     if (!renderer || radius <= 0.0f) return false;
     const std::size_t vertex_count = 1 + LIGHT_GRADIENT_RINGS * LIGHT_GRADIENT_SEGMENTS;
@@ -282,12 +295,22 @@ bool Lighting2DPass::draw_point_gradient(
         for (int segment = 0; segment < LIGHT_GRADIENT_SEGMENTS; ++segment) {
             const float angle = static_cast<float>(segment) * 2.0f * glm::pi<float>() /
                 LIGHT_GRADIENT_SEGMENTS;
+            float cone_coverage = 1.0f;
+            if (light.type == Light2DType::Spot) {
+                const float relative = std::abs(std::remainder(
+                    angle - glm::radians(world_rotation), 2.0f * glm::pi<float>()
+                ));
+                const float inner = glm::radians(std::clamp(light.spot_inner_angle, 0.0f, 179.0f) * 0.5f);
+                const float outer = std::max(inner, glm::radians(std::clamp(light.spot_outer_angle, 0.0f, 180.0f) * 0.5f));
+                cone_coverage = outer <= inner ? (relative <= outer ? 1.0f : 0.0f) :
+                    std::clamp((outer - relative) / (outer - inner), 0.0f, 1.0f);
+            }
             m_radial_vertices.push_back({
                 {
                     center.x + std::cos(angle) * radius * normalized_radius,
                     center.y + std::sin(angle) * radius * normalized_radius
                 },
-                ring_color,
+                {ring_color.r * cone_coverage, ring_color.g * cone_coverage, ring_color.b * cone_coverage, ring_color.a * cone_coverage},
                 {0.0f, 0.0f}
             });
         }
@@ -325,11 +348,18 @@ bool Lighting2DPass::draw_point_gradient(
 
 bool Lighting2DPass::apply(const LightingContext& context) {
     if (!context.renderer || !context.scene_target || !context.camera ||
-        !renders_layer(m_affected_layers, context.render_layer) ||
-        !context.camera->renders_layer(context.render_layer) ||
-        !ensure_resources(context.renderer, context.width, context.height)) {
+        !context.render_targets || !renders_layer(m_affected_layers, context.render_layer) ||
+        !context.camera->renders_layer(context.render_layer)) {
         return false;
     }
+
+    SDL_Texture* const light_map = context.render_targets->acquire(context.width, context.height);
+    if (!light_map) return false;
+    struct ReturnTarget final {
+        RenderTargetPool* pool{nullptr};
+        SDL_Texture* texture{nullptr};
+        ~ReturnTarget() { if (pool && texture) pool->release(texture); }
+    } return_target{context.render_targets, light_map};
 
     SDL_Texture* previous_target = SDL_GetRenderTarget(context.renderer);
     SDL_BlendMode previous_blend = SDL_BLENDMODE_NONE;
@@ -342,6 +372,7 @@ bool Lighting2DPass::apply(const LightingContext& context) {
 
     bool drew = false;
     SDL_SetRenderTarget(context.renderer, context.scene_target);
+    int shadowed_lights = 0;
     for (const Light2DInstance& instance : m_lights) {
         const Light2DComponent& light = instance.light;
         if (!light.enabled || light.intensity <= 0.0f ||
@@ -385,8 +416,8 @@ bool Lighting2DPass::apply(const LightingContext& context) {
             continue;
         }
 
-        if (light.radius <= 0.0f) continue;
-        SDL_SetRenderTarget(context.renderer, m_light_map);
+        if (light.type != Light2DType::Directional && light.range <= 0.0f) continue;
+        SDL_SetRenderTarget(context.renderer, light_map);
         SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
         SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
         SDL_RenderClear(context.renderer);
@@ -395,18 +426,28 @@ bool Lighting2DPass::apply(const LightingContext& context) {
             glm::vec3(instance.world_position, 0.0f)
         ) * context.raster_scale;
         const glm::vec2 edge = context.camera->world_to_screen(
-            glm::vec3(instance.world_position + glm::vec2(light.radius, 0.0f), 0.0f)
+            glm::vec3(instance.world_position + glm::vec2(light.range, 0.0f), 0.0f)
         ) * context.raster_scale;
         const float screen_radius = glm::length(edge - center);
-        draw_point_gradient(context.renderer, center, screen_radius, light);
+        if (light.type == Light2DType::Directional) {
+            SDL_SetRenderDrawColor(context.renderer, light.color.r, light.color.g, light.color.b, 255);
+            SDL_RenderFillRect(context.renderer, nullptr);
+        } else {
+            draw_point_gradient(context.renderer, center, screen_radius, light, instance.world_rotation);
+        }
 
-        if (light.casts_shadows) {
+        const bool shadows_enabled = light.shadow_mode != ShadowMode::None && shadowed_lights < m_max_shadowed_lights;
+        if (shadows_enabled) {
+            ++shadowed_lights;
             SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
             for (const ShadowPolygon2D& caster : m_casters) {
                 if (!renders_layer(caster.affected_layers, context.render_layer)) continue;
-                const auto world_triangles = build_shadow_triangles(
-                    instance.world_position, caster.world_vertices, light.radius * 2.0f
-                );
+                const auto world_triangles = light.type == Light2DType::Directional
+                    ? build_directional_shadow_triangles(
+                        glm::vec2(std::cos(glm::radians(instance.world_rotation)), std::sin(glm::radians(instance.world_rotation))),
+                        caster.world_vertices, static_cast<float>(std::max(context.width, context.height)) * 4.0f
+                    )
+                    : build_shadow_triangles(instance.world_position, caster.world_vertices, light.range * 2.0f);
                 std::vector<glm::vec2> screen_triangles;
                 screen_triangles.reserve(world_triangles.size());
                 for (const glm::vec2& point : world_triangles) {
@@ -421,14 +462,14 @@ bool Lighting2DPass::apply(const LightingContext& context) {
         SDL_SetRenderTarget(context.renderer, context.scene_target);
         const float composite_intensity = intensity * (light.color.a / 255.0f);
         SDL_SetTextureColorModFloat(
-            m_light_map, composite_intensity, composite_intensity, composite_intensity
+            light_map, composite_intensity, composite_intensity, composite_intensity
         );
-        SDL_SetTextureAlphaModFloat(m_light_map, composite_intensity);
+        SDL_SetTextureAlphaModFloat(light_map, composite_intensity);
         SDL_SetTextureBlendMode(
-            m_light_map,
+            light_map,
             point_composite_mode(light.blend_mode, composite_uncovered_pixels)
         );
-        SDL_RenderTexture(context.renderer, m_light_map, nullptr, nullptr);
+        SDL_RenderTexture(context.renderer, light_map, nullptr, nullptr);
         drew = true;
     }
 
@@ -445,9 +486,9 @@ void Lighting2DSystem::configure(EntityManager& entities, Renderer2D& renderer) 
     std::vector<ShadowPolygon2D> casters;
 
     entities.for_each<TransformComponent, Light2DComponent>(
-        [&](EntityID, const TransformComponent& transform, const Light2DComponent& light) {
+        [&](EntityID entity, const TransformComponent& transform, const Light2DComponent& light) {
             if (!transform.world_visible || !light.enabled || light.intensity <= 0.0f) return;
-            lights.push_back({glm::vec2(transform.world_position), light});
+            lights.push_back({glm::vec2(transform.world_position), light, entity, transform.world_rotation});
         }
     );
 
@@ -461,9 +502,12 @@ void Lighting2DSystem::configure(EntityManager& entities, Renderer2D& renderer) 
                     auto polygon = collider_polygon(shape, transform);
                     if (polygon.size() >= 3) casters.push_back({std::move(polygon), caster.affected_layers});
                 }
-            } else {
+            } else if (caster.source == ShadowGeometrySource::StaticPolygon) {
                 auto polygon = static_polygon(caster, transform);
                 if (polygon.size() >= 3) casters.push_back({std::move(polygon), caster.affected_layers});
+            } else if (entities.has_component<SpriteComponent>(entity)) {
+                auto polygon = sprite_alpha_contour(entities.get_component<SpriteComponent>(entity), transform);
+                casters.push_back({std::move(polygon), caster.affected_layers});
             }
         }
     );

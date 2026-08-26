@@ -39,6 +39,10 @@ El contrato vigente de composición, Canvas y materiales está en
   `Library/AssetIndex`; realizar una conversión única del proyecto de referencia.
 - [ ] Separar la base mutable del editor del resolver de runtime y generar un
   `RuntimeAssetManifest` inmutable durante export.
+- [ ] Añadir atlas estáticos como etapa derivada para texturas importadas
+  compatibles de color, normal y emisión: guardar páginas en `Library/Atlases`,
+  invalidarlas por fuentes o ajustes, conservar escenas y assets de autoría, y
+  excluir texturas runtime/procedurales hasta contar con un asignador dinámico.
 - [ ] Empaquetar y probar en máquinas limpias macOS, Windows y Linux; incluir
   layouts nativos, dependencias, firma donde corresponda y smoke tests sin
   árbol `Assets/` de autoría.

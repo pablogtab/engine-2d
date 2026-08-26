@@ -206,7 +206,7 @@ void test_invalid_lighting_is_reported() {
 
     const EntityID light_entity = entities.create_entity();
     Light2DComponent light;
-    light.radius = 0.0f;
+    light.range = 0.0f;
     light.intensity = 2.0f;
     light.affected_layers = 0;
     entities.add_component<Light2DComponent>(light_entity, light);

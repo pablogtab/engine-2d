@@ -308,13 +308,16 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 21);
+    assert(registry.descriptors().size() == 24);
     assert(registry.find_by_type(typeid(TagComponent)));
   assert(registry.find_by_type(typeid(GameplayTagsComponent)));
     assert(registry.find_by_type(typeid(GroupComponent)));
     assert(registry.find_by_type(typeid(RenderEffectComponent)));
     assert(registry.find_by_type(typeid(Light2DComponent)));
     assert(registry.find_by_type(typeid(ShadowCaster2DComponent)));
+    assert(registry.find_by_type(typeid(SpriteLighting2DComponent)));
+    assert(registry.find_by_type(typeid(SpriteShadow2DComponent)));
+    assert(registry.find_by_type(typeid(LightingBakeVolume2DComponent)));
     assert(registry.find_by_type(typeid(PrefabLinkComponent)));
     assert(registry.find_by_type(typeid(CameraComponent)));
     assert(registry.find_by_type(typeid(CanvasComponent)));
@@ -439,11 +442,11 @@ void test_builtin_components_round_trip_through_registry() {
     light.type = Light2DType::Point;
     light.color = {40, 80, 160, 220};
     light.intensity = 0.65f;
-    light.radius = 480.0f;
+    light.range = 480.0f;
     light.falloff = 0.75f;
     light.blend_mode = Light2DBlendMode::Screen;
     light.affected_layers = render_layer_mask(2) | render_layer_mask(5);
-    light.casts_shadows = false;
+    light.shadow_mode = ShadowMode::None;
     em.add_component<Light2DComponent>(source, light);
 
     ShadowCaster2DComponent caster;
@@ -451,6 +454,22 @@ void test_builtin_components_round_trip_through_registry() {
     caster.vertices = {{-10.0f, -8.0f}, {12.0f, -6.0f}, {0.0f, 16.0f}};
     caster.affected_layers = render_layer_mask(5);
     em.add_component<ShadowCaster2DComponent>(source, caster);
+
+    SpriteLighting2DComponent sprite_lighting;
+    sprite_lighting.normal_map_handle = AssetHandle{0x6111};
+    sprite_lighting.emissive_map_handle = AssetHandle{0x6112};
+    sprite_lighting.emissive_intensity = 0.4f;
+    em.add_component<SpriteLighting2DComponent>(source, sprite_lighting);
+
+    SpriteShadow2DComponent sprite_shadow;
+    sprite_shadow.mode = SpriteShadowMode::DominantLight;
+    sprite_shadow.size = {44.0f, 16.0f};
+    em.add_component<SpriteShadow2DComponent>(source, sprite_shadow);
+
+    LightingBakeVolume2DComponent bake_volume;
+    bake_volume.size = {640.0f, 360.0f};
+    bake_volume.texels_per_unit = 2.0f;
+    em.add_component<LightingBakeVolume2DComponent>(source, bake_volume);
 
     CameraComponent camera;
     camera.clear_color = {12, 34, 56, 78};
@@ -542,7 +561,7 @@ void test_builtin_components_round_trip_through_registry() {
   nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
-    for (const char* key : {"tag", "gameplay_tags", "group", "render_effect", "light_2d", "shadow_caster_2d",
+    for (const char* key : {"tag", "gameplay_tags", "group", "render_effect", "light_2d", "shadow_caster_2d", "sprite_lighting_2d", "sprite_shadow_2d", "lighting_bake_volume_2d",
                             "camera", "canvas", "ui_layout", "ui_text", "ui_image", "ui_button",
                             "animation", "rigidbody", "collider", "tilemap", "script", "particle_emitter_2d"}) {
         assert(value.contains(key));
@@ -562,6 +581,9 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<RenderEffectComponent>(target) == RenderEffectComponent(AssetHandle{0x1234}, false));
     assert(em.get_component<Light2DComponent>(target) == light);
     assert(em.get_component<ShadowCaster2DComponent>(target) == caster);
+    assert(em.get_component<SpriteLighting2DComponent>(target) == sprite_lighting);
+    assert(em.get_component<SpriteShadow2DComponent>(target) == sprite_shadow);
+    assert(em.get_component<LightingBakeVolume2DComponent>(target) == bake_volume);
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<CameraComponent>(target).clear_color.r == 12);
     assert(em.get_component<CameraComponent>(target).clear_color.a == 78);
@@ -593,6 +615,9 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<RenderEffectComponent>(restored) == RenderEffectComponent(AssetHandle{0x1234}, false));
     assert(em.get_component<Light2DComponent>(restored) == light);
     assert(em.get_component<ShadowCaster2DComponent>(restored) == caster);
+    assert(em.get_component<SpriteLighting2DComponent>(restored) == sprite_lighting);
+    assert(em.get_component<SpriteShadow2DComponent>(restored) == sprite_shadow);
+    assert(em.get_component<LightingBakeVolume2DComponent>(restored) == bake_volume);
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
     assert(em.get_component<ScriptComponent>(restored) == script);
     assert(em.get_component<CameraComponent>(restored).clear_color.g == 34);

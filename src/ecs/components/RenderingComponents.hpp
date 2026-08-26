@@ -56,7 +56,22 @@ struct RenderEffectComponent {
 
 enum class Light2DType {
     Ambient,
-    Point
+    Point,
+    Spot,
+    Directional,
+    Area
+};
+
+enum class Light2DMobility {
+    Realtime,
+    Baked
+};
+
+enum class ShadowMode {
+    None,
+    Hard,
+    SoftFast,
+    ContactHardening
 };
 
 enum class Light2DBlendMode {
@@ -71,26 +86,55 @@ struct Light2DComponent {
     Light2DType type{Light2DType::Point};
     SDL_Color color{255, 244, 214, 255};
     float intensity{1.0f};
-    float radius{256.0f};
+    float range{256.0f};
     float falloff{1.0f};
+    float height{64.0f};
+    float spot_inner_angle{25.0f};
+    float spot_outer_angle{45.0f};
+    glm::vec2 area_size{96.0f, 32.0f};
+    float source_radius{0.0f};
+    float directional_angular_radius{0.25f};
     Light2DBlendMode blend_mode{Light2DBlendMode::Additive};
+    Light2DMobility mobility{Light2DMobility::Realtime};
+    ShadowMode shadow_mode{ShadowMode::Hard};
+    SDL_Color shadow_color{0, 0, 0, 255};
+    float shadow_strength{1.0f};
+    float shadow_softness{0.5f};
+    float shadow_bias{0.5f};
+    float shadow_max_distance{1024.0f};
+    std::int16_t shadow_priority{0};
     RenderLayerMask affected_layers{ALL_RENDER_LAYERS};
-    bool casts_shadows{true};
     bool enabled{true};
 
     bool operator==(const Light2DComponent& other) const {
         return type == other.type &&
             color.r == other.color.r && color.g == other.color.g &&
             color.b == other.color.b && color.a == other.color.a &&
-            intensity == other.intensity && radius == other.radius && falloff == other.falloff &&
-            blend_mode == other.blend_mode && affected_layers == other.affected_layers &&
-            casts_shadows == other.casts_shadows && enabled == other.enabled;
+            intensity == other.intensity && range == other.range && falloff == other.falloff &&
+            height == other.height && spot_inner_angle == other.spot_inner_angle &&
+            spot_outer_angle == other.spot_outer_angle && area_size == other.area_size &&
+            source_radius == other.source_radius &&
+            directional_angular_radius == other.directional_angular_radius &&
+            blend_mode == other.blend_mode && mobility == other.mobility &&
+            shadow_mode == other.shadow_mode &&
+            shadow_color.r == other.shadow_color.r && shadow_color.g == other.shadow_color.g &&
+            shadow_color.b == other.shadow_color.b && shadow_color.a == other.shadow_color.a &&
+            shadow_strength == other.shadow_strength && shadow_softness == other.shadow_softness &&
+            shadow_bias == other.shadow_bias && shadow_max_distance == other.shadow_max_distance &&
+            shadow_priority == other.shadow_priority && affected_layers == other.affected_layers &&
+            enabled == other.enabled;
     }
 };
 
 enum class ShadowGeometrySource {
     Collider,
-    StaticPolygon
+    StaticPolygon,
+    SpriteAlphaContour
+};
+
+enum class ShadowCasterMobility {
+    Realtime,
+    Baked
 };
 
 // Shadow casting is presentation data kept separate from physics. Collider
@@ -104,9 +148,76 @@ struct ShadowCaster2DComponent {
         {-32.0f, 32.0f}
     };
     RenderLayerMask affected_layers{ALL_RENDER_LAYERS};
+    ShadowCasterMobility mobility{ShadowCasterMobility::Realtime};
+    float height{32.0f};
+    float opacity{1.0f};
+    float alpha_threshold{0.5f};
+    float contour_tolerance{1.0f};
     bool enabled{true};
 
     bool operator==(const ShadowCaster2DComponent&) const = default;
+};
+
+struct SpriteLighting2DComponent {
+    AssetHandle normal_map_handle{};
+    AssetHandle emissive_map_handle{};
+    float normal_strength{1.0f};
+    SDL_Color emissive_tint{255, 255, 255, 255};
+    float emissive_intensity{0.0f};
+    float surface_height{0.0f};
+    float specular_strength{0.0f};
+    float shininess{16.0f};
+    bool receives_lighting{true};
+    bool receives_shadows{true};
+    bool baked_receiver{false};
+    bool enabled{true};
+
+    bool operator==(const SpriteLighting2DComponent& other) const {
+        return normal_map_handle == other.normal_map_handle && emissive_map_handle == other.emissive_map_handle &&
+            normal_strength == other.normal_strength &&
+            emissive_tint.r == other.emissive_tint.r && emissive_tint.g == other.emissive_tint.g &&
+            emissive_tint.b == other.emissive_tint.b && emissive_tint.a == other.emissive_tint.a &&
+            emissive_intensity == other.emissive_intensity && surface_height == other.surface_height &&
+            specular_strength == other.specular_strength && shininess == other.shininess &&
+            receives_lighting == other.receives_lighting && receives_shadows == other.receives_shadows &&
+            baked_receiver == other.baked_receiver && enabled == other.enabled;
+    }
+};
+
+enum class SpriteShadowMode {
+    FixedContact,
+    DominantLight
+};
+
+enum class SpriteShadowShape {
+    Ellipse,
+    Texture
+};
+
+struct SpriteShadow2DComponent {
+    SpriteShadowMode mode{SpriteShadowMode::DominantLight};
+    SpriteShadowShape shape{SpriteShadowShape::Ellipse};
+    AssetHandle texture_handle{};
+    glm::vec2 offset{0.0f, 20.0f};
+    glm::vec2 size{48.0f, 18.0f};
+    float opacity{0.42f};
+    float softness{0.65f};
+    float elevation{0.0f};
+    float max_projection{160.0f};
+    RenderLayerMask light_layers{ALL_RENDER_LAYERS};
+    std::int16_t sorting_offset{-1};
+    bool enabled{true};
+
+    bool operator==(const SpriteShadow2DComponent&) const = default;
+};
+
+struct LightingBakeVolume2DComponent {
+    glm::vec2 size{1024.0f, 720.0f};
+    float texels_per_unit{1.0f};
+    RenderLayerMask affected_layers{ALL_RENDER_LAYERS};
+    bool enabled{true};
+
+    bool operator==(const LightingBakeVolume2DComponent&) const = default;
 };
 
 struct CameraLayerEffectAssignment {

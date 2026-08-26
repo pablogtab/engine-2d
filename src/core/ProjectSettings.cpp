@@ -7,6 +7,33 @@
 
 namespace Engine {
 
+const char* lighting_quality_preset_to_string(LightingQualityPreset preset) {
+    switch (preset) {
+        case LightingQualityPreset::Low: return "low";
+        case LightingQualityPreset::Medium: return "medium";
+        case LightingQualityPreset::High: return "high";
+        case LightingQualityPreset::Ultra: return "ultra";
+    }
+    return "high";
+}
+
+LightingQualityPreset lighting_quality_preset_from_string(const std::string& value) {
+    if (value == "low") return LightingQualityPreset::Low;
+    if (value == "medium") return LightingQualityPreset::Medium;
+    if (value == "ultra") return LightingQualityPreset::Ultra;
+    return LightingQualityPreset::High;
+}
+
+LightingQualitySettings lighting_quality_settings_for_preset(LightingQualityPreset preset) {
+    switch (preset) {
+        case LightingQualityPreset::Low: return {preset, 0.50f, 2, 1, 0, false, LightingQualityPreset::Medium};
+        case LightingQualityPreset::Medium: return {preset, 0.50f, 4, 2, 4, false, LightingQualityPreset::Medium};
+        case LightingQualityPreset::High: return {preset, 0.75f, 8, 2, 8, false, LightingQualityPreset::Medium};
+        case LightingQualityPreset::Ultra: return {preset, 1.00f, 16, 3, 16, false, LightingQualityPreset::Medium};
+    }
+    return lighting_quality_settings_for_preset(LightingQualityPreset::High);
+}
+
 const char* orientation_policy_to_string(OrientationPolicy policy) {
     switch (policy) {
         case OrientationPolicy::Landscape: return "landscape";
@@ -116,6 +143,16 @@ bool ProjectSettings::load(const std::string& filepath) {
         display.value("dynamic_max_render_scale", 1.0f),
         display.value("dynamic_target_fps", 60.0f)
     });
+    const auto& lighting = root.contains("lighting") ? root["lighting"] : nlohmann::json::object();
+    m_lighting = lighting_quality_settings_for_preset(lighting_quality_preset_from_string(
+        lighting.value("preset", std::string{"high"})
+    ));
+    m_lighting.shadow_mask_scale = std::clamp(lighting.value("shadow_mask_scale", m_lighting.shadow_mask_scale), 0.25f, 1.0f);
+    m_lighting.max_shadowed_lights = std::clamp(lighting.value("max_shadowed_lights", m_lighting.max_shadowed_lights), 0, 16);
+    m_lighting.soft_fast_passes = std::clamp(lighting.value("soft_fast_passes", m_lighting.soft_fast_passes), 0, 3);
+    m_lighting.contact_hardening_samples = std::clamp(lighting.value("contact_hardening_samples", m_lighting.contact_hardening_samples), 0, 16);
+    m_lighting.mobile_override = lighting.value("mobile_override", false);
+    m_lighting.mobile_preset = lighting_quality_preset_from_string(lighting.value("mobile_preset", std::string{"medium"}));
     ENGINE_LOG_INFO(
         "[PROJECT SETTINGS] Authoring reference: {}x{} ({})",
         m_display.reference_width,
@@ -143,6 +180,15 @@ bool ProjectSettings::save() const {
         {"dynamic_max_render_scale", m_display.render_resolution.dynamic_max_scale},
         {"dynamic_target_fps", m_display.render_resolution.dynamic_target_fps}
     };
+    root["lighting"] = {
+        {"preset", lighting_quality_preset_to_string(m_lighting.preset)},
+        {"shadow_mask_scale", m_lighting.shadow_mask_scale},
+        {"max_shadowed_lights", m_lighting.max_shadowed_lights},
+        {"soft_fast_passes", m_lighting.soft_fast_passes},
+        {"contact_hardening_samples", m_lighting.contact_hardening_samples},
+        {"mobile_override", m_lighting.mobile_override},
+        {"mobile_preset", lighting_quality_preset_to_string(m_lighting.mobile_preset)}
+    };
     return FileSystem::write_text(m_filepath, root.dump(2) + "\n");
 }
 
@@ -154,6 +200,15 @@ void ProjectSettings::set_display(const ProjectDisplaySettings& settings) {
     m_display.default_window_height = std::clamp(settings.default_window_height, 240, 16384);
     m_display.default_refresh_rate = std::max(settings.default_refresh_rate, 0.0f);
     m_display.render_resolution = normalize_render_resolution_settings(settings.render_resolution);
+    save();
+}
+
+void ProjectSettings::set_lighting(const LightingQualitySettings& settings) {
+    m_lighting = settings;
+    m_lighting.shadow_mask_scale = std::clamp(m_lighting.shadow_mask_scale, 0.25f, 1.0f);
+    m_lighting.max_shadowed_lights = std::clamp(m_lighting.max_shadowed_lights, 0, 16);
+    m_lighting.soft_fast_passes = std::clamp(m_lighting.soft_fast_passes, 0, 3);
+    m_lighting.contact_hardening_samples = std::clamp(m_lighting.contact_hardening_samples, 0, 16);
     save();
 }
 

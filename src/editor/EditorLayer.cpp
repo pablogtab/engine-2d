@@ -16,6 +16,7 @@
 #include "../scene/Scene.hpp"
 #include "../scene/Scene.hpp"
 #include "../scene/SceneSerializer.hpp"
+#include "../renderer/LightingBakeService.hpp"
 #include "panels/ViewportPanel.hpp"
 #include "panels/SceneHierarchyPanel.hpp"
 #include "panels/InspectorPanel.hpp"
@@ -1513,7 +1514,33 @@ void EditorLayer::render_main_menu_bar() {
 
         if (ImGui::BeginMenu("Build")) {
             if (ImGui::MenuItem("Build & Export Game...", "Ctrl+B")) {
-                ENGINE_LOG_INFO("[EDITOR] Export Game pipeline triggered.");
+                bool stale_bake = false;
+                for (const auto& scene : m_scene_manager ? m_scene_manager->get_scenes() : std::vector<std::shared_ptr<Scene>>{}) {
+                    if (!scene) continue;
+                    const auto session = m_scene_sessions.find(scene.get());
+                    if (session == m_scene_sessions.end() || session->second.file_path.empty()) continue;
+                    const auto bake = LightingBakeService::status(m_project_root, session->second.file_path);
+                    if (bake.has_bake_volume && !bake.current) {
+                        stale_bake = true;
+                        ENGINE_LOG_ERROR("[EXPORT] Blocked: lighting bake for '{}' is {}", scene->get_name(), bake.reason);
+                    }
+                }
+                if (!stale_bake) ENGINE_LOG_INFO("[EDITOR] Export validation passed; export pipeline triggered.");
+            }
+            if (ImGui::MenuItem("Bake Lighting for Active Scene")) {
+                Scene* const scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
+                const auto session = scene ? m_scene_sessions.find(scene) : m_scene_sessions.end();
+                if (!scene || session == m_scene_sessions.end() || session->second.file_path.empty()) {
+                    ENGINE_LOG_WARN("[LIGHTING BAKE] Save the active scene before baking.");
+                } else {
+                    LightingBakeStatus bake;
+                    std::string error;
+                    if (LightingBakeService::bake(m_project_root, session->second.file_path, &bake, &error)) {
+                        ENGINE_LOG_INFO("[LIGHTING BAKE] Generated {} tile(s) for '{}'", bake.tile_count, scene->get_name());
+                    } else {
+                        ENGINE_LOG_ERROR("[LIGHTING BAKE] Failed for '{}': {}", scene->get_name(), error);
+                    }
+                }
             }
             ImGui::EndMenu();
         }

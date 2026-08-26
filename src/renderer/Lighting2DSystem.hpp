@@ -2,6 +2,7 @@
 
 #include "LightingPass.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <memory>
 #include <vector>
@@ -14,6 +15,8 @@ class Renderer2D;
 struct Light2DInstance {
     glm::vec2 world_position{0.0f};
     Light2DComponent light;
+    EntityID entity{0};
+    float world_rotation{0.0f};
 };
 
 struct ShadowPolygon2D {
@@ -42,40 +45,41 @@ struct ShadowPolygon2D {
     const std::vector<glm::vec2>& polygon,
     float extrusion_distance
 );
+[[nodiscard]] std::vector<glm::vec2> build_directional_shadow_triangles(
+    const glm::vec2& light_direction,
+    const std::vector<glm::vec2>& polygon,
+    float extrusion_distance
+);
 
 class Lighting2DPass final : public ILightingPass {
 public:
-    ~Lighting2DPass() override;
+    ~Lighting2DPass() override = default;
 
     [[nodiscard]] const char* name() const override { return "Lighting2D"; }
     [[nodiscard]] bool is_enabled() const override { return !m_lights.empty(); }
     [[nodiscard]] RenderLayerMask affected_layers() const override { return m_affected_layers; }
     bool apply(const LightingContext& context) override;
-    void invalidate_resources() override { release_resources(); }
+    void invalidate_resources() override {}
 
     void update(std::vector<Light2DInstance> lights, std::vector<ShadowPolygon2D> casters);
+    void set_shadow_budget(int max_shadowed_lights) { m_max_shadowed_lights = std::clamp(max_shadowed_lights, 0, 16); }
     [[nodiscard]] const std::vector<Light2DInstance>& lights() const { return m_lights; }
     [[nodiscard]] const std::vector<ShadowPolygon2D>& casters() const { return m_casters; }
 
 private:
-    bool ensure_resources(SDL_Renderer* renderer, int width, int height);
     bool draw_point_gradient(
         SDL_Renderer* renderer,
         const glm::vec2& center,
         float radius,
-        const Light2DComponent& light
+        const Light2DComponent& light,
+        float world_rotation
     );
-    void release_resources();
-
     std::vector<Light2DInstance> m_lights;
     std::vector<ShadowPolygon2D> m_casters;
     RenderLayerMask m_affected_layers{0};
-    SDL_Renderer* m_resource_renderer{nullptr};
-    SDL_Texture* m_light_map{nullptr};
-    int m_light_map_width{0};
-    int m_light_map_height{0};
     std::vector<SDL_Vertex> m_radial_vertices;
     std::vector<int> m_radial_indices;
+    int m_max_shadowed_lights{8};
 };
 
 // Extracts authored ECS data into a cached runtime pass. Scene integration is

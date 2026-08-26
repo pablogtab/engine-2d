@@ -364,8 +364,8 @@ int main() {
                         point.type = Engine::Light2DType::Point;
                         point.color = {255, 32, 16, 255};
                         point.intensity = 1.0f;
-                        point.radius = 28.0f;
-                        point.casts_shadows = false;
+                        point.range = 28.0f;
+                        point.shadow_mode = Engine::ShadowMode::None;
                         const glm::vec2 light_position{7.3f, -5.7f};
                         renderer.clear_lighting_passes();
                         renderer.add_lighting_pass(lighting);

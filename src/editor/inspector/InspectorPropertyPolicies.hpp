@@ -104,6 +104,7 @@ inline constexpr auto FramesPerSecond = bounded_float(0.25f, 0.1f, 240.0f, "%.1f
 namespace Lighting {
 inline constexpr auto Intensity = bounded_float(0.01f, 0.0f, 1.0f, "%.2f");
 inline constexpr auto Radius = bounded_float(1.0f, 1.0f, 100000.0f, "%.0f px");
+inline constexpr auto Angle = bounded_float(0.25f, 0.0f, 180.0f, "%.1f deg");
 inline constexpr auto Falloff = bounded_float(0.02f, 0.1f, 8.0f, "%.2f");
 inline constexpr auto Coordinate = unbounded_float(1.0f);
 inline constexpr auto RenderLayerMask = bounded_int(
