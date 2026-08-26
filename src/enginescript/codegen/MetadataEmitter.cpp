@@ -1,10 +1,47 @@
 #include "MetadataEmitter.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <optional>
 
 namespace EngineScript {
 
 using json = nlohmann::ordered_json;
+
+namespace {
+
+std::optional<double> constant_number(const std::shared_ptr<IROperation>& operation) {
+    if (!operation) return std::nullopt;
+    if (operation->kind == IROpKind::Constant) {
+        const auto constant = std::static_pointer_cast<IRConstant>(operation);
+        if (!constant->result_type || !constant->result_type->is_numeric()) return std::nullopt;
+        return constant->result_type->is_integer()
+            ? static_cast<double>(constant->int_val)
+            : constant->float_val;
+    }
+    if (operation->kind == IROpKind::Unary) {
+        const auto unary = std::static_pointer_cast<IRUnary>(operation);
+        const auto operand = constant_number(unary->operand);
+        if (!operand) return std::nullopt;
+        if (unary->op == TokenType::Minus) return -*operand;
+        if (unary->op == TokenType::Plus) return *operand;
+    }
+    if (operation->kind == IROpKind::NumericConvert) {
+        return constant_number(std::static_pointer_cast<IRNumericConvert>(operation)->operand);
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> vector2_default(const std::shared_ptr<IROperation>& operation) {
+    if (!operation || operation->kind != IROpKind::ValueConstruct) return std::nullopt;
+    const auto construction = std::static_pointer_cast<IRValueConstruct>(operation);
+    if (construction->target_kind != TypeKind::Vec2 || construction->args.size() != 2) return std::nullopt;
+    const auto x = constant_number(construction->args[0]);
+    const auto y = constant_number(construction->args[1]);
+    if (!x || !y) return std::nullopt;
+    return json::array({*x, *y}).dump();
+}
+
+} // namespace
 
 std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
     json root;
@@ -78,6 +115,8 @@ std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
                         } else {
                             p_obj["defaultValue"] = std::to_string(const_op->float_val);
                         }
+                    } else if (const auto value = vector2_default(prop.initializer)) {
+                        p_obj["defaultValue"] = *value;
                     }
 
                     props_arr.push_back(p_obj);

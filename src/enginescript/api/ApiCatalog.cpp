@@ -3,14 +3,71 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
+#include <vector>
+
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(_WIN32)
+#define NOMINMAX
+#include <windows.h>
+#elif defined(__linux__)
+#include <limits.h>
+#include <unistd.h>
+#endif
 
 namespace EngineScript {
 
 namespace {
 
 using Json = nlohmann::json;
+
+std::optional<std::filesystem::path> executable_directory() {
+#if defined(__APPLE__)
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    if (size == 0) return std::nullopt;
+    std::vector<char> buffer(size);
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0) return std::nullopt;
+    return std::filesystem::weakly_canonical(buffer.data()).parent_path();
+#elif defined(_WIN32)
+    std::vector<wchar_t> buffer(32768);
+    const DWORD length = GetModuleFileNameW(
+        nullptr, buffer.data(), static_cast<DWORD>(buffer.size())
+    );
+    if (length == 0 || length == buffer.size()) return std::nullopt;
+    return std::filesystem::path(buffer.data(), buffer.data() + length).parent_path();
+#elif defined(__linux__)
+    std::vector<char> buffer(PATH_MAX + 1);
+    const ssize_t length = readlink("/proc/self/exe", buffer.data(), PATH_MAX);
+    if (length <= 0) return std::nullopt;
+    buffer[static_cast<std::size_t>(length)] = '\0';
+    return std::filesystem::path(buffer.data()).parent_path();
+#else
+    return std::nullopt;
+#endif
+}
+
+Json load_catalog_document() {
+    std::vector<std::filesystem::path> candidates;
+    if (const char* configured = std::getenv("ENGINE_SCRIPT_API_CATALOG_PATH")) {
+        if (*configured != '\0') candidates.emplace_back(configured);
+    }
+    if (const auto directory = executable_directory()) {
+        candidates.push_back(*directory / "engine_api.json");
+    }
+    candidates.emplace_back(ENGINE_SCRIPT_API_CATALOG_PATH);
+
+    for (const std::filesystem::path& candidate : candidates) {
+        std::ifstream stream(candidate);
+        if (stream) return Json::parse(stream);
+    }
+    throw std::runtime_error("EngineScript API catalog could not be opened");
+}
 
 ApiAvailability parse_availability(const Json& value) {
     const std::string availability = value.value("availability", "available");
@@ -40,12 +97,7 @@ const ApiCatalog& ApiCatalog::instance() {
 }
 
 ApiCatalog::ApiCatalog() {
-    std::ifstream stream(ENGINE_SCRIPT_API_CATALOG_PATH);
-    if (!stream) {
-        throw std::runtime_error("EngineScript API catalog could not be opened");
-    }
-
-    const Json document = Json::parse(stream);
+    const Json document = load_catalog_document();
     m_abi_version = document.at("abiVersion").get<uint32_t>();
     m_sdk_hash = document.at("sdkHash").get<std::string>();
     if (m_abi_version == 0 || m_sdk_hash.empty()) {

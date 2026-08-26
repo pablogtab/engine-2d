@@ -30,6 +30,9 @@ int main() {
 
             @expose
             jumpSpeed: Float = 480.0;
+
+            @expose
+            offset: Vec2 = Vec2(-58.0, 28.0);
         }
     )";
 
@@ -65,10 +68,12 @@ int main() {
     assert(b.dependencies[0].name == "input" && b.dependencies[0].is_service);
     assert(b.dependencies[1].name == "body" && b.dependencies[1].is_component && !b.dependencies[1].is_optional);
     assert(b.dependencies[2].name == "animator" && b.dependencies[2].is_optional);
-    assert(b.properties.size() == 2);
+    assert(b.properties.size() == 3);
     assert(b.properties[0].name == "walkSpeed");
     assert(b.properties[0].min_value.has_value() && *b.properties[0].min_value == 0.0);
     assert(b.properties[0].max_value.has_value() && *b.properties[0].max_value == 1000.0);
+    assert(b.properties[2].name == "offset");
+    assert(b.properties[2].default_value_str == "[-58.0,28.0]");
 
     std::cout << "[PASS] EngineScriptMetadataTests passed!\n";
     return 0;

@@ -38,6 +38,7 @@
 #include <thread>
 #include <unordered_set>
 #include <variant>
+#include <nlohmann/json.hpp>
 
 namespace Engine {
 
@@ -52,6 +53,9 @@ struct ScriptRuntimeBinding {
     EngineScript::AsyncScheduler* async_scheduler{nullptr};
     EngineScript::TypedEventBus* typed_event_bus{nullptr};
     std::thread::id main_thread_id;
+    void* native_component_context{nullptr};
+    EngineScript::ComponentReference (*find_native_component)(void*, EntityID, const char*, std::size_t){nullptr};
+    std::size_t (*count_native_components)(void*, EntityID, const char*){nullptr};
 };
 
 void require_main_thread(const ScriptRuntimeBinding& binding) {
@@ -66,6 +70,12 @@ void bind_dynamic_component_access(EngineScript::Entity& entity, const ScriptRun
         auto* binding = static_cast<ScriptRuntimeBinding*>(context);
         if (!binding) return EngineScript::ComponentReference{};
         require_main_thread(*binding);
+        if (binding->find_native_component && binding->native_component_context && type_name) {
+            EngineScript::ComponentReference native = binding->find_native_component(
+                binding->native_component_context, entity_id, type_name, index
+            );
+            if (native.resolve_callback) return native;
+        }
         auto* runtime = binding->runtime;
         return runtime && type_name
             ? runtime->find_behaviour_component(entity_id, type_name, index)
@@ -75,6 +85,12 @@ void bind_dynamic_component_access(EngineScript::Entity& entity, const ScriptRun
         const auto* binding = static_cast<const ScriptRuntimeBinding*>(context);
         if (!binding) return std::size_t{0};
         require_main_thread(*binding);
+        if (binding->count_native_components && binding->native_component_context && type_name) {
+            const std::size_t native = binding->count_native_components(
+                binding->native_component_context, entity_id, type_name
+            );
+            if (native != 0) return native;
+        }
         const auto* runtime = binding->runtime;
         return runtime && type_name
             ? runtime->count_behaviour_components(entity_id, type_name)
@@ -98,7 +114,15 @@ public:
           m_events(binding.typed_event_bus, binding.slot_id), m_prefs(), m_assets(binding),
           m_particles(binding), m_ui(binding), m_tilemap(binding), m_display(binding),
           m_physics(binding), m_animator(binding), m_jobs(binding.async_scheduler, binding.slot_id),
-          m_task_scope(binding.async_scheduler, binding.slot_id) {}
+          m_task_scope(binding.async_scheduler, binding.slot_id) {
+        m_binding.native_component_context = &m_entities;
+        m_binding.find_native_component = [](void* context, EntityID entity, const char* type, std::size_t index) {
+            return static_cast<EntityService*>(context)->component_reference(entity, type, index);
+        };
+        m_binding.count_native_components = [](void* context, EntityID entity, const char* type) {
+            return static_cast<EntityService*>(context)->component_count(entity, type);
+        };
+    }
 
     bool prepare(const EngineScript::BehaviourTypeRegistration& registration, std::string& error) {
         m_component_references.reserve(registration.constructor_dependencies.size());
@@ -153,6 +177,7 @@ public:
 
     void sync_before() {
         if (!m_binding.entity_manager) return;
+        m_entities.begin_invocation();
         EntityManager& entities = *m_binding.entity_manager;
         if (entities.has_component<RigidBodyComponent>(m_binding.entity)) {
             m_rigid_body.velocity = entities.get_component<RigidBodyComponent>(m_binding.entity).velocity;
@@ -492,6 +517,48 @@ private:
     class EntityService final : public EngineScript::Entities {
     public:
         explicit EntityService(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+
+        EngineScript::ComponentReference component_reference(
+            EntityID entity,
+            const char* type,
+            std::size_t index
+        ) {
+            if (!type || index != 0 || component_count(entity, type) == 0) return {};
+            EngineScript::ComponentReference reference;
+            reference.runtime_context = this;
+            reference.entity_id = entity;
+            reference.type_name = type;
+            reference.resolve_callback = [](void* context, uint32_t id, uint64_t, uint32_t, const char* requested) -> void* {
+                auto* service = static_cast<EntityService*>(context);
+                if (!service || !requested) return nullptr;
+                EngineScript::Entity target;
+                target.id = id;
+                const std::string_view name{requested};
+                if (name == "Transform2D") return service->transform(target);
+                if (name == "RigidBody2D") return service->rigidBody(target);
+                if (name == "SpriteRenderer2D") return service->spriteRenderer(target);
+                if (name == "ParticleEmitter2D") return service->particleEmitter(target);
+                if (name == "Joint2D") return service->joint(target);
+                if (name == "Animator2D") {
+                    service->m_entity_animator.bind(id);
+                    return &service->m_entity_animator;
+                }
+                return nullptr;
+            };
+            return reference;
+        }
+
+        std::size_t component_count(EntityID entity, const char* type) const {
+            if (!type) return 0;
+            const std::string_view name{type};
+            if (name == "Transform2D") return alive_with<TransformComponent>(entity) ? 1 : 0;
+            if (name == "RigidBody2D") return alive_with<RigidBodyComponent>(entity) ? 1 : 0;
+            if (name == "SpriteRenderer2D") return alive_with<SpriteComponent>(entity) ? 1 : 0;
+            if (name == "ParticleEmitter2D") return alive_with<ParticleEmitter2DComponent>(entity) ? 1 : 0;
+            if (name == "Joint2D") return alive_with<JointComponent>(entity) ? 1 : 0;
+            if (name == "Animator2D") return alive_with<AnimationComponent>(entity) ? 1 : 0;
+            return 0;
+        }
         EngineScript::Entity create(const std::string& name) override {
             require_main_thread(m_binding);
             if (!m_binding.entity_manager) return {};
@@ -766,7 +833,33 @@ private:
                 target.collide_connected = m_joint.value.collideConnected;
             }
         }
+
+        void begin_invocation() {
+            // Dynamic component views are valid only for the callback that queried them.
+            // Keeping their entity ids across callbacks would write stale snapshots back
+            // during the async scheduler's otherwise empty synchronization pass.
+            m_transform.id = 0;
+            m_rigid_body.id = 0;
+            m_sprite_renderer.id = 0;
+            m_joint.id = 0;
+        }
     private:
+        class EntityAnimator final : public EngineScript::Animator2D {
+        public:
+            explicit EntityAnimator(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+            void bind(EntityID entity) { m_entity = entity; }
+            void play(const std::string& clip) override {
+                require_main_thread(m_binding);
+                if (m_binding.entity_manager && m_binding.entity_manager->is_alive(m_entity) &&
+                    m_binding.entity_manager->has_component<AnimationComponent>(m_entity)) {
+                    SpriteAnimationSystem::play_clip(*m_binding.entity_manager, m_entity, clip);
+                }
+            }
+        private:
+            const ScriptRuntimeBinding& m_binding;
+            EntityID m_entity{0};
+        };
+
         template <typename Predicate>
         std::vector<EngineScript::Entity> find_all(Predicate predicate) const {
             require_main_thread(m_binding);
@@ -813,6 +906,7 @@ private:
             return entity;
         }
         const ScriptRuntimeBinding& m_binding;
+        EntityAnimator m_entity_animator{m_binding};
         struct { EntityID id{0}; EngineScript::Transform2D value; } m_transform;
         struct { EntityID id{0}; EngineScript::RigidBody2D value; } m_rigid_body;
         struct { EntityID id{0}; EngineScript::SpriteRenderer2D value; } m_sprite_renderer;
@@ -1562,7 +1656,18 @@ std::vector<ScriptPublicField> public_fields_from_behaviour(const EngineScript::
             field.value = property.default_value_str;
         } else if (property.type == "Vec2") {
             field.type = ScriptFieldType::Vector2;
-            field.value = ScriptVector2{0.0f, 0.0f};
+            ScriptVector2 value{0.0f, 0.0f};
+            if (!property.default_value_str.empty()) {
+                const auto parsed = nlohmann::json::parse(
+                    property.default_value_str, nullptr, false
+                );
+                if (parsed.is_array() && parsed.size() == 2 &&
+                    parsed[0].is_number() && parsed[1].is_number()) {
+                    value.x = parsed[0].get<float>();
+                    value.y = parsed[1].get<float>();
+                }
+            }
+            field.value = value;
         } else {
             continue;
         }

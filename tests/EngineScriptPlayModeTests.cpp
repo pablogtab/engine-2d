@@ -660,6 +660,76 @@ export class RangeError extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_entity_transform_following_across_updates() {
+    std::cout << "[Test] EntityTransformFollowing_AcrossUpdates... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_entity_follow_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/Follower.e2s", R"(
+@behaviour
+export class Follower extends Behaviour {
+    constructor(
+        @inject private entities: Entities,
+        @component private transform: Transform2D
+    ) {}
+
+    @expose
+    speed: Float = 180.0;
+
+    override update(deltaTime: Float): Void {
+        let player: Entity = entities.findByGameplayTag("player");
+        if (!entities.exists(player)) return;
+        let playerTransform: Transform2D? = player.getComponent<Transform2D>();
+        if (playerTransform != null) {
+            let target: Vec2 = playerTransform.position;
+            let difference: Vec2 = target - transform.position;
+            let amount: Float = speed * deltaTime;
+            if (difference.x > amount) transform.position.x = transform.position.x + amount;
+            else transform.position.x = target.x;
+        }
+    }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* script_record = asset_database.find_by_path(root / "Assets/Scripts/Follower.e2s");
+    assert(script_record);
+
+    EntityManager entity_manager;
+    const EntityID player = entity_manager.create_entity();
+    TransformComponent player_transform;
+    player_transform.position.x = 10.0f;
+    entity_manager.add_component<TransformComponent>(player, player_transform);
+    entity_manager.add_component<GameplayTagsComponent>(player, GameplayTagsComponent{{"player"}});
+
+    const EntityID follower = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(follower, TransformComponent{});
+    ScriptComponent script;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = script_record->handle;
+    entity_manager.add_component<ScriptComponent>(follower, script);
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database);
+    assert(started.started == 1 && started.failed == 0);
+
+    runtime.update(0.1f);
+    assert(std::abs(entity_manager.get_component<TransformComponent>(follower).position.x - 10.0f) < 0.001f);
+
+    entity_manager.get_component<TransformComponent>(player).position.x = 20.0f;
+    runtime.update(0.1f);
+    assert(std::abs(entity_manager.get_component<TransformComponent>(player).position.x - 20.0f) < 0.001f);
+    assert(std::abs(entity_manager.get_component<TransformComponent>(follower).position.x - 20.0f) < 0.001f);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
@@ -668,6 +738,7 @@ int main() {
     test_audio_and_scene_services();
     test_particle_services_and_component();
     test_collection_range_error_is_controlled();
+    test_entity_transform_following_across_updates();
     test_async_scheduler_cancellation();
     test_game_session_transitions();
     test_e2s_script_inspection();

@@ -281,11 +281,17 @@ set(ENGINE_SCRIPT_VSCODE_BIN_DIR
 add_custom_command(TARGET e2sc POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ENGINE_SCRIPT_VSCODE_BIN_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:e2sc>" "${ENGINE_SCRIPT_VSCODE_BIN_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/enginescript/api/engine_api.json"
+        "${ENGINE_SCRIPT_VSCODE_BIN_DIR}/engine_api.json"
     VERBATIM
 )
 add_custom_command(TARGET e2s-lsp POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ENGINE_SCRIPT_VSCODE_BIN_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:e2s-lsp>" "${ENGINE_SCRIPT_VSCODE_BIN_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/enginescript/api/engine_api.json"
+        "${ENGINE_SCRIPT_VSCODE_BIN_DIR}/engine_api.json"
     VERBATIM
 )
 
