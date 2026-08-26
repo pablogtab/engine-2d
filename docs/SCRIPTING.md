@@ -284,20 +284,24 @@ easing operations are pure; `Rect.intersection` returns a nullable `Rect`.
 sRGB/linear conversion contract yet.
 
 `Random` is deliberately stateless and accepts an explicit `UInt` seed. Each
-game owns its own lifecycle policy, typically through a game-side singleton:
+game owns its own lifecycle policy, typically through one game-side behaviour
+attached to a dedicated entity:
 
 ```enginescript
-class GameRng {
-    private static seed: UInt = UInt(42);
+@behaviour
+export class GameRng extends Behaviour {
+    @expose
+    seed: UInt = UInt(42);
 
-    static nextFloat(min: Float, max: Float): Float {
+    nextFloat(min: Float, max: Float): Float {
         seed = Random.nextUInt(seed);
         return Random.rangeFloat(seed, min, max);
     }
 }
 ```
 
-The engine does not expose a shared RNG service. `Array.shuffle(seed)` and
+The engine does not expose a shared RNG service; a game decides how other
+behaviours reach its `GameRng` entity. `Array.shuffle(seed)` and
 `Array.choose(seed)` are deterministic for the supplied seed; `choose` is
 nullable for an empty array. Lazy iterators and renderer-wide linear output
 remain post-beta work.
