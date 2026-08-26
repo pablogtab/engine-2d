@@ -91,13 +91,12 @@ protected:
         get_scene_manager().set_active_scene(scene->get_name());
         if (Engine::EditorLayer* editor = get_editor_layer()) {
             auto& session = editor->get_or_create_session(scene.get(), scene->get_name());
-            session.file_path = scene_path.string();
-            session.autosave_identity = scene_path.lexically_normal().generic_string();
             if (session.entity_state_store) {
                 for (const auto& [entity, order] : metadata.component_orders) {
                     session.entity_state_store->set_component_order(entity, order);
                 }
             }
+            editor->bind_scene_path(scene.get(), scene_path.string());
         } else {
             get_scene_manager().start_play();
         }

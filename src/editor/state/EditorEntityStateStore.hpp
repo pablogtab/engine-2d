@@ -2,7 +2,9 @@
 
 #include "../../ecs/EntityManager.hpp"
 #include <string>
+#include <string_view>
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -13,6 +15,7 @@ struct EditorEntityState {
     bool locked{false};
     bool visible_in_editor{true};
     std::vector<std::string> component_order;
+    std::unordered_map<std::string, bool> component_open_states;
 };
 
 class EditorEntityStateStore {
@@ -22,6 +25,10 @@ public:
     [[nodiscard]] EditorEntityState get(EntityID id) const;
     [[nodiscard]] bool is_locked(EntityID id) const;
     [[nodiscard]] bool is_visible(EntityID id) const;
+    [[nodiscard]] std::optional<bool> component_open_state(
+        EntityID id,
+        std::string_view component_key
+    ) const;
     [[nodiscard]] std::vector<std::string> get_component_order(EntityID id) const;
     [[nodiscard]] std::vector<std::string> resolve_component_order(
         EntityID id,
@@ -33,6 +40,7 @@ public:
 
     void set_locked(EntityID id, bool value);
     void set_visible(EntityID id, bool value);
+    void set_component_open(EntityID id, std::string component_key, bool value);
     void set_component_order(EntityID id, std::vector<std::string> order);
     void clear_component_orders();
     void set(EntityID id, EditorEntityState state);

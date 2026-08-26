@@ -29,6 +29,19 @@ bool EditorEntityStateStore::is_visible(EntityID id) const {
     return true;
 }
 
+std::optional<bool> EditorEntityStateStore::component_open_state(
+    EntityID id,
+    std::string_view component_key
+) const {
+    const auto entity_it = m_states.find(id);
+    if (entity_it == m_states.end()) return std::nullopt;
+    const auto component_it = entity_it->second.component_open_states.find(
+        std::string(component_key)
+    );
+    if (component_it == entity_it->second.component_open_states.end()) return std::nullopt;
+    return component_it->second;
+}
+
 std::vector<std::string> EditorEntityStateStore::get_component_order(EntityID id) const {
     const auto it = m_states.find(id);
     return it != m_states.end() ? it->second.component_order : std::vector<std::string>{};
@@ -74,7 +87,7 @@ std::vector<std::pair<EntityID, EditorEntityState>> EditorEntityStateStore::stat
 void EditorEntityStateStore::erase_if_default(EntityID id) {
     const auto it = m_states.find(id);
     if (it != m_states.end() && !it->second.locked && it->second.visible_in_editor &&
-        it->second.component_order.empty()) {
+        it->second.component_order.empty() && it->second.component_open_states.empty()) {
         m_states.erase(it);
     }
 }
@@ -97,6 +110,19 @@ void EditorEntityStateStore::set_visible(EntityID id, bool value) {
     ++m_persistence_revision;
 }
 
+void EditorEntityStateStore::set_component_open(
+    EntityID id,
+    std::string component_key,
+    bool value
+) {
+    if (id == 0 || component_key.empty()) return;
+    auto& state = m_states[id];
+    const auto previous = state.component_open_states.find(component_key);
+    if (previous != state.component_open_states.end() && previous->second == value) return;
+    state.component_open_states[std::move(component_key)] = value;
+    ++m_persistence_revision;
+}
+
 void EditorEntityStateStore::set_component_order(EntityID id, std::vector<std::string> order) {
     if (id == 0) return;
     auto& state = m_states[id];
@@ -108,7 +134,9 @@ void EditorEntityStateStore::clear_component_orders() {
     std::vector<EntityID> defaults;
     for (auto& [id, state] : m_states) {
         state.component_order.clear();
-        if (!state.locked && state.visible_in_editor) defaults.push_back(id);
+        if (!state.locked && state.visible_in_editor && state.component_open_states.empty()) {
+            defaults.push_back(id);
+        }
     }
     for (const EntityID id : defaults) m_states.erase(id);
 }
@@ -117,8 +145,10 @@ void EditorEntityStateStore::set(EntityID id, EditorEntityState state) {
     if (id == 0) return;
     const EditorEntityState previous = get(id);
     const bool persistence_changed = previous.locked != state.locked ||
-        previous.visible_in_editor != state.visible_in_editor;
-    if (!state.locked && state.visible_in_editor && state.component_order.empty()) {
+        previous.visible_in_editor != state.visible_in_editor ||
+        previous.component_open_states != state.component_open_states;
+    if (!state.locked && state.visible_in_editor && state.component_order.empty() &&
+        state.component_open_states.empty()) {
         m_states.erase(id);
     } else {
         m_states[id] = state;
@@ -128,7 +158,8 @@ void EditorEntityStateStore::set(EntityID id, EditorEntityState state) {
 
 void EditorEntityStateStore::remove(EntityID id) {
     const auto it = m_states.find(id);
-    if (it != m_states.end() && (it->second.locked || !it->second.visible_in_editor)) {
+    if (it != m_states.end() && (it->second.locked || !it->second.visible_in_editor ||
+        !it->second.component_open_states.empty())) {
         ++m_persistence_revision;
     }
     m_states.erase(id);
@@ -149,7 +180,8 @@ void EditorEntityStateStore::prune(const EntityManager& em) {
 
 void EditorEntityStateStore::clear() {
     if (std::any_of(m_states.begin(), m_states.end(), [](const auto& entry) {
-            return entry.second.locked || !entry.second.visible_in_editor;
+            return entry.second.locked || !entry.second.visible_in_editor ||
+                !entry.second.component_open_states.empty();
         })) {
         ++m_persistence_revision;
     }

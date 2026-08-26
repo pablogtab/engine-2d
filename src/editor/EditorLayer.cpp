@@ -33,6 +33,7 @@
 #include "../tilemap/Tilemap.hpp"
 #include <filesystem>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <nlohmann/json.hpp>
@@ -98,6 +99,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     m_autosave_preferences_path = m_project_root / "ProjectSettings/EditorAutosave.json";
     m_entity_state_preferences_path = m_project_root / "Library/Editor/EntityStates.json";
     m_panel_state_path = m_project_root / "Library/Editor/PanelStates.json";
+    m_hot_exit_session_path = m_project_root / "Library/Editor/SessionState.json";
     static_cast<void>(m_panel_states.load(m_panel_state_path.string()));
     m_saved_panel_state_revision = m_panel_states.revision();
     const std::filesystem::path editor_layout_path = m_project_root / "Library/Editor/imgui.ini";
@@ -385,6 +387,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
 void EditorLayer::shutdown() {
     if (!m_initialized) return;
 
+    save_hot_exit_session();
     save_entity_state_preferences();
     persist_panel_states();
     persist_imgui_layout();
@@ -448,6 +451,7 @@ void EditorLayer::load_entity_state_preferences(
             EditorEntityState reset = previous;
             reset.locked = false;
             reset.visible_in_editor = true;
+            reset.component_open_states.clear();
             session.entity_state_store->set(entity, std::move(reset));
         }
         const EntityManager& em = scene->get_entity_manager();
@@ -458,6 +462,14 @@ void EditorLayer::load_entity_state_preferences(
             EditorEntityState state = session.entity_state_store->get(entity);
             state.locked = entry.value("locked", false);
             state.visible_in_editor = entry.value("visible", true);
+            if (const auto component_open = entry.find("component_open");
+                component_open != entry.end() && component_open->is_object()) {
+                for (const auto& [component_key, open_value] : component_open->items()) {
+                    if (open_value.is_boolean()) {
+                        state.component_open_states[component_key] = open_value.get<bool>();
+                    }
+                }
+            }
             session.entity_state_store->set(entity, std::move(state));
         }
     } catch (const std::exception& exception) {
@@ -466,7 +478,7 @@ void EditorLayer::load_entity_state_preferences(
 }
 
 void EditorLayer::save_entity_state_preferences() {
-    nlohmann::json root{{"version", 1}, {"scenes", nlohmann::json::object()}};
+    nlohmann::json root{{"version", 2}, {"scenes", nlohmann::json::object()}};
     if (std::filesystem::exists(m_entity_state_preferences_path)) {
         try {
             nlohmann::json existing = nlohmann::json::parse(
@@ -477,7 +489,7 @@ void EditorLayer::save_entity_state_preferences() {
             // Replace malformed local state; it is cache-like editor data.
         }
     }
-    root["version"] = 1;
+    root["version"] = 2;
     if (!root.contains("scenes") || !root["scenes"].is_object()) {
         root["scenes"] = nlohmann::json::object();
     }
@@ -487,12 +499,17 @@ void EditorLayer::save_entity_state_preferences() {
         nlohmann::json entries = nlohmann::json::array();
         const EntityManager& em = scene->get_entity_manager();
         for (const auto& [entity, state] : session.entity_state_store->states()) {
-            if (!em.is_alive(entity) || (!state.locked && state.visible_in_editor)) continue;
-            entries.push_back({
+            if (!em.is_alive(entity) || (!state.locked && state.visible_in_editor &&
+                state.component_open_states.empty())) continue;
+            nlohmann::json entry{
                 {"entity", entity},
                 {"locked", state.locked},
                 {"visible", state.visible_in_editor}
-            });
+            };
+            if (!state.component_open_states.empty()) {
+                entry["component_open"] = state.component_open_states;
+            }
+            entries.push_back(std::move(entry));
         }
         if (entries.empty()) {
             root["scenes"].erase(session.autosave_identity);
@@ -590,6 +607,18 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
             it->second.entity_state_store->persistence_revision();
     }
     return it->second;
+}
+
+void EditorLayer::bind_scene_path(const Scene* scene, const std::string& path) {
+    if (!scene || path.empty()) return;
+    EditorSceneSession& session = get_or_create_session(scene, scene->get_name());
+    session.file_path = path;
+    session.autosave_identity = normalized_scene_identity(path);
+    load_entity_state_preferences(scene, session);
+    if (session.entity_state_store) {
+        session.persisted_entity_state_revision =
+            session.entity_state_store->persistence_revision();
+    }
 }
 
 void EditorLayer::update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store, std::shared_ptr<EditorSelection> sel) {
@@ -755,15 +784,19 @@ bool EditorLayer::request_destructive_action(PendingDestructiveAction action) {
 }
 
 bool EditorLayer::request_exit() {
-    return request_destructive_action({
-        .type = PendingActionType::ExitApp,
-        .target = "",
-        .action = [this]() {
-            if (m_window_wrapper) {
-                m_window_wrapper->force_close();
+    if (m_prefab_stage && m_prefab_stage->is_active() && m_prefab_stage->is_dirty()) {
+        return request_destructive_action({
+            .type = PendingActionType::ExitApp,
+            .target = "",
+            .action = [this]() {
+                save_hot_exit_session();
+                if (m_window_wrapper) m_window_wrapper->force_close();
             }
-        }
-    });
+        });
+    }
+    save_hot_exit_session();
+    if (m_window_wrapper) m_window_wrapper->force_close();
+    return true;
 }
 
 bool EditorLayer::request_project_hub() {
@@ -781,6 +814,8 @@ void EditorLayer::begin_frame() {
     update_lighting_bakes();
     if (!m_visible) return;
 
+    sync_active_scene_session();
+    restore_hot_exit_session();
     sync_active_scene_session();
     update_window_title();
 
@@ -853,6 +888,244 @@ void EditorLayer::persist_panel_states() {
     if (m_panel_states.revision() == m_saved_panel_state_revision) return;
     if (m_panel_states.save(m_panel_state_path.string())) {
         m_saved_panel_state_revision = m_panel_states.revision();
+    }
+}
+
+bool EditorLayer::save_hot_exit_session() {
+    if (!m_scene_manager) return true;
+
+    nlohmann::json scenes = nlohmann::json::array();
+    std::string active_identity;
+    Scene* active_scene = m_scene_manager->get_active_scene();
+    std::vector<std::string> captured_identities;
+
+    for (const auto& scene : m_scene_manager->get_scenes()) {
+        if (!scene) continue;
+        EditorSceneSession& session = get_or_create_session(scene.get(), scene->get_name());
+        const bool dirty = session.command_history && session.command_history->is_dirty();
+        const bool needs_snapshot = dirty || session.file_path.empty();
+        nlohmann::json entry{
+            {"identity", session.autosave_identity},
+            {"source_path", session.file_path},
+            {"scene_name", scene->get_name()},
+            {"dirty", needs_snapshot},
+            {"open", is_scene_tab_open(scene.get())},
+            {"selection", nlohmann::json::array()}
+        };
+        if (session.selection) {
+            std::vector<EntityID> selected(
+                session.selection->get_selected().begin(),
+                session.selection->get_selected().end()
+            );
+            std::sort(selected.begin(), selected.end());
+            entry["selection"] = selected;
+        }
+        if (needs_snapshot) {
+            SceneEditorMetadata metadata = capture_scene_editor_metadata(
+                session.entity_state_store.get()
+            );
+            entry["snapshot_json"] = SceneSerializer(
+                scene.get(), m_renderer, nullptr, &metadata
+            ).serialize_to_string();
+        }
+        if (scene.get() == active_scene) active_identity = session.autosave_identity;
+        captured_identities.push_back(session.autosave_identity);
+        scenes.push_back(std::move(entry));
+    }
+
+    nlohmann::json selected_panels = nlohmann::json::array();
+    if (ImGui::GetCurrentContext()) {
+        for (const auto& panel : m_panels) {
+            if (!panel || !panel->is_open) continue;
+            ImGuiWindow* window = ImGui::FindWindowByName(panel->get_name().c_str());
+            if (window && window->DockNode &&
+                window->DockNode->SelectedTabId == window->TabId) {
+                selected_panels.push_back(panel->get_name());
+            }
+        }
+    }
+
+    nlohmann::json viewport_camera = nullptr;
+    if (m_scene_manager->is_editing()) {
+        const Camera2D* camera = m_scene_manager->get_render_camera(RenderViewKind::Editor);
+        if (camera) {
+            const glm::vec2 position = camera->get_position();
+            viewport_camera = {
+                {"position", {position.x, position.y}},
+                {"zoom", camera->get_zoom()}
+            };
+        }
+    }
+    if (viewport_camera.is_null() && std::filesystem::exists(m_hot_exit_session_path)) {
+        try {
+            const nlohmann::json previous = nlohmann::json::parse(
+                FileSystem::read_text(m_hot_exit_session_path.string())
+            );
+            if (previous.contains("viewport_camera")) {
+                viewport_camera = previous["viewport_camera"];
+            }
+        } catch (const std::exception&) {
+            // A fresh atomic checkpoint below replaces malformed session data.
+        }
+    }
+
+    const nlohmann::json root{
+        {"version", 1},
+        {"active_scene", active_identity},
+        {"selected_panels", std::move(selected_panels)},
+        {"viewport_camera", std::move(viewport_camera)},
+        {"scenes", std::move(scenes)}
+    };
+    std::error_code error;
+    std::filesystem::create_directories(m_hot_exit_session_path.parent_path(), error);
+    if (error || !FileSystem::write_text_atomically(
+            m_hot_exit_session_path.string(), root.dump(2))) {
+        ENGINE_LOG_ERROR("[EDITOR] Failed saving hot-exit session");
+        return false;
+    }
+    for (const std::string& identity : captured_identities) {
+        static_cast<void>(m_autosave_recovery.remove(identity));
+    }
+    return true;
+}
+
+void EditorLayer::restore_hot_exit_session() {
+    if (m_hot_exit_restored) return;
+    m_hot_exit_restored = true;
+    if (!m_scene_manager || !std::filesystem::exists(m_hot_exit_session_path)) return;
+
+    try {
+        const nlohmann::json root = nlohmann::json::parse(
+            FileSystem::read_text(m_hot_exit_session_path.string())
+        );
+        if (root.value("version", 0) != 1 || !root.contains("scenes") ||
+            !root["scenes"].is_array()) return;
+
+        m_panels_to_reselect.clear();
+        if (root.contains("selected_panels") && root["selected_panels"].is_array()) {
+            for (const nlohmann::json& panel : root["selected_panels"]) {
+                if (panel.is_string()) m_panels_to_reselect.push_back(panel.get<std::string>());
+            }
+        }
+
+        std::unordered_map<std::string, Scene*> restored_scenes;
+        std::vector<std::string> open_identities;
+        for (const nlohmann::json& entry : root["scenes"]) {
+            if (!entry.is_object()) continue;
+            const std::string identity = entry.value("identity", "");
+            const std::string source_path = entry.value("source_path", "");
+            const std::string scene_name = entry.value("scene_name", "Scene");
+            const std::string snapshot = entry.value("snapshot_json", "");
+            Scene* target = nullptr;
+
+            for (const auto& candidate : m_scene_manager->get_scenes()) {
+                if (!candidate) continue;
+                const auto session_it = m_scene_sessions.find(candidate.get());
+                if (session_it != m_scene_sessions.end() &&
+                    session_it->second.autosave_identity == identity) {
+                    target = candidate.get();
+                    break;
+                }
+            }
+            if (!target && !source_path.empty() && std::filesystem::exists(source_path)) {
+                load_scene(source_path);
+                for (const auto& candidate : m_scene_manager->get_scenes()) {
+                    if (!candidate) continue;
+                    const auto session_it = m_scene_sessions.find(candidate.get());
+                    if (session_it != m_scene_sessions.end() &&
+                        session_it->second.autosave_identity == normalized_scene_identity(source_path)) {
+                        target = candidate.get();
+                        break;
+                    }
+                }
+            }
+            if (!target && !snapshot.empty()) {
+                auto restored = std::make_shared<Scene>(scene_name);
+                SceneEditorMetadata metadata;
+                if (!SceneSerializer(restored.get(), m_renderer, nullptr, &metadata)
+                        .deserialize_from_string(snapshot)) continue;
+                m_scene_manager->add_scene(restored);
+                target = restored.get();
+                EditorSceneSession& session = get_or_create_session(target, scene_name);
+                session.file_path = source_path;
+                session.autosave_identity = identity;
+                apply_scene_editor_metadata(metadata, session.entity_state_store.get());
+            }
+            if (!target) continue;
+
+            EditorSceneSession& session = get_or_create_session(target, scene_name);
+            if (!source_path.empty() && session.autosave_identity != identity) {
+                bind_scene_path(target, source_path);
+            } else if (!identity.empty()) {
+                session.autosave_identity = identity;
+            }
+            if (entry.value("dirty", false) && !snapshot.empty()) {
+                SceneEditorMetadata metadata;
+                if (SceneSerializer(target, m_renderer, nullptr, &metadata)
+                        .deserialize_from_string(snapshot)) {
+                    apply_scene_editor_metadata(metadata, session.entity_state_store.get());
+                    session.command_history->reset_clean_baseline(0);
+                    session.command_history->mark_recovered();
+                }
+            }
+            if (session.selection && entry.contains("selection") &&
+                entry["selection"].is_array()) {
+                std::unordered_set<EntityID> selected;
+                const EntityManager& em = target->get_entity_manager();
+                for (const nlohmann::json& selected_id : entry["selection"]) {
+                    if (!selected_id.is_number_unsigned()) continue;
+                    const EntityID entity = selected_id.get<EntityID>();
+                    if (em.is_alive(entity)) selected.insert(entity);
+                }
+                session.selection->set_selection(selected);
+            }
+            restored_scenes[identity] = target;
+            if (entry.value("open", false)) open_identities.push_back(identity);
+        }
+
+        m_open_scene_tabs.clear();
+        for (const std::string& identity : open_identities) {
+            const auto restored = restored_scenes.find(identity);
+            if (restored != restored_scenes.end()) open_scene_tab(restored->second);
+        }
+        const std::string active_identity = root.value("active_scene", "");
+        const auto active = restored_scenes.find(active_identity);
+        if (active != restored_scenes.end()) {
+            const auto& scenes_list = m_scene_manager->get_scenes();
+            const auto scene_it = std::find_if(
+                scenes_list.begin(), scenes_list.end(), [&active](const auto& scene) {
+                    return scene && scene.get() == active->second;
+                }
+            );
+            if (scene_it != scenes_list.end()) {
+                activate_scene(static_cast<std::size_t>(
+                    std::distance(scenes_list.begin(), scene_it)
+                ));
+            }
+        }
+        if (root.contains("viewport_camera") && root["viewport_camera"].is_object()) {
+            const nlohmann::json& viewport = root["viewport_camera"];
+            const auto position = viewport.find("position");
+            const float zoom = viewport.value("zoom", 1.0f);
+            if (position != viewport.end() && position->is_array() &&
+                position->size() == 2 && (*position)[0].is_number() &&
+                (*position)[1].is_number() && std::isfinite(zoom)) {
+                const glm::vec2 restored_position{
+                    (*position)[0].get<float>(), (*position)[1].get<float>()
+                };
+                if (std::isfinite(restored_position.x) &&
+                    std::isfinite(restored_position.y)) {
+                    if (Camera2D* camera = m_scene_manager->get_render_camera(
+                            RenderViewKind::Editor)) {
+                        camera->set_position(restored_position);
+                        camera->set_zoom(zoom);
+                    }
+                }
+            }
+        }
+        ENGINE_LOG_INFO("[EDITOR] Restored hot-exit session");
+    } catch (const std::exception& exception) {
+        ENGINE_LOG_WARN("[EDITOR] Ignoring invalid hot-exit session: {}", exception.what());
     }
 }
 
@@ -1667,6 +1940,14 @@ void EditorLayer::render_panels(float delta_time) {
         }
     }
 
+    if (!m_panels_to_reselect.empty()) {
+        for (const std::string& panel_name : m_panels_to_reselect) {
+            const auto panel = get_panel(panel_name);
+            if (panel && panel->is_open) ImGui::SetWindowFocus(panel_name.c_str());
+        }
+        m_panels_to_reselect.clear();
+    }
+
     const bool entity_state_changed = std::any_of(
         m_scene_sessions.begin(), m_scene_sessions.end(), [](const auto& entry) {
             const EditorSceneSession& session = entry.second;
@@ -1677,6 +1958,12 @@ void EditorLayer::render_panels(float delta_time) {
     );
     if (entity_state_changed) save_entity_state_preferences();
     persist_panel_states();
+
+    m_hot_exit_checkpoint_elapsed += std::max(delta_time, 0.0f);
+    if (m_hot_exit_checkpoint_elapsed >= 2.0f) {
+        m_hot_exit_checkpoint_elapsed = 0.0f;
+        save_hot_exit_session();
+    }
 }
 
 void EditorLayer::update_autosaves(float delta_time) {

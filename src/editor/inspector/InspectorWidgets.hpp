@@ -9,6 +9,7 @@
 
 namespace Engine {
 class EntityManager;
+class EditorEntityStateStore;
 }
 
 namespace Engine::InspectorWidgets {
@@ -22,6 +23,7 @@ struct PropertyInteraction {
 
 struct ComponentHeaderResult {
     bool open{false};
+    bool toggled_open{false};
     bool remove_requested{false};
     bool revert_override_requested{false};
     bool apply_override_requested{false};
@@ -37,6 +39,7 @@ void request_cancel_active_property();
 // Enables drag-to-reorder on the next registered component header drawn by
 // the Inspector. The header itself remains the source, matching Hierarchy rows.
 void set_component_header_reorder_enabled(bool enabled);
+void set_component_header_state_context(EditorEntityStateStore* store, EntityID entity);
 
 // Unity-style component header. Removable components expose a compact options
 // menu in their own header instead of relying on a global removal picker.

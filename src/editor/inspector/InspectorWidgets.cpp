@@ -1,5 +1,6 @@
 #include "InspectorWidgets.hpp"
 #include "EditorComponentRegistry.hpp"
+#include "../state/EditorEntityStateStore.hpp"
 #include "../tools/EditorIcons.hpp"
 #include "../../ecs/EntityManager.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
@@ -18,6 +19,8 @@ PropertyInteraction g_property_interaction;
 ImGuiID g_active_property_id = 0;
 ImGuiID g_cancel_requested_for = 0;
 bool g_component_header_reorder_enabled = false;
+EditorEntityStateStore* g_component_header_state_store = nullptr;
+EntityID g_component_header_state_entity = 0;
 
 } // namespace
 
@@ -65,6 +68,11 @@ void set_component_header_reorder_enabled(bool enabled) {
     g_component_header_reorder_enabled = enabled;
 }
 
+void set_component_header_state_context(EditorEntityStateStore* store, EntityID entity) {
+    g_component_header_state_store = store;
+    g_component_header_state_entity = store ? entity : 0;
+}
+
 ComponentHeaderResult component_header(
     const char* label,
     const char* id,
@@ -80,6 +88,7 @@ ComponentHeaderResult component_header(
         (removable ? ImGuiTreeNodeFlags_AllowOverlap : 0);
     const std::string header_label = editor_icon_label(icon, label);
     const bool open = ImGui::CollapsingHeader(header_label.c_str(), flags);
+    const bool toggled_open = ImGui::IsItemToggledOpen();
     const ImVec2 content_position = ImGui::GetCursorScreenPos();
     bool remove_requested = false;
     bool revert_override_requested = false;
@@ -172,7 +181,7 @@ ComponentHeaderResult component_header(
     }
 
     ImGui::PopID();
-    return {open, remove_requested, revert_override_requested, apply_override_requested};
+    return {open, toggled_open, remove_requested, revert_override_requested, apply_override_requested};
 }
 
 ComponentHeaderResult registered_component_header(
@@ -181,25 +190,42 @@ ComponentHeaderResult registered_component_header(
     bool default_open,
     bool has_override
 ) {
+    const std::optional<bool> saved_open = g_component_header_state_store
+        ? g_component_header_state_store->component_open_state(
+            g_component_header_state_entity, component_key
+        )
+        : std::nullopt;
+    if (g_component_header_state_store) {
+        ImGui::SetNextItemOpen(saved_open.value_or(default_open), ImGuiCond_Always);
+    }
+
     const EditorComponentDescriptor* descriptor = default_editor_component_registry().find(component_key);
+    ComponentHeaderResult result;
     if (!descriptor) {
         const std::string fallback_label(component_key);
         const std::string fallback_id = fallback_label + "Header";
-        return component_header(
+        result = component_header(
             fallback_label.c_str(), fallback_id.c_str(), removable, default_open,
             EditorIcon::Component, has_override,
             g_component_header_reorder_enabled ? fallback_label.c_str() : nullptr
         );
+    } else {
+        result = component_header(
+            descriptor->display_name.c_str(),
+            descriptor->drawer_key.c_str(),
+            removable,
+            default_open,
+            descriptor->icon,
+            has_override,
+            g_component_header_reorder_enabled ? descriptor->component_key.c_str() : nullptr
+        );
     }
-    return component_header(
-        descriptor->display_name.c_str(),
-        descriptor->drawer_key.c_str(),
-        removable,
-        default_open,
-        descriptor->icon,
-        has_override,
-        g_component_header_reorder_enabled ? descriptor->component_key.c_str() : nullptr
-    );
+    if (g_component_header_state_store && result.toggled_open) {
+        g_component_header_state_store->set_component_open(
+            g_component_header_state_entity, std::string(component_key), result.open
+        );
+    }
+    return result;
 }
 
 

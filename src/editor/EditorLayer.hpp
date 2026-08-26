@@ -105,6 +105,7 @@ public:
 
     // Session & Action Pipeline
     EditorSceneSession& get_or_create_session(const Scene* scene, const std::string& default_name = "");
+    void bind_scene_path(const Scene* scene, const std::string& path);
     void sync_active_scene_session();
     void cleanup_stale_sessions();
     void update_window_title();
@@ -130,6 +131,8 @@ private:
     void setup_default_dockspace_layout(uint32_t dockspace_id);
     void persist_imgui_layout();
     void persist_panel_states();
+    bool save_hot_exit_session();
+    void restore_hot_exit_session();
     void update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch);
     void update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store, std::shared_ptr<EditorSelection> sel = nullptr);
     void render_prefab_stage_modals();
@@ -178,11 +181,13 @@ private:
     std::filesystem::path m_autosave_preferences_path{"ProjectSettings/EditorAutosave.json"};
     std::filesystem::path m_entity_state_preferences_path{"Library/Editor/EntityStates.json"};
     std::filesystem::path m_panel_state_path{"Library/Editor/PanelStates.json"};
+    std::filesystem::path m_hot_exit_session_path{"Library/Editor/SessionState.json"};
     std::string m_imgui_ini_path;
     std::string m_last_saved_imgui_ini;
     EditorPanelStateStore m_panel_states;
     std::uint64_t m_saved_panel_state_revision{0};
     std::vector<AutosaveRecord> m_pending_recoveries;
+    std::vector<std::string> m_panels_to_reselect;
     const Scene* m_last_active_scene{nullptr};
 
     bool m_initialized{false};
@@ -193,7 +198,9 @@ private:
     bool m_show_prefab_stage_exit_modal{false};
     bool m_show_autosave_preferences{false};
     bool m_recovery_scan_complete{false};
+    bool m_hot_exit_restored{false};
     float m_autosave_elapsed{0.0f};
+    float m_hot_exit_checkpoint_elapsed{0.0f};
     int m_autosave_interval_seconds{60};
     char m_autosave_directory[1024]{"Library/Autosaves"};
     PendingDestructiveAction m_pending_action;

@@ -94,6 +94,29 @@ void test_component_order_resolution_and_authoring_command() {
     std::cout << "[PASS] test_component_order_resolution_and_authoring_command" << std::endl;
 }
 
+void test_component_open_state_persistence() {
+    EditorEntityStateStore store;
+    const std::uint64_t initial_revision = store.persistence_revision();
+
+    assert(!store.component_open_state(12, "sprite").has_value());
+    store.set_component_open(12, "sprite", false);
+    assert(store.component_open_state(12, "sprite") == false);
+    assert(store.persistence_revision() == initial_revision + 1);
+
+    store.set_component_open(12, "sprite", false);
+    assert(store.persistence_revision() == initial_revision + 1);
+    store.set_component_open(12, "sprite", true);
+    assert(store.component_open_state(12, "sprite") == true);
+    assert(store.persistence_revision() == initial_revision + 2);
+
+    EditorEntityState restored = store.get(12);
+    EditorEntityStateStore copy;
+    copy.set(12, restored);
+    assert(copy.component_open_state(12, "sprite") == true);
+    assert(copy.states().size() == 1);
+    std::cout << "[PASS] test_component_open_state_persistence" << std::endl;
+}
+
 void test_pruning() {
     EntityManager em;
     EntityID e1 = em.create_entity();
@@ -192,6 +215,7 @@ int main() {
     test_mutations();
     test_state_snapshot_is_sorted_and_complete();
     test_component_order_resolution_and_authoring_command();
+    test_component_open_state_persistence();
     test_pruning();
     test_state_commands_single();
     test_state_commands_multi();

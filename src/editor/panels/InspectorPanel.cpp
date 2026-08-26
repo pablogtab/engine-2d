@@ -172,7 +172,11 @@ void InspectorPanel::on_gui() {
 
         const auto saved_history = m_command_history;
         if (runtime_mode) m_command_history.reset();
+        InspectorWidgets::set_component_header_state_context(
+            runtime_mode ? nullptr : m_entity_state_store.get(), selected_id
+        );
         draw_components(em, selected_id);
+        InspectorWidgets::set_component_header_state_context(nullptr, 0);
         if (runtime_mode) m_command_history = saved_history;
         ImGui::PopStyleVar(3);
         ImGui::PopFont();
