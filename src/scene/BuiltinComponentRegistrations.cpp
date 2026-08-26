@@ -895,11 +895,13 @@ void register_script(ComponentRegistry& registry) {
                     if (!script_field_value_matches_type(field)) {
                         throw std::runtime_error("Script field type does not match its stored value: " + field.name);
                     }
-                    fields.push_back({
+                    Json serialized_field{
                         {"name", field.name},
                         {"type", script_field_type_to_string(field.type)},
                         {"value", serialize_script_field_value(field)}
-                    });
+                    };
+                    if (!field.component_type.empty()) serialized_field["component_type"] = field.component_type;
+                    fields.push_back(std::move(serialized_field));
                 }
                 Json value{
                     {"id", std::to_string(instance.id)},
@@ -965,6 +967,13 @@ void register_script(ComponentRegistry& registry) {
                         ) || !deserialize_script_field_value(
                             field.type, field_value["value"], field.value, error
                         )) return false;
+                    if (field_value.contains("component_type")) {
+                        if (!field_value["component_type"].is_string()) {
+                            error = "Script component reference type is invalid";
+                            return false;
+                        }
+                        field.component_type = field_value["component_type"].get<std::string>();
+                    }
                     const bool duplicate = std::any_of(
                         instance.public_fields.begin(), instance.public_fields.end(),
                         [&field](const ScriptPublicField& existing) { return existing.name == field.name; }

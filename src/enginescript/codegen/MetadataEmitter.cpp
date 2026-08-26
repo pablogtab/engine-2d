@@ -95,6 +95,7 @@ std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
                     }
                     p_obj["isExposed"] = is_exp;
                     p_obj["isSerializable"] = is_ser;
+                    p_obj["isBehaviourReference"] = prop.type && prop.type->is_behaviour;
 
                     auto min_it = prop.numeric_attributes.find("min");
                     if (min_it != prop.numeric_attributes.end()) {
@@ -178,6 +179,7 @@ ProjectMetadataManifest MetadataEmitter::parse_json(const std::string& json_str)
                         if (prop.contains("defaultValue")) epd.default_value_str = prop["defaultValue"].get<std::string>();
                         if (prop.contains("isExposed")) epd.is_exposed = prop["isExposed"].get<bool>();
                         if (prop.contains("isSerializable")) epd.is_serializable = prop["isSerializable"].get<bool>();
+                        if (prop.contains("isBehaviourReference")) epd.is_behaviour_reference = prop["isBehaviourReference"].get<bool>();
                         if (prop.contains("minValue")) epd.min_value = prop["minValue"].get<double>();
                         if (prop.contains("maxValue")) epd.max_value = prop["maxValue"].get<double>();
                         bm.properties.push_back(epd);

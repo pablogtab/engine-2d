@@ -735,6 +735,11 @@ void CppEmitter::emit_exposed_property_bridge(const IRClass& cls, std::string& o
                 "        if (const auto* typed_value = std::get_if<EngineScript::Entity>(&value)) {{ {} = typed_value->getComponent<{}>(); return true; }}\n",
                 property.name, target_cpp
             );
+        } else if (property.type && property.type->kind == TypeKind::Class && property.type->is_behaviour) {
+            out += std::format(
+                "        if (const auto* typed_value = std::get_if<EngineScript::Entity>(&value)) {{ {} = typed_value->getComponent<{}>(); return true; }}\n",
+                property.name, property.type->name
+            );
         }
         out += "        return false;\n    }\n";
     }
@@ -758,6 +763,8 @@ void CppEmitter::emit_exposed_property_bridge(const IRClass& cls, std::string& o
         } else if (property.type && property.type->kind == TypeKind::Entity) {
             out += std::format("        value = {}; return true;\n", property.name);
         } else if (property.type && property.type->name == "ComponentRef" && property.type->type_args.size() == 1) {
+            out += std::format("        value = EngineScript::Entity{{.id = {}.reference().entity_id}}; return true;\n", property.name);
+        } else if (property.type && property.type->kind == TypeKind::Class && property.type->is_behaviour) {
             out += std::format("        value = EngineScript::Entity{{.id = {}.reference().entity_id}}; return true;\n", property.name);
         } else {
             out += "        return false;\n";

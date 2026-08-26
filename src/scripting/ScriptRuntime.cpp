@@ -1668,9 +1668,11 @@ std::vector<ScriptPublicField> public_fields_from_behaviour(const EngineScript::
                 }
             }
             field.value = value;
-        } else if (property.type.starts_with("ComponentRef<")) {
+        } else if (property.type.starts_with("ComponentRef<") || property.is_behaviour_reference) {
             field.type = ScriptFieldType::Entity;
             field.value = EntityID{0};
+            field.component_type = property.is_behaviour_reference ? property.type : property.type.substr(
+                std::string{"ComponentRef<"}.size(), property.type.size() - std::string{"ComponentRef<"}.size() - 1);
         } else {
             continue;
         }

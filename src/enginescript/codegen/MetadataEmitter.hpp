@@ -17,6 +17,7 @@ struct ExposedPropertyDesc {
     std::optional<double> max_value;
     bool is_exposed = false;
     bool is_serializable = true;
+    bool is_behaviour_reference = false;
 };
 
 struct InjectedDependencyDesc {

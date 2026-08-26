@@ -59,7 +59,7 @@ void test_round_trip_references_and_transactional_rejection() {
         {"speed", ScriptFieldType::Number, 12.5},
         {"title", ScriptFieldType::String, std::string("Hero")},
         {"offset", ScriptFieldType::Vector2, ScriptVector2{3.0f, 4.0f}},
-        {"target", ScriptFieldType::Entity, target},
+        {"target", ScriptFieldType::Entity, target, "Transform2D"},
         {"texture", ScriptFieldType::Asset, AssetHandle{0x5678}},
         {"optional_texture", ScriptFieldType::Asset, AssetHandle{}}
     };

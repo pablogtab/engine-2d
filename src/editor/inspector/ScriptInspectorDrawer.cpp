@@ -8,6 +8,7 @@
 #include "../scripting/ScriptAnalyzer.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include "../../ecs/EntityManager.hpp"
+#include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../ecs/components/ScriptingComponents.hpp"
 #include "../../scripting/ScriptRuntime.hpp"
 
@@ -75,6 +76,7 @@ void synchronize_fields(ScriptBehaviourSlot& instance, const std::vector<ScriptP
             instance.public_fields.begin(), instance.public_fields.end(),
             [&definition](const ScriptPublicField& field) {
                 return field.name == definition.name && field.type == definition.type &&
+                    field.component_type == definition.component_type &&
                     script_field_value_matches_type(field);
             }
         );
@@ -210,8 +212,9 @@ void ScriptInspectorDrawer::draw(
         ImGui::Separator();
         const AssetRecord* record = instance.script_handle.is_valid()
             ? AssetDatabase::get().find(instance.script_handle) : nullptr;
-        ImGui::Text("Behaviour %zu: %s%s", index + 1,
-            record ? record->source_path.c_str() : "Unassigned",
+        const std::string component_name = record
+            ? std::filesystem::path(record->source_path).stem().string() : "Unassigned Behaviour";
+        ImGui::Text("%s%s", component_name.c_str(),
             instance.runtime_only ? " (Runtime)" : "");
 
         if (index > 0 && ImGui::SmallButton("Up")) {
@@ -309,7 +312,21 @@ void ScriptInspectorDrawer::draw(
                 }
                 case ScriptFieldType::Entity: {
                     EntityID value = std::get<EntityID>(field.value);
-                    changed = InspectorWidgets::property_entity_picker(field.name.c_str(), &value, entity_manager);
+                    const auto accepts_target = [&field, &entity_manager](EntityID candidate) {
+                        if (field.component_type.empty()) return true;
+                        if (field.component_type == "Transform2D") return entity_manager.has_component<TransformComponent>(candidate);
+                        if (field.component_type == "RigidBody2D") return entity_manager.has_component<RigidBodyComponent>(candidate);
+                        if (field.component_type == "SpriteRenderer2D") return entity_manager.has_component<SpriteComponent>(candidate);
+                        if (!entity_manager.has_component<ScriptComponent>(candidate)) return false;
+                        const ScriptComponent& scripts = entity_manager.get_component<ScriptComponent>(candidate);
+                        for (const ScriptBehaviourSlot& slot : scripts.instances) {
+                            const AssetRecord* asset = slot.script_handle.is_valid()
+                                ? AssetDatabase::get().find(slot.script_handle) : nullptr;
+                            if (asset && std::filesystem::path(asset->source_path).stem() == field.component_type) return true;
+                        }
+                        return false;
+                    };
+                    changed = InspectorWidgets::property_entity_picker(field.name.c_str(), &value, entity_manager, false, accepts_target);
                     if (changed) field.value = value;
                     discrete = changed;
                     break;
