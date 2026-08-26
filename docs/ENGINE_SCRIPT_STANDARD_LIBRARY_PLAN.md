@@ -101,10 +101,10 @@ La biblioteca estándar expone primitivas estáticas con semilla explícita (`ne
 
 ### Ease, Rect y colecciones
 
-- Ease: linear e in/out/inOut de Quad, Cubic, Sine, Expo y Back. Clampa `t`, extremos 0 y 1. Bounce, Elastic y unclamped se postergan.
+- Ease: linear e in/out/inOut de Quad, Cubic, Sine, Expo, Back, Bounce y Elastic. Las curvas normales clampan `t`; las variantes `*Unclamped` preservan el valor de entrada.
 - Rect: `{position: Vec2,size: Vec2}` con `normalized`, `fromMinMax`, `min`, `max`, `center`, `contains`, `overlaps`, `intersection: Rect?`, `union`, `closestPoint`, `expand`. Contains incluye borde; overlaps exige área positiva.
-- Array: `contains`, `indexOf`, `lastIndexOf`, `clear`, `removeAt`, `removeValue`, `reverse`, `swap`.
-- Map/Set: básicos sin asignaciones inesperadas. `Array.shuffle(seed)` y `Array.choose(seed)` son deterministas; `choose` retorna nullable si el array está vacío. `map`, `filter`, `reduce`, comparadores e iteradores lazy esperan spike de closures, genéricos y ownership.
+- Array: `contains`, `indexOf`, `lastIndexOf`, `clear`, `removeAt`, `removeValue`, `reverse`, `swap`, `shuffle`, `choose`, `map`, `filter`, `reduce` y `sortBy`. Los callbacks son eager y no escapan de la llamada.
+- Map/Set: básicos sin asignaciones inesperadas. Los callbacks para Map/Set, comparadores persistentes e iteradores lazy esperan un spike separado de ownership y coste.
 
 ## Fases
 

@@ -300,6 +300,9 @@ This is intentionally independent from the material workflow above. Materials re
 - [x] Remove obsolete renderer compatibility stubs after all callers use the current batching path.
 - [x] Add GPU integration tests or deterministic validation scenes for pass ordering and state reset.
   - [x] Add mode 9 to `PostProcessValidationScene` for deterministic entity, layer, global post-process, and HUD composition using the reusable `ManualNightVision` asset; validate probes and render-target release on Metal.
+- [ ] Establish a renderer-wide linear color pipeline.
+  - Current contract: sprites, lights, render targets, and post-processing consume sRGB `SDL_Color` channels; EngineScript exposes only explicit `Color.srgbToLinear` and `Color.linearToSrgb` helpers for calculations.
+  - Before changing the public renderer contract, define texture decode, linear blending/lighting, render-target formats, final sRGB presentation, and reference-image validation across supported backends.
 
 **Completion criteria:** New effects and lighting can be composed through explicit stages without embedding feature-specific branches throughout `Renderer2D` or scene code.
 
