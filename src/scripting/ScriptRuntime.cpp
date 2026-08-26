@@ -1668,6 +1668,9 @@ std::vector<ScriptPublicField> public_fields_from_behaviour(const EngineScript::
                 }
             }
             field.value = value;
+        } else if (property.type.starts_with("ComponentRef<")) {
+            field.type = ScriptFieldType::Entity;
+            field.value = EntityID{0};
         } else {
             continue;
         }
@@ -1724,7 +1727,11 @@ std::optional<std::uint64_t> file_signature(const std::string& path) {
     return static_cast<std::uint64_t>(time.time_since_epoch().count());
 }
 
-EngineScript::Entity script_entity(EntityManager& entities, EntityID id) {
+EngineScript::Entity script_entity(
+    EntityManager& entities,
+    EntityID id,
+    const ScriptRuntimeBinding* binding = nullptr
+) {
     EngineScript::Entity result;
     result.id = id;
     if (entities.is_alive(id) && entities.has_component<TagComponent>(id)) {
@@ -1738,13 +1745,15 @@ EngineScript::Entity script_entity(EntityManager& entities, EntityID id) {
             runtime_entities->destroy_entity(entity_id);
         }
     };
+    if (binding) bind_dynamic_component_access(result, *binding);
     return result;
 }
 
 bool push_exposed_property(
     EngineScript::NativeBehaviour& behaviour,
     const ScriptPublicField& field,
-    EntityManager& entities
+    EntityManager& entities,
+    const ScriptRuntimeBinding* binding = nullptr
 ) {
     switch (field.type) {
         case ScriptFieldType::Boolean:
@@ -1763,7 +1772,7 @@ bool push_exposed_property(
             break;
         case ScriptFieldType::Entity:
             if (const auto* value = std::get_if<EntityID>(&field.value)) {
-                return behaviour.set_exposed_property(field.name, script_entity(entities, *value));
+                return behaviour.set_exposed_property(field.name, script_entity(entities, *value, binding));
             }
             break;
         case ScriptFieldType::Asset:
@@ -1795,10 +1804,11 @@ void pull_exposed_property(
 void push_exposed_properties(
     EngineScript::NativeBehaviour& behaviour,
     const ScriptBehaviourSlot& component,
-    EntityManager& entities
+    EntityManager& entities,
+    const ScriptRuntimeBinding* binding = nullptr
 ) {
     for (const ScriptPublicField& field : component.public_fields) {
-        static_cast<void>(push_exposed_property(behaviour, field, entities));
+        static_cast<void>(push_exposed_property(behaviour, field, entities, binding));
     }
 }
 
@@ -2168,7 +2178,7 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
     instance.behaviour->task_scope_id = slot.id;
     instance.behaviour->async_scheduler = m_native_async_scheduler.get();
     instance.behaviour->entities = instance.native_host->entities();
-    push_exposed_properties(*instance.behaviour, slot, *m_entity_manager);
+    push_exposed_properties(*instance.behaviour, slot, *m_entity_manager, instance.binding.get());
     try {
         instance.behaviour->on_start();
     } catch (const std::exception& runtime_error) {
@@ -2406,7 +2416,7 @@ void ScriptRuntime::update(float delta_time) {
             ScriptBehaviourSlot* component = find_script_slot(*m_entity_manager, inst.entity, inst.slot_id);
             if (!component || !component->enabled) continue;
             if (inst.native_host) inst.native_host->sync_before();
-            push_exposed_properties(*inst.behaviour, *component, *m_entity_manager);
+            push_exposed_properties(*inst.behaviour, *component, *m_entity_manager, inst.binding.get());
         }
         if (m_native_async_scheduler) {
             m_native_async_scheduler->step(delta_time, delta_time);
@@ -2427,7 +2437,7 @@ void ScriptRuntime::update(float delta_time) {
         ScriptBehaviourSlot* component = find_script_slot(*m_entity_manager, inst.entity, inst.slot_id);
         if (component && component->enabled && inst.behaviour) {
             if (inst.native_host) inst.native_host->sync_before();
-            push_exposed_properties(*inst.behaviour, *component, *m_entity_manager);
+            push_exposed_properties(*inst.behaviour, *component, *m_entity_manager, inst.binding.get());
             try {
                 inst.behaviour->update(delta_time);
                 if (inst.native_host) inst.native_host->sync_after();

@@ -351,9 +351,9 @@ void test_engine_capabilities_report_the_compiled_contract() {
   const EditorAiToolResult result = make_registry().execute(
       "get_engine_capabilities", nlohmann::json::object(), nullptr, nullptr);
   assert(result.success);
-  assert(result.output.at("engine_script").at("abi_version") == 26);
+  assert(result.output.at("engine_script").at("abi_version") == 27);
   assert(result.output.at("engine_script").at("sdk_hash") ==
-         "engine2d_abi_v26");
+         "engine2d_abi_v27");
   const auto &components = result.output.at("registered_components");
   assert(std::any_of(components.begin(), components.end(),
                      [](const nlohmann::json &component) {

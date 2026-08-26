@@ -199,7 +199,7 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
                     );
                 }
             } else if (annot.name == "Array" || annot.name == "Set" || annot.name == "Optional" ||
-                       annot.name == "Weak" || annot.name == "Task") {
+                       annot.name == "Weak" || annot.name == "Task" || annot.name == "ComponentRef") {
                 require_arity(1);
             } else if (annot.name == "Map" || annot.name == "Result") {
                 require_arity(2);
@@ -283,6 +283,13 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
             args.push_back(resolve_type_annotation(a, scope));
         }
         t = Type::make_generic(TypeKind::Task, "Task", args);
+    } else if (annot.name == "ComponentRef") {
+        std::vector<std::shared_ptr<Type>> args;
+        for (const auto& a : annot.generic_args) args.push_back(resolve_type_annotation(a, scope));
+        if (args.size() == 1 && args.front()->kind != TypeKind::Class) {
+            m_diagnostics.report_error("E3096", "ComponentRef<T> requires a component class", annot.span);
+        }
+        t = Type::make_generic(TypeKind::Class, "ComponentRef", std::move(args));
     } else {
         // User class / struct / interface / enum / type parameter.
         std::vector<std::shared_ptr<Type>> args;
@@ -1165,6 +1172,9 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         if (auto member = dynamic_cast<MemberAccessExpr*>(assign->target.get())) {
             const auto owner_t = get_type_of_node(member->object.get());
             std::string owner_name = owner_t ? owner_t->name : "";
+            if (owner_t && owner_t->name == "ComponentRef" && owner_t->type_args.size() == 1) {
+                owner_name = owner_t->type_args.front()->name;
+            }
             if (owner_t && owner_t->kind == TypeKind::String) owner_name = "String";
             if (owner_t && owner_t->kind == TypeKind::Entity) owner_name = "Entity";
             if (const ApiPropertyDescriptor* property = ApiCatalog::instance().find_available_property(owner_name, member->member_name);
@@ -1970,6 +1980,9 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         }
 
         std::string catalog_owner = obj_t->name;
+        if (obj_t->name == "ComponentRef" && obj_t->type_args.size() == 1) {
+            catalog_owner = obj_t->type_args.front()->name;
+        }
         if (obj_t->kind == TypeKind::String) catalog_owner = "String";
         if (obj_t->kind == TypeKind::Entity) catalog_owner = "Entity";
         if (obj_t->kind == TypeKind::Vec2) catalog_owner = "Vec2";

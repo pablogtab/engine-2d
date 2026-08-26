@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "languageVersion": 2,
-  "compilerCacheId": "enginescript_codegen_v2_exposed_vec2_defaults",
-  "abiVersion": 26,
-  "sdkHash": "engine2d_abi_v26",
+  "compilerCacheId": "enginescript_codegen_v3_component_refs",
+  "abiVersion": 27,
+  "sdkHash": "engine2d_abi_v27",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",
@@ -15,7 +15,7 @@
     { "name": "UInt32" }, { "name": "UInt64" }, { "name": "Int" }, { "name": "UInt" },
     { "name": "Float" }, { "name": "Float32" }, { "name": "Float64" }, { "name": "String" },
     { "name": "Vec2" }, { "name": "Vec3" }, { "name": "Vec4" }, { "name": "Color" },
-    { "name": "Duration" }, { "name": "Entity" }, { "name": "Entities" }, { "name": "Array" }, { "name": "FixedArray" },
+    { "name": "Duration" }, { "name": "Entity" }, { "name": "Entities" }, { "name": "ComponentRef", "documentation": "A serialized, generation-safe reference to a component on another entity." }, { "name": "Array" }, { "name": "FixedArray" },
     { "name": "Map" }, { "name": "Set" }, { "name": "Optional" }, { "name": "Result" }, { "name": "Task" },
     { "name": "Weak" }, { "name": "TaskScope" }, { "name": "Jobs" },
     { "name": "Send", "interface": true, "documentation": "Marker for values safe to copy to a worker." },

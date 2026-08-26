@@ -781,6 +781,60 @@ export class AliasWriter extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_exposed_component_reference_targets_other_entity() {
+    std::cout << "[Test] ExposedComponentReference_TargetsOtherEntity... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_exposed_component_reference_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/ReferenceWriter.e2s", R"(
+@behaviour
+export class ReferenceWriter extends Behaviour {
+    @expose
+    target: ComponentRef<Transform2D>;
+
+    override update(deltaTime: Float): Void {
+        if (!target) return;
+        target.position.x = 37.0;
+    }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* script_record = asset_database.find_by_path(root / "Assets/Scripts/ReferenceWriter.e2s");
+    assert(script_record);
+    const ScriptInspectionResult inspected = ScriptRuntime::inspect_asset(script_record->handle, asset_database);
+    assert(inspected.success && inspected.public_fields.size() == 1);
+    assert(inspected.public_fields.front().name == "target");
+    assert(inspected.public_fields.front().type == ScriptFieldType::Entity);
+
+    EntityManager entity_manager;
+    const EntityID knight = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(knight, TransformComponent{});
+
+    const EntityID pet = entity_manager.create_entity();
+    ScriptComponent script;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = script_record->handle;
+    script.instances.front().public_fields = {
+        {"target", ScriptFieldType::Entity, knight}
+    };
+    entity_manager.add_component<ScriptComponent>(pet, script);
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database);
+    assert(started.started == 1 && started.failed == 0);
+    runtime.update(0.016f);
+    assert(std::abs(entity_manager.get_component<TransformComponent>(knight).position.x - 37.0f) < 0.001f);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
@@ -791,6 +845,7 @@ int main() {
     test_collection_range_error_is_controlled();
     test_entity_transform_following_across_updates();
     test_member_initializer_keeps_component_field_reference();
+    test_exposed_component_reference_targets_other_entity();
     test_async_scheduler_cancellation();
     test_game_session_transitions();
     test_e2s_script_inspection();
