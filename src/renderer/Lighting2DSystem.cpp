@@ -44,12 +44,12 @@ SDL_BlendMode preserve_alpha_blend(
 }
 
 SDL_BlendMode point_composite_mode(
-    Light2DBlendMode mode,
-    bool composite_uncovered_pixels
+    Light2DBlendMode mode
 ) {
-    const SDL_BlendFactor source = composite_uncovered_pixels
-        ? SDL_BLENDFACTOR_ONE
-        : SDL_BLENDFACTOR_DST_ALPHA;
+    // Lighting is evaluated inside an isolated render-layer target. Clip its
+    // contribution to that target's alpha so a light cannot tint empty pixels
+    // (or other layers) when a receiver enters or leaves the camera frustum.
+    constexpr SDL_BlendFactor source = SDL_BLENDFACTOR_DST_ALPHA;
     switch (mode) {
         case Light2DBlendMode::Multiply:
             return preserve_alpha_blend(SDL_BLENDFACTOR_DST_COLOR, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA);
@@ -552,8 +552,6 @@ bool Lighting2DPass::apply(const LightingContext& context) {
             !renders_layer(light.affected_layers, context.render_layer)) continue;
 
         const float intensity = std::clamp(light.intensity, 0.0f, 1.0f);
-        const bool composite_uncovered_pixels =
-            (light.affected_layers & context.previously_composited_layers) == 0;
         if (light.type == Light2DType::Ambient) {
             if (light.blend_mode == Light2DBlendMode::Multiply) {
                 const auto channel = [&](std::uint8_t value) {
@@ -566,12 +564,9 @@ bool Lighting2DPass::apply(const LightingContext& context) {
                 const SDL_BlendFactor destination = light.blend_mode == Light2DBlendMode::Screen
                     ? SDL_BLENDFACTOR_ONE_MINUS_SRC_COLOR
                     : SDL_BLENDFACTOR_ONE;
-                const SDL_BlendFactor source = composite_uncovered_pixels
-                    ? SDL_BLENDFACTOR_ONE
-                    : SDL_BLENDFACTOR_DST_ALPHA;
                 SDL_SetRenderDrawBlendMode(
                     context.renderer,
-                    preserve_alpha_blend(source, destination)
+                    preserve_alpha_blend(SDL_BLENDFACTOR_DST_ALPHA, destination)
                 );
                 const auto channel = [&](std::uint8_t value) {
                     return static_cast<std::uint8_t>(static_cast<float>(value) * intensity);
@@ -796,7 +791,7 @@ bool Lighting2DPass::apply(const LightingContext& context) {
         SDL_SetTextureAlphaModFloat(light_map, composite_intensity);
         SDL_SetTextureBlendMode(
             light_map,
-            point_composite_mode(light.blend_mode, composite_uncovered_pixels)
+            point_composite_mode(light.blend_mode)
         );
         SDL_RenderTexture(context.renderer, light_map, nullptr, nullptr);
         drew = true;

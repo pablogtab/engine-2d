@@ -120,6 +120,7 @@ public:
     bool discard_active_scene_changes();
     void load_scene(const std::string& path);
     void activate_scene(std::size_t index);
+    void close_scene_tab(std::size_t index);
     [[nodiscard]] bool is_scene_dirty(const Scene* scene) const;
     [[nodiscard]] bool is_scene_tab_open(const Scene* scene) const;
     void create_new_scene(const std::string& name = "Untitled Scene");

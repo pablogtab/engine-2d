@@ -392,6 +392,9 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     viewport_panel->set_on_activate_scene_callback([this](std::size_t index) {
         if (m_editor_layer) m_editor_layer->activate_scene(index);
     });
+    viewport_panel->set_on_close_scene_callback([this](std::size_t index) {
+        if (m_editor_layer) m_editor_layer->close_scene_tab(index);
+    });
     viewport_panel->set_is_scene_dirty_callback([this](const Scene* scene) {
         return m_editor_layer && m_editor_layer->is_scene_dirty(scene);
     });

@@ -1091,6 +1091,12 @@ void ViewportPanel::on_gui() {
             ImGui::SameLine();
             const auto& scenes = m_scene_manager->get_scenes();
             const bool can_activate = play_state == ScenePlayState::Edit;
+            const std::size_t open_scene_count = static_cast<std::size_t>(std::count_if(
+                scenes.begin(), scenes.end(), [this](const std::shared_ptr<Scene>& scene) {
+                    return scene && (!m_is_scene_tab_open || m_is_scene_tab_open(scene.get()));
+                }
+            ));
+            std::optional<std::size_t> close_requested;
             for (std::size_t index = 0; index < scenes.size(); ++index) {
                 if (!scenes[index]) continue;
                 if (m_is_scene_tab_open && !m_is_scene_tab_open(scenes[index].get())) continue;
@@ -1110,9 +1116,19 @@ void ViewportPanel::on_gui() {
                     m_on_activate_scene(index);
                 }
                 if (is_active) ImGui::PopStyleColor(2);
+                ImGui::SameLine(0.0f, 2.0f);
+                const bool can_close = can_activate && open_scene_count > 1;
+                if (!can_close) ImGui::BeginDisabled();
+                const std::string close_label = "x##close_scene_tab_" + std::to_string(index);
+                if (ImGui::SmallButton(close_label.c_str()) && can_close) close_requested = index;
+                if (!can_close) ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip(can_close ? "Close scene tab" : "Keep at least one scene open");
+                }
                 if (!can_activate) ImGui::EndDisabled();
                 if (index + 1 < scenes.size()) ImGui::SameLine();
             }
+            if (close_requested && m_on_close_scene) m_on_close_scene(*close_requested);
             ImGui::Separator();
             ImGui::Spacing();
         } else {

@@ -524,6 +524,31 @@ int main() {
                         const Pixel layer_culled_pixel = render_lighting_translation_probe(-10.0f);
                         camera.set_position({0.0f, 0.0f});
 
+                        Engine::Light2DComponent directional = point;
+                        directional.type = Engine::Light2DType::Directional;
+                        directional.color = {180, 120, 255, 255};
+                        directional.intensity = 1.0f;
+                        directional.affected_layers = Engine::render_layer_mask(1);
+                        directional.shadow_mode = Engine::ShadowMode::None;
+                        const auto render_directional_empty_pixel = [&](float camera_x) {
+                            camera.set_position({camera_x, 0.0f});
+                            lighting->update({{{0.0f, 0.0f}, directional}}, {});
+                            SDL_SetRenderTarget(sdl_renderer, lighting_target);
+                            SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+                            SDL_RenderClear(sdl_renderer);
+                            renderer.begin_scene(camera);
+                            renderer.submit_sprite(
+                                white.get(), {0.0f, 0.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+                                {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+                                false, false, 0, 0, nullptr, 1
+                            );
+                            renderer.end_scene();
+                            return read_pixel(sdl_renderer, lighting_target, 2, 2);
+                        };
+                        const Pixel directional_receiver_visible = render_directional_empty_pixel(0.0f);
+                        const Pixel directional_receiver_culled = render_directional_empty_pixel(1000.0f);
+                        camera.set_position({0.0f, 0.0f});
+
                         std::unique_ptr<Engine::Texture> shadow_albedo(
                             Engine::Texture::create_solid(sdl_renderer, 4, 4, 32, 32, 32, 255)
                         );
@@ -641,7 +666,13 @@ int main() {
                             channel_delta(zoom_100_pixel.blue, zoom_050_pixel.blue) <= 2 &&
                             channel_delta(layer_visible_pixel.red, layer_culled_pixel.red) <= 2 &&
                             channel_delta(layer_visible_pixel.green, layer_culled_pixel.green) <= 2 &&
-                            channel_delta(layer_visible_pixel.blue, layer_culled_pixel.blue) <= 2;
+                            channel_delta(layer_visible_pixel.blue, layer_culled_pixel.blue) <= 2 &&
+                            directional_receiver_visible.red <= 2 &&
+                            directional_receiver_visible.green <= 2 &&
+                            directional_receiver_visible.blue <= 2 &&
+                            channel_delta(directional_receiver_visible.red, directional_receiver_culled.red) <= 2 &&
+                            channel_delta(directional_receiver_visible.green, directional_receiver_culled.green) <= 2 &&
+                            channel_delta(directional_receiver_visible.blue, directional_receiver_culled.blue) <= 2;
 
                         if (renderer.get_frame_metrics().stage(
                                 Engine::RenderStage::Lighting

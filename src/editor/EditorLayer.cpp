@@ -1347,6 +1347,27 @@ void EditorLayer::activate_scene(std::size_t index) {
     sync_active_scene_session();
 }
 
+void EditorLayer::close_scene_tab(std::size_t index) {
+    if (!m_scene_manager || !m_scene_manager->is_editing() ||
+        index >= m_scene_manager->get_scene_count() || m_open_scene_tabs.size() <= 1) return;
+    const auto& scenes = m_scene_manager->get_scenes();
+    const Scene* closing = scenes[index].get();
+    if (!closing || !is_scene_tab_open(closing)) return;
+
+    std::erase(m_open_scene_tabs, closing);
+    if (m_scene_manager->get_active_index() == static_cast<int>(index)) {
+        const auto replacement = std::find_if(
+            scenes.begin(), scenes.end(), [this](const std::shared_ptr<Scene>& scene) {
+                return scene && is_scene_tab_open(scene.get());
+            }
+        );
+        if (replacement != scenes.end()) {
+            activate_scene(static_cast<std::size_t>(std::distance(scenes.begin(), replacement)));
+        }
+    }
+    ENGINE_LOG_INFO("[EDITOR] Closed scene tab '{}'", closing->get_name());
+}
+
 bool EditorLayer::has_loaded_scene_path(const std::string& path, std::size_t& index) {
     if (!m_scene_manager) return false;
     const std::string normalized = std::filesystem::path(path).lexically_normal().generic_string();
