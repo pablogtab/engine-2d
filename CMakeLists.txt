@@ -64,6 +64,7 @@ set(SOURCES
     src/renderer/postprocess/PostProcessProfile.cpp
     src/renderer/Renderer2D.cpp
     src/renderer/RenderResolution.cpp
+    src/renderer/LightingBakeService.cpp
     src/renderer/Lighting2DSystem.cpp
     src/renderer/RenderEffectSystem.cpp
     src/renderer/RenderLayerEffectProfile.cpp
