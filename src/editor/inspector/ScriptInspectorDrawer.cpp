@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <imgui.h>
+#include <optional>
 #include <unordered_map>
 
 namespace Engine {
@@ -124,7 +125,7 @@ bool draw_script_asset(ScriptBehaviourSlot& instance) {
     return changed;
 }
 
-bool draw_asset_field(const char* label, AssetHandle& value) {
+bool draw_asset_field(const char* label, AssetHandle& value, std::optional<AssetType> required_type = std::nullopt) {
     InspectorWidgets::begin_property_row(label);
     AssetDatabase& database = AssetDatabase::get();
     const AssetRecord* selected = value.is_valid() ? database.find(value) : nullptr;
@@ -136,7 +137,8 @@ bool draw_asset_field(const char* label, AssetHandle& value) {
             changed = true;
         }
         for (const AssetRecord& record : database.records()) {
-            if (record.status != AssetStatus::Ready || record.type == AssetType::Unknown) continue;
+            if (record.status != AssetStatus::Ready || record.type == AssetType::Unknown ||
+                (required_type && record.type != *required_type)) continue;
             const bool is_selected = value == record.handle;
             if (ImGui::Selectable(record.source_path.c_str(), is_selected)) {
                 value = record.handle;
@@ -146,7 +148,9 @@ bool draw_asset_field(const char* label, AssetHandle& value) {
         }
         ImGui::EndCombo();
     }
-    if (const auto dropped = accept_asset_drop_target(database)) {
+    if (const auto dropped = required_type
+            ? accept_asset_drop_target(database, *required_type)
+            : accept_asset_drop_target(database)) {
         if (*dropped != value) {
             value = *dropped;
             changed = true;
@@ -337,7 +341,10 @@ void ScriptInspectorDrawer::draw(
                 case ScriptFieldType::Asset: {
                     AssetHandle value = std::get<AssetHandle>(field.value);
                     InspectorWidgets::begin_property_interaction(field.name.c_str());
-                    changed = draw_asset_field(field.name.c_str(), value);
+                    const std::optional<AssetType> required_type = field.asset_type == "Prefab"
+                        ? std::optional<AssetType>{AssetType::Prefab}
+                        : std::nullopt;
+                    changed = draw_asset_field(field.name.c_str(), value, required_type);
                     InspectorWidgets::capture_property_interaction();
                     if (changed) field.value = value;
                     discrete = changed;

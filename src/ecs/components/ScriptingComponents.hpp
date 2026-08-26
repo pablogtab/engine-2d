@@ -42,6 +42,8 @@ struct ScriptPublicField {
     ScriptFieldValue value{0.0};
     // Non-empty only for Entity fields backing ComponentRef<T>.
     std::string component_type;
+    // Non-empty only for Asset fields constrained to an asset type (for example Prefab).
+    std::string asset_type;
 
     bool operator==(const ScriptPublicField&) const = default;
 };

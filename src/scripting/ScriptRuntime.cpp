@@ -111,7 +111,7 @@ class NativeBehaviourHost {
 public:
     explicit NativeBehaviourHost(ScriptRuntimeBinding& binding)
         : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding),
-          m_events(binding.typed_event_bus, binding.slot_id), m_prefs(), m_assets(binding),
+          m_prefabs(binding), m_events(binding.typed_event_bus, binding.slot_id), m_prefs(), m_assets(binding),
           m_particles(binding), m_ui(binding), m_tilemap(binding), m_display(binding),
           m_physics(binding), m_animator(binding), m_jobs(binding.async_scheduler, binding.slot_id),
           m_task_scope(binding.async_scheduler, binding.slot_id) {
@@ -132,6 +132,7 @@ public:
             else if (type == "Log") m_arguments.push_back(&m_log);
             else if (type == "Audio") m_arguments.push_back(&m_audio);
             else if (type == "Scene") m_arguments.push_back(&m_scene);
+            else if (type == "Prefabs") m_arguments.push_back(&m_prefabs);
             else if (type == "Events") m_arguments.push_back(&m_events);
             else if (type == "Jobs") m_arguments.push_back(&m_jobs);
             else if (type == "TaskScope") m_arguments.push_back(&m_task_scope);
@@ -291,6 +292,18 @@ private:
         void remove(const std::string& key) override { Engine::PlayerPrefs::delete_key(key); }
         void clear() override { Engine::PlayerPrefs::delete_all(); }
         bool save() override { return Engine::PlayerPrefs::save(); }
+    };
+    class Prefabs final : public EngineScript::Prefabs {
+    public:
+        explicit Prefabs(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        EngineScript::Entity instantiate(const EngineScript::Prefab& prefab, const glm::vec2& position) override {
+            if (!m_binding.services || !m_binding.services->instantiate_prefab || prefab.handle == 0) return {};
+            EngineScript::Entity result;
+            result.id = m_binding.services->instantiate_prefab(AssetHandle{prefab.handle}, position);
+            if (result.id != 0) bind_dynamic_component_access(result, m_binding);
+            return result;
+        }
+    private: const ScriptRuntimeBinding& m_binding;
     };
     class Assets final : public EngineScript::Assets {
     public:
@@ -925,6 +938,7 @@ private:
     Log m_log;
     Audio m_audio;
     Scene m_scene;
+    Prefabs m_prefabs;
     EngineScript::Events m_events;
     PlayerPrefs m_prefs;
     Assets m_assets;
@@ -1673,6 +1687,10 @@ std::vector<ScriptPublicField> public_fields_from_behaviour(const EngineScript::
             field.value = EntityID{0};
             field.component_type = property.is_behaviour_reference ? property.type : property.type.substr(
                 std::string{"ComponentRef<"}.size(), property.type.size() - std::string{"ComponentRef<"}.size() - 1);
+        } else if (property.type == "Prefab") {
+            field.type = ScriptFieldType::Asset;
+            field.value = AssetHandle{};
+            field.asset_type = "Prefab";
         } else {
             continue;
         }
@@ -1732,7 +1750,7 @@ std::optional<std::uint64_t> file_signature(const std::string& path) {
 EngineScript::Entity script_entity(
     EntityManager& entities,
     EntityID id,
-    const ScriptRuntimeBinding* binding = nullptr
+    const ScriptRuntimeBinding* binding
 ) {
     EngineScript::Entity result;
     result.id = id;
@@ -1778,6 +1796,19 @@ bool push_exposed_property(
             }
             break;
         case ScriptFieldType::Asset:
+            if (const auto* value = std::get_if<AssetHandle>(&field.value)) {
+                EngineScript::Asset asset;
+                asset.handle = value->value;
+                if (binding && binding->asset_database) {
+                    if (const AssetRecord* record = binding->asset_database->find(*value)) {
+                        asset.path = record->source_path;
+                        asset.type = field.asset_type;
+                        asset.status = record->status == AssetStatus::Ready ? "Ready" : "Unavailable";
+                        asset.ready = record->status == AssetStatus::Ready;
+                    }
+                }
+                return behaviour.set_exposed_property(field.name, asset);
+            }
             break;
     }
     return false;
@@ -1798,6 +1829,8 @@ void pull_exposed_property(
         if (const auto* typed = std::get_if<std::string>(&value)) field.value = *typed;
     } else if (field.type == ScriptFieldType::Vector2) {
         if (const auto* typed = std::get_if<glm::vec2>(&value)) field.value = ScriptVector2{typed->x, typed->y};
+    } else if (field.type == ScriptFieldType::Asset) {
+        if (const auto* typed = std::get_if<EngineScript::Asset>(&value)) field.value = AssetHandle{typed->handle};
     } else if (field.type == ScriptFieldType::Entity) {
         if (const auto* typed = std::get_if<EngineScript::Entity>(&value)) field.value = typed->id;
     }

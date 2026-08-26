@@ -1,9 +1,12 @@
 #include "SceneManager.hpp"
 #include "CustomScene.hpp"
 #include "SceneSerializer.hpp"
+#include "PrefabSerializer.hpp"
+#include "EntitySubtreeArchive.hpp"
 #include "../renderer/material/MaterialAsset.hpp"
 #include "../renderer/Renderer2D.hpp"
 #include "../core/AssetDatabase.hpp"
+#include "../core/AssetManager.hpp"
 #include "../core/Log.hpp"
 #include "../core/Time.hpp"
 #include "../ecs/TransformSystem.hpp"
@@ -230,6 +233,40 @@ void SceneManager::start_scripts(Scene& scene) {
     };
     services.is_scene_loading = [this]() { return is_runtime_scene_loading(); };
     services.scene_load_error = [this]() { return runtime_scene_load_error(); };
+    services.instantiate_prefab = [this, &scene](AssetHandle handle, const glm::vec2& position) -> EntityID {
+        if (!is_playing() || dynamic_cast<CustomScene*>(&scene)) return 0;
+        const AssetDatabase& database = m_asset_database ? *m_asset_database : AssetDatabase::get();
+        const AssetRecord* asset = database.find(handle);
+        if (!asset || asset->type != AssetType::Prefab || asset->status != AssetStatus::Ready) {
+            ENGINE_LOG_ERROR("[PREFAB] Script requested an unavailable prefab asset");
+            return 0;
+        }
+        const std::string json = PrefabSerializer::read_json_from_file(asset->source_path);
+        if (json.empty()) return 0;
+        TransformComponent transform;
+        transform.position = {position.x, position.y, 0.0f};
+        EntityManager& entities = scene.get_entity_manager();
+        ComponentSerializationContext context{
+            .renderer = m_renderer,
+            .asset_manager = &AssetManager::get(),
+            .asset_database = const_cast<AssetDatabase*>(&database)
+        };
+        const auto result = EntitySubtreeArchive::instantiate_from_json(entities, json, transform, 0, context);
+        if (!result.success) {
+            ENGINE_LOG_ERROR("[PREFAB] Script instantiation failed: {}", result.error_message);
+            return 0;
+        }
+        entities.add_component<PrefabLinkComponent>(
+            result.root_entity, PrefabLinkComponent{asset->source_path, result.base_prefab_path}
+        );
+        for (const auto& [source_local_id, instance_entity] : result.local_to_runtime) {
+            if (instance_entity != result.root_entity) {
+                entities.add_component<PrefabLinkComponent>(instance_entity,
+                    PrefabLinkComponent{asset->source_path, result.base_prefab_path, source_local_id, false});
+            }
+        }
+        return result.root_entity;
+    };
     services.emit_particles = [this, &scene](AssetHandle handle, const glm::vec2& position, int count) {
         if (!is_playing() || dynamic_cast<CustomScene*>(&scene)) return false;
         return execution_context(scene).runtime.particle_world().emit_asset(

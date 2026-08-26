@@ -727,6 +727,11 @@ void CppEmitter::emit_exposed_property_bridge(const IRClass& cls, std::string& o
                 "        if (const auto* typed_value = std::get_if<EngineScript::Entity>(&value)) {{ {} = *typed_value; return true; }}\n",
                 property.name
             );
+        } else if (property.type && property.type->name == "Prefab") {
+            out += std::format(
+                "        if (const auto* typed_value = std::get_if<EngineScript::Asset>(&value)) {{ {} = *typed_value; return true; }}\n",
+                property.name
+            );
         } else if (property.type && property.type->name == "ComponentRef" && property.type->type_args.size() == 1) {
             const Type* target_type = property.type->type_args.front().get();
             const std::string target_cpp = ApiCatalog::instance().has_available_type(target_type->name)
@@ -761,6 +766,8 @@ void CppEmitter::emit_exposed_property_bridge(const IRClass& cls, std::string& o
         } else if (property.type && property.type->kind == TypeKind::Vec2) {
             out += std::format("        value = {}; return true;\n", property.name);
         } else if (property.type && property.type->kind == TypeKind::Entity) {
+            out += std::format("        value = {}; return true;\n", property.name);
+        } else if (property.type && property.type->name == "Prefab") {
             out += std::format("        value = {}; return true;\n", property.name);
         } else if (property.type && property.type->name == "ComponentRef" && property.type->type_args.size() == 1) {
             out += std::format("        value = EngineScript::Entity{{.id = {}.reference().entity_id}}; return true;\n", property.name);

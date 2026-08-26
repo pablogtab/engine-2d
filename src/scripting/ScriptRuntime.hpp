@@ -70,6 +70,7 @@ struct ScriptRuntimeServices {
     std::function<std::string()> current_scene_name;
     std::function<bool()> is_scene_loading;
     std::function<std::string()> scene_load_error;
+    std::function<EntityID(AssetHandle, const glm::vec2&)> instantiate_prefab;
     std::function<bool(AssetHandle, std::string&)> preload_asset;
     std::function<bool(AssetHandle, const glm::vec2&, int)> emit_particles;
     std::function<bool(AssetHandle, const glm::vec2&, const EngineScript::ParticleEmitOptions&)> emit_particles_with_options;

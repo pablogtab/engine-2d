@@ -317,6 +317,10 @@ struct Asset {
     bool ready{false};
 };
 
+// A prefab is an Asset used as an instantiation template. Keeping the same
+// runtime representation preserves the stable AssetHandle across renames.
+using Prefab = Asset;
+
 struct ParticleEmitter2D {
     static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "ParticleEmitter2D";
     float emitRate{0.0f};
@@ -436,6 +440,12 @@ public:
     [[nodiscard]] virtual std::string lastError() const = 0;
 };
 
+class Prefabs {
+public:
+    virtual ~Prefabs() = default;
+    [[nodiscard]] virtual Entity instantiate(const Prefab& prefab, const glm::vec2& position) = 0;
+};
+
 class PlayerPrefs {
 public:
     virtual ~PlayerPrefs() = default;
@@ -527,7 +537,7 @@ public:
 
 class NativeBehaviour {
 public:
-    using ExposedPropertyValue = std::variant<bool, double, std::string, glm::vec2, Entity>;
+    using ExposedPropertyValue = std::variant<bool, double, std::string, glm::vec2, Entity, Asset>;
 
     virtual ~NativeBehaviour() = default;
     virtual void update(float delta_time) {}

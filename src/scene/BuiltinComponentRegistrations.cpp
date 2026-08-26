@@ -901,6 +901,7 @@ void register_script(ComponentRegistry& registry) {
                         {"value", serialize_script_field_value(field)}
                     };
                     if (!field.component_type.empty()) serialized_field["component_type"] = field.component_type;
+                    if (!field.asset_type.empty()) serialized_field["asset_type"] = field.asset_type;
                     fields.push_back(std::move(serialized_field));
                 }
                 Json value{
@@ -974,6 +975,13 @@ void register_script(ComponentRegistry& registry) {
                         }
                         field.component_type = field_value["component_type"].get<std::string>();
                     }
+                    if (field_value.contains("asset_type")) {
+                        if (!field_value["asset_type"].is_string()) {
+                            error = "Script asset reference type is invalid";
+                            return false;
+                        }
+                        field.asset_type = field_value["asset_type"].get<std::string>();
+                    }
                     const bool duplicate = std::any_of(
                         instance.public_fields.begin(), instance.public_fields.end(),
                         [&field](const ScriptPublicField& existing) { return existing.name == field.name; }
@@ -1002,6 +1010,7 @@ void register_script(ComponentRegistry& registry) {
                     const EntityID old_id = std::get<EntityID>(field.value);
                     const auto replacement = old_to_new.find(old_id);
                     if (replacement != old_to_new.end()) field.value = replacement->second;
+                    else field.value = EntityID{0};
                 }
             }
         },
