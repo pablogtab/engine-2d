@@ -8,6 +8,7 @@
 #include "core/AssetDatabase.hpp"
 #include "core/RuntimeAssetCache.hpp"
 #include "ecs/EntityManager.hpp"
+#include "ecs/TransformSystem.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/ScriptingComponents.hpp"
 #include "ecs/components/PhysicsComponents.hpp"
@@ -835,6 +836,108 @@ export class ReferenceWriter extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_coin_pickup_spawns_prefab_at_knight_position() {
+    std::cout << "[Test] CoinPickup_SpawnsPrefabAtKnightPosition... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_prefab_spawn_position_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/PetSpawner.e2s", R"(
+@behaviour
+export class PetSpawner extends Behaviour {
+    constructor(
+        @inject private prefabs: Prefabs,
+        @component private transform: Transform2D
+    ) {}
+
+    @expose
+    petPrefab: Prefab;
+
+    on_collision_enter(other: Entity): Void {
+        let pet: Entity = prefabs.create(petPrefab);
+        prefabs.spawn(pet, transform.position);
+    }
+}
+)");
+    write_test_file(root / "Assets/Scripts/PetBehaviour.e2s", R"(
+@behaviour
+export class PetBehaviour extends Behaviour {
+    constructor(@component private transform: Transform2D) {}
+}
+)");
+    write_test_file(root / "Assets/Prefabs/FlyingFox.prefab", "{}");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* script_record = asset_database.find_by_path(root / "Assets/Scripts/PetSpawner.e2s");
+    const AssetRecord* pet_script_record = asset_database.find_by_path(root / "Assets/Scripts/PetBehaviour.e2s");
+    const AssetRecord* prefab_record = asset_database.find_by_path(root / "Assets/Prefabs/FlyingFox.prefab");
+    assert(script_record && pet_script_record && prefab_record);
+
+    EntityManager entity_manager;
+    EventDispatcher dispatcher;
+    ScriptRuntime runtime;
+
+    const EntityID knight = entity_manager.create_entity();
+    TransformComponent knight_transform;
+    knight_transform.position = {137.0f, -42.0f, 0.0f};
+    knight_transform.world_position = knight_transform.position;
+    entity_manager.add_component<TransformComponent>(knight, knight_transform);
+    ScriptComponent knight_script;
+    knight_script.instances.front().enabled = true;
+    knight_script.instances.front().script_handle = script_record->handle;
+    knight_script.instances.front().public_fields = {
+        {"petPrefab", ScriptFieldType::Asset, prefab_record->handle, {}, "Prefab"}
+    };
+    entity_manager.add_component<ScriptComponent>(knight, knight_script);
+
+    const EntityID coin = entity_manager.create_entity();
+    const EntityID pet = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(pet, TransformComponent{});
+    ScriptComponent pet_script;
+    // The staged instance is dormant until Prefabs.create prepares it.
+    pet_script.instances.front().enabled = false;
+    pet_script.instances.front().script_handle = pet_script_record->handle;
+    entity_manager.add_component<ScriptComponent>(pet, pet_script);
+    AssetHandle created_prefab;
+    EntityID spawned_entity = 0;
+    glm::vec2 spawned_position{};
+    ScriptRuntimeServices services;
+    services.create_prefab = [&](AssetHandle handle) {
+        created_prefab = handle;
+        entity_manager.get_component<ScriptComponent>(pet).instances.front().enabled = true;
+        assert(runtime.prepare_entity(pet));
+        return pet;
+    };
+    services.spawn_prefab = [&](EntityID entity, const glm::vec2& position) {
+        spawned_entity = entity;
+        spawned_position = position;
+        TransformComponent& transform = entity_manager.get_component<TransformComponent>(entity);
+        transform.position = {position.x, position.y, 0.0f};
+        TransformSystem::update(entity_manager);
+        return runtime.activate_entity(entity);
+    };
+
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, &dispatcher, services);
+    assert(started.started == 1 && started.failed == 0);
+    dispatcher.publish(CollisionEvent(knight, coin, glm::vec2{}, true));
+    runtime.dispatch_events();
+
+    assert(created_prefab == prefab_record->handle);
+    assert(spawned_entity == pet);
+    assert(std::abs(spawned_position.x - knight_transform.position.x) < 0.001f);
+    assert(std::abs(spawned_position.y - knight_transform.position.y) < 0.001f);
+    const TransformComponent& spawned_transform = entity_manager.get_component<TransformComponent>(pet);
+    assert(std::abs(spawned_transform.position.x - knight_transform.position.x) < 0.001f);
+    assert(std::abs(spawned_transform.position.y - knight_transform.position.y) < 0.001f);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
@@ -846,6 +949,7 @@ int main() {
     test_entity_transform_following_across_updates();
     test_member_initializer_keeps_component_field_reference();
     test_exposed_component_reference_targets_other_entity();
+    test_coin_pickup_spawns_prefab_at_knight_position();
     test_async_scheduler_cancellation();
     test_game_session_transitions();
     test_e2s_script_inspection();

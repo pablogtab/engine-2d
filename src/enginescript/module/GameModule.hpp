@@ -443,6 +443,8 @@ public:
 class Prefabs {
 public:
     virtual ~Prefabs() = default;
+    [[nodiscard]] virtual Entity create(const Prefab& prefab) = 0;
+    virtual bool spawn(const Entity& instance, const glm::vec2& position) = 0;
     [[nodiscard]] virtual Entity instantiate(const Prefab& prefab, const glm::vec2& position) = 0;
 };
 

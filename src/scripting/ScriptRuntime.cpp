@@ -296,6 +296,14 @@ private:
     class Prefabs final : public EngineScript::Prefabs {
     public:
         explicit Prefabs(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        EngineScript::Entity create(const EngineScript::Prefab& prefab) override {
+            if (!m_binding.services || !m_binding.services->create_prefab || prefab.handle == 0) return {};
+            EngineScript::Entity result; result.id = m_binding.services->create_prefab(AssetHandle{prefab.handle});
+            if (result.id != 0) bind_dynamic_component_access(result, m_binding); return result;
+        }
+        bool spawn(const EngineScript::Entity& instance, const glm::vec2& position) override {
+            return m_binding.services && m_binding.services->spawn_prefab && m_binding.services->spawn_prefab(instance.id, position);
+        }
         EngineScript::Entity instantiate(const EngineScript::Prefab& prefab, const glm::vec2& position) override {
             if (!m_binding.services || !m_binding.services->instantiate_prefab || prefab.handle == 0) return {};
             EngineScript::Entity result;
@@ -2067,7 +2075,7 @@ ScriptRuntimeStartResult ScriptRuntime::start(
     return result;
 }
 
-bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error) {
+bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error, bool start_lifecycle) {
     if (!slot.enabled) return true;
     if (!m_entity_manager || !m_asset_database || !m_native_workspace || !m_native_module ||
         !m_entity_manager->is_alive(entity)) {
@@ -2119,7 +2127,7 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
     const auto is_service = [](const std::string& type) {
         static const std::unordered_set<std::string> services{
             "Input", "Log", "Audio", "Scene", "Time", "Entities", "Display", "Physics",
-            "Events", "Assets", "UI", "Tilemap", "PlayerPrefs", "Particles"
+            "Events", "Assets", "UI", "Tilemap", "PlayerPrefs", "Particles", "Prefabs"
         };
         return services.contains(type);
     };
@@ -2214,7 +2222,7 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
     instance.behaviour->async_scheduler = m_native_async_scheduler.get();
     instance.behaviour->entities = instance.native_host->entities();
     push_exposed_properties(*instance.behaviour, slot, *m_entity_manager, instance.binding.get());
-    try {
+    if (start_lifecycle) try {
         instance.behaviour->on_start();
     } catch (const std::exception& runtime_error) {
         error = std::string{"EngineScript runtime error in on_start: "} + runtime_error.what();
@@ -2223,10 +2231,41 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
         error = "EngineScript runtime error in on_start: unknown exception";
         return false;
     }
-    instance.native_host->sync_after();
-    pull_exposed_properties(*instance.behaviour, slot);
+    if (start_lifecycle) { instance.started = true; instance.native_host->sync_after(); pull_exposed_properties(*instance.behaviour, slot); }
     m_instances.push_back(std::move(instance));
     return true;
+}
+
+bool ScriptRuntime::prepare_entity(EntityID entity) {
+    if (!m_entity_manager || !m_entity_manager->has_component<ScriptComponent>(entity)) return true;
+    auto& scripts = m_entity_manager->get_component<ScriptComponent>(entity);
+    for (auto& slot : scripts.instances) { std::string error; if (slot.enabled && !instantiate_slot(entity, slot, error, false)) { set_error(entity, error); return false; } }
+    return true;
+}
+
+bool ScriptRuntime::activate_entity(EntityID entity) {
+    for (auto& instance : m_instances) if (instance.entity == entity && !instance.started && instance.behaviour) {
+        auto* slot = find_script_slot(*m_entity_manager, entity, instance.slot_id); if (!slot) continue;
+        try {
+            // A staged prefab can be positioned after its native host was prepared.
+            // Refresh cached component proxies so sync_after() cannot restore the old
+            // creation transform (typically 0,0) after on_start().
+            if (instance.native_host) instance.native_host->sync_before();
+            instance.behaviour->on_start();
+            instance.started = true;
+            if (instance.native_host) instance.native_host->sync_after();
+            pull_exposed_properties(*instance.behaviour, *slot);
+        }
+        catch (const std::exception& e) { set_error(entity, e.what(), instance.script_path); return false; }
+    }
+    return true;
+}
+
+void ScriptRuntime::queue_entity_start(EntityID entity) {
+    if (!m_entity_manager || entity == 0 || !m_entity_manager->is_alive(entity)) return;
+    if (std::find(m_pending_entity_starts.begin(), m_pending_entity_starts.end(), entity) == m_pending_entity_starts.end()) {
+        m_pending_entity_starts.push_back(entity);
+    }
 }
 
 void ScriptRuntime::subscribe_to_events() {
@@ -2492,6 +2531,23 @@ void ScriptRuntime::update(float delta_time) {
         }
     }
     flush_pending_component_removals();
+
+    std::vector<EntityID> pending = std::move(m_pending_entity_starts);
+    m_pending_entity_starts.clear();
+    for (const EntityID entity : pending) {
+        if (!m_entity_manager || !m_entity_manager->is_alive(entity) ||
+            !m_entity_manager->has_component<ScriptComponent>(entity)) continue;
+        ScriptComponent& scripts = m_entity_manager->get_component<ScriptComponent>(entity);
+        std::vector<ScriptSlotID> slot_ids;
+        for (const ScriptBehaviourSlot& slot : scripts.instances) slot_ids.push_back(slot.id);
+        for (const ScriptSlotID slot_id : slot_ids) {
+            ScriptBehaviourSlot* slot = find_script_slot(*m_entity_manager, entity, slot_id);
+            if (!slot || !slot->enabled) continue;
+            std::string error;
+            if (!instantiate_slot(entity, *slot, error)) set_error(entity, std::move(error));
+        }
+        activate_entity(entity);
+    }
 }
 
 void ScriptRuntime::shutdown() {
@@ -2508,6 +2564,7 @@ void ScriptRuntime::shutdown() {
     // session. Enforce cleanup even when authored behaviours omit on_destroy().
     if (m_services.stop_music) m_services.stop_music();
     m_instances.clear();
+    m_pending_entity_starts.clear();
     m_native_module.reset();
     if (m_typed_event_bus) m_typed_event_bus->clear();
     m_typed_event_bus.reset();

@@ -1182,7 +1182,9 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 m_diagnostics.report_error("E3044", std::format("{}.{} is read-only", owner_name, member->member_name), member->span);
             }
         }
-        if (!val_t->is_assignable_to(target_t)) {
+        const bool assigns_component_handle = target_t->name == "ComponentRef" &&
+            target_t->type_args.size() == 1 && val_t->name == target_t->type_args.front()->name;
+        if (!val_t->is_assignable_to(target_t) && !assigns_component_handle) {
             m_diagnostics.report_error("E3020", std::format("Cannot assign type '{}' to target of type '{}'", val_t->to_string(), target_t->to_string()), assign->value->span);
         }
         m_node_types[assign] = target_t;

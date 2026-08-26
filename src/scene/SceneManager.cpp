@@ -265,7 +265,23 @@ void SceneManager::start_scripts(Scene& scene) {
                     PrefabLinkComponent{asset->source_path, result.base_prefab_path, source_local_id, false});
             }
         }
+        for (const EntityID entity : result.created_entities) m_script_runtime.queue_entity_start(entity);
         return result.root_entity;
+    };
+    const auto instantiate_prefab = services.instantiate_prefab;
+    services.create_prefab = [this, instantiate_prefab](AssetHandle handle) -> EntityID {
+        const EntityID entity = instantiate_prefab(handle, glm::vec2{});
+        if (entity != 0) m_script_runtime.prepare_entity(entity);
+        return entity;
+    };
+    services.spawn_prefab = [this, &scene](EntityID entity, const glm::vec2& position) {
+        EntityManager& entities = scene.get_entity_manager();
+        if (!entities.is_alive(entity) || !entities.has_component<TransformComponent>(entity)) return false;
+        TransformComponent& transform = entities.get_component<TransformComponent>(entity);
+        transform.position = {position.x, position.y, 0.0f};
+        transform.world_position = transform.position;
+        TransformSystem::update(entities);
+        return m_script_runtime.activate_entity(entity);
     };
     services.emit_particles = [this, &scene](AssetHandle handle, const glm::vec2& position, int count) {
         if (!is_playing() || dynamic_cast<CustomScene*>(&scene)) return false;

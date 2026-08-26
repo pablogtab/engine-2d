@@ -202,6 +202,8 @@
     { "ownerType": "Scene", "name": "currentName", "returnType": "String" },
     { "ownerType": "Scene", "name": "isLoading", "returnType": "Bool" },
     { "ownerType": "Scene", "name": "lastError", "returnType": "String" }
-    ,{ "ownerType": "Prefabs", "name": "instantiate", "returnType": "Entity", "parameters": [{ "name": "prefab", "type": "Prefab" }, { "name": "position", "type": "Vec2" }], "documentation": "Creates a new prefab instance at the given world position." }
+    ,{ "ownerType": "Prefabs", "name": "create", "returnType": "Entity", "parameters": [{ "name": "prefab", "type": "Prefab" }] },
+    { "ownerType": "Prefabs", "name": "spawn", "returnType": "Bool", "parameters": [{ "name": "instance", "type": "Entity" }, { "name": "position", "type": "Vec2" }] },
+    { "ownerType": "Prefabs", "name": "instantiate", "returnType": "Entity", "parameters": [{ "name": "prefab", "type": "Prefab" }, { "name": "position", "type": "Vec2" }], "documentation": "Creates a new prefab instance at the given world position." }
   ]
 }

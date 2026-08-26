@@ -71,6 +71,8 @@ struct ScriptRuntimeServices {
     std::function<bool()> is_scene_loading;
     std::function<std::string()> scene_load_error;
     std::function<EntityID(AssetHandle, const glm::vec2&)> instantiate_prefab;
+    std::function<EntityID(AssetHandle)> create_prefab;
+    std::function<bool(EntityID, const glm::vec2&)> spawn_prefab;
     std::function<bool(AssetHandle, std::string&)> preload_asset;
     std::function<bool(AssetHandle, const glm::vec2&, int)> emit_particles;
     std::function<bool(AssetHandle, const glm::vec2&, const EngineScript::ParticleEmitOptions&)> emit_particles_with_options;
@@ -127,6 +129,10 @@ public:
         EventDispatcher* event_dispatcher = nullptr,
         ScriptRuntimeServices services = {}
     );
+    bool prepare_entity(EntityID entity);
+    bool activate_entity(EntityID entity);
+    // Activates scripts after the current update pass, avoiding mutation while iterating them.
+    void queue_entity_start(EntityID entity);
     void update(float delta_time);
     void dispatch_events();
     [[nodiscard]] ScriptHotReloadResult reload_changed_scripts(bool force = false);
@@ -157,6 +163,7 @@ private:
         ScriptSlotID slot_id{0};
         std::uint32_t generation{1};
         std::uint64_t eligible_phase{0};
+        bool started{false};
         AssetHandle script_handle{};
         std::string script_path;
         std::string class_name;
@@ -185,7 +192,7 @@ private:
     void subscribe_to_events();
     void unsubscribe_from_events();
     void set_error(EntityID entity, std::string message, std::string source_path = {}, uint32_t line = 0, uint32_t column = 0);
-    bool instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error);
+    bool instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error, bool start_lifecycle = true);
     void flush_pending_component_removals();
 
     EntityManager* m_entity_manager{nullptr};
@@ -193,6 +200,7 @@ private:
     EventDispatcher* m_event_dispatcher{nullptr};
     ScriptRuntimeServices m_services;
     std::list<Instance> m_instances;
+    std::vector<EntityID> m_pending_entity_starts;
     std::unique_ptr<EngineScript::EngineScriptWorkspace> m_native_workspace;
     std::unique_ptr<EngineScript::AsyncScheduler> m_native_async_scheduler;
     std::unique_ptr<EngineScript::TypedEventBus> m_typed_event_bus;

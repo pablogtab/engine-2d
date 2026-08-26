@@ -802,6 +802,11 @@ void CppEmitter::emit_method_source(const IRClass& cls, const IRMethod& m, std::
         }
     }
 
+    if (m.is_async && m.return_type && m.return_type->kind == TypeKind::Task &&
+        !m.return_type->type_args.empty() && m.return_type->type_args.front()->is_void()) {
+        out += "    co_return;\n";
+    }
+
     m_emitting_async_method = previous_async_state;
 
     out += "}\n\n";
