@@ -22,8 +22,10 @@ foreach(index RANGE ${last_case})
     list(GET extensions ${index} extension)
     list(GET entry_points ${index} entry_point)
     set(shader_variant "${test_root}/night_vision.frag.${extension}")
+    set(builtin_shader_variant "${test_root}/lit_sprite.frag.${extension}")
     set(stage_dir "${test_root}/stage-${format}")
     file(WRITE "${shader_variant}" "nonempty ${format} shader")
+    file(WRITE "${builtin_shader_variant}" "nonempty built-in ${format} shader")
 
     execute_process(
         COMMAND "${CMAKE_COMMAND}"
@@ -37,6 +39,7 @@ foreach(index RANGE ${last_case})
             "-DENGINE_SHADER_ENTRY_POINT=${entry_point}"
             "-DENGINE_SHADER_DESCRIPTOR=Assets/Shaders/NightVision.shader"
             "-DENGINE_SHADER_VARIANT_BASE=Assets/Shaders/night_vision.frag"
+            "-DENGINE_BUILTIN_LIT_SHADER_VARIANT=${builtin_shader_variant}"
             -P "${ENGINE_SOURCE_DIR}/cmake/StageRuntimeAssets.cmake"
         RESULT_VARIABLE stage_result
         OUTPUT_VARIABLE stage_output
@@ -58,6 +61,9 @@ foreach(index RANGE ${last_case})
     endif()
     if(NOT EXISTS "${stage_dir}/Assets/Shaders/night_vision.frag.${extension}")
         message(FATAL_ERROR "${format} shader was not staged")
+    endif()
+    if(NOT EXISTS "${stage_dir}/Engine/Shaders/lit_sprite.frag.${extension}")
+        message(FATAL_ERROR "${format} built-in lit sprite shader was not staged")
     endif()
 
     file(READ "${stage_dir}/ProjectSettings/AssetDatabase.json" database_json)

@@ -120,6 +120,9 @@ Application::Application(ProjectContext project, const std::string& name, int wi
         m_window->get_sdl_renderer()
     ));
     m_renderer = std::make_unique<Renderer2D>(m_window->get_sdl_renderer());
+    m_renderer->material_pack_cache().set_disk_cache_directory(
+        m_project.library_directory() / "MaterialPacks"
+    );
     m_renderer->set_material_backend(std::make_shared<SDLGPUMaterialBackend>(
         m_window->get_sdl_renderer()
     ));

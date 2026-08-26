@@ -10,6 +10,9 @@ endif()
 if(ENGINE_SHADER_VARIANT AND NOT EXISTS "${ENGINE_SHADER_VARIANT}")
     message(FATAL_ERROR "Compiled shader variant is missing: ${ENGINE_SHADER_VARIANT}")
 endif()
+if(ENGINE_BUILTIN_LIT_SHADER_VARIANT AND NOT EXISTS "${ENGINE_BUILTIN_LIT_SHADER_VARIANT}")
+    message(FATAL_ERROR "Built-in lit sprite shader is missing: ${ENGINE_BUILTIN_LIT_SHADER_VARIANT}")
+endif()
 if(NOT EXISTS "${ENGINE_PROJECT_DIR}/project.engine2d")
     message(FATAL_ERROR "Project descriptor is missing: ${ENGINE_PROJECT_DIR}/project.engine2d")
 endif()
@@ -30,6 +33,16 @@ if(NOT native_module_result EQUAL 0)
 endif()
 get_filename_component(executable_name "${ENGINE_EXECUTABLE}" NAME)
 file(COPY_FILE "${ENGINE_EXECUTABLE}" "${ENGINE_STAGE_DIR}/${executable_name}" ONLY_IF_DIFFERENT)
+
+if(ENGINE_BUILTIN_LIT_SHADER_VARIANT)
+    get_filename_component(builtin_lit_filename "${ENGINE_BUILTIN_LIT_SHADER_VARIANT}" NAME)
+    file(MAKE_DIRECTORY "${ENGINE_STAGE_DIR}/Engine/Shaders")
+    file(COPY_FILE
+        "${ENGINE_BUILTIN_LIT_SHADER_VARIANT}"
+        "${ENGINE_STAGE_DIR}/Engine/Shaders/${builtin_lit_filename}"
+        ONLY_IF_DIFFERENT
+    )
+endif()
 
 if(ENGINE_SHADER_VARIANT)
     foreach(required ENGINE_SHADER_FORMAT ENGINE_SHADER_ENTRY_POINT ENGINE_SHADER_DESCRIPTOR ENGINE_SHADER_VARIANT_BASE)

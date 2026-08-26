@@ -474,7 +474,9 @@ void test_builtin_components_round_trip_through_registry() {
     SpriteLighting2DComponent sprite_lighting;
     sprite_lighting.normal_map_handle = AssetHandle{0x6111};
     sprite_lighting.emissive_map_handle = AssetHandle{0x6112};
+    sprite_lighting.specular_map_handle = AssetHandle{0x6113};
     sprite_lighting.emissive_intensity = 0.4f;
+    sprite_lighting.enabled = false;
     em.add_component<SpriteLighting2DComponent>(source, sprite_lighting);
 
     SpriteShadow2DComponent sprite_shadow;
@@ -598,8 +600,19 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<Light2DComponent>(target) == light);
     assert(em.get_component<ShadowCaster2DComponent>(target) == caster);
     assert(em.get_component<SpriteLighting2DComponent>(target) == sprite_lighting);
+    assert(em.get_component<SpriteLighting2DComponent>(target).specular_map_handle == AssetHandle{0x6113});
+    assert(!em.get_component<SpriteLighting2DComponent>(target).enabled);
     assert(em.get_component<SpriteShadow2DComponent>(target) == sprite_shadow);
     assert(em.get_component<LightingBakeVolume2DComponent>(target) == bake_volume);
+
+    nlohmann::json legacy_value = value;
+    legacy_value["sprite_lighting_2d"].erase("specular_map");
+    legacy_value["sprite_lighting_2d"].erase("enabled");
+    const EntityID legacy_target = em.create_entity();
+    assert(default_component_registry().deserialize_entity(em, legacy_target, legacy_value, {}, error));
+    const auto& legacy_lighting = em.get_component<SpriteLighting2DComponent>(legacy_target);
+    assert(!legacy_lighting.specular_map_handle.is_valid());
+    assert(legacy_lighting.enabled);
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<CameraComponent>(target).clear_color.r == 12);
     assert(em.get_component<CameraComponent>(target).clear_color.a == 78);

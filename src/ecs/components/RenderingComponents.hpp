@@ -161,6 +161,11 @@ struct ShadowCaster2DComponent {
 struct SpriteLighting2DComponent {
     AssetHandle normal_map_handle{};
     AssetHandle emissive_map_handle{};
+    AssetHandle specular_map_handle{};
+    // Runtime-only resolved assets. Handles above remain the serialized contract.
+    Texture* normal_map{nullptr};
+    Texture* emissive_map{nullptr};
+    Texture* specular_map{nullptr};
     float normal_strength{1.0f};
     SDL_Color emissive_tint{255, 255, 255, 255};
     float emissive_intensity{0.0f};
@@ -174,6 +179,7 @@ struct SpriteLighting2DComponent {
 
     bool operator==(const SpriteLighting2DComponent& other) const {
         return normal_map_handle == other.normal_map_handle && emissive_map_handle == other.emissive_map_handle &&
+            specular_map_handle == other.specular_map_handle &&
             normal_strength == other.normal_strength &&
             emissive_tint.r == other.emissive_tint.r && emissive_tint.g == other.emissive_tint.g &&
             emissive_tint.b == other.emissive_tint.b && emissive_tint.a == other.emissive_tint.a &&

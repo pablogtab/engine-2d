@@ -5,6 +5,7 @@
 #include "RenderResolution.hpp"
 #include "LocalEffectPass.hpp"
 #include "LightingPass.hpp"
+#include "MaterialPack.hpp"
 #include "RenderLayer.hpp"
 #include "../core/AssetHandle.hpp"
 #include "../scene/Camera2D.hpp"
@@ -22,6 +23,7 @@ class ThreadPool;
 class PostProcessPipeline;
 class Font;
 class Material;
+class FragmentShader;
 class IMaterialBackend;
 
 enum class RenderStage : std::size_t {
@@ -80,6 +82,21 @@ struct SpriteCommand {
     bool baked_light_receiver{false};
 };
 
+struct SpriteMaterialLighting {
+    Texture* normal_map{nullptr};
+    Texture* emissive_map{nullptr};
+    Texture* specular_map{nullptr};
+    glm::vec3 light_direction{0.0f, 0.0f, 1.0f};
+    glm::vec3 light_color{1.0f, 1.0f, 1.0f};
+    float light_intensity{0.0f};
+    float ambient{1.0f};
+    float normal_strength{1.0f};
+    SDL_Color emissive_tint{255, 255, 255, 255};
+    float emissive_intensity{0.0f};
+    float specular_strength{0.0f};
+    float shininess{16.0f};
+};
+
 class Renderer2D {
 public:
     explicit Renderer2D(SDL_Renderer* renderer);
@@ -102,6 +119,8 @@ public:
     PostProcessPipeline* get_post_process_pipeline() const { return m_post_process_pipeline; }
     void set_material_backend(std::shared_ptr<IMaterialBackend> backend) { m_material_backend = std::move(backend); }
     [[nodiscard]] const std::shared_ptr<IMaterialBackend>& get_material_backend() const { return m_material_backend; }
+    [[nodiscard]] MaterialPackCache& material_pack_cache() { return m_material_pack_cache; }
+    [[nodiscard]] const MaterialPackCache& material_pack_cache() const { return m_material_pack_cache; }
 
     void set_custom_render_target(SDL_Texture* target) { 
         m_custom_render_target = target; 
@@ -159,7 +178,8 @@ public:
         AssetHandle entity_effect_profile = {},
         std::uint64_t entity_effect_scope = 0,
         SDL_BlendMode blend_mode = SDL_BLENDMODE_BLEND,
-        bool baked_light_receiver = false
+        bool baked_light_receiver = false,
+        const SpriteMaterialLighting* material_lighting = nullptr
     );
     void submit_screen_sprite(
         Texture* texture,
@@ -210,6 +230,9 @@ public:
 
 private:
     void execute_lighting_stage(SDL_Texture* scene_target, RenderLayer layer, int width, int height);
+    [[nodiscard]] std::shared_ptr<const Material> create_lit_sprite_material(
+        const SpriteMaterialLighting& lighting
+    );
 
     SDL_Renderer* m_sdl_renderer{nullptr};
     SDL_Color m_scene_clear_color{24, 28, 36, 255};
@@ -224,6 +247,11 @@ private:
     SDL_Texture* m_frame_world_target{nullptr};
     bool m_frame_world_target_leased{false};
     RenderTargetPool m_render_target_pool;
+    MaterialPackCache m_material_pack_cache;
+    std::shared_ptr<const FragmentShader> m_lit_sprite_shader;
+    std::vector<std::shared_ptr<Material>> m_lit_material_pool;
+    std::unordered_map<std::uint64_t, std::shared_ptr<const Material>> m_lit_material_lookup;
+    std::size_t m_lit_material_cursor{0};
     const Camera2D* m_active_camera{nullptr};
     std::vector<SpriteCommand> m_sprite_queue;
     std::vector<SpriteCommand> m_sort_temp_buffer;

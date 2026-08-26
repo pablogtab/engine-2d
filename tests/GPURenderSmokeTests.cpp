@@ -222,8 +222,15 @@ int main() {
                     width,
                     height
                 );
+                SDL_Texture* lit_sprite_target = SDL_CreateTexture(
+                    sdl_renderer,
+                    SDL_PIXELFORMAT_RGBA8888,
+                    SDL_TEXTUREACCESS_TARGET,
+                    width,
+                    height
+                );
                 if (!sprite_target || !fullscreen_source || !fullscreen_target ||
-                    !lighting_target || !canvas_target || !canvas_text_target) {
+                    !lighting_target || !canvas_target || !canvas_text_target || !lit_sprite_target) {
                     std::cerr << "GPURenderSmokeTests failed: render target creation failed: "
                               << SDL_GetError() << '\n';
                 } else {
@@ -272,6 +279,79 @@ int main() {
                             width,
                             height
                         );
+
+                        std::unique_ptr<Engine::Texture> lit_albedo(
+                            Engine::Texture::create_solid(sdl_renderer, 4, 4, 32, 64, 96, 255)
+                        );
+                        std::unique_ptr<Engine::Texture> lit_emissive(
+                            Engine::Texture::create_solid(sdl_renderer, 4, 4, 16, 0, 0, 255)
+                        );
+                        Engine::SpriteMaterialLighting material_lighting;
+                        material_lighting.emissive_map = lit_emissive.get();
+                        material_lighting.emissive_intensity = 1.0f;
+                        material_lighting.ambient = 1.0f;
+                        renderer.set_custom_render_target(lit_sprite_target);
+                        const auto render_lit_probe = [&](
+                            Engine::Texture* albedo,
+                            const Engine::SpriteMaterialLighting& lighting_input
+                        ) {
+                            SDL_SetRenderTarget(sdl_renderer, lit_sprite_target);
+                            SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+                            SDL_RenderClear(sdl_renderer);
+                            renderer.begin_scene(camera);
+                            renderer.submit_sprite(
+                                albedo, {0.0f, 0.0f, 0.0f}, {48.0f, 48.0f}, 0.0f,
+                                {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+                                false, false, 0, 0, nullptr, Engine::DEFAULT_RENDER_LAYER,
+                                {}, 0, SDL_BLENDMODE_BLEND, false, &lighting_input
+                            );
+                            renderer.end_scene();
+                            return read_center(sdl_renderer, lit_sprite_target, width, height);
+                        };
+                        const Pixel lit_sprite_pixel = render_lit_probe(lit_albedo.get(), material_lighting);
+
+                        std::unique_ptr<Engine::Texture> side_normal(
+                            Engine::Texture::create_solid(sdl_renderer, 4, 4, 255, 128, 128, 255)
+                        );
+                        Engine::SpriteMaterialLighting normal_lighting;
+                        normal_lighting.normal_map = side_normal.get();
+                        normal_lighting.light_direction = {0.0f, 0.0f, 1.0f};
+                        normal_lighting.light_intensity = 1.0f;
+                        normal_lighting.ambient = 0.0f;
+                        const Pixel normal_sprite_pixel = render_lit_probe(lit_albedo.get(), normal_lighting);
+
+                        std::unique_ptr<Engine::Texture> black_albedo(
+                            Engine::Texture::create_solid(sdl_renderer, 4, 4, 0, 0, 0, 255)
+                        );
+                        std::unique_ptr<Engine::Texture> flat_normal(
+                            Engine::Texture::create_solid(sdl_renderer, 4, 4, 128, 128, 255, 255)
+                        );
+                        std::unique_ptr<Engine::Texture> white_specular(
+                            Engine::Texture::create_solid(sdl_renderer, 4, 4, 255, 255, 255, 255)
+                        );
+                        Engine::SpriteMaterialLighting specular_lighting;
+                        specular_lighting.normal_map = flat_normal.get();
+                        specular_lighting.specular_map = white_specular.get();
+                        specular_lighting.light_direction = {0.0f, 0.0f, 1.0f};
+                        specular_lighting.light_intensity = 1.0f;
+                        specular_lighting.ambient = 0.0f;
+                        specular_lighting.specular_strength = 0.5f;
+                        specular_lighting.shininess = 8.0f;
+                        const Pixel specular_sprite_pixel = render_lit_probe(
+                            black_albedo.get(), specular_lighting
+                        );
+                        const bool lit_sprite_matches =
+                            lit_sprite_pixel.red >= 44 && lit_sprite_pixel.red <= 52 &&
+                            lit_sprite_pixel.green >= 60 && lit_sprite_pixel.green <= 68 &&
+                            lit_sprite_pixel.blue >= 92 && lit_sprite_pixel.blue <= 100 &&
+                            lit_sprite_pixel.alpha >= 247 &&
+                            normal_sprite_pixel.red <= 2 && normal_sprite_pixel.green <= 2 &&
+                            normal_sprite_pixel.blue <= 2 && normal_sprite_pixel.alpha >= 247 &&
+                            specular_sprite_pixel.red >= 120 && specular_sprite_pixel.red <= 136 &&
+                            specular_sprite_pixel.green >= 120 && specular_sprite_pixel.green <= 136 &&
+                            specular_sprite_pixel.blue >= 120 && specular_sprite_pixel.blue <= 136 &&
+                            specular_sprite_pixel.alpha >= 247 &&
+                            renderer.material_pack_cache().metrics().resident_entries == 3;
 
                         Engine::EntityManager canvas_entities;
                         const Engine::EntityID canvas_entity = canvas_entities.create_entity();
@@ -462,6 +542,7 @@ int main() {
                             canvas_text_stats.text_lines != 1 ||
                             !canvas_text_graded ||
                             !matches_expected_grade(fullscreen_pixel) ||
+                            !lit_sprite_matches ||
                             !lighting_matches) {
                             std::cerr
                                 << "GPURenderSmokeTests failed on " << backend->backend_name()
@@ -476,7 +557,19 @@ int main() {
                                 << static_cast<int>(fullscreen_pixel.red) << ','
                                 << static_cast<int>(fullscreen_pixel.green) << ','
                                 << static_cast<int>(fullscreen_pixel.blue) << ','
-                                << static_cast<int>(fullscreen_pixel.alpha) << ") additive RGBA=("
+                                << static_cast<int>(fullscreen_pixel.alpha) << ") lit sprite RGBA=("
+                                << static_cast<int>(lit_sprite_pixel.red) << ','
+                                << static_cast<int>(lit_sprite_pixel.green) << ','
+                                << static_cast<int>(lit_sprite_pixel.blue) << ','
+                                << static_cast<int>(lit_sprite_pixel.alpha) << ") normal RGBA=("
+                                << static_cast<int>(normal_sprite_pixel.red) << ','
+                                << static_cast<int>(normal_sprite_pixel.green) << ','
+                                << static_cast<int>(normal_sprite_pixel.blue) << ','
+                                << static_cast<int>(normal_sprite_pixel.alpha) << ") specular RGBA=("
+                                << static_cast<int>(specular_sprite_pixel.red) << ','
+                                << static_cast<int>(specular_sprite_pixel.green) << ','
+                                << static_cast<int>(specular_sprite_pixel.blue) << ','
+                                << static_cast<int>(specular_sprite_pixel.alpha) << ") additive RGBA=("
                                 << static_cast<int>(additive_pixel.red) << ','
                                 << static_cast<int>(additive_pixel.green) << ','
                                 << static_cast<int>(additive_pixel.blue) << ','
@@ -503,7 +596,7 @@ int main() {
                                 << static_cast<int>(layer_culled_pixel.alpha) << ")\n";
                         } else {
                             std::cout << "GPURenderSmokeTests passed on " << backend->backend_name()
-                                      << ": sprite, Canvas UI, fullscreen, blend, and zoom-stability probes matched\n";
+                                      << ": sprite, material pack, Canvas UI, fullscreen, blend, and zoom-stability probes matched\n";
                             exit_code = 0;
                         }
                     }
@@ -514,6 +607,7 @@ int main() {
                 if (lighting_target) SDL_DestroyTexture(lighting_target);
                 if (canvas_target) SDL_DestroyTexture(canvas_target);
                 if (canvas_text_target) SDL_DestroyTexture(canvas_text_target);
+                if (lit_sprite_target) SDL_DestroyTexture(lit_sprite_target);
             }
         }
     }

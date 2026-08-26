@@ -4,20 +4,58 @@
 #include "postprocess/PostProcessPipeline.hpp"
 #include "material/IMaterialBackend.hpp"
 #include "material/Material.hpp"
+#include "material/FragmentShader.hpp"
 #include "core/ThreadPool.hpp"
 #include "core/Log.hpp"
 #include "core/SIMD.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace Engine {
 
+namespace {
+
+struct alignas(16) LitSpriteUniforms {
+    float light_direction_intensity[4];
+    float light_color_ambient[4];
+    float emissive_tint_intensity[4];
+    float surface[4];
+};
+
+std::shared_ptr<const FragmentShader> make_lit_sprite_shader() {
+    auto shader = std::make_shared<FragmentShader>("Engine Lit Sprite material-pack-v1");
+    shader->set_sampler_count(1);
+    shader->set_uniform_buffer_count(1);
+    const auto add_portable_variants = [&](const std::filesystem::path& directory) {
+        shader->add_variant_from_file(
+            ShaderBinaryFormat::SpirV, (directory / "lit_sprite.frag.spv").string(), "main"
+        );
+        shader->add_variant_from_file(
+            ShaderBinaryFormat::Dxil, (directory / "lit_sprite.frag.dxil").string(), "main"
+        );
+        shader->add_variant_from_file(
+            ShaderBinaryFormat::Msl, (directory / "lit_sprite.frag.msl").string(), "main0"
+        );
+    };
+#ifdef ENGINE_BUILTIN_SHADER_OUTPUT_DIR
+    add_portable_variants(ENGINE_BUILTIN_SHADER_OUTPUT_DIR);
+#endif
+    if (const char* base_path = SDL_GetBasePath()) {
+        add_portable_variants(std::filesystem::path(base_path) / "Engine/Shaders");
+    }
+    return shader;
+}
+
+} // namespace
+
 Renderer2D::Renderer2D(SDL_Renderer* renderer)
-    : m_sdl_renderer(renderer), m_render_target_pool(renderer) {
+    : m_sdl_renderer(renderer), m_render_target_pool(renderer),
+      m_material_pack_cache(renderer), m_lit_sprite_shader(make_lit_sprite_shader()) {
     reserve_capacity(10000);
 }
 
@@ -51,6 +89,7 @@ void Renderer2D::invalidate_render_surface() {
     m_frame_world_target = nullptr;
     m_frame_world_target_leased = false;
     m_custom_render_target = nullptr;
+    m_material_pack_cache.clear();
     trim_transient_resources();
     if (m_material_backend) m_material_backend->invalidate_device_resources();
     m_render_surface_available = false;
@@ -230,6 +269,8 @@ void Renderer2D::begin_scene(const Camera2D& camera) {
     m_frame_metrics = {};
     m_screen_submission_order = 0;
     m_lighting_composited_layers.clear();
+    m_lit_material_cursor = 0;
+    m_lit_material_lookup.clear();
 
     SDL_Texture* const output_target = m_custom_render_target;
     if (m_sdl_renderer) SDL_SetRenderTarget(m_sdl_renderer, output_target);
@@ -314,7 +355,8 @@ void Renderer2D::submit_sprite(
     AssetHandle entity_effect_profile,
     std::uint64_t entity_effect_scope,
     SDL_BlendMode blend_mode,
-    bool baked_light_receiver
+    bool baked_light_receiver,
+    const SpriteMaterialLighting* material_lighting
 ) {
     render_layer = std::min<RenderLayer>(render_layer, 31);
     if (m_active_camera && !m_active_camera->renders_layer(render_layer)) {
@@ -342,6 +384,28 @@ void Renderer2D::submit_sprite(
     cmd.entity_effect_scope = entity_effect_profile.is_valid() ? entity_effect_scope : 0;
     cmd.blend_mode = blend_mode;
     cmd.baked_light_receiver = baked_light_receiver;
+    if (material_lighting && !cmd.material) {
+        const MaterialPackRegion source_region = src_rect
+            ? MaterialPackRegion{
+                static_cast<int>(std::floor(src_rect->x)),
+                static_cast<int>(std::floor(src_rect->y)),
+                static_cast<int>(std::round(src_rect->w)),
+                static_cast<int>(std::round(src_rect->h))}
+            : MaterialPackRegion{0, 0, texture ? texture->get_width() : 0, texture ? texture->get_height() : 0};
+        const MaterialPackResult pack = m_material_pack_cache.request({
+            texture,
+            material_lighting->normal_map,
+            material_lighting->emissive_map,
+            material_lighting->specular_map,
+            source_region
+        });
+        if (pack.ready()) {
+            cmd.texture = pack.texture;
+            cmd.src_rect = pack.albedo_rect;
+            cmd.has_src_rect = true;
+            cmd.material = create_lit_sprite_material(*material_lighting);
+        }
+    }
 
     if (is_overlay) {
         cmd.sort_key = 0xFFFFFFFFFFFFFFFFULL; // Force overlay to sort after all game world sprites!
@@ -357,6 +421,50 @@ void Renderer2D::submit_sprite(
     }
 
     m_sprite_queue.push_back(cmd);
+}
+
+std::shared_ptr<const Material> Renderer2D::create_lit_sprite_material(
+    const SpriteMaterialLighting& lighting
+) {
+    const glm::vec3 direction = glm::length(lighting.light_direction) > 0.0001f
+        ? glm::normalize(lighting.light_direction) : glm::vec3(0.0f, 0.0f, 1.0f);
+    LitSpriteUniforms uniforms{
+        {direction.x, direction.y, direction.z, std::max(lighting.light_intensity, 0.0f)},
+        {std::clamp(lighting.light_color.r, 0.0f, 1.0f),
+         std::clamp(lighting.light_color.g, 0.0f, 1.0f),
+         std::clamp(lighting.light_color.b, 0.0f, 1.0f),
+         std::max(lighting.ambient, 0.0f)},
+        {lighting.emissive_tint.r / 255.0f,
+         lighting.emissive_tint.g / 255.0f,
+         lighting.emissive_tint.b / 255.0f,
+         std::max(lighting.emissive_intensity, 0.0f)},
+        {std::max(lighting.normal_strength, 0.0f),
+         std::max(lighting.specular_strength, 0.0f),
+         std::max(lighting.shininess, 1.0f), 0.0f}
+    };
+    std::uint64_t uniform_key = 1469598103934665603ull;
+    const auto uniform_bytes = std::as_bytes(std::span<const LitSpriteUniforms>(&uniforms, 1));
+    for (const std::byte value : uniform_bytes) {
+        uniform_key ^= std::to_integer<std::uint8_t>(value);
+        uniform_key *= 1099511628211ull;
+    }
+    if (const auto found = m_lit_material_lookup.find(uniform_key);
+        found != m_lit_material_lookup.end() &&
+        found->second->uniform_bytes(0).size() == uniform_bytes.size() &&
+        std::equal(found->second->uniform_bytes(0).begin(), found->second->uniform_bytes(0).end(), uniform_bytes.begin())) {
+        return found->second;
+    }
+    std::shared_ptr<Material> material;
+    if (m_lit_material_cursor < m_lit_material_pool.size()) {
+        material = m_lit_material_pool[m_lit_material_cursor];
+    } else {
+        material = std::make_shared<Material>("Lit Sprite", m_lit_sprite_shader);
+        m_lit_material_pool.push_back(material);
+    }
+    ++m_lit_material_cursor;
+    material->set_uniform(0, uniforms);
+    m_lit_material_lookup[uniform_key] = material;
+    return material;
 }
 
 void Renderer2D::submit_screen_sprite(

@@ -2,17 +2,63 @@
 
 #include "InspectorPropertyPolicies.hpp"
 #include "InspectorWidgets.hpp"
+#include "AssetDropTarget.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/PrefabCommands.hpp"
 #include "../../ecs/components/PhysicsComponents.hpp"
 #include "../../ecs/components/RenderingComponents.hpp"
 #include "../../scene/PrefabOverrides.hpp"
+#include "../../core/AssetDatabase.hpp"
+#include "../../core/AssetManager.hpp"
 #include <imgui.h>
 #include <cstdint>
 #include <string>
 
 namespace Engine {
 namespace {
+
+bool draw_texture_asset(
+    const char* label,
+    const char* id,
+    AssetHandle& handle,
+    Texture*& texture,
+    SDL_Renderer* renderer,
+    AssetManager* asset_manager
+) {
+    InspectorWidgets::begin_property_row(label);
+    AssetDatabase& database = AssetDatabase::get();
+    const AssetRecord* selected = handle.is_valid() ? database.find(handle) : nullptr;
+    bool changed = false;
+    if (ImGui::BeginCombo(id, selected ? selected->source_path.c_str() : "None")) {
+        if (ImGui::Selectable("None", !handle.is_valid())) {
+            handle = {};
+            texture = nullptr;
+            changed = true;
+        }
+        for (const AssetRecord& record : database.records()) {
+            if (record.type != AssetType::Texture || record.status != AssetStatus::Ready) continue;
+            const bool active = record.handle == handle;
+            if (ImGui::Selectable(record.source_path.c_str(), active)) {
+                handle = record.handle;
+                texture = renderer && asset_manager
+                    ? asset_manager->get_texture(renderer, record.source_path) : nullptr;
+                changed = true;
+            }
+            if (active) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (const auto dropped = accept_asset_drop_target(database, AssetType::Texture)) {
+        const AssetRecord* record = database.find(*dropped);
+        if (record && *dropped != handle) {
+            handle = *dropped;
+            texture = renderer && asset_manager
+                ? asset_manager->get_texture(renderer, record->source_path) : nullptr;
+            changed = true;
+        }
+    }
+    return changed;
+}
 
 template<typename Component>
 void track(
@@ -276,24 +322,48 @@ void LightingInspectorDrawer::draw_shadow_caster(
     ImGui::PopID();
 }
 
-void LightingInspectorDrawer::draw_sprite_lighting(EntityManager& em, EntityID entity, const ComponentTransactionContext& context) {
+void LightingInspectorDrawer::draw_sprite_lighting(EntityManager& em, EntityID entity, const SpriteLightingContext& context) {
     if (!em.has_component<SpriteLighting2DComponent>(entity)) return;
     bool open = false;
-    if (handle_header<SpriteLighting2DComponent>(em, entity, "sprite_lighting_2d", "Remove Sprite Lighting 2D", context, open) || !open) return;
+    if (handle_header<SpriteLighting2DComponent>(em, entity, "sprite_lighting_2d", "Remove Sprite Lighting 2D", context.transaction, open) || !open) return;
     auto& value = em.get_component<SpriteLighting2DComponent>(entity);
     const auto before = value;
     using namespace InspectorWidgets;
     namespace Policies = InspectorPropertyPolicies;
+    const bool custom_material = em.has_component<SpriteComponent>(entity) &&
+        static_cast<bool>(em.get_component<SpriteComponent>(entity).material);
+    if (custom_material) {
+        ImGui::TextDisabled("Realtime maps are disabled while the Sprite uses a custom material.");
+        ImGui::BeginDisabled();
+    }
+    const bool normal_changed = draw_texture_asset(
+        "Normal Map (Realtime)", "##normal_map", value.normal_map_handle, value.normal_map,
+        context.renderer, context.asset_manager
+    );
+    const bool emissive_changed = draw_texture_asset(
+        "Emissive Map (Realtime)", "##emissive_map", value.emissive_map_handle, value.emissive_map,
+        context.renderer, context.asset_manager
+    );
+    const bool specular_changed = draw_texture_asset(
+        "Specular Map (Realtime)", "##specular_map", value.specular_map_handle, value.specular_map,
+        context.renderer, context.asset_manager
+    );
     property_float("Normal Strength", &value.normal_strength, Policies::unbounded_float(0.02f));
     property_float("Emissive Intensity", &value.emissive_intensity, Policies::unbounded_float(0.02f));
     property_float("Surface Height", &value.surface_height, Policies::Lighting::Coordinate);
     property_float("Specular Strength", &value.specular_strength, Policies::unbounded_float(0.02f));
     property_float("Shininess", &value.shininess, Policies::unbounded_float(0.25f));
     property_bool("Receives Lighting", &value.receives_lighting);
+    ImGui::BeginDisabled();
     property_bool("Receives Shadows", &value.receives_shadows);
+    ImGui::EndDisabled();
+    ImGui::TextDisabled("Per-sprite shadow reception will be enabled with the receiver mask stage.");
+    if (custom_material) ImGui::EndDisabled();
     property_bool("Baked Receiver", &value.baked_receiver);
+    ImGui::TextDisabled("Realtime maps are packed on demand. Baked Receiver affects the next valid lighting bake.");
     property_bool("Enabled", &value.enabled);
-    track(em, entity, before, "SpriteLighting2D", "Edit Sprite Lighting 2D", context);
+    track(em, entity, before, "SpriteLighting2D", "Edit Sprite Lighting 2D", context.transaction,
+          normal_changed || emissive_changed || specular_changed);
 }
 
 void LightingInspectorDrawer::draw_sprite_shadow(EntityManager& em, EntityID entity, const ComponentTransactionContext& context) {

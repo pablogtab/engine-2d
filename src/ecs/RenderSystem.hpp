@@ -155,9 +155,11 @@ private:
     ) {
         const AssetHandle effect_profile = effect && effect->enabled ? effect->profile_handle : AssetHandle{};
         const std::uint64_t effect_scope = effect_profile.is_valid() ? static_cast<std::uint64_t>(entity) : 0;
-        const bool baked_light_receiver = entity_manager.has_component<SpriteLighting2DComponent>(entity) &&
-            entity_manager.get_component<SpriteLighting2DComponent>(entity).enabled &&
-            entity_manager.get_component<SpriteLighting2DComponent>(entity).baked_receiver;
+        const SpriteLighting2DComponent* sprite_lighting =
+            entity_manager.has_component<SpriteLighting2DComponent>(entity)
+                ? &entity_manager.get_component<SpriteLighting2DComponent>(entity) : nullptr;
+        const bool baked_light_receiver = sprite_lighting && sprite_lighting->enabled &&
+            sprite_lighting->baked_receiver;
         if (entity_manager.has_component<SpriteShadow2DComponent>(entity)) {
             const auto& shadow = entity_manager.get_component<SpriteShadow2DComponent>(entity);
             if (shadow.enabled && shadow.opacity > 0.0f) {
@@ -230,6 +232,57 @@ private:
             renderer.submit_sprite(sprite.texture, outline_z + glm::vec3(diag, diag, 0.0f), size, transform.world_rotation, out_col, src_rect_ptr, transform.world_pivot, false, sprite.flip_x, sprite.flip_y, sprite.sorting_layer, sprite.order_in_layer, nullptr, sprite.render_layer, effect_profile, effect_scope);
         }
 
+        SpriteMaterialLighting material_lighting;
+        const SpriteMaterialLighting* material_lighting_ptr = nullptr;
+        if (sprite_lighting && sprite_lighting->enabled &&
+            (sprite_lighting->normal_map || sprite_lighting->emissive_map || sprite_lighting->specular_map)) {
+            material_lighting.normal_map = sprite_lighting->normal_map;
+            material_lighting.emissive_map = sprite_lighting->emissive_map;
+            material_lighting.specular_map = sprite_lighting->specular_map;
+            material_lighting.normal_strength = sprite_lighting->normal_strength;
+            material_lighting.emissive_tint = sprite_lighting->emissive_tint;
+            material_lighting.emissive_intensity = sprite_lighting->emissive_intensity;
+            material_lighting.specular_strength = sprite_lighting->specular_strength;
+            material_lighting.shininess = sprite_lighting->shininess;
+            material_lighting.ambient = 1.0f;
+
+            if (sprite_lighting->receives_lighting) {
+                float best_score = -1.0f;
+                entity_manager.for_each<TransformComponent, Light2DComponent>(
+                    [&](EntityID light_id, const TransformComponent& light_transform, const Light2DComponent& light) {
+                        if (light_id == entity || !light.enabled || light.mobility != Light2DMobility::Realtime ||
+                            light.type == Light2DType::Ambient ||
+                            !renders_layer(light.affected_layers, sprite.render_layer)) return;
+                        const glm::vec2 to_light = glm::vec2(light_transform.world_position) -
+                            glm::vec2(transform.world_position);
+                        const float distance = glm::length(to_light);
+                        float influence = light.intensity;
+                        if (light.type != Light2DType::Directional) {
+                            if (light.range <= 0.0f || distance >= light.range) return;
+                            const float normalized = std::clamp(1.0f - distance / light.range, 0.0f, 1.0f);
+                            influence *= std::pow(normalized, std::clamp(light.falloff, 0.1f, 8.0f));
+                        }
+                        if (influence <= best_score) return;
+                        best_score = influence;
+                        glm::vec2 direction = to_light;
+                        if (light.type == Light2DType::Directional) {
+                            const float radians = glm::radians(light_transform.world_rotation);
+                            direction = {-std::cos(radians), -std::sin(radians)};
+                        }
+                        const float height = std::max(light.height - sprite_lighting->surface_height, 0.0f);
+                        material_lighting.light_direction = glm::normalize(glm::vec3(direction, height));
+                        material_lighting.light_color = {
+                            light.color.r / 255.0f,
+                            light.color.g / 255.0f,
+                            light.color.b / 255.0f
+                        };
+                        material_lighting.light_intensity = influence;
+                    }
+                );
+            }
+            material_lighting_ptr = &material_lighting;
+        }
+
         renderer.submit_sprite(
             sprite.texture,
             transform.world_position,
@@ -248,7 +301,8 @@ private:
             effect_profile,
             effect_scope,
             SDL_BLENDMODE_BLEND,
-            baked_light_receiver
+            baked_light_receiver,
+            material_lighting_ptr
         );
     }
 public:

@@ -8,6 +8,22 @@
 
 namespace Engine {
 
+namespace {
+
+std::uint64_t texture_content_hash(const std::uint32_t* pixels, std::size_t count) {
+    std::uint64_t hash = 1469598103934665603ull;
+    for (std::size_t index = 0; index < count; ++index) {
+        const std::uint32_t pixel = pixels[index];
+        for (int byte = 0; byte < 4; ++byte) {
+            hash ^= static_cast<std::uint8_t>(pixel >> (byte * 8));
+            hash *= 1099511628211ull;
+        }
+    }
+    return hash;
+}
+
+} // namespace
+
 Texture::Texture(SDL_Renderer* renderer, int width, int height, const uint32_t* pixels)
     : m_width(width), m_height(height) {
 
@@ -17,6 +33,7 @@ Texture::Texture(SDL_Renderer* renderer, int width, int height, const uint32_t* 
         for (std::size_t index = 0; index < m_alpha.size(); ++index) {
             m_alpha[index] = static_cast<std::uint8_t>(pixels[index] & 0xffu);
         }
+        m_content_hash = texture_content_hash(pixels, m_pixels.size());
     }
 
     m_texture = SDL_CreateTexture(

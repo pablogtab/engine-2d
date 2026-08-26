@@ -66,6 +66,7 @@ set(SOURCES
     src/renderer/RenderResolution.cpp
     src/renderer/LightingBakeService.cpp
     src/renderer/Lighting2DSystem.cpp
+    src/renderer/MaterialPack.cpp
     src/renderer/RenderEffectSystem.cpp
     src/renderer/RenderLayerEffectProfile.cpp
     src/renderer/RenderTargetPool.cpp
@@ -317,6 +318,9 @@ target_link_libraries(EngineRuntime PUBLIC
     box2d
     EngineScriptLib
 )
+target_compile_definitions(EngineRuntime PRIVATE
+    ENGINE_BUILTIN_SHADER_OUTPUT_DIR="${ENGINE_SHADER_OUTPUT_DIR}/builtin"
+)
 
 add_executable(Engine2D src/main.cpp src/core/Application.cpp ${ENGINE_EDITOR_SOURCES})
 target_compile_definitions(Engine2D PRIVATE
@@ -326,6 +330,9 @@ target_compile_definitions(Engine2D PRIVATE
 
 add_executable(Engine2DStandalone src/runtime/StandaloneMain.cpp src/core/Application.cpp)
 target_compile_definitions(Engine2DStandalone PRIVATE ENGINE_WITH_EDITOR=0)
+
+add_dependencies(Engine2D compile_shaders)
+add_dependencies(Engine2DStandalone compile_shaders)
 
 if(APPLE)
     set(ENGINE_RUNTIME_SHADER_FORMAT "msl")
@@ -347,6 +354,12 @@ if(ENGINE_HAS_RUNTIME_SHADER)
         "${ENGINE_SHADER_OUTPUT_DIR}/${ENGINE_SHADER_OUTPUT_BASENAME}.${ENGINE_RUNTIME_SHADER_EXTENSION}")
 endif()
 
+set(ENGINE_BUILTIN_LIT_SHADER_VARIANT "")
+if(ENGINE_BUILTIN_LIT_SHADER_OUTPUT_BASE)
+    set(ENGINE_BUILTIN_LIT_SHADER_VARIANT
+        "${ENGINE_BUILTIN_LIT_SHADER_OUTPUT_BASE}.${ENGINE_RUNTIME_SHADER_EXTENSION}")
+endif()
+
 add_custom_target(stage_runtime_assets
     COMMAND "${CMAKE_COMMAND}"
         "-DENGINE_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
@@ -358,7 +371,8 @@ add_custom_target(stage_runtime_assets
         "-DENGINE_SHADER_FORMAT=${ENGINE_RUNTIME_SHADER_FORMAT}"
         "-DENGINE_SHADER_ENTRY_POINT=${ENGINE_RUNTIME_SHADER_ENTRY_POINT}"
         "-DENGINE_SHADER_DESCRIPTOR=${ENGINE_RUNTIME_SHADER_DESCRIPTOR}"
-        "-DENGINE_SHADER_VARIANT_BASE=${ENGINE_RUNTIME_SHADER_VARIANT_BASE}"
+            "-DENGINE_SHADER_VARIANT_BASE=${ENGINE_RUNTIME_SHADER_VARIANT_BASE}"
+            "-DENGINE_BUILTIN_LIT_SHADER_VARIANT=${ENGINE_BUILTIN_LIT_SHADER_VARIANT}"
         -P "${CMAKE_SOURCE_DIR}/cmake/StageRuntimeAssets.cmake"
     DEPENDS Engine2DStandalone e2sc compile_shaders
     COMMENT "Staging runtime assets with the platform shader variant"
@@ -684,6 +698,21 @@ target_include_directories(Lighting2DTests PRIVATE
 target_link_libraries(Lighting2DTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME Lighting2DTests COMMAND Lighting2DTests)
 
+add_executable(MaterialPackTests
+    tests/MaterialPackTests.cpp
+    src/renderer/MaterialPack.cpp
+    src/renderer/Texture.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+    vendor/stb/stb_impl.cpp
+)
+target_include_directories(MaterialPackTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(MaterialPackTests PRIVATE SDL3::SDL3 glm::glm)
+add_test(NAME MaterialPackTests COMMAND MaterialPackTests)
+
 add_executable(CanvasLayoutTests tests/CanvasLayoutTests.cpp)
 target_include_directories(CanvasLayoutTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -706,6 +735,7 @@ target_link_libraries(CanvasUIRenderTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME CanvasUIRenderTests COMMAND CanvasUIRenderTests)
 
 add_executable(GPURenderSmokeTests tests/GPURenderSmokeTests.cpp)
+add_dependencies(GPURenderSmokeTests compile_shaders)
 target_include_directories(GPURenderSmokeTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor
@@ -716,9 +746,6 @@ target_compile_definitions(GPURenderSmokeTests PRIVATE
 )
 target_link_libraries(GPURenderSmokeTests PRIVATE SDL3::SDL3 glm::glm)
 if(ENGINE_ENABLE_HARDWARE_TESTS)
-    if(NOT APPLE)
-        add_dependencies(GPURenderSmokeTests compile_shaders)
-    endif()
     add_test(NAME GPURenderSmokeTests COMMAND GPURenderSmokeTests)
     set_tests_properties(GPURenderSmokeTests PROPERTIES
         LABELS "gpu;hardware"

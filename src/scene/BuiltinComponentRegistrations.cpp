@@ -564,13 +564,13 @@ void register_sprite_lighting(ComponentRegistry& registry) {
         .display_name = "Sprite Lighting 2D",
         .serialized_key = "sprite_lighting_2d",
         .serialize = [](const SpriteLighting2DComponent& value, const ComponentSerializationContext&) {
-            return Json{{"normal_map", value.normal_map_handle.to_string()}, {"emissive_map", value.emissive_map_handle.to_string()},
+            return Json{{"normal_map", value.normal_map_handle.to_string()}, {"emissive_map", value.emissive_map_handle.to_string()}, {"specular_map", value.specular_map_handle.to_string()},
                 {"normal_strength", value.normal_strength}, {"emissive_tint", {value.emissive_tint.r, value.emissive_tint.g, value.emissive_tint.b, value.emissive_tint.a}},
                 {"emissive_intensity", value.emissive_intensity}, {"surface_height", value.surface_height},
                 {"specular_strength", value.specular_strength}, {"shininess", value.shininess},
-                {"receives_lighting", value.receives_lighting}, {"receives_shadows", value.receives_shadows}, {"baked_receiver", value.baked_receiver}};
+                {"receives_lighting", value.receives_lighting}, {"receives_shadows", value.receives_shadows}, {"baked_receiver", value.baked_receiver}, {"enabled", value.enabled}};
         },
-        .deserialize = [](SpriteLighting2DComponent& target, const Json& value, const ComponentSerializationContext&, std::string& error) {
+        .deserialize = [](SpriteLighting2DComponent& target, const Json& value, const ComponentSerializationContext& context, std::string& error) {
             try {
                 if (!value.is_object()) throw Json::type_error::create(302, "Sprite Lighting 2D must be an object", nullptr);
                 const auto parse_optional_handle = [](const std::string& text) -> std::optional<AssetHandle> {
@@ -579,15 +579,26 @@ void register_sprite_lighting(ComponentRegistry& registry) {
                 };
                 const auto normal = parse_optional_handle(value.at("normal_map").get<std::string>());
                 const auto emissive = parse_optional_handle(value.at("emissive_map").get<std::string>());
-                if (!normal || !emissive) { error = "Sprite Lighting 2D texture handle is invalid"; return false; }
+                const auto specular = parse_optional_handle(value.value("specular_map", "0000000000000000"));
+                if (!normal || !emissive || !specular) { error = "Sprite Lighting 2D texture handle is invalid"; return false; }
                 const auto& tint = value.at("emissive_tint");
                 if (!tint.is_array() || tint.size() != 4) { error = "Sprite Lighting 2D emissive tint is invalid"; return false; }
-                target.normal_map_handle = *normal; target.emissive_map_handle = *emissive;
+                target.normal_map_handle = *normal; target.emissive_map_handle = *emissive; target.specular_map_handle = *specular;
+                const auto resolve_texture = [&](AssetHandle handle) -> Texture* {
+                    if (!handle.is_valid() || !context.asset_database || !context.asset_manager || !context.renderer) return nullptr;
+                    const AssetRecord* record = context.asset_database->find(handle);
+                    return record && record->status == AssetStatus::Ready && record->type == AssetType::Texture
+                        ? context.asset_manager->get_texture(context.renderer, record->source_path) : nullptr;
+                };
+                target.normal_map = resolve_texture(*normal);
+                target.emissive_map = resolve_texture(*emissive);
+                target.specular_map = resolve_texture(*specular);
                 target.normal_strength = value.at("normal_strength").get<float>();
                 target.emissive_tint = {tint[0].get<std::uint8_t>(), tint[1].get<std::uint8_t>(), tint[2].get<std::uint8_t>(), tint[3].get<std::uint8_t>()};
                 target.emissive_intensity = value.at("emissive_intensity").get<float>(); target.surface_height = value.at("surface_height").get<float>();
                 target.specular_strength = value.at("specular_strength").get<float>(); target.shininess = value.at("shininess").get<float>();
                 target.receives_lighting = value.at("receives_lighting").get<bool>(); target.receives_shadows = value.at("receives_shadows").get<bool>(); target.baked_receiver = value.at("baked_receiver").get<bool>();
+                target.enabled = value.value("enabled", true);
             } catch (const Json::exception&) { error = "Sprite Lighting 2D contains an invalid field"; return false; }
             return true;
         },
