@@ -190,7 +190,26 @@ bool apply_component_patch(
             error = "serialized component data is not an object";
             return false;
         }
-        data.merge_patch(patch);
+        Json effective_patch = patch;
+        if (descriptor.serialized_key == "script") {
+            Json first_instance_patch = Json::object();
+            for (const char* field : {"enabled", "script_handle", "public_fields"}) {
+                if (!effective_patch.contains(field)) continue;
+                first_instance_patch[field] = effective_patch.at(field);
+                effective_patch.erase(field);
+            }
+            if (!first_instance_patch.empty()) {
+                if (!data.contains("instances") || !data.at("instances").is_array() ||
+                    data.at("instances").empty()) {
+                    error = "script component has no behaviour instance to configure";
+                    return false;
+                }
+                Json instances = data.at("instances");
+                instances.front().merge_patch(first_instance_patch);
+                effective_patch["instances"] = std::move(instances);
+            }
+        }
+        data.merge_patch(effective_patch);
         if (!descriptor.deserialize(entities, entity, data, serialization, error)) {
             if (error.empty()) error = "component deserializer rejected the patch";
             return false;
@@ -208,7 +227,7 @@ bool apply_component_patch(
             return false;
         }
         const Json applied = descriptor.serialize(entities, entity, serialization);
-        if (!patch_shape_was_applied(patch, applied, {}, error)) {
+        if (!patch_shape_was_applied(effective_patch, applied, {}, error)) {
             if (error.empty()) error = "component patch was not applied";
             return false;
         }
@@ -1067,7 +1086,9 @@ EditorAiAuthoringRegistry::EditorAiAuthoringRegistry(ComponentRegistry* componen
         "texture_handle", "material_handle", "src_rect"
     });
     m_component_patch_fields["render_effect"].insert("profile_handle");
-    m_component_patch_fields["script"].insert("script_handle");
+    m_component_patch_fields["script"].insert({
+        "enabled", "script_handle", "public_fields"
+    });
     m_component_patch_fields["particle_emitter"].insert("effect_handle");
     std::sort(m_addable_component_keys.begin(), m_addable_component_keys.end());
     std::sort(m_removable_component_keys.begin(), m_removable_component_keys.end());

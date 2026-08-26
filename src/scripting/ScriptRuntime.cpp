@@ -571,6 +571,7 @@ private:
     }
     bool addGameplayTag(const EngineScript::Entity &entity,
                         const std::string &tag) override {
+      require_main_thread(m_binding);
       if (!m_binding.entity_manager ||
           !m_binding.entity_manager->is_alive(entity.id) ||
           !is_valid_gameplay_tag(tag))
@@ -610,55 +611,6 @@ private:
       return m_binding.entity_manager
           ->get_component<GameplayTagsComponent>(entity.id)
           .tags;
-        }
-        EngineScript::Entity findByGameplayTag(const std::string& tag) const override {
-            if (!m_binding.entity_manager || !is_valid_gameplay_tag(tag)) return {};
-            EntityID result = 0;
-            m_binding.entity_manager->for_each<GameplayTagsComponent>(
-                [&](EntityID id, const GameplayTagsComponent& tags) {
-                    if (result == 0 && tags.contains(tag)) result = id;
-                }
-            );
-            return make_entity(result);
-        }
-        std::vector<EngineScript::Entity> findAllByGameplayTag(const std::string& tag) const override {
-            std::vector<EngineScript::Entity> results;
-            if (!m_binding.entity_manager || !is_valid_gameplay_tag(tag)) return results;
-            m_binding.entity_manager->for_each<GameplayTagsComponent>(
-                [&](EntityID id, const GameplayTagsComponent& tags) {
-                    if (tags.contains(tag)) results.push_back(make_entity(id));
-                }
-            );
-            return results;
-        }
-        bool hasGameplayTag(const EngineScript::Entity& entity, const std::string& tag) const override {
-            return alive_with<GameplayTagsComponent>(entity.id) && is_valid_gameplay_tag(tag) &&
-                m_binding.entity_manager->get_component<GameplayTagsComponent>(entity.id).contains(tag);
-        }
-        bool addGameplayTag(const EngineScript::Entity& entity, const std::string& tag) override {
-            require_main_thread(m_binding);
-            if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(entity.id) ||
-                !is_valid_gameplay_tag(tag)) return false;
-            if (!m_binding.entity_manager->has_component<GameplayTagsComponent>(entity.id)) {
-                m_binding.entity_manager->add_component<GameplayTagsComponent>(entity.id, GameplayTagsComponent{});
-            }
-            auto& tags = m_binding.entity_manager->get_component<GameplayTagsComponent>(entity.id).tags;
-            if (tags.size() >= 32 || std::find(tags.begin(), tags.end(), tag) != tags.end()) return false;
-            tags.push_back(tag);
-            std::sort(tags.begin(), tags.end());
-            return true;
-        }
-        bool removeGameplayTag(const EngineScript::Entity& entity, const std::string& tag) override {
-            if (!alive_with<GameplayTagsComponent>(entity.id)) return false;
-            auto& tags = m_binding.entity_manager->get_component<GameplayTagsComponent>(entity.id).tags;
-            const auto found = std::find(tags.begin(), tags.end(), tag);
-            if (found == tags.end()) return false;
-            tags.erase(found);
-            return true;
-        }
-        std::vector<std::string> gameplayTags(const EngineScript::Entity& entity) const override {
-            if (!alive_with<GameplayTagsComponent>(entity.id)) return {};
-            return m_binding.entity_manager->get_component<GameplayTagsComponent>(entity.id).tags;
         }
         std::vector<EngineScript::Entity> findAllWithTransform() const override {
             require_main_thread(m_binding);

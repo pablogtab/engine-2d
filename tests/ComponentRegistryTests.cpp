@@ -527,8 +527,9 @@ void test_builtin_components_round_trip_through_registry() {
     em.add_component<TilemapComponent>(source, tilemap);
 
     ScriptComponent script;
-    script.script_handle = AssetHandle{0x9876};
-    script.public_fields = {{"speed", ScriptFieldType::Number, 8.0}};
+    script.instances.front().script_handle = AssetHandle{0x9876};
+    script.instances.front().public_fields = {
+        {"speed", ScriptFieldType::Number, 8.0}};
     em.add_component<ScriptComponent>(source, script);
 
     ParticleEmitter2DComponent emitter;

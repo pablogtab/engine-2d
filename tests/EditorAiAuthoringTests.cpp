@@ -261,19 +261,23 @@ void test_required_component_configuration_validates_final_transaction_state() {
     assert(session.entities.has_component<SpriteComponent>(pet));
     assert(session.entities.has_component<ScriptComponent>(pet));
     const ScriptComponent& script = session.entities.get_component<ScriptComponent>(pet);
-    assert(script.enabled);
-    assert(script.script_handle == *AssetHandle::from_string("d17564dba2c3cd4e"));
+    assert(script.instances.size() == 1);
+    assert(script.instances.front().enabled);
+    assert(script.instances.front().script_handle ==
+           *AssetHandle::from_string("d17564dba2c3cd4e"));
     const SpriteComponent& sprite = session.entities.get_component<SpriteComponent>(pet);
     assert(sprite.size == glm::vec2(48.0f, 32.0f));
     assert(sprite.order_in_layer == 1);
-    const AssetHandle script_handle = script.script_handle;
+    const AssetHandle script_handle = script.instances.front().script_handle;
     assert(session.history.get_undo_count() == 1);
 
     session.history.undo();
     assert(!session.entities.is_alive(pet));
     session.history.redo();
     assert(session.entities.is_alive(pet));
-    assert(session.entities.get_component<ScriptComponent>(pet).script_handle == script_handle);
+    assert(session.entities.get_component<ScriptComponent>(pet)
+               .instances.front()
+               .script_handle == script_handle);
 }
 
 void test_final_component_validation_reports_exact_rollback_reason() {
