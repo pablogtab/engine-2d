@@ -1,6 +1,8 @@
 #include "LightingBakeService.hpp"
 
 #include "RenderLayer.hpp"
+#include "ShadowSilhouette.hpp"
+#include "stb/stb_image.h"
 
 #include <SDL3/SDL.h>
 #include <nlohmann/json.hpp>
@@ -222,10 +224,24 @@ WorldTransform resolve_world_transform(
 BakeInput parse_input(const std::filesystem::path& project_root, const std::filesystem::path& scene_path) {
     const std::string scene_text = read_file(scene_path);
     const std::string settings_text = read_file(project_root / "ProjectSettings" / "Project.json");
+    const std::string asset_database_text = read_file(project_root / "ProjectSettings" / "AssetDatabase.json");
+    std::string hash_material = std::string(LightingBakeService::k_baker_version) + "\n" +
+        scene_text + "\n" + settings_text + "\n" + asset_database_text;
     BakeInput input;
-    input.hash = fnv1a64_hex(std::string(LightingBakeService::k_baker_version) + "\n" + scene_text + "\n" + settings_text);
     const Json scene = Json::parse(scene_text, nullptr, false);
-    if (scene.is_discarded() || !scene.is_object()) return input;
+    if (scene.is_discarded() || !scene.is_object()) {
+        input.hash = fnv1a64_hex(hash_material);
+        return input;
+    }
+    std::unordered_map<std::string, std::filesystem::path> texture_paths;
+    const Json asset_database = Json::parse(asset_database_text, nullptr, false);
+    if (!asset_database.is_discarded()) {
+        for (const Json& asset : asset_database.value("assets", Json::array())) {
+            if (asset.value("type", "") == "texture" && asset.value("status", "") == "ready") {
+                texture_paths[asset.value("handle", "")] = project_root / asset.value("path", "");
+            }
+        }
+    }
     const Json entities_json = scene.value("entities", Json::array());
     std::unordered_map<std::uint64_t, const Json*> entities;
     for (const Json& entity : entities_json) entities.emplace(entity.value("id", 0ull), &entity);
@@ -268,9 +284,55 @@ BakeInput parse_input(const std::filesystem::path& project_root, const std::file
         if (source == "Collider") {
             for (const Json& shape : entity.value("collider", Json::array())) polygons.push_back(collider_vertices(shape));
         } else if (source == "SpriteAlphaContour") {
-            const Vec2 size = json_vec2(entity.value("sprite", Json::object()).value("size", Json::array()), {32.0f, 32.0f});
-            polygons.push_back({{-size.x * 0.5f, -size.y * 0.5f}, {size.x * 0.5f, -size.y * 0.5f},
-                                {size.x * 0.5f, size.y * 0.5f}, {-size.x * 0.5f, size.y * 0.5f}});
+            const Json sprite = entity.value("sprite", Json::object());
+            const Vec2 size = json_vec2(sprite.value("size", Json::array()), {32.0f, 32.0f});
+            const auto texture_path = texture_paths.find(sprite.value("texture_handle", ""));
+            std::vector<Vec2> silhouette;
+            if (texture_path != texture_paths.end()) {
+                const std::string texture_bytes = read_file(texture_path->second);
+                hash_material.append("\n").append(texture_bytes);
+                int texture_width = 0, texture_height = 0, channels = 0;
+                stbi_uc* pixels = stbi_load(
+                    texture_path->second.string().c_str(), &texture_width, &texture_height, &channels, 4
+                );
+                if (pixels) {
+                    std::vector<std::uint8_t> alpha(
+                        static_cast<std::size_t>(texture_width) * texture_height
+                    );
+                    for (std::size_t pixel = 0; pixel < alpha.size(); ++pixel) {
+                        alpha[pixel] = pixels[pixel * 4 + 3];
+                    }
+                    const auto source_rect = sprite.value("src_rect", std::vector<float>{
+                        0.0f, 0.0f, static_cast<float>(texture_width), static_cast<float>(texture_height)
+                    });
+                    const SDL_FRect frame = source_rect.size() == 4
+                        ? SDL_FRect{source_rect[0], source_rect[1], source_rect[2], source_rect[3]}
+                        : SDL_FRect{0, 0, static_cast<float>(texture_width), static_cast<float>(texture_height)};
+                    const auto normalized = extract_alpha_silhouette(
+                        alpha, texture_width, texture_height, frame,
+                        caster.value("alpha_threshold", 0.5f),
+                        caster.value("contour_tolerance", 1.0f)
+                    );
+                    const bool flip_x = sprite.value("flip_x", false);
+                    const bool flip_y = sprite.value("flip_y", false);
+                    const Vec2 pivot = json_vec2(
+                        entity.value("transform", Json::object()).value("pivot", Json::array()),
+                        {0.5f, 0.5f}
+                    );
+                    silhouette.reserve(normalized.size());
+                    for (const glm::vec2 point : normalized) {
+                        const float u = flip_x ? 1.0f - point.x : point.x;
+                        const float v = flip_y ? 1.0f - point.y : point.y;
+                        silhouette.push_back({(u - pivot.x) * size.x, (v - pivot.y) * size.y});
+                    }
+                    stbi_image_free(pixels);
+                }
+            }
+            if (silhouette.size() < 3) {
+                silhouette = {{-size.x * 0.5f, -size.y * 0.5f}, {size.x * 0.5f, -size.y * 0.5f},
+                              {size.x * 0.5f, size.y * 0.5f}, {-size.x * 0.5f, size.y * 0.5f}};
+            }
+            polygons.push_back(std::move(silhouette));
         } else {
             std::vector<Vec2> polygon;
             for (const Json& vertex : caster.value("vertices", Json::array())) {
@@ -320,6 +382,7 @@ BakeInput parse_input(const std::filesystem::path& project_root, const std::file
         }
         ++volume_index;
     }
+    input.hash = fnv1a64_hex(hash_material);
     return input;
 }
 

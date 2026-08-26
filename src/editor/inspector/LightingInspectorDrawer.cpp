@@ -177,6 +177,16 @@ void LightingInspectorDrawer::draw_light(
         if (property_vec2("Area Size", size, Policies::Lighting::Coordinate)) light.area_size = {size[0], size[1]};
         track(em, entity, before, "Light2D.AreaSize", "Edit Area Light Size", context);
     }
+    if (light.type != Light2DType::Ambient) {
+        const Light2DComponent before = light;
+        property_float("Light Height", &light.height, Policies::Lighting::Coordinate);
+        if (light.type == Light2DType::Directional) {
+            property_float("Angular Radius", &light.directional_angular_radius, Policies::Lighting::Angle);
+        } else {
+            property_float("Source Radius", &light.source_radius, Policies::Lighting::Radius);
+        }
+        track(em, entity, before, "Light2D.Source", "Edit Light Shadow Source", context);
+    }
 
     const char* const blend_labels[] = {"Additive", "Multiply", "Screen"};
     int blend = static_cast<int>(light.blend_mode);
@@ -364,10 +374,10 @@ void LightingInspectorDrawer::draw_sprite_lighting(EntityManager& em, EntityID e
           normal_changed || emissive_changed || specular_changed);
 }
 
-void LightingInspectorDrawer::draw_sprite_shadow(EntityManager& em, EntityID entity, const ComponentTransactionContext& context) {
+void LightingInspectorDrawer::draw_sprite_shadow(EntityManager& em, EntityID entity, const SpriteLightingContext& context) {
     if (!em.has_component<SpriteShadow2DComponent>(entity)) return;
     bool open = false;
-    if (handle_header<SpriteShadow2DComponent>(em, entity, "sprite_shadow_2d", "Remove Sprite Shadow 2D", context, open) || !open) return;
+    if (handle_header<SpriteShadow2DComponent>(em, entity, "sprite_shadow_2d", "Remove Sprite Shadow 2D", context.transaction, open) || !open) return;
     auto& value = em.get_component<SpriteShadow2DComponent>(entity);
     const auto before = value;
     using namespace InspectorWidgets;
@@ -376,6 +386,14 @@ void LightingInspectorDrawer::draw_sprite_shadow(EntityManager& em, EntityID ent
     if (property_enum("Mode", &mode, modes, 2)) value.mode = static_cast<SpriteShadowMode>(mode);
     const char* shapes[] = {"Ellipse", "Texture"}; int shape = static_cast<int>(value.shape);
     if (property_enum("Shape", &shape, shapes, 2)) value.shape = static_cast<SpriteShadowShape>(shape);
+    bool texture_changed = false;
+    if (value.shape == SpriteShadowShape::Texture) {
+        texture_changed = draw_texture_asset(
+            "Shadow Texture", "##sprite_shadow_texture", value.texture_handle, value.texture,
+            context.renderer, context.asset_manager
+        );
+        if (!value.texture) ImGui::TextDisabled("Missing texture uses the deterministic soft ellipse fallback.");
+    }
     float offset[2] = {value.offset.x, value.offset.y}; if (property_vec2("Offset", offset, Policies::Lighting::Coordinate)) value.offset = {offset[0], offset[1]};
     float size[2] = {value.size.x, value.size.y}; if (property_vec2("Size", size, Policies::Lighting::Coordinate)) value.size = {size[0], size[1]};
     property_float("Opacity", &value.opacity, Policies::Lighting::Intensity);
@@ -383,7 +401,7 @@ void LightingInspectorDrawer::draw_sprite_shadow(EntityManager& em, EntityID ent
     property_float("Elevation", &value.elevation, Policies::Lighting::Coordinate);
     property_float("Max Projection", &value.max_projection, Policies::Lighting::Radius);
     property_bool("Enabled", &value.enabled);
-    track(em, entity, before, "SpriteShadow2D", "Edit Sprite Shadow 2D", context);
+    track(em, entity, before, "SpriteShadow2D", "Edit Sprite Shadow 2D", context.transaction, texture_changed);
 }
 
 void LightingInspectorDrawer::draw_bake_volume(EntityManager& em, EntityID entity, const ComponentTransactionContext& context) {

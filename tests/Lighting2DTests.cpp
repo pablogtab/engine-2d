@@ -5,6 +5,7 @@
 #include "editor/commands/EditorCommandHistory.hpp"
 #include "editor/commands/EntityCommands.hpp"
 #include "renderer/Lighting2DSystem.hpp"
+#include "renderer/ShadowSilhouette.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "renderer/Texture.hpp"
 #include "scene/Camera2D.hpp"
@@ -86,6 +87,55 @@ void test_shadow_geometry_extrudes_only_light_facing_edges() {
     ).empty());
 }
 
+void test_shadow_modes_have_distinct_sampling_and_penumbra() {
+    Light2DComponent light;
+    light.height = 64.0f;
+    light.source_radius = 2.0f;
+    light.shadow_softness = 0.5f;
+    assert(shadow_sample_count(ShadowMode::Hard) == 1);
+    assert(shadow_sample_count(ShadowMode::SoftFast) == 5);
+    assert(shadow_sample_count(ShadowMode::ContactHardening) == 9);
+    light.shadow_mode = ShadowMode::SoftFast;
+    const float soft_near = shadow_penumbra_radius(light, 16.0f, 32.0f);
+    const float soft_far = shadow_penumbra_radius(light, 128.0f, 32.0f);
+    assert(approximate(soft_near, soft_far));
+    light.shadow_mode = ShadowMode::ContactHardening;
+    const float contact_near = shadow_penumbra_radius(light, 16.0f, 32.0f);
+    const float contact_far = shadow_penumbra_radius(light, 128.0f, 32.0f);
+    assert(contact_far > contact_near);
+}
+
+void test_alpha_silhouette_extracts_concavity_and_caches() {
+    SDL_Surface* surface = SDL_CreateSurface(8, 8, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    std::vector<std::uint32_t> pixels(64, 0u);
+    for (int y = 1; y < 7; ++y) {
+        for (int x = 1; x < 3; ++x) pixels[y * 8 + x] = 0xffffffffu;
+    }
+    for (int y = 5; y < 7; ++y) {
+        for (int x = 1; x < 7; ++x) pixels[y * 8 + x] = 0xffffffffu;
+    }
+    Texture texture(sdl_renderer, 8, 8, pixels.data());
+    const SDL_FRect frame{0, 0, 8, 8};
+    const auto detailed = extract_alpha_silhouette(texture, frame, 0.5f, 0.0f);
+    const auto simplified = extract_alpha_silhouette(texture, frame, 0.5f, 1.0f);
+    assert(detailed == extract_alpha_silhouette(texture, frame, 0.5f, 0.0f));
+    assert(detailed.size() > 4);
+    assert(simplified.size() >= 3 && simplified.size() < detailed.size());
+    assert(std::any_of(detailed.begin(), detailed.end(), [](glm::vec2 point) {
+        return point.x > 0.3f && point.x < 0.5f && point.y > 0.3f && point.y < 0.7f;
+    }));
+    ShadowSilhouetteCache cache;
+    cache.begin_frame();
+    const auto& first = cache.get(texture, frame, 0.5f, 1.0f);
+    const auto& second = cache.get(texture, frame, 0.5f, 1.0f);
+    assert(!first.empty() && &first == &second && cache.size() == 1);
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 void test_system_extracts_lights_and_shadow_sources() {
     EntityManager entities;
     const EntityID light_entity = entities.create_entity();
@@ -113,7 +163,15 @@ void test_system_extracts_lights_and_shadow_sources() {
     authored.source = ShadowGeometrySource::StaticPolygon;
     authored.vertices = {{0.0f, 0.0f}, {8.0f, 0.0f}, {0.0f, 8.0f}};
     authored.affected_layers = render_layer_mask(3);
+    authored.height = 12.0f;
+    authored.opacity = 0.4f;
     entities.add_component<ShadowCaster2DComponent>(static_caster, authored);
+
+    const EntityID baked_caster = entities.create_entity();
+    entities.add_component<TransformComponent>(baked_caster, TransformComponent{});
+    ShadowCaster2DComponent baked;
+    baked.mobility = ShadowCasterMobility::Baked;
+    entities.add_component<ShadowCaster2DComponent>(baked_caster, baked);
 
     Renderer2D renderer(nullptr);
     Lighting2DSystem system;
@@ -121,6 +179,8 @@ void test_system_extracts_lights_and_shadow_sources() {
     assert(system.runtime_pass()->lights().size() == 1);
     assert(system.runtime_pass()->lights().front().world_position == glm::vec2(12.0f, 8.0f));
     assert(system.runtime_pass()->casters().size() == 2);
+    assert(approximate(system.runtime_pass()->casters()[1].height, 12.0f));
+    assert(approximate(system.runtime_pass()->casters()[1].opacity, 0.4f));
     assert(system.runtime_pass()->affected_layers() == render_layer_mask(3));
     assert(renderer.get_active_lighting_pass_count(3) == 1);
     assert(renderer.get_active_lighting_pass_count(2) == 0);
@@ -360,6 +420,78 @@ void test_renderer_builds_explicit_shadow_receiver_mask() {
     SDL_DestroySurface(surface);
 }
 
+std::pair<std::uint8_t, std::uint8_t> render_realtime_shadow_probe(
+    bool receives_shadows,
+    ShadowMode mode,
+    float caster_opacity = 1.0f,
+    float caster_height = 32.0f
+) {
+    SDL_Surface* surface = SDL_CreateSurface(96, 64, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    std::pair<std::uint8_t, std::uint8_t> result{};
+    {
+        Renderer2D renderer(sdl_renderer);
+        Camera2D camera(96.0f, 64.0f);
+        std::unique_ptr<Texture> gray(Texture::create_solid(
+            sdl_renderer, 4, 4, 32, 32, 32, 255
+        ));
+        Light2DComponent light;
+        light.type = Light2DType::Point;
+        light.color = {255, 0, 0, 255};
+        light.range = 80.0f;
+        light.intensity = 1.0f;
+        light.shadow_mode = mode;
+        light.shadow_strength = 1.0f;
+        light.shadow_max_distance = 64.0f;
+        light.height = 64.0f;
+        auto pass = std::make_shared<Lighting2DPass>();
+        pass->update(
+            {{{-20.0f, 0.0f}, light, 1, 0.0f}},
+            {ShadowPolygon2D{
+                {{-2.0f, -5.0f}, {2.0f, -5.0f}, {2.0f, 5.0f}, {-2.0f, 5.0f}},
+                render_layer_mask(0), caster_height, caster_opacity, 2
+            }}
+        );
+        renderer.add_lighting_pass(pass);
+        SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+        SDL_RenderClear(sdl_renderer);
+        renderer.begin_scene(camera);
+        renderer.submit_sprite(
+            gray.get(), {0.0f, 0.0f, 0.0f}, {88.0f, 48.0f}, 0.0f,
+            {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+            false, false, 0, 0, nullptr, 0, {}, 0, SDL_BLENDMODE_BLEND,
+            false, nullptr, receives_shadows
+        );
+        renderer.end_scene();
+        assert(renderer.present());
+        std::uint8_t green = 0, blue = 0, alpha = 0;
+        assert(SDL_ReadSurfacePixel(surface, 58, 32, &result.first, &green, &blue, &alpha));
+        assert(SDL_ReadSurfacePixel(surface, 35, 20, &result.second, &green, &blue, &alpha));
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+    return result;
+}
+
+void test_realtime_shadow_composition_respects_receivers() {
+    const auto hard_receiver = render_realtime_shadow_probe(true, ShadowMode::Hard);
+    const auto hard_rejected = render_realtime_shadow_probe(false, ShadowMode::Hard);
+    const auto soft_receiver = render_realtime_shadow_probe(true, ShadowMode::SoftFast);
+    const auto contact_receiver = render_realtime_shadow_probe(true, ShadowMode::ContactHardening);
+    const auto partial_receiver = render_realtime_shadow_probe(true, ShadowMode::Hard, 0.25f);
+    const auto low_receiver = render_realtime_shadow_probe(true, ShadowMode::Hard, 1.0f, 4.0f);
+    const auto unshadowed = render_realtime_shadow_probe(true, ShadowMode::None);
+    assert(hard_receiver.first + 20 < unshadowed.first);
+    assert(hard_rejected.first + 5 >= unshadowed.first);
+    assert(soft_receiver.first < unshadowed.first);
+    assert(contact_receiver.first < unshadowed.first);
+    assert(partial_receiver.first > hard_receiver.first && partial_receiver.first < unshadowed.first);
+    assert(low_receiver.first > hard_receiver.first);
+}
+
 } // namespace
 
 int main() {
@@ -367,11 +499,14 @@ int main() {
     test_sprite_material_keeps_four_strongest_lights();
     test_color_intensity_and_blend_modes();
     test_shadow_geometry_extrudes_only_light_facing_edges();
+    test_shadow_modes_have_distinct_sampling_and_penumbra();
+    test_alpha_silhouette_extracts_concavity_and_caches();
     test_system_extracts_lights_and_shadow_sources();
     test_components_serialize_validate_and_restore_commands();
     test_renderer_routes_lighting_only_to_affected_layers();
     test_renderer_composites_uncovered_lighting_once_per_frame();
     test_renderer_builds_explicit_shadow_receiver_mask();
+    test_realtime_shadow_composition_respects_receivers();
     std::cout << "Lighting2DTests passed\n";
     return 0;
 }

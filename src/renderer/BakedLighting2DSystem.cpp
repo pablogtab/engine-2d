@@ -82,10 +82,19 @@ bool BakedLighting2DPass::apply(const LightingContext& context) {
         SDL_RenderGeometry(context.renderer, source, vertices.data(), 4, indices.data(), 6);
     }
 
-    // Keep only lightmap values covered by explicit baked receivers.
+    // Convert receiver alpha to RGB coverage independently of sprite albedo.
+    SDL_SetRenderTarget(context.renderer, inverse_mask);
+    SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
+    SDL_RenderClear(context.renderer);
     SDL_SetTextureColorMod(context.baked_receiver_mask, 255, 255, 255);
-    SDL_SetTextureBlendMode(context.baked_receiver_mask, SDL_BLENDMODE_MOD);
+    SDL_SetTextureBlendMode(context.baked_receiver_mask, SDL_BLENDMODE_BLEND);
     SDL_RenderTexture(context.renderer, context.baked_receiver_mask, nullptr, nullptr);
+
+    // Keep only lightmap values covered by explicit baked receivers.
+    SDL_SetRenderTarget(context.renderer, factor);
+    SDL_SetTextureBlendMode(inverse_mask, SDL_BLENDMODE_MOD);
+    SDL_RenderTexture(context.renderer, inverse_mask, nullptr, nullptr);
 
     // Build RGB = 1 - receiver coverage using only standard SDL blend modes.
     SDL_SetRenderTarget(context.renderer, inverse_mask);

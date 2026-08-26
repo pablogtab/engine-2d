@@ -32,7 +32,7 @@ public:
     static void draw_sprite_shadow(
         EntityManager& em,
         EntityID entity,
-        const ComponentTransactionContext& context
+        const SpriteLightingContext& context
     );
     static void draw_bake_volume(
         EntityManager& em,

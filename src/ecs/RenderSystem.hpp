@@ -167,33 +167,52 @@ private:
                 if (shadow.mode == SpriteShadowMode::DominantLight) {
                     float best_score = -1.0f;
                     glm::vec2 direction{0.0f, 1.0f};
+                    float projection_length = 0.0f;
                     entity_manager.for_each<TransformComponent, Light2DComponent>(
                         [&](EntityID light_id, const TransformComponent& light_transform, const Light2DComponent& light) {
                             if (light_id == entity || !light.enabled || light.mobility != Light2DMobility::Realtime ||
                                 !renders_layer(light.affected_layers & shadow.light_layers, sprite.render_layer)) return;
-                            const glm::vec2 delta = glm::vec2(transform.world_position) - glm::vec2(light_transform.world_position);
-                            const float distance = glm::length(delta);
-                            const float influence = light.type == Light2DType::Directional ? light.intensity :
-                                (light.range > 0.0f && distance < light.range ? light.intensity * (1.0f - distance / light.range) : 0.0f);
-                            if (influence > best_score && distance > 0.001f) { best_score = influence; direction = glm::normalize(delta); }
+                            glm::vec2 candidate_direction{};
+                            float distance = 0.0f;
+                            float influence = light.intensity;
+                            if (light.type == Light2DType::Directional) {
+                                const float radians = glm::radians(light_transform.world_rotation);
+                                candidate_direction = -glm::vec2(std::cos(radians), std::sin(radians));
+                            } else if (light.type == Light2DType::Ambient) {
+                                return;
+                            } else {
+                                const glm::vec2 delta = glm::vec2(transform.world_position) -
+                                    glm::vec2(light_transform.world_position);
+                                distance = glm::length(delta);
+                                if (distance <= 0.001f || light.range <= 0.0f || distance >= light.range) return;
+                                candidate_direction = delta / distance;
+                                influence *= std::pow(1.0f - distance / light.range, light.falloff);
+                            }
+                            if (influence > best_score) {
+                                best_score = influence;
+                                direction = candidate_direction;
+                                const float height_gap = std::max(light.height - shadow.elevation, 1.0f);
+                                const float physical_projection = light.type == Light2DType::Directional
+                                    ? shadow.elevation
+                                    : shadow.elevation * distance / height_gap;
+                                projection_length = std::min(shadow.max_projection, physical_projection);
+                            }
                         }
                     );
-                    if (best_score >= 0.0f) projected += direction * std::min(shadow.elevation, shadow.max_projection);
+                    if (best_score >= 0.0f) projected += direction * projection_length;
                 }
                 const SDL_Color color{0, 0, 0, static_cast<std::uint8_t>(std::clamp(shadow.opacity, 0.0f, 1.0f) * 255.0f)};
-                Texture* shadow_texture = sprite.texture;
-                if (shadow.shape == SpriteShadowShape::Ellipse) {
-                    static Texture* ellipse_texture = nullptr;
-                    if (!ellipse_texture) ellipse_texture = Texture::create_soft_circle(renderer.get_sdl_renderer(), 64);
-                    shadow_texture = ellipse_texture ? ellipse_texture : sprite.texture;
-                }
-                renderer.submit_sprite(
+                Texture* const ellipse = renderer.get_sprite_shadow_ellipse(shadow.softness);
+                Texture* shadow_texture = shadow.shape == SpriteShadowShape::Texture
+                    ? shadow.texture : ellipse;
+                if (!shadow_texture) shadow_texture = ellipse;
+                if (shadow_texture) renderer.submit_sprite(
                     shadow_texture,
                     transform.world_position + glm::vec3(projected, -0.001f),
                     shadow.size,
                     0.0f,
                     color,
-                    shadow.shape == SpriteShadowShape::Ellipse ? nullptr : src_rect_ptr,
+                    nullptr,
                     glm::vec2(0.5f, 0.5f),
                     false,
                     sprite.flip_x,

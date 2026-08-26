@@ -204,6 +204,8 @@ struct SpriteShadow2DComponent {
     SpriteShadowMode mode{SpriteShadowMode::DominantLight};
     SpriteShadowShape shape{SpriteShadowShape::Ellipse};
     AssetHandle texture_handle{};
+    // Runtime-only resolved texture. The handle remains the serialized contract.
+    Texture* texture{nullptr};
     glm::vec2 offset{0.0f, 20.0f};
     glm::vec2 size{48.0f, 18.0f};
     float opacity{0.42f};
@@ -214,7 +216,13 @@ struct SpriteShadow2DComponent {
     std::int16_t sorting_offset{-1};
     bool enabled{true};
 
-    bool operator==(const SpriteShadow2DComponent&) const = default;
+    bool operator==(const SpriteShadow2DComponent& other) const {
+        return mode == other.mode && shape == other.shape && texture_handle == other.texture_handle &&
+            offset == other.offset && size == other.size && opacity == other.opacity &&
+            softness == other.softness && elevation == other.elevation &&
+            max_projection == other.max_projection && light_layers == other.light_layers &&
+            sorting_offset == other.sorting_offset && enabled == other.enabled;
+    }
 };
 
 struct LightingBakeVolume2DComponent {

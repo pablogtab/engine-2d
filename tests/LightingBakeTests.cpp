@@ -22,6 +22,23 @@ void write_json(const std::filesystem::path& path, const Json& value) {
     assert(output.good());
 }
 
+void write_alpha_texture(const std::filesystem::path& path, bool extended) {
+    std::filesystem::create_directories(path.parent_path());
+    SDL_Surface* surface = SDL_CreateSurface(8, 8, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_ClearSurface(surface, 0, 0, 0, 0);
+    for (int y = 1; y < 7; ++y) {
+        for (int x = 1; x < 3; ++x) assert(SDL_WriteSurfacePixel(surface, x, y, 255, 255, 255, 255));
+    }
+    for (int y = 5; y < 7; ++y) {
+        for (int x = 1; x < (extended ? 8 : 7); ++x) {
+            assert(SDL_WriteSurfacePixel(surface, x, y, 255, 255, 255, 255));
+        }
+    }
+    assert(SDL_SavePNG(surface, path.string().c_str()));
+    SDL_DestroySurface(surface);
+}
+
 Json transform(float x, float y) {
     return {{"position", {x, y, 0.0f}}, {"scale", {1.0f, 1.0f}}, {"rotation", 0.0f}, {"pivot", {0.5f, 0.5f}}};
 }
@@ -195,6 +212,32 @@ int main() {
     assert(Engine::LightingBakeService::bake(root, scene, &baked, &bake_error));
     const auto empty_manifest = Engine::LightingBakeService::load_current(root, scene);
     assert(empty_manifest && empty_manifest->tiles.empty());
+
+    const std::string texture_handle = "0123456789abcdef";
+    const auto alpha_texture = root / "Assets/Textures/alpha-caster.png";
+    write_alpha_texture(alpha_texture, false);
+    write_json(root / "ProjectSettings/AssetDatabase.json", {
+        {"version", 1}, {"assets", Json::array({
+            {{"handle", texture_handle}, {"path", "Assets/Textures/alpha-caster.png"},
+             {"status", "ready"}, {"type", "texture"}}
+        })}
+    });
+    Json alpha_scene = fixture_scene(0.5f);
+    alpha_scene["entities"][3].erase("shadow_caster_2d");
+    alpha_scene["entities"][3]["sprite"] = {
+        {"texture_handle", texture_handle}, {"size", {8.0f, 8.0f}},
+        {"src_rect", {0.0f, 0.0f, 8.0f, 8.0f}}, {"use_src_rect", true}
+    };
+    alpha_scene["entities"][3]["shadow_caster_2d"] = {
+        {"source", "SpriteAlphaContour"}, {"mobility", "Baked"},
+        {"affected_layers", 1u << 2}, {"height", 64.0f}, {"opacity", 1.0f},
+        {"alpha_threshold", 0.5f}, {"contour_tolerance", 0.0f}, {"enabled", true}
+    };
+    write_json(scene, alpha_scene);
+    assert(Engine::LightingBakeService::bake(root, scene, &baked, &bake_error));
+    assert(baked.current && baked.baked_caster_count == 1);
+    write_alpha_texture(alpha_texture, true);
+    assert(!Engine::LightingBakeService::status(root, scene).current);
 
     std::filesystem::remove_all(root, error);
     std::cout << "Lighting bake tests passed\n";

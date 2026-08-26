@@ -524,6 +524,48 @@ int main() {
                         const Pixel layer_culled_pixel = render_lighting_translation_probe(-10.0f);
                         camera.set_position({0.0f, 0.0f});
 
+                        std::unique_ptr<Engine::Texture> shadow_albedo(
+                            Engine::Texture::create_solid(sdl_renderer, 4, 4, 32, 32, 32, 255)
+                        );
+                        const auto render_shadow_probe = [&](bool receives_shadows, Engine::ShadowMode mode) {
+                            point.type = Engine::Light2DType::Point;
+                            point.color = {255, 0, 0, 255};
+                            point.range = 80.0f;
+                            point.intensity = 1.0f;
+                            point.height = 64.0f;
+                            point.shadow_mode = mode;
+                            point.shadow_strength = 1.0f;
+                            point.shadow_max_distance = 64.0f;
+                            lighting->update(
+                                {{{-20.0f, 0.0f}, point, 1, 0.0f}},
+                                {Engine::ShadowPolygon2D{
+                                    {{-2.0f, -5.0f}, {2.0f, -5.0f}, {2.0f, 5.0f}, {-2.0f, 5.0f}},
+                                    Engine::render_layer_mask(0), 32.0f, 1.0f, 2
+                                }}
+                            );
+                            renderer.clear_lighting_passes();
+                            renderer.add_lighting_pass(lighting);
+                            renderer.set_custom_render_target(lighting_target);
+                            SDL_SetRenderTarget(sdl_renderer, lighting_target);
+                            SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+                            SDL_RenderClear(sdl_renderer);
+                            renderer.begin_scene(camera);
+                            renderer.submit_sprite(
+                                shadow_albedo.get(), {0.0f, 0.0f, 0.0f}, {60.0f, 48.0f}, 0.0f,
+                                {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+                                false, false, 0, 0, nullptr, 0, {}, 0,
+                                SDL_BLENDMODE_BLEND, false, nullptr, receives_shadows
+                            );
+                            renderer.end_scene();
+                            return read_pixel(sdl_renderer, lighting_target, 42, height / 2);
+                        };
+                        const Pixel gpu_shadow = render_shadow_probe(true, Engine::ShadowMode::Hard);
+                        const Pixel gpu_shadow_rejected = render_shadow_probe(false, Engine::ShadowMode::Hard);
+                        const Pixel gpu_unshadowed = render_shadow_probe(true, Engine::ShadowMode::None);
+                        const bool realtime_shadow_matches =
+                            gpu_shadow.red + 20 < gpu_unshadowed.red &&
+                            gpu_shadow_rejected.red + 5 >= gpu_unshadowed.red;
+
                         const std::filesystem::path baked_tile_path =
                             std::filesystem::temp_directory_path() /
                             ("engine2d-gpu-baked-" + std::to_string(SDL_GetTicksNS()) + ".png");
@@ -611,6 +653,7 @@ int main() {
                             !canvas_text_graded ||
                             !matches_expected_grade(fullscreen_pixel) ||
                             !lit_sprite_matches ||
+                            !realtime_shadow_matches ||
                             !baked_matches ||
                             !lighting_matches) {
                             std::cerr
@@ -653,6 +696,10 @@ int main() {
                                 << static_cast<int>(screen_pixel.alpha) << ") baked receiver/nonreceiver red=("
                                 << static_cast<int>(baked_receiver.red) << ','
                                 << static_cast<int>(baked_non_receiver.red)
+                                << ") realtime shadow/rejected/unshadowed red=("
+                                << static_cast<int>(gpu_shadow.red) << ','
+                                << static_cast<int>(gpu_shadow_rejected.red) << ','
+                                << static_cast<int>(gpu_unshadowed.red)
                                 << ") lighting draws=" << renderer.get_frame_metrics().stage(
                                     Engine::RenderStage::Lighting).draw_calls
                                 << ") zoom 1.0/0.9/0.75/0.5 red=("
@@ -670,7 +717,7 @@ int main() {
                                 << static_cast<int>(layer_culled_pixel.alpha) << ")\n";
                         } else {
                             std::cout << "GPURenderSmokeTests passed on " << backend->backend_name()
-                                      << ": sprite, material pack, baked lighting, Canvas UI, fullscreen, blend, and zoom-stability probes matched\n";
+                                      << ": sprite, material pack, realtime/baked shadows, Canvas UI, fullscreen, blend, and zoom-stability probes matched\n";
                             exit_code = 0;
                         }
                     }

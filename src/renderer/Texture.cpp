@@ -149,7 +149,9 @@ Texture* Texture::create_circle(SDL_Renderer* renderer, int radius, uint8_t r, u
     return new Texture(renderer, diameter, diameter, pixels.data());
 }
 
-Texture* Texture::create_soft_circle(SDL_Renderer* renderer, int radius, uint8_t r, uint8_t g, uint8_t b) {
+Texture* Texture::create_soft_circle(
+    SDL_Renderer* renderer, int radius, uint8_t r, uint8_t g, uint8_t b, float softness
+) {
     int diameter = radius * 2;
     std::vector<uint32_t> pixels(diameter * diameter, 0);
     float rad_f = static_cast<float>(radius);
@@ -160,7 +162,11 @@ Texture* Texture::create_soft_circle(SDL_Renderer* renderer, int radius, uint8_t
             float dy = (y - radius + 0.5f) / rad_f;
             float dist = std::sqrt(dx * dx + dy * dy);
             if (dist < 1.0f) {
-                float alpha_norm = std::pow(1.0f - dist, 1.4f);
+                const float feather = std::clamp(softness, 0.0f, 1.0f);
+                const float hard_edge = 1.0f - feather;
+                const float alpha_norm = feather <= 0.0001f || dist <= hard_edge
+                    ? 1.0f
+                    : std::clamp((1.0f - dist) / std::max(feather, 0.0001f), 0.0f, 1.0f);
                 uint8_t final_a = static_cast<uint8_t>(255.0f * alpha_norm);
                 pixels[y * diameter + x] = (r << 24) | (g << 16) | (b << 8) | final_a;
             }

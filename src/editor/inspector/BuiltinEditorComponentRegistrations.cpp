@@ -205,7 +205,9 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         .display_name = "Sprite Shadow 2D", .category = EditorComponentCategory::Rendering,
         .icon = EditorIcon::Zap, .dependencies = {"transform", "sprite"},
         .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
-            LightingInspectorDrawer::draw_sprite_shadow(em, entity, {context.command_history, context.transactions});
+            LightingInspectorDrawer::draw_sprite_shadow(em, entity, {
+                {context.command_history, context.transactions}, context.renderer, context.asset_manager
+            });
         },
         .create_default = [](EntityManager&, EntityID, const EditorInspectorContext&, ComponentSnapshotSet& snapshot) { snapshot.set(SpriteShadow2DComponent{}); }
     });

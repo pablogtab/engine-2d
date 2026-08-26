@@ -68,6 +68,7 @@ set(SOURCES
     src/renderer/LightingBakeService.cpp
     src/renderer/Lighting2DSystem.cpp
     src/renderer/MaterialPack.cpp
+    src/renderer/ShadowSilhouette.cpp
     src/renderer/RenderEffectSystem.cpp
     src/renderer/RenderLayerEffectProfile.cpp
     src/renderer/RenderTargetPool.cpp

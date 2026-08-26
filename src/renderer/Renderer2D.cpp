@@ -75,10 +75,47 @@ void Renderer2D::set_render_resolution(
 void Renderer2D::trim_transient_resources() {
     if (m_frame_world_target_leased) return;
     m_render_target_pool.clear();
+    m_sprite_shadow_ellipses.clear();
+    m_receiver_mask_textures.clear();
     for (const auto& pass : m_lighting_passes) {
         if (pass) pass->invalidate_resources();
     }
     if (m_material_backend) m_material_backend->discard_unused();
+}
+
+Texture* Renderer2D::get_sprite_shadow_ellipse(float softness) {
+    const int key = std::clamp(static_cast<int>(std::round(softness * 8.0f)), 0, 8);
+    if (const auto found = m_sprite_shadow_ellipses.find(key);
+        found != m_sprite_shadow_ellipses.end()) return found->second.get();
+    std::unique_ptr<Texture> texture(Texture::create_soft_circle(
+        m_sdl_renderer, 32, 255, 255, 255, static_cast<float>(key) / 8.0f
+    ));
+    Texture* result = texture.get();
+    m_sprite_shadow_ellipses.emplace(key, std::move(texture));
+    return result;
+}
+
+Texture* Renderer2D::get_receiver_mask_texture(Texture* source) {
+    if (!source || source->get_width() <= 0 || source->get_height() <= 0) return nullptr;
+    const std::uint64_t hash = source->content_hash();
+    if (const auto found = m_receiver_mask_textures.find(source);
+        found != m_receiver_mask_textures.end() && found->second.content_hash == hash) {
+        return found->second.texture.get();
+    }
+
+    std::vector<std::uint32_t> pixels;
+    pixels.reserve(source->pixels().size());
+    for (const std::uint32_t pixel : source->pixels()) {
+        const std::uint8_t alpha = static_cast<std::uint8_t>(pixel & 0xffu);
+        pixels.push_back(0xffffff00u | alpha);
+    }
+    auto texture = std::make_unique<Texture>(
+        m_sdl_renderer, source->get_width(), source->get_height(), pixels.data()
+    );
+    if (!texture->get_sdl_texture()) return nullptr;
+    Texture* result = texture.get();
+    m_receiver_mask_textures[source] = {hash, std::move(texture)};
+    return result;
 }
 
 void Renderer2D::invalidate_render_surface() {
@@ -986,6 +1023,12 @@ void Renderer2D::end_scene() {
         SDL_SetRenderDrawBlendMode(m_sdl_renderer, SDL_BLENDMODE_NONE);
         SDL_SetRenderDrawColor(m_sdl_renderer, 0, 0, 0, 0);
         SDL_RenderClear(m_sdl_renderer);
+        std::vector<SDL_Vertex> mask_vertices = m_vertex_buffer;
+        for (SDL_Vertex& vertex : mask_vertices) {
+            vertex.color.r = 1.0f;
+            vertex.color.g = 1.0f;
+            vertex.color.b = 1.0f;
+        }
 
         size_t index = start_idx;
         while (index < end_idx) {
@@ -999,7 +1042,8 @@ void Renderer2D::end_scene() {
             const size_t batch_start = index++;
             while (index < end_idx && receives(index) &&
                    m_sprite_queue[index].texture == texture) ++index;
-            SDL_Texture* sdl_texture = texture ? texture->get_sdl_texture() : nullptr;
+            Texture* mask_texture = get_receiver_mask_texture(texture);
+            SDL_Texture* sdl_texture = mask_texture ? mask_texture->get_sdl_texture() : nullptr;
             if (sdl_texture) {
                 SDL_SetTextureColorModFloat(sdl_texture, 1.0f, 1.0f, 1.0f);
                 SDL_SetTextureAlphaModFloat(sdl_texture, 1.0f);
@@ -1008,8 +1052,8 @@ void Renderer2D::end_scene() {
                 SDL_SetRenderDrawBlendMode(m_sdl_renderer, SDL_BLENDMODE_BLEND);
             }
             SDL_RenderGeometry(
-                m_sdl_renderer, sdl_texture, m_vertex_buffer.data(),
-                static_cast<int>(m_vertex_buffer.size()),
+                m_sdl_renderer, sdl_texture, mask_vertices.data(),
+                static_cast<int>(mask_vertices.size()),
                 &m_index_buffer[batch_start * 6],
                 static_cast<int>((index - batch_start) * 6)
             );

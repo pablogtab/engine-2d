@@ -12,6 +12,7 @@
 #include <SDL3/SDL.h>
 #include <glm/gtc/constants.hpp>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 
@@ -60,28 +61,46 @@ SDL_BlendMode point_composite_mode(
     return SDL_BLENDMODE_ADD;
 }
 
-SDL_BlendMode shadow_mask_blend() {
-    return SDL_ComposeCustomBlendMode(
-        SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
-        SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_ADD
-    );
-}
-
-SDL_BlendMode receiver_intersection_blend() {
-    return SDL_ComposeCustomBlendMode(
-        SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
-        SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_SRC_ALPHA, SDL_BLENDOPERATION_ADD
-    );
-}
-
-bool draw_triangle_list(SDL_Renderer* renderer, const std::vector<glm::vec2>& points, float opacity, const glm::vec2& offset = {}) {
+bool draw_triangle_list(
+    SDL_Renderer* renderer,
+    const std::vector<glm::vec2>& points,
+    float opacity,
+    const SDL_FColor& color = {1.0f, 1.0f, 1.0f, 1.0f},
+    SDL_Texture* texture = nullptr
+) {
     if (points.empty()) return true;
     std::vector<SDL_Vertex> vertices;
     vertices.reserve(points.size());
     for (const glm::vec2& point : points) {
-        vertices.push_back({{point.x + offset.x, point.y + offset.y}, {0.0f, 0.0f, 0.0f, std::clamp(opacity, 0.0f, 1.0f)}, {0.0f, 0.0f}});
+        vertices.push_back({
+            {point.x, point.y},
+            {color.r, color.g, color.b, std::clamp(opacity * color.a, 0.0f, 1.0f)},
+            {0.0f, 0.0f}
+        });
     }
-    return SDL_RenderGeometry(renderer, nullptr, vertices.data(), static_cast<int>(vertices.size()), nullptr, 0);
+    return SDL_RenderGeometry(renderer, texture, vertices.data(), static_cast<int>(vertices.size()), nullptr, 0);
+}
+
+bool draw_fullscreen_tinted(
+    SDL_Renderer* renderer,
+    SDL_Texture* texture,
+    int width,
+    int height,
+    SDL_FColor color,
+    SDL_BlendMode blend
+) {
+    const std::array<SDL_Vertex, 4> vertices{{
+        {{0.0f, 0.0f}, color, {0, 0}},
+        {{static_cast<float>(width), 0.0f}, color, {1, 0}},
+        {{static_cast<float>(width), static_cast<float>(height)}, color, {1, 1}},
+        {{0.0f, static_cast<float>(height)}, color, {0, 1}}
+    }};
+    constexpr std::array<int, 6> indices{0, 1, 2, 0, 2, 3};
+    SDL_SetTextureBlendMode(texture, blend);
+    return SDL_RenderGeometry(
+        renderer, texture, vertices.data(), static_cast<int>(vertices.size()),
+        indices.data(), static_cast<int>(indices.size())
+    );
 }
 
 std::vector<glm::vec2> collider_polygon(
@@ -127,31 +146,27 @@ std::vector<glm::vec2> static_polygon(
     return result;
 }
 
-std::vector<glm::vec2> sprite_alpha_contour(const SpriteComponent& sprite, const TransformComponent& transform, float threshold) {
+std::vector<glm::vec2> sprite_alpha_contour(
+    const SpriteComponent& sprite,
+    const TransformComponent& transform,
+    float threshold,
+    float tolerance,
+    ShadowSilhouetteCache& cache
+) {
     if (!sprite.texture) return {};
     const SDL_FRect source = sprite.use_src_rect ? sprite.src_rect : SDL_FRect{0.0f, 0.0f, static_cast<float>(sprite.texture->get_width()), static_cast<float>(sprite.texture->get_height())};
-    const int left = std::clamp(static_cast<int>(std::floor(source.x)), 0, sprite.texture->get_width() - 1);
-    const int top = std::clamp(static_cast<int>(std::floor(source.y)), 0, sprite.texture->get_height() - 1);
-    const int width = std::clamp(static_cast<int>(std::ceil(source.w)), 1, sprite.texture->get_width() - left);
-    const int height = std::clamp(static_cast<int>(std::ceil(source.h)), 1, sprite.texture->get_height() - top);
-    const std::uint8_t alpha_limit = static_cast<std::uint8_t>(std::clamp(threshold, 0.0f, 1.0f) * 255.0f);
-    constexpr int samples = 12;
-    std::vector<glm::vec2> local_top, local_bottom;
-    local_top.reserve(samples + 1); local_bottom.reserve(samples + 1);
-    for (int sample = 0; sample <= samples; ++sample) {
-        const int x = left + (width - 1) * sample / samples;
-        int first = height, last = -1;
-        for (int y = 0; y < height; ++y) if (sprite.texture->alpha_at(x, top + y) > alpha_limit) { first = std::min(first, y); last = y; }
-        if (last < 0) continue;
-        const float u = static_cast<float>(x - left) / std::max(1, width - 1);
-        const auto point = [&](int y) { return glm::vec2{(u - transform.world_pivot.x) * sprite.size.x, (static_cast<float>(y) / std::max(1, height - 1) - transform.world_pivot.y) * sprite.size.y}; };
-        local_top.push_back(point(first)); local_bottom.push_back(point(last));
-    }
-    if (local_top.size() < 2) return {};
+    const auto& normalized = cache.get(*sprite.texture, source, threshold, tolerance);
     std::vector<glm::vec2> result;
-    result.reserve(local_top.size() + local_bottom.size());
-    for (const auto& point : local_top) result.push_back(collider_local_to_world(point * transform.world_scale, transform));
-    for (auto it = local_bottom.rbegin(); it != local_bottom.rend(); ++it) result.push_back(collider_local_to_world(*it * transform.world_scale, transform));
+    result.reserve(normalized.size());
+    for (const glm::vec2 point : normalized) {
+        const float u = sprite.flip_x ? 1.0f - point.x : point.x;
+        const float v = sprite.flip_y ? 1.0f - point.y : point.y;
+        const glm::vec2 local{
+            (u - transform.world_pivot.x) * sprite.size.x,
+            (v - transform.world_pivot.y) * sprite.size.y
+        };
+        result.push_back(collider_local_to_world(local * transform.world_scale, transform));
+    }
     return result;
 }
 
@@ -173,6 +188,28 @@ glm::vec4 point_light_bounds(const glm::vec2& position, float radius) {
         position.x + valid_radius,
         position.y + valid_radius
     };
+}
+
+int shadow_sample_count(ShadowMode mode) {
+    if (mode == ShadowMode::SoftFast) return 5;
+    if (mode == ShadowMode::ContactHardening) return 9;
+    return mode == ShadowMode::Hard ? 1 : 0;
+}
+
+float shadow_penumbra_radius(
+    const Light2DComponent& light,
+    float caster_distance,
+    float caster_height
+) {
+    if (light.shadow_mode == ShadowMode::Hard || light.shadow_mode == ShadowMode::None) return 0.0f;
+    if (light.shadow_mode == ShadowMode::SoftFast) {
+        return light.source_radius + light.shadow_softness * 6.0f;
+    }
+    const float height_ratio = std::clamp(
+        caster_height / std::max(light.height, 1.0f), 0.0f, 2.0f
+    );
+    return light.source_radius + light.shadow_softness * std::max(caster_distance, 0.0f) *
+        height_ratio * 0.08f;
 }
 
 glm::vec4 blend_light_sample(
@@ -386,26 +423,108 @@ bool Lighting2DPass::draw_point_gradient(
     );
 }
 
+bool Lighting2DPass::draw_area_gradient(
+    SDL_Renderer* renderer,
+    const LightingContext& context,
+    const Light2DInstance& instance
+) {
+    const Light2DComponent& light = instance.light;
+    if (!renderer || light.range <= 0.0f || light.area_size.x <= 0.0f || light.area_size.y <= 0.0f) {
+        return false;
+    }
+    constexpr int columns = 48;
+    constexpr int rows = 32;
+    const glm::vec2 half = light.area_size * 0.5f;
+    const glm::vec2 extent = half + glm::vec2(light.range);
+    const float radians = glm::radians(instance.world_rotation);
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    m_radial_vertices.clear();
+    m_radial_indices.clear();
+    m_radial_vertices.reserve((columns + 1) * (rows + 1));
+    m_radial_indices.reserve(columns * rows * 6);
+    for (int row = 0; row <= rows; ++row) {
+        for (int column = 0; column <= columns; ++column) {
+            const glm::vec2 local{
+                -extent.x + 2.0f * extent.x * static_cast<float>(column) / columns,
+                -extent.y + 2.0f * extent.y * static_cast<float>(row) / rows
+            };
+            const glm::vec2 outside = glm::max(glm::abs(local) - half, glm::vec2(0.0f));
+            const float coverage = point_light_falloff(
+                glm::length(outside), light.range, 1.0f, light.falloff
+            );
+            const glm::vec2 world = instance.world_position + glm::vec2{
+                local.x * cosine - local.y * sine,
+                local.x * sine + local.y * cosine
+            };
+            const glm::vec2 screen = context.camera->world_to_screen(glm::vec3(world, 0.0f)) *
+                context.raster_scale;
+            m_radial_vertices.push_back({
+                {screen.x, screen.y},
+                {light.color.r / 255.0f * coverage, light.color.g / 255.0f * coverage,
+                 light.color.b / 255.0f * coverage, coverage},
+                {0.0f, 0.0f}
+            });
+        }
+    }
+    for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) {
+            const int top_left = row * (columns + 1) + column;
+            const int top_right = top_left + 1;
+            const int bottom_left = top_left + columns + 1;
+            const int bottom_right = bottom_left + 1;
+            m_radial_indices.insert(m_radial_indices.end(), {
+                top_left, top_right, bottom_right,
+                top_left, bottom_right, bottom_left
+            });
+        }
+    }
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    return SDL_RenderGeometry(
+        renderer, nullptr, m_radial_vertices.data(), static_cast<int>(m_radial_vertices.size()),
+        m_radial_indices.data(), static_cast<int>(m_radial_indices.size())
+    );
+}
+
 bool Lighting2DPass::apply(const LightingContext& context) {
     if (!context.renderer || !context.scene_target || !context.camera ||
         !context.render_targets || !renders_layer(m_affected_layers, context.render_layer) ||
         !context.camera->renders_layer(context.render_layer)) {
         return false;
     }
+    if (!m_shadow_white || m_shadow_white_renderer != context.renderer) {
+        m_shadow_white.reset(Texture::create_solid(context.renderer, 1, 1, 255, 255, 255, 255));
+        m_shadow_white_renderer = context.renderer;
+    }
 
     SDL_Texture* const light_map = context.render_targets->acquire(context.width, context.height);
     if (!light_map) return false;
-    SDL_Texture* const shadow_mask = context.shadow_receiver_mask
-        ? context.render_targets->acquire(context.width, context.height) : nullptr;
+    std::array<SDL_Texture*, 4> shadow_targets{};
+    if (context.shadow_receiver_mask) {
+        for (SDL_Texture*& target : shadow_targets) {
+            target = context.render_targets->acquire(context.width, context.height);
+            if (!target) {
+                for (SDL_Texture* acquired : shadow_targets) {
+                    if (acquired) context.render_targets->release(acquired);
+                }
+                context.render_targets->release(light_map);
+                return false;
+            }
+        }
+    }
+    SDL_Texture* const shadow_coverage = shadow_targets[0];
+    SDL_Texture* const shadow_attenuation = shadow_targets[1];
+    SDL_Texture* const inverse_receiver = shadow_targets[2];
+    SDL_Texture* const shadow_sample = shadow_targets[3];
     struct ReturnTarget final {
         RenderTargetPool* pool{nullptr};
-        SDL_Texture* texture{nullptr};
-        SDL_Texture* second{nullptr};
+        SDL_Texture* light{nullptr};
+        std::array<SDL_Texture*, 4> shadows{};
         ~ReturnTarget() {
-            if (pool && texture) pool->release(texture);
-            if (pool && second) pool->release(second);
+            if (pool && light) pool->release(light);
+            if (pool) for (SDL_Texture* texture : shadows) if (texture) pool->release(texture);
         }
-    } return_target{context.render_targets, light_map, shadow_mask};
+    } return_target{context.render_targets, light_map, shadow_targets};
 
     SDL_Texture* previous_target = SDL_GetRenderTarget(context.renderer);
     SDL_BlendMode previous_blend = SDL_BLENDMODE_NONE;
@@ -478,64 +597,185 @@ bool Lighting2DPass::apply(const LightingContext& context) {
         if (light.type == Light2DType::Directional) {
             SDL_SetRenderDrawColor(context.renderer, light.color.r, light.color.g, light.color.b, 255);
             SDL_RenderFillRect(context.renderer, nullptr);
+        } else if (light.type == Light2DType::Area) {
+            draw_area_gradient(context.renderer, context, instance);
         } else {
             draw_point_gradient(context.renderer, center, screen_radius, light, instance.world_rotation);
         }
 
         const bool shadows_enabled = light.shadow_mode != ShadowMode::None &&
             shadowed_lights < m_max_shadowed_lights &&
-            (!context.shadow_receiver_mask || shadow_mask);
+            shadow_coverage && shadow_attenuation && inverse_receiver && shadow_sample;
         if (shadows_enabled) {
             ++shadowed_lights;
-            if (shadow_mask) {
-                SDL_SetRenderTarget(context.renderer, shadow_mask);
-                SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
-                SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
-                SDL_RenderClear(context.renderer);
-                SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_ADD);
-            } else {
-                SDL_SetRenderTarget(context.renderer, light_map);
-                SDL_SetRenderDrawBlendMode(context.renderer, shadow_mask_blend());
-            }
+            SDL_SetRenderTarget(context.renderer, shadow_coverage);
+            SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
+            SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
+            SDL_RenderClear(context.renderer);
+            SDL_SetRenderTarget(context.renderer, shadow_attenuation);
+            SDL_SetRenderDrawColor(context.renderer, 255, 255, 255, 255);
+            SDL_RenderClear(context.renderer);
             for (const ShadowPolygon2D& caster : m_casters) {
-                if (!renders_layer(caster.affected_layers, context.render_layer)) continue;
+                if (!renders_layer(caster.affected_layers, context.render_layer) ||
+                    caster.world_vertices.size() < 3 || caster.opacity <= 0.0f) continue;
                 std::vector<glm::vec2> biased_vertices = caster.world_vertices;
+                glm::vec2 caster_center{};
+                for (const glm::vec2 vertex : caster.world_vertices) caster_center += vertex;
+                caster_center /= static_cast<float>(caster.world_vertices.size());
                 if (light.shadow_bias > 0.0f) {
                     for (glm::vec2& vertex : biased_vertices) {
                         const glm::vec2 direction = light.type == Light2DType::Directional
                             ? glm::vec2(std::cos(glm::radians(instance.world_rotation)), std::sin(glm::radians(instance.world_rotation)))
-                            : glm::normalize(vertex - instance.world_position);
+                            : (glm::length(vertex - instance.world_position) > 0.0001f
+                                ? glm::normalize(vertex - instance.world_position) : glm::vec2{});
                         if (glm::length(direction) > 0.0001f) vertex += direction * light.shadow_bias;
                     }
                 }
-                const auto world_triangles = light.type == Light2DType::Directional
-                    ? build_directional_shadow_triangles(
-                        glm::vec2(std::cos(glm::radians(instance.world_rotation)), std::sin(glm::radians(instance.world_rotation))),
-                        biased_vertices, static_cast<float>(std::max(context.width, context.height)) * 4.0f
-                    )
-                    : build_shadow_triangles(instance.world_position, biased_vertices, light.range * 2.0f);
-                std::vector<glm::vec2> screen_triangles;
-                screen_triangles.reserve(world_triangles.size());
-                for (const glm::vec2& point : world_triangles) {
-                    screen_triangles.push_back(
-                        context.camera->world_to_screen(glm::vec3(point, 0.0f)) * context.raster_scale
+
+                const float caster_distance = glm::length(caster_center - instance.world_position);
+                const float height_gap = std::max(light.height - caster.height, 1.0f);
+                const float projected_distance = light.type == Light2DType::Directional
+                    ? light.shadow_max_distance
+                    : caster_distance * caster.height / height_gap;
+                const float extrusion = std::clamp(
+                    projected_distance, 1.0f, std::max(light.shadow_max_distance, 1.0f)
+                );
+                const int samples = shadow_sample_count(light.shadow_mode);
+                const float total_opacity = std::clamp(
+                    light.shadow_strength * caster.opacity, 0.0f, 1.0f
+                );
+                const float sample_opacity = samples == 1 ? total_opacity
+                    : 1.0f - std::pow(1.0f - total_opacity, 1.0f / samples);
+                const float point_sample_radius = shadow_penumbra_radius(
+                    light, caster_distance, caster.height
+                );
+                const float contact_penumbra = std::max(
+                    0.0f, point_sample_radius - light.source_radius
+                );
+
+                for (int sample = 0; sample < samples; ++sample) {
+                    const float normalized_sample = samples == 1 ? 0.0f
+                        : (2.0f * sample / static_cast<float>(samples - 1) - 1.0f);
+                    std::vector<glm::vec2> world_triangles;
+                    if (light.type == Light2DType::Directional) {
+                        const float angular_radius = light.directional_angular_radius *
+                            light.shadow_softness *
+                            (light.shadow_mode == ShadowMode::ContactHardening
+                                ? 1.0f + contact_penumbra * 0.02f : 1.0f);
+                        const float angle = glm::radians(
+                            instance.world_rotation + normalized_sample * angular_radius
+                        );
+                        world_triangles = build_directional_shadow_triangles(
+                            {std::cos(angle), std::sin(angle)}, biased_vertices, extrusion
+                        );
+                    } else {
+                        glm::vec2 sample_position = instance.world_position;
+                        if (samples > 1) {
+                            const float angle = static_cast<float>(sample) * 2.39996323f;
+                            glm::vec2 offset{std::cos(angle), std::sin(angle)};
+                            if (light.type == Light2DType::Area) {
+                                const float rotation = glm::radians(instance.world_rotation);
+                                const glm::vec2 axis{std::cos(rotation), std::sin(rotation)};
+                                const glm::vec2 normal{-axis.y, axis.x};
+                                offset = axis * (normalized_sample * light.area_size.x * 0.5f) +
+                                    normal * (std::sin(angle) * light.area_size.y * 0.5f);
+                            } else {
+                                offset *= point_sample_radius *
+                                    std::sqrt(static_cast<float>(sample + 1) / samples);
+                            }
+                            sample_position += offset;
+                        }
+                        world_triangles = build_shadow_triangles(
+                            sample_position, biased_vertices, extrusion
+                        );
+                    }
+                    std::vector<glm::vec2> screen_triangles;
+                    screen_triangles.reserve(world_triangles.size());
+                    for (const glm::vec2 point : world_triangles) {
+                        screen_triangles.push_back(
+                            context.camera->world_to_screen(glm::vec3(point, 0.0f)) *
+                            context.raster_scale
+                        );
+                    }
+                    // Rasterize one binary sample first. Applying its opacity once
+                    // avoids dark seams where triangles from the same shadow volume
+                    // touch or overlap, and behaves identically on software and GPU.
+                    SDL_SetRenderTarget(context.renderer, shadow_sample);
+                    SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
+                    SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
+                    SDL_RenderClear(context.renderer);
+                    if (m_shadow_white) SDL_SetTextureBlendMode(
+                        m_shadow_white->get_sdl_texture(), SDL_BLENDMODE_NONE
+                    );
+                    draw_triangle_list(
+                        context.renderer, screen_triangles, 1.0f,
+                        {1.0f, 1.0f, 1.0f, 1.0f},
+                        m_shadow_white ? m_shadow_white->get_sdl_texture() : nullptr
+                    );
+
+                    SDL_SetRenderTarget(context.renderer, shadow_coverage);
+                    draw_fullscreen_tinted(
+                        context.renderer, shadow_sample, context.width, context.height,
+                        {sample_opacity, sample_opacity, sample_opacity, 1.0f},
+                        SDL_BLENDMODE_ADD
+                    );
+                    SDL_SetRenderTarget(context.renderer, shadow_attenuation);
+                    draw_fullscreen_tinted(
+                        context.renderer, shadow_sample, context.width, context.height,
+                        {0.0f, 0.0f, 0.0f, sample_opacity}, SDL_BLENDMODE_BLEND
                     );
                 }
-                const float softness = light.shadow_mode == ShadowMode::Hard ? 0.0f : light.shadow_softness * 8.0f;
-                const int samples = softness > 0.01f ? 5 : 1;
-                for (int sample = 0; sample < samples; ++sample) {
-                    const float angle = static_cast<float>(sample) * 2.0f * glm::pi<float>() / samples;
-                    const glm::vec2 offset = samples == 1 ? glm::vec2{} : glm::vec2(std::cos(angle), std::sin(angle)) * softness;
-                    draw_triangle_list(context.renderer, screen_triangles, light.shadow_strength / samples, offset);
-                }
             }
-            if (shadow_mask) {
-                SDL_SetTextureBlendMode(context.shadow_receiver_mask, receiver_intersection_blend());
-                SDL_RenderTexture(context.renderer, context.shadow_receiver_mask, nullptr, nullptr);
-                SDL_SetRenderTarget(context.renderer, light_map);
-                SDL_SetTextureBlendMode(shadow_mask, shadow_mask_blend());
-                SDL_RenderTexture(context.renderer, shadow_mask, nullptr, nullptr);
+            // Convert the alpha-only receiver mask to RGB coverage. The mask's
+            // RGB is intentionally white, independent of sprite albedo.
+            SDL_SetRenderTarget(context.renderer, shadow_sample);
+            SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
+            SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
+            SDL_RenderClear(context.renderer);
+            draw_fullscreen_tinted(
+                context.renderer, context.shadow_receiver_mask, context.width, context.height,
+                {1, 1, 1, 1}, SDL_BLENDMODE_BLEND
+            );
+            // inverse_receiver = 1 - receiver coverage
+            SDL_SetRenderTarget(context.renderer, inverse_receiver);
+            SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
+            SDL_SetRenderDrawColor(context.renderer, 255, 255, 255, 255);
+            SDL_RenderClear(context.renderer);
+            draw_fullscreen_tinted(
+                context.renderer, context.shadow_receiver_mask, context.width, context.height,
+                {0, 0, 0, 1}, SDL_BLENDMODE_BLEND
+            );
+
+            // Apply shadows only where sprites explicitly receive them.
+            SDL_SetRenderTarget(context.renderer, shadow_attenuation);
+            draw_fullscreen_tinted(
+                context.renderer, shadow_sample, context.width, context.height,
+                {1, 1, 1, 1}, SDL_BLENDMODE_MOD
+            );
+            draw_fullscreen_tinted(
+                context.renderer, inverse_receiver, context.width, context.height,
+                {1, 1, 1, 1}, SDL_BLENDMODE_ADD
+            );
+            SDL_SetRenderTarget(context.renderer, shadow_coverage);
+            draw_fullscreen_tinted(
+                context.renderer, shadow_sample, context.width, context.height,
+                {1, 1, 1, 1}, SDL_BLENDMODE_MOD
+            );
+
+            SDL_SetRenderTarget(context.renderer, light_map);
+            SDL_SetTextureBlendMode(shadow_attenuation, SDL_BLENDMODE_MOD);
+            SDL_RenderTexture(context.renderer, shadow_attenuation, nullptr, nullptr);
+            if (light.shadow_color.r != 0 || light.shadow_color.g != 0 || light.shadow_color.b != 0) {
+                const float shadow_alpha = light.shadow_color.a / 255.0f;
+                draw_fullscreen_tinted(
+                    context.renderer, shadow_coverage, context.width, context.height,
+                    {light.shadow_color.r / 255.0f * shadow_alpha,
+                     light.shadow_color.g / 255.0f * shadow_alpha,
+                     light.shadow_color.b / 255.0f * shadow_alpha, 1.0f},
+                    SDL_BLENDMODE_ADD_PREMULTIPLIED
+                );
             }
+            SDL_SetTextureBlendMode(context.shadow_receiver_mask, SDL_BLENDMODE_BLEND);
         }
 
         SDL_SetRenderTarget(context.renderer, context.scene_target);
@@ -561,6 +801,7 @@ bool Lighting2DPass::apply(const LightingContext& context) {
 Lighting2DSystem::Lighting2DSystem() : m_runtime_pass(std::make_shared<Lighting2DPass>()) {}
 
 void Lighting2DSystem::configure(EntityManager& entities, Renderer2D& renderer) {
+    m_silhouette_cache.begin_frame();
     std::vector<Light2DInstance> lights;
     std::vector<ShadowPolygon2D> casters;
 
@@ -573,20 +814,30 @@ void Lighting2DSystem::configure(EntityManager& entities, Renderer2D& renderer) 
 
     entities.for_each<TransformComponent, ShadowCaster2DComponent>(
         [&](EntityID entity, const TransformComponent& transform, const ShadowCaster2DComponent& caster) {
-            if (!transform.world_visible || !caster.enabled) return;
+            if (!transform.world_visible || !caster.enabled ||
+                caster.mobility != ShadowCasterMobility::Realtime || caster.opacity <= 0.0f) return;
             if (caster.source == ShadowGeometrySource::Collider) {
                 if (!entities.has_component<ColliderComponent>(entity)) return;
                 const auto& collider = entities.get_component<ColliderComponent>(entity);
                 for (const ColliderShape& shape : collider.shapes) {
                     auto polygon = collider_polygon(shape, transform);
-                    if (polygon.size() >= 3) casters.push_back({std::move(polygon), caster.affected_layers});
+                    if (polygon.size() >= 3) casters.push_back({
+                        std::move(polygon), caster.affected_layers, caster.height, caster.opacity, entity
+                    });
                 }
             } else if (caster.source == ShadowGeometrySource::StaticPolygon) {
                 auto polygon = static_polygon(caster, transform);
-                if (polygon.size() >= 3) casters.push_back({std::move(polygon), caster.affected_layers});
+                if (polygon.size() >= 3) casters.push_back({
+                    std::move(polygon), caster.affected_layers, caster.height, caster.opacity, entity
+                });
             } else if (entities.has_component<SpriteComponent>(entity)) {
-                auto polygon = sprite_alpha_contour(entities.get_component<SpriteComponent>(entity), transform, caster.alpha_threshold);
-                casters.push_back({std::move(polygon), caster.affected_layers});
+                auto polygon = sprite_alpha_contour(
+                    entities.get_component<SpriteComponent>(entity), transform,
+                    caster.alpha_threshold, caster.contour_tolerance, m_silhouette_cache
+                );
+                if (polygon.size() >= 3) casters.push_back({
+                    std::move(polygon), caster.affected_layers, caster.height, caster.opacity, entity
+                });
             }
         }
     );

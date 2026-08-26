@@ -151,6 +151,7 @@ public:
     [[nodiscard]] const std::shared_ptr<IMaterialBackend>& get_material_backend() const { return m_material_backend; }
     [[nodiscard]] MaterialPackCache& material_pack_cache() { return m_material_pack_cache; }
     [[nodiscard]] const MaterialPackCache& material_pack_cache() const { return m_material_pack_cache; }
+    Texture* get_sprite_shadow_ellipse(float softness);
 
     void set_custom_render_target(SDL_Texture* target) { 
         m_custom_render_target = target; 
@@ -260,6 +261,11 @@ public:
     SDL_Renderer* get_sdl_renderer() const { return m_sdl_renderer; }
 
 private:
+    struct ReceiverMaskTexture {
+        std::uint64_t content_hash{0};
+        std::unique_ptr<Texture> texture;
+    };
+
     void execute_lighting_stage(
         SDL_Texture* scene_target, RenderLayer layer, int width, int height,
         SDL_Texture* shadow_receiver_mask, SDL_Texture* baked_receiver_mask
@@ -267,6 +273,7 @@ private:
     [[nodiscard]] std::shared_ptr<const Material> create_lit_sprite_material(
         const SpriteMaterialLighting& lighting
     );
+    [[nodiscard]] Texture* get_receiver_mask_texture(Texture* source);
 
     SDL_Renderer* m_sdl_renderer{nullptr};
     SDL_Color m_scene_clear_color{24, 28, 36, 255};
@@ -282,6 +289,8 @@ private:
     bool m_frame_world_target_leased{false};
     RenderTargetPool m_render_target_pool;
     MaterialPackCache m_material_pack_cache;
+    std::unordered_map<int, std::unique_ptr<Texture>> m_sprite_shadow_ellipses;
+    std::unordered_map<const Texture*, ReceiverMaskTexture> m_receiver_mask_textures;
     std::shared_ptr<const FragmentShader> m_lit_sprite_shader;
     std::vector<std::shared_ptr<Material>> m_lit_material_pool;
     std::unordered_map<std::uint64_t, std::shared_ptr<const Material>> m_lit_material_lookup;
