@@ -1,5 +1,7 @@
 #include "LightingBakeService.hpp"
 
+#include "RenderLayer.hpp"
+
 #include <SDL3/SDL.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -50,7 +52,12 @@ struct BakeInput {
     std::string hash;
     bool has_volume{false};
     int tile_count{0};
-    struct Tile { float origin_x{0.0f}; float origin_y{0.0f}; float texels_per_unit{1.0f}; };
+    struct Tile {
+        float origin_x{0.0f};
+        float origin_y{0.0f};
+        float texels_per_unit{1.0f};
+        RenderLayerMask affected_layers{ALL_RENDER_LAYERS};
+    };
     struct Light { float x{0.0f}; float y{0.0f}; float range{0.0f}; float intensity{0.0f}; float r{0.0f}; float g{0.0f}; float b{0.0f}; bool ambient{false}; };
     std::vector<Tile> tiles;
     std::vector<Light> lights;
@@ -87,6 +94,7 @@ BakeInput parse_input(const std::filesystem::path& project_root, const std::file
         const auto size = volume->value("size", std::vector<float>{});
         if (size.size() != 2 || size[0] <= 0.0f || size[1] <= 0.0f) continue;
         const float texels_per_unit = std::max(0.01f, volume->value("texels_per_unit", 1.0f));
+        const RenderLayerMask affected_layers = volume->value("affected_layers", ALL_RENDER_LAYERS);
         const int width = static_cast<int>(std::ceil(size[0] * texels_per_unit));
         const int height = static_cast<int>(std::ceil(size[1] * texels_per_unit));
         input.has_volume = true;
@@ -96,7 +104,8 @@ BakeInput parse_input(const std::filesystem::path& project_root, const std::file
             input.tiles.push_back({
                 entity_x - size[0] * 0.5f + static_cast<float>(tile_x * LightingBakeService::k_tile_size) / texels_per_unit,
                 entity_y - size[1] * 0.5f + static_cast<float>(tile_y * LightingBakeService::k_tile_size) / texels_per_unit,
-                texels_per_unit
+                texels_per_unit,
+                affected_layers
             });
         }
         input.tile_count = static_cast<int>(input.tiles.size());
@@ -171,6 +180,31 @@ LightingBakeStatus LightingBakeService::status(
     return result;
 }
 
+std::optional<LightingBakeManifest> LightingBakeService::load_current(
+    const std::filesystem::path& project_root,
+    const std::filesystem::path& requested_scene_path
+) {
+    LightingBakeManifest result;
+    result.status = status(project_root, requested_scene_path);
+    if (!result.status.current) return std::nullopt;
+    const Json manifest = Json::parse(read_file(result.status.directory / "manifest.json"), nullptr, false);
+    if (manifest.is_discarded() || !manifest.contains("tiles") || !manifest["tiles"].is_array()) return std::nullopt;
+    for (const Json& item : manifest["tiles"]) {
+        const auto origin = item.value("origin", std::vector<float>{});
+        const std::string file = item.value("file", std::string{});
+        if (file.empty() || origin.size() != 2) return std::nullopt;
+        const auto image_path = result.status.directory / file;
+        if (!std::filesystem::is_regular_file(image_path)) return std::nullopt;
+        result.tiles.push_back({
+            image_path,
+            origin[0], origin[1],
+            std::max(0.01f, item.value("texels_per_unit", 1.0f)),
+            item.value("affected_layers", ALL_RENDER_LAYERS)
+        });
+    }
+    return result;
+}
+
 bool LightingBakeService::bake(
     const std::filesystem::path& project_root,
     const std::filesystem::path& requested_scene_path,
@@ -191,7 +225,17 @@ bool LightingBakeService::bake(
     for (int index = 0; index < input.tile_count; ++index) {
         if (!write_tile(directory / std::format("layer-0-tile-{}-0.png", index), input.tiles[static_cast<std::size_t>(index)], input.lights, error)) return false;
     }
-    const Json manifest{{"baker_version", k_baker_version}, {"input_hash", input.hash}, {"tile_size", k_tile_size}, {"tile_count", input.tile_count}, {"baked_light_count", input.lights.size()}, {"scene", scene_path.filename().string()}};
+    Json tiles = Json::array();
+    for (int index = 0; index < input.tile_count; ++index) {
+        const auto& tile = input.tiles[static_cast<std::size_t>(index)];
+        tiles.push_back({
+            {"file", std::format("layer-0-tile-{}-0.png", index)},
+            {"origin", {tile.origin_x, tile.origin_y}},
+            {"texels_per_unit", tile.texels_per_unit},
+            {"affected_layers", tile.affected_layers}
+        });
+    }
+    const Json manifest{{"baker_version", k_baker_version}, {"input_hash", input.hash}, {"tile_size", k_tile_size}, {"tile_count", input.tile_count}, {"baked_light_count", input.lights.size()}, {"scene", scene_path.filename().string()}, {"tiles", std::move(tiles)}};
     std::ofstream output(directory / "manifest.json", std::ios::binary | std::ios::trunc);
     if (!output) { if (error) *error = "Cannot write lighting bake manifest"; return false; }
     output << manifest.dump(2) << '\n';
