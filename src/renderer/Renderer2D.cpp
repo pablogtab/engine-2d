@@ -227,33 +227,30 @@ void Renderer2D::execute_lighting_stage(
     RenderLayer layer,
     int width,
     int height,
-    SDL_Texture* shadow_receiver_mask
+    SDL_Texture* shadow_receiver_mask,
+    SDL_Texture* baked_receiver_mask
 ) {
     if (!scene_target || width <= 0 || height <= 0) return;
     auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::Lighting)];
-    for (const auto& pass : m_lighting_passes) {
-        if (!pass || !pass->is_enabled() || !renders_layer(pass->affected_layers(), layer)) continue;
-        const auto stage_begin = std::chrono::high_resolution_clock::now();
-        const RenderLayerMask previously_composited_layers =
-            m_lighting_composited_layers[pass.get()];
-        if (pass->apply({
-                m_sdl_renderer,
-                scene_target,
-                &m_render_target_pool,
-                m_active_camera,
-                layer,
-                width,
-                height,
-                m_world_raster_scale,
-                previously_composited_layers,
-                shadow_receiver_mask
-            })) {
-            ++metrics.draw_calls;
-            m_lighting_composited_layers[pass.get()] |= render_layer_mask(layer);
+    for (const LightingCompositionPhase phase : {
+            LightingCompositionPhase::BakedMultiply, LightingCompositionPhase::Realtime}) {
+        for (const auto& pass : m_lighting_passes) {
+            if (!pass || pass->composition_phase() != phase || !pass->is_enabled() ||
+                !renders_layer(pass->affected_layers(), layer)) continue;
+            const auto stage_begin = std::chrono::high_resolution_clock::now();
+            const RenderLayerMask previously_composited_layers = m_lighting_composited_layers[pass.get()];
+            if (pass->apply({
+                    m_sdl_renderer, scene_target, &m_render_target_pool, m_active_camera,
+                    layer, width, height, m_world_raster_scale, previously_composited_layers,
+                    shadow_receiver_mask, baked_receiver_mask
+                })) {
+                ++metrics.draw_calls;
+                m_lighting_composited_layers[pass.get()] |= render_layer_mask(layer);
+            }
+            metrics.cpu_milliseconds += std::chrono::duration<float, std::milli>(
+                std::chrono::high_resolution_clock::now() - stage_begin
+            ).count();
         }
-        metrics.cpu_milliseconds += std::chrono::duration<float, std::milli>(
-            std::chrono::high_resolution_clock::now() - stage_begin
-        ).count();
     }
 }
 
@@ -973,7 +970,14 @@ void Renderer2D::end_scene() {
         });
     };
 
-    const auto build_shadow_receiver_mask = [&](size_t start_idx, size_t end_idx) -> SDL_Texture* {
+    const auto layer_needs_baked_mask = [&](RenderLayer layer) {
+        return std::any_of(m_lighting_passes.begin(), m_lighting_passes.end(), [layer](const auto& pass) {
+            return pass && pass->is_enabled() && pass->requires_baked_receiver_mask() &&
+                renders_layer(pass->affected_layers(), layer);
+        });
+    };
+
+    const auto build_receiver_mask = [&](size_t start_idx, size_t end_idx, bool baked) -> SDL_Texture* {
         SDL_Texture* mask = acquire_local_effect_surface(composition_width, composition_height);
         if (!mask || !SDL_SetRenderTarget(m_sdl_renderer, mask)) {
             if (mask) release_local_effect_surface(mask);
@@ -985,11 +989,15 @@ void Renderer2D::end_scene() {
 
         size_t index = start_idx;
         while (index < end_idx) {
-            while (index < end_idx && !m_sprite_queue[index].receives_shadows) ++index;
+            const auto receives = [&](size_t command_index) {
+                return baked ? m_sprite_queue[command_index].baked_light_receiver
+                    : m_sprite_queue[command_index].receives_shadows;
+            };
+            while (index < end_idx && !receives(index)) ++index;
             if (index >= end_idx) break;
             Texture* texture = m_sprite_queue[index].texture;
             const size_t batch_start = index++;
-            while (index < end_idx && m_sprite_queue[index].receives_shadows &&
+            while (index < end_idx && receives(index) &&
                    m_sprite_queue[index].texture == texture) ++index;
             SDL_Texture* sdl_texture = texture ? texture->get_sdl_texture() : nullptr;
             if (sdl_texture) {
@@ -1100,17 +1108,22 @@ void Renderer2D::end_scene() {
                 }
                 SDL_Texture* const layer_target = output ? output : source;
                 SDL_Texture* shadow_receiver_mask = nullptr;
+                SDL_Texture* baked_receiver_mask = nullptr;
                 if (has_lighting && layer_needs_shadow_mask(layer)) {
-                    shadow_receiver_mask = build_shadow_receiver_mask(layer_start, layer_end);
+                    shadow_receiver_mask = build_receiver_mask(layer_start, layer_end, false);
+                }
+                if (has_lighting && layer_needs_baked_mask(layer)) {
+                    baked_receiver_mask = build_receiver_mask(layer_start, layer_end, true);
                 }
                 if (has_lighting) {
                     SDL_SetRenderTarget(m_sdl_renderer, layer_target);
                     execute_lighting_stage(
                         layer_target, layer, composition_width, composition_height,
-                        shadow_receiver_mask
+                        shadow_receiver_mask, baked_receiver_mask
                     );
                 }
                 if (shadow_receiver_mask) release_local_effect_surface(shadow_receiver_mask);
+                if (baked_receiver_mask) release_local_effect_surface(baked_receiver_mask);
                 SDL_SetRenderTarget(m_sdl_renderer, scene_target);
                 SDL_RenderTexture(m_sdl_renderer, layer_target, nullptr, nullptr);
                 if (has_layer_effects) {

@@ -15,6 +15,8 @@ struct LightingBakeStatus {
     bool current{false};
     bool has_bake_volume{false};
     std::uint32_t tile_count{0};
+    std::uint32_t baked_light_count{0};
+    std::uint32_t baked_caster_count{0};
     std::string reason;
 };
 
@@ -24,6 +26,9 @@ struct LightingBakeTile {
     float origin_y{0.0f};
     float texels_per_unit{1.0f};
     std::uint32_t affected_layers{0xffffffffu};
+    std::uint32_t render_layer{0};
+    int pixel_width{0};
+    int pixel_height{0};
 };
 
 struct LightingBakeManifest {
@@ -36,13 +41,17 @@ struct LightingBakeManifest {
 class LightingBakeService {
 public:
     static constexpr int k_tile_size = 1024;
-    static constexpr std::string_view k_baker_version = "lighting-baker-v1";
+    static constexpr std::string_view k_baker_version = "lighting-baker-v2";
 
     [[nodiscard]] static LightingBakeStatus status(
         const std::filesystem::path& project_root,
         const std::filesystem::path& scene_path
     );
     [[nodiscard]] static std::optional<LightingBakeManifest> load_current(
+        const std::filesystem::path& project_root,
+        const std::filesystem::path& scene_path
+    );
+    [[nodiscard]] static std::optional<LightingBakeManifest> load_latest_valid(
         const std::filesystem::path& project_root,
         const std::filesystem::path& scene_path
     );

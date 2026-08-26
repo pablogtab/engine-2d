@@ -3,6 +3,7 @@
 #include "EditorSceneView.hpp"
 #include "SceneRuntime.hpp"
 #include "../renderer/Lighting2DSystem.hpp"
+#include "../renderer/BakedLighting2DSystem.hpp"
 #include "../renderer/RenderEffectSystem.hpp"
 #include "../renderer/postprocess/PostProcessPipeline.hpp"
 #include "../renderer/postprocess/PostProcessProfile.hpp"
@@ -49,6 +50,7 @@ private:
     RenderEffectSystem m_render_effect_system;
     std::vector<RenderLayerEffectAssignment> m_loaded_layer_assignments;
     Lighting2DSystem m_lighting_system;
+    BakedLighting2DSystem m_baked_lighting_system;
     CanvasUISystem m_canvas_ui_system;
     bool m_post_process_initialized{false};
 };

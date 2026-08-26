@@ -102,6 +102,7 @@ void SceneRenderer::render(
     initialize_post_process(renderer, camera);
     renderer.set_post_process_pipeline(m_post_process_profile ? &m_post_process_pipeline : nullptr);
     m_render_effect_system.configure(scene.get_entity_manager(), renderer, database);
+    m_baked_lighting_system.configure(database.project_root(), scene.source_path(), renderer);
     m_lighting_system.configure(scene.get_entity_manager(), renderer);
     renderer.begin_scene(camera);
     RenderSystem::render(

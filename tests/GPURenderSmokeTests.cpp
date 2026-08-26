@@ -3,6 +3,7 @@
 #include "ecs/EntityManager.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/UIComponents.hpp"
+#include "renderer/BakedLighting2DSystem.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "renderer/Lighting2DSystem.hpp"
 #include "renderer/Texture.hpp"
@@ -208,6 +209,13 @@ int main() {
                     width,
                     height
                 );
+                SDL_Texture* baked_target = SDL_CreateTexture(
+                    sdl_renderer,
+                    SDL_PIXELFORMAT_RGBA8888,
+                    SDL_TEXTUREACCESS_TARGET,
+                    width,
+                    height
+                );
                 SDL_Texture* canvas_target = SDL_CreateTexture(
                     sdl_renderer,
                     SDL_PIXELFORMAT_RGBA8888,
@@ -230,7 +238,8 @@ int main() {
                     height
                 );
                 if (!sprite_target || !fullscreen_source || !fullscreen_target ||
-                    !lighting_target || !canvas_target || !canvas_text_target || !lit_sprite_target) {
+                    !lighting_target || !baked_target || !canvas_target ||
+                    !canvas_text_target || !lit_sprite_target) {
                     std::cerr << "GPURenderSmokeTests failed: render target creation failed: "
                               << SDL_GetError() << '\n';
                 } else {
@@ -514,6 +523,65 @@ int main() {
                         const Pixel layer_visible_pixel = render_lighting_translation_probe(0.0f);
                         const Pixel layer_culled_pixel = render_lighting_translation_probe(-10.0f);
                         camera.set_position({0.0f, 0.0f});
+
+                        const std::filesystem::path baked_tile_path =
+                            std::filesystem::temp_directory_path() /
+                            ("engine2d-gpu-baked-" + std::to_string(SDL_GetTicksNS()) + ".png");
+                        SDL_Surface* baked_tile_surface = SDL_CreateSurface(
+                            width, height, SDL_PIXELFORMAT_RGBA32
+                        );
+                        bool baked_matches = false;
+                        Pixel baked_receiver;
+                        Pixel baked_non_receiver;
+                        if (baked_tile_surface) {
+                            SDL_FillSurfaceRect(
+                                baked_tile_surface, nullptr,
+                                SDL_MapSurfaceRGBA(baked_tile_surface, 64, 64, 64, 255)
+                            );
+                            if (SDL_SavePNG(baked_tile_surface, baked_tile_path.string().c_str())) {
+                                Engine::LightingBakeManifest baked_manifest;
+                                baked_manifest.status.current = true;
+                                baked_manifest.status.input_hash = "gpu-smoke-bake";
+                                baked_manifest.tiles.push_back({
+                                    baked_tile_path, -32.0f, -32.0f, 1.0f,
+                                    Engine::render_layer_mask(0), 0, width, height
+                                });
+                                auto baked_pass = std::make_shared<Engine::BakedLighting2DPass>();
+                                if (baked_pass->load(baked_manifest, sdl_renderer)) {
+                                    renderer.clear_lighting_passes();
+                                    renderer.add_lighting_pass(baked_pass);
+                                    renderer.set_custom_render_target(baked_target);
+                                    SDL_SetRenderTarget(sdl_renderer, baked_target);
+                                    SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+                                    SDL_RenderClear(sdl_renderer);
+                                    renderer.begin_scene(camera);
+                                    renderer.submit_sprite(
+                                        white.get(), {-16.0f, 0.0f, 0.0f}, {16.0f, 16.0f}, 0.0f,
+                                        {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+                                        false, false, 0, 0, nullptr, 0, {}, 0,
+                                        SDL_BLENDMODE_BLEND, true
+                                    );
+                                    renderer.submit_sprite(
+                                        white.get(), {16.0f, 0.0f, 0.0f}, {16.0f, 16.0f}, 0.0f,
+                                        {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+                                        false, false, 0, 0, nullptr, 0, {}, 0,
+                                        SDL_BLENDMODE_BLEND, false
+                                    );
+                                    renderer.end_scene();
+                                    baked_receiver = read_pixel(
+                                        sdl_renderer, baked_target, 16, height / 2
+                                    );
+                                    baked_non_receiver = read_pixel(
+                                        sdl_renderer, baked_target, 48, height / 2
+                                    );
+                                    baked_matches = baked_receiver.red >= 60 && baked_receiver.red <= 68 &&
+                                        baked_non_receiver.red >= 250;
+                                }
+                            }
+                            SDL_DestroySurface(baked_tile_surface);
+                        }
+                        std::error_code baked_file_error;
+                        std::filesystem::remove(baked_tile_path, baked_file_error);
                         const auto channel_delta = [](Uint8 lhs, Uint8 rhs) {
                             return std::abs(static_cast<int>(lhs) - static_cast<int>(rhs));
                         };
@@ -543,6 +611,7 @@ int main() {
                             !canvas_text_graded ||
                             !matches_expected_grade(fullscreen_pixel) ||
                             !lit_sprite_matches ||
+                            !baked_matches ||
                             !lighting_matches) {
                             std::cerr
                                 << "GPURenderSmokeTests failed on " << backend->backend_name()
@@ -581,7 +650,12 @@ int main() {
                                 << static_cast<int>(screen_pixel.red) << ','
                                 << static_cast<int>(screen_pixel.green) << ','
                                 << static_cast<int>(screen_pixel.blue) << ','
-                                << static_cast<int>(screen_pixel.alpha) << ") zoom 1.0/0.9/0.75/0.5 red=("
+                                << static_cast<int>(screen_pixel.alpha) << ") baked receiver/nonreceiver red=("
+                                << static_cast<int>(baked_receiver.red) << ','
+                                << static_cast<int>(baked_non_receiver.red)
+                                << ") lighting draws=" << renderer.get_frame_metrics().stage(
+                                    Engine::RenderStage::Lighting).draw_calls
+                                << ") zoom 1.0/0.9/0.75/0.5 red=("
                                 << static_cast<int>(zoom_100_pixel.red) << ','
                                 << static_cast<int>(zoom_090_pixel.red) << ','
                                 << static_cast<int>(zoom_075_pixel.red) << ','
@@ -596,7 +670,7 @@ int main() {
                                 << static_cast<int>(layer_culled_pixel.alpha) << ")\n";
                         } else {
                             std::cout << "GPURenderSmokeTests passed on " << backend->backend_name()
-                                      << ": sprite, material pack, Canvas UI, fullscreen, blend, and zoom-stability probes matched\n";
+                                      << ": sprite, material pack, baked lighting, Canvas UI, fullscreen, blend, and zoom-stability probes matched\n";
                             exit_code = 0;
                         }
                     }
@@ -605,6 +679,7 @@ int main() {
                 if (fullscreen_source) SDL_DestroyTexture(fullscreen_source);
                 if (fullscreen_target) SDL_DestroyTexture(fullscreen_target);
                 if (lighting_target) SDL_DestroyTexture(lighting_target);
+                if (baked_target) SDL_DestroyTexture(baked_target);
                 if (canvas_target) SDL_DestroyTexture(canvas_target);
                 if (canvas_text_target) SDL_DestroyTexture(canvas_text_target);
                 if (lit_sprite_target) SDL_DestroyTexture(lit_sprite_target);

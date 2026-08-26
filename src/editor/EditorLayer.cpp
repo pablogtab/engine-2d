@@ -777,7 +777,9 @@ bool EditorLayer::request_project_hub() {
 }
 
 void EditorLayer::begin_frame() {
-    if (!m_initialized || !m_visible) return;
+    if (!m_initialized) return;
+    update_lighting_bakes();
+    if (!m_visible) return;
 
     sync_active_scene_session();
     update_window_title();
@@ -918,8 +920,63 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
     session.autosave_identity = normalized_scene_identity(path);
     save_entity_state_preferences();
     record_recent_scene(path);
+    schedule_lighting_bake(path, std::chrono::milliseconds(500));
     ENGINE_LOG_INFO("[EDITOR] Successfully saved scene '{}' to '{}'", scene->get_name(), path);
     return true;
+}
+
+void EditorLayer::schedule_lighting_bake(
+    const std::filesystem::path& scene_path,
+    std::chrono::milliseconds delay
+) {
+    const LightingBakeStatus status = LightingBakeService::status(m_project_root, scene_path);
+    const std::string key = std::filesystem::absolute(scene_path).lexically_normal().generic_string();
+    if (!status.has_bake_volume) {
+        m_lighting_bake_jobs.erase(key);
+        return;
+    }
+    if (status.current && delay.count() > 0) {
+        m_lighting_bake_jobs.erase(key);
+        return;
+    }
+    LightingBakeJob& job = m_lighting_bake_jobs[key];
+    job.deadline = std::chrono::steady_clock::now() + delay;
+    job.queued = true;
+    ENGINE_LOG_INFO("[LIGHTING BAKE] '{}' marked stale; background bake queued in {} ms",
+                    scene_path.filename().string(), delay.count());
+}
+
+void EditorLayer::update_lighting_bakes() {
+    const auto now = std::chrono::steady_clock::now();
+    for (auto job_it = m_lighting_bake_jobs.begin(); job_it != m_lighting_bake_jobs.end();) {
+        LightingBakeJob& job = job_it->second;
+        if (job.running && job.future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            LightingBakeJobResult result = job.future.get();
+            job.running = false;
+            if (result.success) {
+                ENGINE_LOG_INFO("[LIGHTING BAKE] Background bake completed: {} tile(s), {} light(s), {} caster(s)",
+                                result.status.tile_count, result.status.baked_light_count,
+                                result.status.baked_caster_count);
+            } else {
+                ENGINE_LOG_ERROR("[LIGHTING BAKE] Background bake failed: {}", result.error);
+            }
+        }
+        if (job.queued && !job.running && now >= job.deadline) {
+            const std::filesystem::path project_root = m_project_root;
+            const std::filesystem::path scene_path = job_it->first;
+            job.queued = false;
+            job.running = true;
+            job.future = std::async(std::launch::async, [project_root, scene_path]() {
+                LightingBakeJobResult result;
+                result.success = LightingBakeService::bake(
+                    project_root, scene_path, &result.status, &result.error);
+                return result;
+            });
+            ENGINE_LOG_INFO("[LIGHTING BAKE] Background bake started for '{}'", scene_path.filename().string());
+        }
+        if (!job.queued && !job.running) job_it = m_lighting_bake_jobs.erase(job_it);
+        else ++job_it;
+    }
 }
 
 void EditorLayer::record_recent_scene(const std::string& path) {
@@ -1533,13 +1590,7 @@ void EditorLayer::render_main_menu_bar() {
                 if (!scene || session == m_scene_sessions.end() || session->second.file_path.empty()) {
                     ENGINE_LOG_WARN("[LIGHTING BAKE] Save the active scene before baking.");
                 } else {
-                    LightingBakeStatus bake;
-                    std::string error;
-                    if (LightingBakeService::bake(m_project_root, session->second.file_path, &bake, &error)) {
-                        ENGINE_LOG_INFO("[LIGHTING BAKE] Generated {} tile(s) for '{}'", bake.tile_count, scene->get_name());
-                    } else {
-                        ENGINE_LOG_ERROR("[LIGHTING BAKE] Failed for '{}': {}", scene->get_name(), error);
-                    }
+                    schedule_lighting_bake(session->second.file_path, std::chrono::milliseconds(0));
                 }
             }
             ImGui::EndMenu();

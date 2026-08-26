@@ -56,6 +56,7 @@ set(SOURCES
     src/particles/ParticleSystem2D.cpp
     src/particles/ParticleWorld.cpp
     src/renderer/Animation2D.cpp
+    src/renderer/BakedLighting2DSystem.cpp
     src/renderer/Font.cpp
     src/renderer/material/FragmentShader.cpp
     src/renderer/material/MaterialAsset.cpp
@@ -330,6 +331,8 @@ target_compile_definitions(Engine2D PRIVATE
 
 add_executable(Engine2DStandalone src/runtime/StandaloneMain.cpp src/core/Application.cpp)
 target_compile_definitions(Engine2DStandalone PRIVATE ENGINE_WITH_EDITOR=0)
+add_executable(LightingBakeTool src/tools/LightingBakeTool.cpp)
+target_link_libraries(LightingBakeTool PRIVATE EngineRuntime)
 
 add_dependencies(Engine2D compile_shaders)
 add_dependencies(Engine2DStandalone compile_shaders)
@@ -367,6 +370,7 @@ add_custom_target(stage_runtime_assets
         "-DENGINE_STAGE_DIR=${CMAKE_BINARY_DIR}/runtime"
         "-DENGINE_EXECUTABLE=$<TARGET_FILE:Engine2DStandalone>"
         "-DENGINE_SCRIPT_COMPILER=$<TARGET_FILE:e2sc>"
+        "-DENGINE_LIGHTING_BAKE_TOOL=$<TARGET_FILE:LightingBakeTool>"
         "-DENGINE_SHADER_VARIANT=${ENGINE_RUNTIME_SHADER_VARIANT}"
         "-DENGINE_SHADER_FORMAT=${ENGINE_RUNTIME_SHADER_FORMAT}"
         "-DENGINE_SHADER_ENTRY_POINT=${ENGINE_RUNTIME_SHADER_ENTRY_POINT}"
@@ -374,7 +378,7 @@ add_custom_target(stage_runtime_assets
             "-DENGINE_SHADER_VARIANT_BASE=${ENGINE_RUNTIME_SHADER_VARIANT_BASE}"
             "-DENGINE_BUILTIN_LIT_SHADER_VARIANT=${ENGINE_BUILTIN_LIT_SHADER_VARIANT}"
         -P "${CMAKE_SOURCE_DIR}/cmake/StageRuntimeAssets.cmake"
-    DEPENDS Engine2DStandalone e2sc compile_shaders
+    DEPENDS Engine2DStandalone LightingBakeTool e2sc compile_shaders
     COMMENT "Staging runtime assets with the platform shader variant"
     VERBATIM
 )
@@ -714,6 +718,14 @@ target_include_directories(MaterialPackTests PRIVATE
 target_link_libraries(MaterialPackTests PRIVATE SDL3::SDL3 glm::glm)
 add_test(NAME MaterialPackTests COMMAND MaterialPackTests)
 
+add_executable(LightingBakeTests tests/LightingBakeTests.cpp)
+target_include_directories(LightingBakeTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(LightingBakeTests PRIVATE EngineRuntime)
+add_test(NAME LightingBakeTests COMMAND LightingBakeTests)
+
 add_executable(CanvasLayoutTests tests/CanvasLayoutTests.cpp)
 target_include_directories(CanvasLayoutTests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -761,6 +773,7 @@ add_test(
         "-DENGINE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
         "-DENGINE_TEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/test-output"
         "-DENGINE_SCRIPT_COMPILER=$<TARGET_FILE:e2sc>"
+        "-DENGINE_LIGHTING_BAKE_TOOL=$<TARGET_FILE:LightingBakeTool>"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/RuntimeShaderStagingTests.cmake"
 )
 

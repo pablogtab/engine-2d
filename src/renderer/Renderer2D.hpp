@@ -262,7 +262,7 @@ public:
 private:
     void execute_lighting_stage(
         SDL_Texture* scene_target, RenderLayer layer, int width, int height,
-        SDL_Texture* shadow_receiver_mask
+        SDL_Texture* shadow_receiver_mask, SDL_Texture* baked_receiver_mask
     );
     [[nodiscard]] std::shared_ptr<const Material> create_lit_sprite_material(
         const SpriteMaterialLighting& lighting

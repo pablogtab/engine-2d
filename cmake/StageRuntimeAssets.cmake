@@ -1,4 +1,4 @@
-foreach(required ENGINE_SOURCE_DIR ENGINE_PROJECT_DIR ENGINE_STAGE_DIR ENGINE_EXECUTABLE ENGINE_SCRIPT_COMPILER)
+foreach(required ENGINE_SOURCE_DIR ENGINE_PROJECT_DIR ENGINE_STAGE_DIR ENGINE_EXECUTABLE ENGINE_SCRIPT_COMPILER ENGINE_LIGHTING_BAKE_TOOL)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "${required} is required")
     endif()
@@ -6,6 +6,16 @@ endforeach()
 
 if(NOT EXISTS "${ENGINE_EXECUTABLE}")
     message(FATAL_ERROR "Engine executable is missing: ${ENGINE_EXECUTABLE}")
+endif()
+
+execute_process(
+    COMMAND "${ENGINE_LIGHTING_BAKE_TOOL}" --validate-project "${ENGINE_PROJECT_DIR}"
+    RESULT_VARIABLE lighting_bake_result
+    OUTPUT_VARIABLE lighting_bake_output
+    ERROR_VARIABLE lighting_bake_error
+)
+if(NOT lighting_bake_result EQUAL 0)
+    message(FATAL_ERROR "Lighting bake validation failed:\n${lighting_bake_output}${lighting_bake_error}")
 endif()
 if(ENGINE_SHADER_VARIANT AND NOT EXISTS "${ENGINE_SHADER_VARIANT}")
     message(FATAL_ERROR "Compiled shader variant is missing: ${ENGINE_SHADER_VARIANT}")
@@ -21,6 +31,10 @@ file(REMOVE_RECURSE "${ENGINE_STAGE_DIR}")
 file(MAKE_DIRECTORY "${ENGINE_STAGE_DIR}")
 file(COPY "${ENGINE_PROJECT_DIR}/Assets" DESTINATION "${ENGINE_STAGE_DIR}")
 file(COPY "${ENGINE_PROJECT_DIR}/ProjectSettings" DESTINATION "${ENGINE_STAGE_DIR}")
+if(EXISTS "${ENGINE_PROJECT_DIR}/Library/LightingBakes")
+    file(MAKE_DIRECTORY "${ENGINE_STAGE_DIR}/Library")
+    file(COPY "${ENGINE_PROJECT_DIR}/Library/LightingBakes" DESTINATION "${ENGINE_STAGE_DIR}/Library")
+endif()
 file(COPY_FILE "${ENGINE_PROJECT_DIR}/project.engine2d" "${ENGINE_STAGE_DIR}/project.engine2d" ONLY_IF_DIFFERENT)
 execute_process(
     COMMAND "${ENGINE_SCRIPT_COMPILER}" "${ENGINE_STAGE_DIR}" --native-module

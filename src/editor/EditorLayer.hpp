@@ -4,6 +4,7 @@
 #include "state/AutosaveRecovery.hpp"
 #include "state/RecentSceneList.hpp"
 #include "state/EditorPanelStateStore.hpp"
+#include "../renderer/LightingBakeService.hpp"
 #include <SDL3/SDL.h>
 #include <vector>
 #include <memory>
@@ -13,6 +14,8 @@
 #include <utility>
 #include <filesystem>
 #include <cstdint>
+#include <chrono>
+#include <future>
 
 namespace Engine {
 
@@ -132,6 +135,8 @@ private:
     void render_prefab_stage_modals();
     bool save_scene(Scene* scene, EditorSceneSession& session, const std::string& custom_path = "");
     void update_autosaves(float delta_time);
+    void schedule_lighting_bake(const std::filesystem::path& scene_path, std::chrono::milliseconds delay);
+    void update_lighting_bakes();
     void render_recovery_modal();
     void recover_autosave(const AutosaveRecord& record);
     void load_autosave_preferences();
@@ -157,6 +162,18 @@ private:
     RecentSceneList m_recent_scenes;
     AutosaveRecovery m_autosave_recovery;
     std::filesystem::path m_project_root{"."};
+    struct LightingBakeJobResult {
+        bool success{false};
+        LightingBakeStatus status;
+        std::string error;
+    };
+    struct LightingBakeJob {
+        std::chrono::steady_clock::time_point deadline{};
+        std::future<LightingBakeJobResult> future;
+        bool queued{false};
+        bool running{false};
+    };
+    std::unordered_map<std::string, LightingBakeJob> m_lighting_bake_jobs;
     std::filesystem::path m_recent_scenes_path{"ProjectSettings/EditorRecentScenes.json"};
     std::filesystem::path m_autosave_preferences_path{"ProjectSettings/EditorAutosave.json"};
     std::filesystem::path m_entity_state_preferences_path{"Library/Editor/EntityStates.json"};
