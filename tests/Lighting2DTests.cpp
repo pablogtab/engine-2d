@@ -82,6 +82,12 @@ void test_system_extracts_lights_and_shadow_sources() {
     light.affected_layers = render_layer_mask(3);
     entities.add_component<Light2DComponent>(light_entity, light);
 
+    const EntityID baked_light_entity = entities.create_entity();
+    entities.add_component<TransformComponent>(baked_light_entity, TransformComponent{});
+    Light2DComponent baked_light;
+    baked_light.mobility = Light2DMobility::Baked;
+    entities.add_component<Light2DComponent>(baked_light_entity, baked_light);
+
     const EntityID collider_caster = entities.create_entity();
     entities.add_component<TransformComponent>(collider_caster, TransformComponent{});
     entities.add_component<ColliderComponent>(collider_caster, ColliderComponent::Box({20.0f, 10.0f}));

@@ -2,6 +2,7 @@
 
 #include "Renderer2D.hpp"
 #include "RenderTargetPool.hpp"
+#include "Texture.hpp"
 #include "../ecs/EntityManager.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/PhysicsComponents.hpp"
@@ -59,12 +60,19 @@ SDL_BlendMode point_composite_mode(
     return SDL_BLENDMODE_ADD;
 }
 
-bool draw_triangle_list(SDL_Renderer* renderer, const std::vector<glm::vec2>& points) {
+SDL_BlendMode shadow_mask_blend() {
+    return SDL_ComposeCustomBlendMode(
+        SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
+        SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_ADD
+    );
+}
+
+bool draw_triangle_list(SDL_Renderer* renderer, const std::vector<glm::vec2>& points, float opacity, const glm::vec2& offset = {}) {
     if (points.empty()) return true;
     std::vector<SDL_Vertex> vertices;
     vertices.reserve(points.size());
     for (const glm::vec2& point : points) {
-        vertices.push_back({{point.x, point.y}, {0.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f}});
+        vertices.push_back({{point.x + offset.x, point.y + offset.y}, {0.0f, 0.0f, 0.0f, std::clamp(opacity, 0.0f, 1.0f)}, {0.0f, 0.0f}});
     }
     return SDL_RenderGeometry(renderer, nullptr, vertices.data(), static_cast<int>(vertices.size()), nullptr, 0);
 }
@@ -112,14 +120,32 @@ std::vector<glm::vec2> static_polygon(
     return result;
 }
 
-std::vector<glm::vec2> sprite_alpha_contour(const SpriteComponent& sprite, const TransformComponent& transform) {
-    const glm::vec2 half = sprite.size * transform.world_scale * 0.5f;
-    return {
-        collider_local_to_world({-half.x, -half.y}, transform),
-        collider_local_to_world({ half.x, -half.y}, transform),
-        collider_local_to_world({ half.x,  half.y}, transform),
-        collider_local_to_world({-half.x,  half.y}, transform)
-    };
+std::vector<glm::vec2> sprite_alpha_contour(const SpriteComponent& sprite, const TransformComponent& transform, float threshold) {
+    if (!sprite.texture) return {};
+    const SDL_FRect source = sprite.use_src_rect ? sprite.src_rect : SDL_FRect{0.0f, 0.0f, static_cast<float>(sprite.texture->get_width()), static_cast<float>(sprite.texture->get_height())};
+    const int left = std::clamp(static_cast<int>(std::floor(source.x)), 0, sprite.texture->get_width() - 1);
+    const int top = std::clamp(static_cast<int>(std::floor(source.y)), 0, sprite.texture->get_height() - 1);
+    const int width = std::clamp(static_cast<int>(std::ceil(source.w)), 1, sprite.texture->get_width() - left);
+    const int height = std::clamp(static_cast<int>(std::ceil(source.h)), 1, sprite.texture->get_height() - top);
+    const std::uint8_t alpha_limit = static_cast<std::uint8_t>(std::clamp(threshold, 0.0f, 1.0f) * 255.0f);
+    constexpr int samples = 12;
+    std::vector<glm::vec2> local_top, local_bottom;
+    local_top.reserve(samples + 1); local_bottom.reserve(samples + 1);
+    for (int sample = 0; sample <= samples; ++sample) {
+        const int x = left + (width - 1) * sample / samples;
+        int first = height, last = -1;
+        for (int y = 0; y < height; ++y) if (sprite.texture->alpha_at(x, top + y) > alpha_limit) { first = std::min(first, y); last = y; }
+        if (last < 0) continue;
+        const float u = static_cast<float>(x - left) / std::max(1, width - 1);
+        const auto point = [&](int y) { return glm::vec2{(u - transform.world_pivot.x) * sprite.size.x, (static_cast<float>(y) / std::max(1, height - 1) - transform.world_pivot.y) * sprite.size.y}; };
+        local_top.push_back(point(first)); local_bottom.push_back(point(last));
+    }
+    if (local_top.size() < 2) return {};
+    std::vector<glm::vec2> result;
+    result.reserve(local_top.size() + local_bottom.size());
+    for (const auto& point : local_top) result.push_back(collider_local_to_world(point * transform.world_scale, transform));
+    for (auto it = local_bottom.rbegin(); it != local_bottom.rend(); ++it) result.push_back(collider_local_to_world(*it * transform.world_scale, transform));
+    return result;
 }
 
 } // namespace
@@ -375,7 +401,7 @@ bool Lighting2DPass::apply(const LightingContext& context) {
     int shadowed_lights = 0;
     for (const Light2DInstance& instance : m_lights) {
         const Light2DComponent& light = instance.light;
-        if (!light.enabled || light.intensity <= 0.0f ||
+        if (!light.enabled || light.mobility != Light2DMobility::Realtime || light.intensity <= 0.0f ||
             !renders_layer(light.affected_layers, context.render_layer)) continue;
 
         const float intensity = std::clamp(light.intensity, 0.0f, 1.0f);
@@ -439,15 +465,24 @@ bool Lighting2DPass::apply(const LightingContext& context) {
         const bool shadows_enabled = light.shadow_mode != ShadowMode::None && shadowed_lights < m_max_shadowed_lights;
         if (shadows_enabled) {
             ++shadowed_lights;
-            SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
+            SDL_SetRenderDrawBlendMode(context.renderer, shadow_mask_blend());
             for (const ShadowPolygon2D& caster : m_casters) {
                 if (!renders_layer(caster.affected_layers, context.render_layer)) continue;
+                std::vector<glm::vec2> biased_vertices = caster.world_vertices;
+                if (light.shadow_bias > 0.0f) {
+                    for (glm::vec2& vertex : biased_vertices) {
+                        const glm::vec2 direction = light.type == Light2DType::Directional
+                            ? glm::vec2(std::cos(glm::radians(instance.world_rotation)), std::sin(glm::radians(instance.world_rotation)))
+                            : glm::normalize(vertex - instance.world_position);
+                        if (glm::length(direction) > 0.0001f) vertex += direction * light.shadow_bias;
+                    }
+                }
                 const auto world_triangles = light.type == Light2DType::Directional
                     ? build_directional_shadow_triangles(
                         glm::vec2(std::cos(glm::radians(instance.world_rotation)), std::sin(glm::radians(instance.world_rotation))),
-                        caster.world_vertices, static_cast<float>(std::max(context.width, context.height)) * 4.0f
+                        biased_vertices, static_cast<float>(std::max(context.width, context.height)) * 4.0f
                     )
-                    : build_shadow_triangles(instance.world_position, caster.world_vertices, light.range * 2.0f);
+                    : build_shadow_triangles(instance.world_position, biased_vertices, light.range * 2.0f);
                 std::vector<glm::vec2> screen_triangles;
                 screen_triangles.reserve(world_triangles.size());
                 for (const glm::vec2& point : world_triangles) {
@@ -455,7 +490,13 @@ bool Lighting2DPass::apply(const LightingContext& context) {
                         context.camera->world_to_screen(glm::vec3(point, 0.0f)) * context.raster_scale
                     );
                 }
-                draw_triangle_list(context.renderer, screen_triangles);
+                const float softness = light.shadow_mode == ShadowMode::Hard ? 0.0f : light.shadow_softness * 8.0f;
+                const int samples = softness > 0.01f ? 5 : 1;
+                for (int sample = 0; sample < samples; ++sample) {
+                    const float angle = static_cast<float>(sample) * 2.0f * glm::pi<float>() / samples;
+                    const glm::vec2 offset = samples == 1 ? glm::vec2{} : glm::vec2(std::cos(angle), std::sin(angle)) * softness;
+                    draw_triangle_list(context.renderer, screen_triangles, light.shadow_strength / samples, offset);
+                }
             }
         }
 
@@ -487,7 +528,7 @@ void Lighting2DSystem::configure(EntityManager& entities, Renderer2D& renderer) 
 
     entities.for_each<TransformComponent, Light2DComponent>(
         [&](EntityID entity, const TransformComponent& transform, const Light2DComponent& light) {
-            if (!transform.world_visible || !light.enabled || light.intensity <= 0.0f) return;
+            if (!transform.world_visible || !light.enabled || light.mobility != Light2DMobility::Realtime || light.intensity <= 0.0f) return;
             lights.push_back({glm::vec2(transform.world_position), light, entity, transform.world_rotation});
         }
     );
@@ -506,7 +547,7 @@ void Lighting2DSystem::configure(EntityManager& entities, Renderer2D& renderer) 
                 auto polygon = static_polygon(caster, transform);
                 if (polygon.size() >= 3) casters.push_back({std::move(polygon), caster.affected_layers});
             } else if (entities.has_component<SpriteComponent>(entity)) {
-                auto polygon = sprite_alpha_contour(entities.get_component<SpriteComponent>(entity), transform);
+                auto polygon = sprite_alpha_contour(entities.get_component<SpriteComponent>(entity), transform, caster.alpha_threshold);
                 casters.push_back({std::move(polygon), caster.affected_layers});
             }
         }

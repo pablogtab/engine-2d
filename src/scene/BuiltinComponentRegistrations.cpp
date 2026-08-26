@@ -413,6 +413,7 @@ void register_light(ComponentRegistry& registry) {
         },
         .deserialize = [](Light2DComponent& light, const Json& value, const ComponentSerializationContext&, std::string& error) {
             if (!value.is_object()) { error = "Light 2D must be an object"; return false; }
+            light = {};
             const auto& color = value.at("color");
             if (!color.is_array() || color.size() != 4) {
                 error = "Light 2D color must contain four channels";
@@ -422,17 +423,10 @@ void register_light(ComponentRegistry& registry) {
                 error = "Light 2D type is invalid";
                 return false;
             }
-            if (!light_blend_from_string(value.at("blend_mode").get<std::string>(), light.blend_mode) ||
-                !mobility_from_string(value.at("mobility").get<std::string>(), light.mobility) ||
-                !shadow_mode_from_string(value.at("shadow_mode").get<std::string>(), light.shadow_mode)) {
-                error = "Light 2D blend mode is invalid";
-                return false;
-            }
-            const auto& area_size = value.at("area_size");
-            const auto& shadow_color = value.at("shadow_color");
-            if (!area_size.is_array() || area_size.size() != 2 ||
-                !shadow_color.is_array() || shadow_color.size() != 4) {
-                error = "Light 2D area size or shadow color is invalid";
+            if (!light_blend_from_string(value.value("blend_mode", "Additive"), light.blend_mode) ||
+                !mobility_from_string(value.value("mobility", "Realtime"), light.mobility) ||
+                !shadow_mode_from_string(value.value("shadow_mode", value.value("casts_shadows", true) ? "Hard" : "None"), light.shadow_mode)) {
+                error = "Light 2D settings are invalid";
                 return false;
             }
             light.color = {
@@ -440,21 +434,26 @@ void register_light(ComponentRegistry& registry) {
                 color[2].get<std::uint8_t>(), color[3].get<std::uint8_t>()
             };
             light.intensity = value.at("intensity").get<float>();
-            light.range = value.at("range").get<float>();
+            light.range = value.value("range", value.value("radius", light.range));
             light.falloff = value.at("falloff").get<float>();
-            light.height = value.at("height").get<float>();
-            light.spot_inner_angle = value.at("spot_inner_angle").get<float>();
-            light.spot_outer_angle = value.at("spot_outer_angle").get<float>();
-            light.area_size = {area_size[0].get<float>(), area_size[1].get<float>()};
-            light.source_radius = value.at("source_radius").get<float>();
-            light.directional_angular_radius = value.at("directional_angular_radius").get<float>();
-            light.shadow_color = {shadow_color[0].get<std::uint8_t>(), shadow_color[1].get<std::uint8_t>(),
-                                  shadow_color[2].get<std::uint8_t>(), shadow_color[3].get<std::uint8_t>()};
-            light.shadow_strength = value.at("shadow_strength").get<float>();
-            light.shadow_softness = value.at("shadow_softness").get<float>();
-            light.shadow_bias = value.at("shadow_bias").get<float>();
-            light.shadow_max_distance = value.at("shadow_max_distance").get<float>();
-            light.shadow_priority = value.at("shadow_priority").get<std::int16_t>();
+            light.height = value.value("height", light.height);
+            light.spot_inner_angle = value.value("spot_inner_angle", light.spot_inner_angle);
+            light.spot_outer_angle = value.value("spot_outer_angle", light.spot_outer_angle);
+            if (const auto area_size = value.find("area_size"); area_size != value.end()) {
+                if (!area_size->is_array() || area_size->size() != 2) { error = "Light 2D area size is invalid"; return false; }
+                light.area_size = {(*area_size)[0].get<float>(), (*area_size)[1].get<float>()};
+            }
+            light.source_radius = value.value("source_radius", light.source_radius);
+            light.directional_angular_radius = value.value("directional_angular_radius", light.directional_angular_radius);
+            if (const auto shadow_color = value.find("shadow_color"); shadow_color != value.end()) {
+                if (!shadow_color->is_array() || shadow_color->size() != 4) { error = "Light 2D shadow color is invalid"; return false; }
+                light.shadow_color = {(*shadow_color)[0].get<std::uint8_t>(), (*shadow_color)[1].get<std::uint8_t>(), (*shadow_color)[2].get<std::uint8_t>(), (*shadow_color)[3].get<std::uint8_t>()};
+            }
+            light.shadow_strength = value.value("shadow_strength", light.shadow_strength);
+            light.shadow_softness = value.value("shadow_softness", light.shadow_softness);
+            light.shadow_bias = value.value("shadow_bias", light.shadow_bias);
+            light.shadow_max_distance = value.value("shadow_max_distance", light.shadow_max_distance);
+            light.shadow_priority = value.value("shadow_priority", light.shadow_priority);
             light.affected_layers = value.at("affected_layers").get<RenderLayerMask>();
             light.enabled = value.at("enabled").get<bool>();
             return true;
@@ -511,6 +510,7 @@ void register_shadow_caster(ComponentRegistry& registry) {
         },
         .deserialize = [](ShadowCaster2DComponent& caster, const Json& value, const ComponentSerializationContext&, std::string& error) {
             if (!value.is_object()) { error = "Shadow Caster 2D must be an object"; return false; }
+            caster = {};
             if (!shadow_source_from_string(value.at("source").get<std::string>(), caster.source)) {
                 error = "Shadow caster source is invalid";
                 return false;
@@ -527,14 +527,14 @@ void register_shadow_caster(ComponentRegistry& registry) {
                 caster.vertices.emplace_back(vertex[0].get<float>(), vertex[1].get<float>());
             }
             caster.affected_layers = value.at("affected_layers").get<RenderLayerMask>();
-            const std::string mobility = value.at("mobility").get<std::string>();
+            const std::string mobility = value.value("mobility", "Realtime");
             if (mobility == "Realtime") caster.mobility = ShadowCasterMobility::Realtime;
             else if (mobility == "Baked") caster.mobility = ShadowCasterMobility::Baked;
             else { error = "Shadow caster mobility is invalid"; return false; }
-            caster.height = value.at("height").get<float>();
-            caster.opacity = value.at("opacity").get<float>();
-            caster.alpha_threshold = value.at("alpha_threshold").get<float>();
-            caster.contour_tolerance = value.at("contour_tolerance").get<float>();
+            caster.height = value.value("height", caster.height);
+            caster.opacity = value.value("opacity", caster.opacity);
+            caster.alpha_threshold = value.value("alpha_threshold", caster.alpha_threshold);
+            caster.contour_tolerance = value.value("contour_tolerance", caster.contour_tolerance);
             caster.enabled = value.at("enabled").get<bool>();
             return true;
         },

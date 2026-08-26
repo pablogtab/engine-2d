@@ -11,6 +11,13 @@ namespace Engine {
 Texture::Texture(SDL_Renderer* renderer, int width, int height, const uint32_t* pixels)
     : m_width(width), m_height(height) {
 
+    if (pixels && width > 0 && height > 0) {
+        m_alpha.resize(static_cast<std::size_t>(width) * height);
+        for (std::size_t index = 0; index < m_alpha.size(); ++index) {
+            m_alpha[index] = static_cast<std::uint8_t>(pixels[index] & 0xffu);
+        }
+    }
+
     m_texture = SDL_CreateTexture(
         renderer, 
         SDL_PIXELFORMAT_RGBA8888, 
@@ -23,6 +30,11 @@ Texture::Texture(SDL_Renderer* renderer, int width, int height, const uint32_t* 
         SDL_UpdateTexture(m_texture, nullptr, pixels, width * sizeof(uint32_t));
         SDL_SetTextureBlendMode(m_texture, SDL_BLENDMODE_BLEND);
     }
+}
+
+std::uint8_t Texture::alpha_at(int x, int y) const {
+    if (x < 0 || y < 0 || x >= m_width || y >= m_height || m_alpha.empty()) return 0;
+    return m_alpha[static_cast<std::size_t>(y) * m_width + x];
 }
 
 Texture::~Texture() {

@@ -153,6 +153,11 @@ void LightingInspectorDrawer::draw_light(
     const Light2DComponent mobility_before = light;
     if (property_enum("Mobility", &mobility, mobility_labels, 2)) light.mobility = static_cast<Light2DMobility>(mobility);
     track(em, entity, mobility_before, "Light2D.Mobility", "Change Light Mobility", context);
+    if (light.mobility == Light2DMobility::Baked) {
+        ImGui::TextDisabled("Baked light: changes are used by the next bake, not the realtime preview.");
+    } else {
+        ImGui::TextDisabled("Realtime light: changes are visible immediately in the viewport and Play.");
+    }
 
     const char* const shadow_labels[] = {"None", "Hard", "Soft Fast", "Contact Hardening"};
     int shadow_mode = static_cast<int>(light.shadow_mode);

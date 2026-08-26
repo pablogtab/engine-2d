@@ -176,14 +176,20 @@ private:
                     if (best_score >= 0.0f) projected += direction * std::min(shadow.elevation, shadow.max_projection);
                 }
                 const SDL_Color color{0, 0, 0, static_cast<std::uint8_t>(std::clamp(shadow.opacity, 0.0f, 1.0f) * 255.0f)};
+                Texture* shadow_texture = sprite.texture;
+                if (shadow.shape == SpriteShadowShape::Ellipse) {
+                    static Texture* ellipse_texture = nullptr;
+                    if (!ellipse_texture) ellipse_texture = Texture::create_soft_circle(renderer.get_sdl_renderer(), 64);
+                    shadow_texture = ellipse_texture ? ellipse_texture : sprite.texture;
+                }
                 renderer.submit_sprite(
-                    sprite.texture,
+                    shadow_texture,
                     transform.world_position + glm::vec3(projected, -0.001f),
                     shadow.size,
                     0.0f,
                     color,
-                    src_rect_ptr,
-                    transform.world_pivot,
+                    shadow.shape == SpriteShadowShape::Ellipse ? nullptr : src_rect_ptr,
+                    glm::vec2(0.5f, 0.5f),
                     false,
                     sprite.flip_x,
                     sprite.flip_y,

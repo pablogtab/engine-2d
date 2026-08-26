@@ -430,6 +430,22 @@ void test_missing_required_component_is_rejected() {
     assert(error.find("missing required component 'transform'") != std::string::npos);
 }
 
+void test_legacy_lighting_components_deserialize_with_defaults() {
+    EntityManager em;
+    const EntityID entity = em.create_entity();
+    const nlohmann::json legacy = {
+        {"transform", {{"position", {0.0f, 0.0f, 0.0f}}, {"scale", {1.0f, 1.0f}}, {"rotation", 0.0f}, {"pivot", {0.5f, 0.5f}}, {"visible", true}}},
+        {"light_2d", {{"type", "Point"}, {"color", {255, 244, 214, 255}}, {"intensity", 0.5f}, {"radius", 128.0f}, {"falloff", 1.0f}, {"blend_mode", "Additive"}, {"casts_shadows", true}, {"affected_layers", ALL_RENDER_LAYERS}, {"enabled", true}}},
+        {"shadow_caster_2d", {{"source", "StaticPolygon"}, {"vertices", {{-4.0f, -4.0f}, {4.0f, -4.0f}, {0.0f, 4.0f}}}, {"affected_layers", ALL_RENDER_LAYERS}, {"enabled", true}}}
+    };
+    std::string error;
+    assert(default_component_registry().deserialize_entity(em, entity, legacy, {}, error));
+    const auto& light = em.get_component<Light2DComponent>(entity);
+    const auto& caster = em.get_component<ShadowCaster2DComponent>(entity);
+    assert(light.range == 128.0f && light.shadow_mode == ShadowMode::Hard);
+    assert(caster.mobility == ShadowCasterMobility::Realtime && caster.opacity == 1.0f);
+}
+
 void test_builtin_components_round_trip_through_registry() {
     EntityManager em;
     const EntityID source = em.create_entity();
@@ -906,6 +922,7 @@ int main() {
     test_registered_add_and_remove_operations_respect_metadata();
     test_registered_json_round_trip_and_validation();
     test_missing_required_component_is_rejected();
+    test_legacy_lighting_components_deserialize_with_defaults();
     test_builtin_components_round_trip_through_registry();
     test_prefab_links_persist_asset_handles();
     test_sprite_textures_persist_asset_handles();

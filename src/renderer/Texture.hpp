@@ -40,6 +40,7 @@ public:
     SDL_Texture* get_sdl_texture() const { return m_texture; }
     int get_width() const { return m_width; }
     int get_height() const { return m_height; }
+    [[nodiscard]] std::uint8_t alpha_at(int x, int y) const;
     const std::string& get_filepath() const { return m_filepath; }
     void set_filepath(const std::string& path) { m_filepath = path; }
 
@@ -62,6 +63,7 @@ private:
     int m_width{0};
     int m_height{0};
     std::string m_filepath{""};
+    std::vector<std::uint8_t> m_alpha;
 };
 
 } // namespace Engine
