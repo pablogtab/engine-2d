@@ -155,6 +155,9 @@ private:
     ) {
         const AssetHandle effect_profile = effect && effect->enabled ? effect->profile_handle : AssetHandle{};
         const std::uint64_t effect_scope = effect_profile.is_valid() ? static_cast<std::uint64_t>(entity) : 0;
+        const bool baked_light_receiver = entity_manager.has_component<SpriteLighting2DComponent>(entity) &&
+            entity_manager.get_component<SpriteLighting2DComponent>(entity).enabled &&
+            entity_manager.get_component<SpriteLighting2DComponent>(entity).baked_receiver;
         if (entity_manager.has_component<SpriteShadow2DComponent>(entity)) {
             const auto& shadow = entity_manager.get_component<SpriteShadow2DComponent>(entity);
             if (shadow.enabled && shadow.opacity > 0.0f) {
@@ -243,7 +246,9 @@ private:
             sprite.material,
             sprite.render_layer,
             effect_profile,
-            effect_scope
+            effect_scope,
+            SDL_BLENDMODE_BLEND,
+            baked_light_receiver
         );
     }
 public:

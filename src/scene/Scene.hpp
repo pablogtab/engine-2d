@@ -3,6 +3,7 @@
 #include "../ecs/EntityManager.hpp"
 #include "../events/EventDispatcher.hpp"
 #include <glm/glm.hpp>
+#include <filesystem>
 #include <string>
 
 namespace Engine {
@@ -20,6 +21,8 @@ public:
     virtual ~Scene() = default;
 
     const std::string& get_name() const { return m_name; }
+    [[nodiscard]] const std::filesystem::path& source_path() const { return m_source_path; }
+    void set_source_path(std::filesystem::path path) { m_source_path = std::move(path); }
 
     EntityManager& get_entity_manager() { return m_entity_manager; }
     const EntityManager& get_entity_manager() const { return m_entity_manager; }
@@ -35,6 +38,7 @@ protected:
 
 private:
     std::string m_name;
+    std::filesystem::path m_source_path;
     SceneSettings m_settings;
 };
 

@@ -77,6 +77,7 @@ struct SpriteCommand {
     AssetHandle entity_effect_profile{};
     std::uint64_t entity_effect_scope{0};
     SDL_BlendMode blend_mode{SDL_BLENDMODE_BLEND};
+    bool baked_light_receiver{false};
 };
 
 class Renderer2D {
@@ -157,7 +158,8 @@ public:
         RenderLayer render_layer = DEFAULT_RENDER_LAYER,
         AssetHandle entity_effect_profile = {},
         std::uint64_t entity_effect_scope = 0,
-        SDL_BlendMode blend_mode = SDL_BLENDMODE_BLEND
+        SDL_BlendMode blend_mode = SDL_BLENDMODE_BLEND,
+        bool baked_light_receiver = false
     );
     void submit_screen_sprite(
         Texture* texture,

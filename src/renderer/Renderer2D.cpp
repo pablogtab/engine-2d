@@ -313,7 +313,8 @@ void Renderer2D::submit_sprite(
     RenderLayer render_layer,
     AssetHandle entity_effect_profile,
     std::uint64_t entity_effect_scope,
-    SDL_BlendMode blend_mode
+    SDL_BlendMode blend_mode,
+    bool baked_light_receiver
 ) {
     render_layer = std::min<RenderLayer>(render_layer, 31);
     if (m_active_camera && !m_active_camera->renders_layer(render_layer)) {
@@ -340,6 +341,7 @@ void Renderer2D::submit_sprite(
     cmd.entity_effect_profile = entity_effect_profile;
     cmd.entity_effect_scope = entity_effect_profile.is_valid() ? entity_effect_scope : 0;
     cmd.blend_mode = blend_mode;
+    cmd.baked_light_receiver = baked_light_receiver;
 
     if (is_overlay) {
         cmd.sort_key = 0xFFFFFFFFFFFFFFFFULL; // Force overlay to sort after all game world sprites!

@@ -339,6 +339,7 @@ bool SceneSerializer::deserialize(const std::string& filepath) {
 
     bool success = deserialize_from_string(json_text);
     if (success) {
+        m_scene->set_source_path(std::filesystem::absolute(filepath).lexically_normal());
         ENGINE_LOG_INFO("[SERIALIZER] Successfully loaded scene '{}' from '{}'", m_scene->get_name(), filepath);
     }
     return success;
