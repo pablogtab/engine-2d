@@ -102,7 +102,8 @@ bool property_entity_picker(
     EntityID* target_id,
     EntityManager& em,
     bool mixed = false,
-    std::function<bool(EntityID)> filter = {}
+    std::function<bool(EntityID)> filter = {},
+    const char* reference_type = nullptr
 );
 bool property_text(const char* label, char* buffer, size_t buffer_size, bool mixed = false);
 bool property_reset_button(const char* id);

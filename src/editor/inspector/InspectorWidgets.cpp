@@ -420,20 +420,27 @@ bool property_entity_picker(
     EntityID* target_id,
     EntityManager& em,
     bool mixed,
-    std::function<bool(EntityID)> filter
+    std::function<bool(EntityID)> filter,
+    const char* reference_type
 ) {
     begin_property_row(label);
     begin_property_interaction(label);
     ImGui::PushID(label);
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 11.0f);
 
-    std::string preview = "None";
+    const auto with_type = [reference_type](std::string value) {
+        return reference_type && reference_type[0] != '\0'
+            ? value + " (" + reference_type + ")"
+            : value;
+    };
+
+    std::string preview = with_type("None");
     if (mixed) {
         preview = "---";
     } else if (*target_id != 0 && em.is_alive(*target_id)) {
-        preview = em.has_component<TagComponent>(*target_id)
+        preview = with_type(em.has_component<TagComponent>(*target_id)
             ? em.get_component<TagComponent>(*target_id).tag
-            : "Entity #" + std::to_string(*target_id);
+            : "Entity #" + std::to_string(*target_id));
     }
 
     bool changed = false;
@@ -450,7 +457,7 @@ bool property_entity_picker(
                 item_name = em.get_component<TagComponent>(other).tag;
             }
             const bool is_selected = (!mixed && *target_id == other);
-            if (ImGui::Selectable(item_name.c_str(), is_selected)) {
+            if (ImGui::Selectable(with_type(std::move(item_name)).c_str(), is_selected)) {
                 *target_id = other;
                 changed = true;
             }

@@ -326,7 +326,10 @@ void ScriptInspectorDrawer::draw(
                         }
                         return false;
                     };
-                    changed = InspectorWidgets::property_entity_picker(field.name.c_str(), &value, entity_manager, false, accepts_target);
+                    changed = InspectorWidgets::property_entity_picker(
+                        field.name.c_str(), &value, entity_manager, false, accepts_target,
+                        field.component_type.empty() ? nullptr : field.component_type.c_str()
+                    );
                     if (changed) field.value = value;
                     discrete = changed;
                     break;
