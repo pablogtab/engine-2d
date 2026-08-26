@@ -81,6 +81,8 @@ struct IRVarDecl : public IROperation {
     std::string name;
     std::shared_ptr<Type> declared_type;
     bool is_const = false;
+    // A direct mutable field access keeps an alias to the field instead of copying its value.
+    bool is_reference = false;
     std::shared_ptr<IROperation> initializer;
 };
 

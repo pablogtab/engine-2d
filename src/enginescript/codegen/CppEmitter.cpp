@@ -794,7 +794,8 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
 
     if (auto declaration = dynamic_cast<const IRVarDecl*>(op)) {
         const std::string qualifier = declaration->is_const ? "const " : "";
-        out += std::format("{}{}{} {}", ind, qualifier, type_to_cpp(declaration->declared_type.get()), declaration->name);
+        const std::string reference = declaration->is_reference ? "&" : "";
+        out += std::format("{}{}{}{} {}", ind, qualifier, type_to_cpp(declaration->declared_type.get()), reference, declaration->name);
         if (declaration->initializer) {
             if (declaration->declared_type && declaration->declared_type->kind == TypeKind::Interface &&
                 declaration->initializer->result_type && declaration->initializer->result_type->kind == TypeKind::Struct) {

@@ -730,6 +730,57 @@ export class Follower extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_member_initializer_keeps_component_field_reference() {
+    std::cout << "[Test] MemberInitializer_KeepsComponentFieldReference... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_member_reference_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/AliasWriter.e2s", R"(
+@behaviour
+export class AliasWriter extends Behaviour {
+    constructor(@inject private entities: Entities) {}
+
+    override update(deltaTime: Float): Void {
+        let player: Entity = entities.findByGameplayTag("player");
+        let playerTransform: Transform2D? = player.getComponent<Transform2D>();
+        if (!playerTransform) return;
+
+        let original: Vec2 = playerTransform.position;
+        original.x = 42.0;
+    }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* script_record = asset_database.find_by_path(root / "Assets/Scripts/AliasWriter.e2s");
+    assert(script_record);
+
+    EntityManager entity_manager;
+    const EntityID player = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(player, TransformComponent{});
+    entity_manager.add_component<GameplayTagsComponent>(player, GameplayTagsComponent{{"player"}});
+
+    const EntityID writer = entity_manager.create_entity();
+    ScriptComponent script;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = script_record->handle;
+    entity_manager.add_component<ScriptComponent>(writer, script);
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database);
+    assert(started.started == 1 && started.failed == 0);
+    runtime.update(0.016f);
+    assert(std::abs(entity_manager.get_component<TransformComponent>(player).position.x - 42.0f) < 0.001f);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
@@ -739,6 +790,7 @@ int main() {
     test_particle_services_and_component();
     test_collection_range_error_is_controlled();
     test_entity_transform_following_across_updates();
+    test_member_initializer_keeps_component_field_reference();
     test_async_scheduler_cancellation();
     test_game_session_transitions();
     test_e2s_script_inspection();

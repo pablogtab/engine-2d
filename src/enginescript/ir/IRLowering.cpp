@@ -1,4 +1,5 @@
 #include "IRLowering.hpp"
+#include "../api/ApiCatalog.hpp"
 #include <algorithm>
 
 namespace EngineScript {
@@ -252,6 +253,22 @@ void IRLowering::lower_statement(const std::shared_ptr<Statement>& stmt, IRBlock
                 : declaration->declared_type;
         }
         declaration->initializer = lower_expression(v->initializer);
+        if (const auto* member_access = dynamic_cast<const MemberAccessExpr*>(v->initializer.get())) {
+            const auto member = m_type_checker.resolved_member_symbols().find(member_access);
+            const auto value_type = m_type_checker.get_type_of_node(v->initializer.get());
+            const bool reference_value = value_type &&
+                (value_type->kind == TypeKind::Vec2 || value_type->kind == TypeKind::Vec3 ||
+                 value_type->kind == TypeKind::Vec4 || value_type->kind == TypeKind::Color ||
+                 value_type->kind == TypeKind::Struct);
+            const bool authored_mutable_field = member != m_type_checker.resolved_member_symbols().end() &&
+                member->second && member->second->kind == SymbolKind::Field && !member->second->is_const;
+            const auto owner_type = m_type_checker.get_type_of_node(member_access->object.get());
+            const auto native_property = owner_type
+                ? ApiCatalog::instance().find_available_property(owner_type->name, member_access->member_name)
+                : nullptr;
+            declaration->is_reference = !member_access->is_optional && reference_value &&
+                (authored_mutable_field || (native_property && native_property->writable));
+        }
         declaration->result_type = declaration->declared_type;
         declaration->span = v->span;
 
