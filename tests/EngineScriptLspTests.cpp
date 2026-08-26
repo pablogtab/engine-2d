@@ -209,6 +209,73 @@ int main() {
     json inferred_hover = json::parse(server.handle_message(inferred_hover_req));
     assert(inferred_hover["result"]["contents"]["value"].get<std::string>().find("Task<Void>") != std::string::npos);
 
+    // Hovering a generic component call reports the call result, not the
+    // shorter callable-member span (`getComponent`).
+    const std::string component_call_source =
+        "@behaviour\n"
+        "export class Player extends Behaviour {\n"
+        "  constructor(@inject private entities: Entities) {}\n"
+        "  override update(deltaTime: Float): Void {\n"
+        "    let player: Entity = entities.findByGameplayTag(\"player\");\n"
+        "    let playerTransform = player.getComponent<Transform2D>();\n"
+        "    if (playerTransform != null) {\n"
+        "      let original: Vec2 = playerTransform.position;\n"
+        "    }\n"
+        "  }\n"
+        "}\n";
+    const json component_call_diagnostics = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
+        {"params", {{"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 35}}},
+                    {"contentChanges", json::array({{{"text", component_call_source}}})}}}
+    }.dump()));
+    assert(component_call_diagnostics["params"]["diagnostics"].empty());
+    const std::size_t component_call_character =
+        std::string{"    let playerTransform = player.getComponent<Transform2D>();"}.find("getComponent") + 1;
+    const json component_call_hover = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 350}, {"method", "textDocument/hover"},
+        {"params", {{"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+                    {"position", {{"line", 5}, {"character", component_call_character}}}}}
+    }.dump()));
+    assert(component_call_hover["result"]["contents"]["value"].get<std::string>().find("Transform2D?") != std::string::npos);
+    const std::size_t find_tag_character =
+        std::string{"    let player: Entity = entities.findByGameplayTag(\"player\");"}.find("findByGameplayTag") + 1;
+    const json find_tag_hover = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 353}, {"method", "textDocument/hover"},
+        {"params", {{"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+                    {"position", {{"line", 4}, {"character", find_tag_character}}}}}
+    }.dump()));
+    const std::string find_tag_hover_text = find_tag_hover["result"]["contents"]["value"].get<std::string>();
+    assert(find_tag_hover_text.find("Entities.findByGameplayTag(tag: String) -> Entity") != std::string::npos);
+    assert(find_tag_hover_text.find("Returns the first entity carrying the semantic gameplay tag") != std::string::npos);
+    const std::size_t narrowed_call_character =
+        std::string{"      let original: Vec2 = playerTransform.position;"}.find("playerTransform") + 1;
+    const json narrowed_call_hover = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 351}, {"method", "textDocument/hover"},
+        {"params", {{"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+                    {"position", {{"line", 7}, {"character", narrowed_call_character}}}}}
+    }.dump()));
+    const std::string narrowed_hover_text = narrowed_call_hover["result"]["contents"]["value"].get<std::string>();
+    assert(narrowed_hover_text.find("Transform2D") != std::string::npos);
+    assert(narrowed_hover_text.find("Transform2D?") == std::string::npos);
+    const json component_call_tokens = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 352}, {"method", "textDocument/semanticTokens/full"},
+        {"params", {{"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}}}}
+    }.dump()));
+    uint32_t component_line = 0;
+    uint32_t component_start = 0;
+    bool component_method = false;
+    const auto& component_token_data = component_call_tokens["result"]["data"];
+    for (std::size_t index = 0; index + 4 < component_token_data.size(); index += 5) {
+        const uint32_t delta_line = component_token_data[index].get<uint32_t>();
+        const uint32_t delta_start = component_token_data[index + 1].get<uint32_t>();
+        component_line += delta_line;
+        component_start = delta_line == 0 ? component_start + delta_start : delta_start;
+        component_method |= component_line == 5 &&
+            component_start == component_call_character - 1 &&
+            component_token_data[index + 3].get<uint32_t>() == 12;
+    }
+    assert(component_method);
+
     std::string component_receiver_change = R"({
         "jsonrpc":"2.0",
         "method":"textDocument/didChange",

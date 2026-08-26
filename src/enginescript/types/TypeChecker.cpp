@@ -156,7 +156,12 @@ std::vector<InferredTypeInfo> TypeChecker::inferred_types() const {
     std::vector<InferredTypeInfo> inferred;
     inferred.reserve(m_node_types.size());
     for (const auto& [node, type] : m_node_types) {
-        if (!node || !type || !node->span.is_valid() || type->is_error()) continue;
+        // Callable member accesses (for example `player.getComponent`) are
+        // implementation details of the enclosing CallExpr. Publishing them
+        // to the LSP makes their shorter span win over the call result, so a
+        // hover reports `getComponent` instead of `Transform2D?`.
+        if (!node || !type || !node->span.is_valid() || type->is_error() ||
+            type->kind == TypeKind::Function) continue;
         inferred.push_back({node->span, type->to_string()});
     }
     return inferred;
@@ -624,6 +629,15 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
                 m_node_types[v] = decl_t;
             } else {
                 m_node_types[v] = init_t;
+                // The resolver creates local symbols before type checking, so
+                // an unannotated local initially carries `<inferred>`. Persist
+                // its resolved initializer type for later expressions and flow
+                // narrowing in the same scope.
+                if (!init_t->is_error()) {
+                    if (const auto symbol = m_resolver.find_symbol_for_node(v)) {
+                        symbol->type_string = init_t->to_string();
+                    }
+                }
             }
         } else {
             m_diagnostics.report_error("E3017", std::format("Variable '{}' must be initialized", v->name), v->span);

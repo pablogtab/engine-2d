@@ -115,6 +115,28 @@ uint32_t semantic_token_type(SymbolKind kind) {
     return 8;
 }
 
+bool is_member_call(std::string_view source, uint32_t offset) {
+    std::size_t position = offset;
+    const auto skip_whitespace = [&]() {
+        while (position < source.size() && std::isspace(static_cast<unsigned char>(source[position]))) {
+            ++position;
+        }
+    };
+    skip_whitespace();
+    if (position < source.size() && source[position] == '(') return true;
+    if (position >= source.size() || source[position] != '<') return false;
+
+    uint32_t generic_depth = 0;
+    do {
+        if (source[position] == '<') ++generic_depth;
+        else if (source[position] == '>') --generic_depth;
+        ++position;
+    } while (position < source.size() && generic_depth != 0);
+    if (generic_depth != 0) return false;
+    skip_whitespace();
+    return position < source.size() && source[position] == '(';
+}
+
 std::string base_type_name(std::string type_name) {
     const size_t generic_start = type_name.find('<');
     if (generic_start != std::string::npos) type_name.resize(generic_start);
@@ -153,6 +175,30 @@ std::string callable_signature(
     signature += ") -> ";
     signature += return_type;
     return signature;
+}
+
+std::string api_method_hover(const ApiMethodDescriptor& method) {
+    std::string return_type = method.return_type;
+    if (method.nullable_return && !return_type.ends_with('?')) return_type += '?';
+    const std::string signature = method.owner_type + "." + callable_signature(
+        method.name, method.parameters, method.min_arguments, method.max_arguments, return_type
+    );
+    const std::string documentation = method.documentation.empty()
+        ? "Public EngineScript API method."
+        : method.documentation;
+    return "### `" + signature + "`\n\n```enginescript\n" + signature +
+        "\n```\n\n" + documentation;
+}
+
+std::string api_property_hover(const ApiPropertyDescriptor& property) {
+    const std::string type = property.type + (property.nullable && !property.type.ends_with('?') ? "?" : "");
+    const std::string signature = property.owner_type + "." + property.name + ": " + type;
+    const std::string access = property.readable && property.writable ? "read/write" :
+        property.readable ? "read-only" : "write-only";
+    const std::string documentation = property.documentation.empty()
+        ? "Public EngineScript API property (" + access + ")."
+        : property.documentation;
+    return "### `" + signature + "`\n\n" + documentation;
 }
 
 std::string numeric_conversion_signature(std::string_view name) {
@@ -340,7 +386,13 @@ std::optional<std::string> infer_receiver_type(
             resolved_type = base_type_name(*initializer_type);
         }
     }
-    if (const auto symbol_type = workspace.symbol_type_at(file->id, receiver, receiver_offset)) {
+    if (!resolved_type) {
+        if (const auto typed_symbol = find_typed_symbol(*file, receiver)) {
+            resolved_type = typed_symbol->second;
+        }
+    }
+    if (const auto symbol_type = workspace.symbol_type_at(file->id, receiver, receiver_offset);
+        symbol_type && *symbol_type != "<inferred>") {
         resolved_type = base_type_name(*symbol_type);
     }
     if (!resolved_type) return std::nullopt;
@@ -1056,6 +1108,21 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
     const FileId file_id = m_workspace.source_manager().find_file_id(source_path_for_uri(uri));
     const SourceFile* file = m_workspace.source_manager().get_file(file_id);
     if (file && line < file->line_offsets.size()) {
+        if (markdown.empty() && !word.empty()) {
+            const std::size_t word_start = line_content.rfind(word, std::min<std::size_t>(character, line_content.size()));
+            if (word_start != std::string::npos) {
+                const std::string receiver_prefix = line_content.substr(0, word_start);
+                if (const auto receiver_type = infer_receiver_type(
+                        m_workspace, source_path_for_uri(uri), line, receiver_prefix)) {
+                    if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(*receiver_type, word)) {
+                        markdown = api_method_hover(*method);
+                    } else if (const ApiPropertyDescriptor* property =
+                                   ApiCatalog::instance().find_available_property(*receiver_type, word)) {
+                        markdown = api_property_hover(*property);
+                    }
+                }
+            }
+        }
         const uint32_t byte_offset = file->line_offsets[line] +
             std::min(character, static_cast<uint32_t>(line_content.size()));
         auto inferred_type = m_workspace.inferred_type_at(file_id, byte_offset);
@@ -1529,6 +1596,9 @@ std::string LanguageServer::on_semantic_tokens(const std::string& id, const std:
                 } else if (const auto occurrence = m_workspace.symbol_occurrence_at(file->id, token.span.start_offset)) {
                     type = semantic_token_type(occurrence->kind);
                     if (occurrence->is_declaration) modifiers |= 1U;
+                } else if (previous_type == TokenType::Dot &&
+                           is_member_call(file->content, token.span.end_offset)) {
+                    type = 12; // method
                 } else {
                     type = std::isupper(static_cast<unsigned char>(token.text.front())) ? 1U : 8U;
                 }
