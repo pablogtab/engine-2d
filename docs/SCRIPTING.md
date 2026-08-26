@@ -275,6 +275,34 @@ Collection methods are typed against their element/key/value contracts and
 lower to the deterministic runtime helpers. Reference casts are not part of
 EngineScript 2.0; `as` is reserved for import aliases.
 
+## Standard library beta
+
+`Math`, `Vec2`, `Vec3`, `Vec4`, `Color`, `Ease`, `Rect` and conservative
+collection helpers are available through the versioned API catalog. Vector and
+easing operations are pure; `Rect.intersection` returns a nullable `Rect`.
+`Color` provides component operations only: EngineScript does not define an
+sRGB/linear conversion contract yet.
+
+`Random` is deliberately stateless and accepts an explicit `UInt` seed. Each
+game owns its own lifecycle policy, typically through a game-side singleton:
+
+```enginescript
+class GameRng {
+    private static seed: UInt = 42u;
+
+    static nextFloat(min: Float, max: Float): Float {
+        seed = Random.nextUInt(seed);
+        return Random.rangeFloat(seed, min, max);
+    }
+}
+```
+
+The engine does not expose a shared RNG service. `Array.shuffle(seed)` and
+`Array.choose(seed)` are deterministic for the supplied seed; `choose` is
+nullable for an empty array. Callback-based collection algorithms, lazy
+iterators, Bounds2, Noise, EngineKit packages, Tweens, and color-space
+conversion remain post-beta work.
+
 ## Compiler cache and generated content
 
 `EngineScriptWorkspace` hashes the project inputs and SDK contract. An unchanged

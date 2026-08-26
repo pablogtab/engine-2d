@@ -3,6 +3,7 @@
 #include <array>
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -60,6 +61,54 @@ template <typename T, typename Allocator>
     if (found == values.end()) return false;
     values.erase(found);
     return true;
+}
+
+template <typename T, typename Allocator>
+[[nodiscard]] int indexOfValue(const std::vector<T, Allocator>& values, const T& value) {
+    const auto found = std::find(values.begin(), values.end(), value);
+    return found == values.end() ? -1 : static_cast<int>(std::distance(values.begin(), found));
+}
+
+template <typename T, typename Allocator>
+[[nodiscard]] int lastIndexOfValue(const std::vector<T, Allocator>& values, const T& value) {
+    const auto found = std::find(values.rbegin(), values.rend(), value);
+    return found == values.rend() ? -1 : static_cast<int>(values.size() - 1 - std::distance(values.rbegin(), found));
+}
+
+template <typename T, typename Allocator, typename Index>
+[[nodiscard]] bool removeAt(std::vector<T, Allocator>& values, Index index) {
+    if constexpr (std::is_signed_v<Index>) {
+        if (index < 0) return false;
+    }
+    const auto position = static_cast<std::size_t>(index);
+    if (position >= values.size()) return false;
+    values.erase(values.begin() + static_cast<std::ptrdiff_t>(position));
+    return true;
+}
+
+template <typename T, typename Allocator>
+void reverseValues(std::vector<T, Allocator>& values) {
+    std::reverse(values.begin(), values.end());
+}
+
+template <typename T, typename Allocator, typename Index>
+void swapValues(std::vector<T, Allocator>& values, Index left, Index right) {
+    std::swap(checkedIndex(values, left), checkedIndex(values, right));
+}
+
+template <typename T, typename Allocator>
+void shuffleValues(std::vector<T, Allocator>& values, std::uint32_t seed) {
+    for (std::size_t index = values.size(); index > 1; --index) {
+        seed = seed * 1664525u + 1013904223u;
+        std::swap(values[index - 1], values[seed % index]);
+    }
+}
+
+template <typename T, typename Allocator>
+[[nodiscard]] std::optional<T> chooseValue(const std::vector<T, Allocator>& values, std::uint32_t seed) {
+    if (values.empty()) return std::nullopt;
+    seed = seed * 1664525u + 1013904223u;
+    return values[seed % values.size()];
 }
 
 template <typename T, typename Allocator>

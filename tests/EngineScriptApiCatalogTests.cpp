@@ -2,6 +2,7 @@
 #include "enginescript/module/GameModule.hpp"
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
 
 using namespace EngineScript;
@@ -14,10 +15,57 @@ int main() {
     assert(catalog.sdk_hash() == ENGINE_SCRIPT_SDK_HASH);
     assert(catalog.compiler_cache_id() == ENGINE_SCRIPT_COMPILER_CACHE_ID);
     assert(catalog.has_available_type("Math"));
+    assert(catalog.has_available_type("Ease"));
+    assert(catalog.has_available_type("Random"));
+    assert(catalog.has_available_type("Rect"));
     const ApiMethodDescriptor* math_clamp = catalog.find_available_method("Math", "clamp");
     assert(math_clamp != nullptr);
     assert(math_clamp->return_type == "Float");
     assert(math_clamp->parameters.size() == 3);
+    assert(catalog.find_available_property("Math", "PI") != nullptr);
+    assert(catalog.find_available_method("Vec2", "moveTowards") != nullptr);
+    assert(catalog.find_available_method("Vec2", "signedAngle") != nullptr);
+    assert(catalog.find_available_method("Vec3", "clampMagnitude") != nullptr);
+    assert(catalog.find_available_method("Vec4", "normalized") != nullptr);
+    assert(catalog.find_available_method("Color", "withAlpha") != nullptr);
+    assert(catalog.find_available_method("Ease", "inOutExpo") != nullptr);
+    assert(catalog.find_available_method("Ease", "inOutBack") != nullptr);
+    assert(catalog.find_available_method("Random", "insideUnitCircle") != nullptr);
+    assert(catalog.find_available_method("Rect", "intersection") != nullptr);
+    assert(catalog.find_available_method("Rect", "intersection")->nullable_return);
+    assert(VectorOps::clampMagnitude(glm::vec2{3.0f, 4.0f}, 2.0f) == glm::vec2(1.2f, 1.6f));
+    assert(std::abs(VectorOps::signedAngle(glm::vec2{1.0f, 0.0f}, glm::vec2{0.0f, 1.0f}) - Math::PI * 0.5f) < 0.0001f);
+    assert(VectorOps::normalized4(glm::vec4{}) == glm::vec4{});
+    assert(VectorOps::withAlpha(VectorOps::whiteColor(), 0.25f).w == 0.25f);
+    assert(Ease::inExpo(0.0f) == 0.0f && Ease::outExpo(1.0f) == 1.0f);
+    assert(Ease::inOutBack(-1.0f) == 0.0f && Ease::inOutBack(2.0f) == 1.0f);
+    constexpr std::array<std::uint32_t, 20> random_golden{
+        1013904223u, 1196435762u, 3519870697u, 2868466484u, 1649599747u,
+        2670642822u, 1476291629u, 2748932008u, 2180890343u, 2498801434u,
+        3421909937u, 3167820124u, 2636375307u, 3801544430u, 28987765u,
+        2210837584u, 3039689583u, 1338634754u, 1649346937u, 2768872580u
+    };
+    std::uint32_t seed = 0u;
+    for (const std::uint32_t expected : random_golden) {
+        seed = Random::nextUInt(seed);
+        assert(seed == expected);
+    }
+    assert(Random::rangeInt(1u, 9, -3) >= -3 && Random::rangeInt(1u, 9, -3) < 9);
+    assert(Random::rangeInt(1u, 4, 4) == 4);
+    assert(Random::rangeFloat(1u, 4.0f, -2.0f) >= -2.0f && Random::rangeFloat(1u, 4.0f, -2.0f) < 4.0f);
+    assert(!Random::chance(1u, 0.0f) && Random::chance(1u, 1.0f));
+    assert(VectorOps::length(Random::insideUnitCircle(8u)) <= 1.0f);
+    assert(std::abs(VectorOps::length(Random::onUnitCircle(8u)) - 1.0f) < 0.0001f);
+    const Rect inverted{4.0f, 4.0f, -4.0f, -4.0f};
+    assert(RectOps::min(inverted) == glm::vec2(0.0f, 0.0f));
+    assert(RectOps::max(inverted) == glm::vec2(4.0f, 4.0f));
+    assert(RectOps::intersection(inverted, Rect{3.0f, 3.0f, 3.0f, 3.0f}).has_value());
+    assert(!RectOps::intersection(inverted, Rect{4.0f, 0.0f, 1.0f, 1.0f}).has_value());
+    std::vector<int> values{1, 2, 3, 4};
+    EngineScript::shuffleValues(values, 7u);
+    assert((values == std::vector<int>{2, 4, 1, 3}));
+    assert(EngineScript::chooseValue(values, 7u).has_value());
+    assert(!EngineScript::chooseValue(std::vector<int>{}, 7u).has_value());
     assert(catalog.has_available_type("Input"));
     assert(catalog.has_available_type("SpriteRenderer2D"));
     assert(catalog.has_available_type("Audio"));

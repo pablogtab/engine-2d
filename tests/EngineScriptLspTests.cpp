@@ -25,6 +25,13 @@ int main() {
     const ApiPropertyDescriptor* grounded = api.find_available_property("RigidBody2D", "isGrounded");
     assert(grounded && !grounded->writable);
     assert(api.find_available_method("Math", "clamp") != nullptr);
+    assert(api.find_available_method("Vec2", "signedAngle") != nullptr);
+    assert(api.find_available_method("Vec3", "project") != nullptr);
+    assert(api.find_available_method("Vec4", "normalized") != nullptr);
+    assert(api.find_available_method("Color", "withAlpha") != nullptr);
+    assert(api.find_available_method("Ease", "inOutExpo") != nullptr);
+    assert(api.find_available_method("Random", "rangeFloat") != nullptr);
+    assert(api.find_available_method("Rect", "intersection") != nullptr);
 
     LanguageServer server("/workspace/My Game");
 
@@ -229,6 +236,28 @@ int main() {
         {"params", {{"textDocument", {{"uri", math_uri}}}, {"position", {{"line", 1}, {"character", clamp_open_paren}}}}}
     }.dump()));
     assert(math_signature["result"]["signatures"][0]["label"].get<std::string>() == "clamp(value: Float, min: Float, max: Float) -> Float");
+
+    const std::string ease_uri = "file:///workspace/My%20Game/Source/EaseUser.e2s";
+    const std::string ease_line = "  value(): Float { return Ease.inOutExpo(0.5); }";
+    const json ease_open = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didOpen"},
+        {"params", {{"textDocument", {{"uri", ease_uri}, {"version", 1}, {"text", "export class EaseUser {\n" + ease_line + "\n}\n"}}}}}
+    }.dump()));
+    assert(ease_open["params"]["diagnostics"].empty());
+    const uint32_t ease_dot = static_cast<uint32_t>(std::string("  value(): Float { return Ease.").size());
+    const json ease_completion = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 504}, {"method", "textDocument/completion"},
+        {"params", {{"textDocument", {{"uri", ease_uri}}}, {"position", {{"line", 1}, {"character", ease_dot}}}}}
+    }.dump()));
+    const auto expo_item = std::find_if(ease_completion["result"].begin(), ease_completion["result"].end(),
+        [](const json& item) { return item["label"] == "inOutExpo"; });
+    assert(expo_item != ease_completion["result"].end());
+    const uint32_t expo_character = static_cast<uint32_t>(ease_line.find("inOutExpo") + 1);
+    const json ease_hover = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 505}, {"method", "textDocument/hover"},
+        {"params", {{"textDocument", {{"uri", ease_uri}}}, {"position", {{"line", 1}, {"character", expo_character}}}}}
+    }.dump()));
+    assert(ease_hover["result"]["contents"]["value"].get<std::string>().find("Ease.inOutExpo(t: Float) -> Float") != std::string::npos);
 
     // Hover exposes the TypeChecker result for an inferred local variable.
     std::string inferred_hover_req = R"({

@@ -63,6 +63,7 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
         case TypeKind::Vec3:       s = "glm::vec3"; break;
         case TypeKind::Vec4:       s = "glm::vec4"; break;
         case TypeKind::Color:      s = "glm::vec4"; break;
+        case TypeKind::Rect:       s = "EngineScript::Rect"; break;
         case TypeKind::Duration:   s = "float"; break;
         case TypeKind::Entity:     s = "EngineScript::Entity"; break;
         case TypeKind::Array:
@@ -1045,7 +1046,8 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
 
     if (auto construction = dynamic_cast<const IRValueConstruct*>(op)) {
         std::string result = construction->target_kind == TypeKind::Vec2 ? "glm::vec2(" :
-            (construction->target_kind == TypeKind::Vec3 ? "glm::vec3(" : "glm::vec4(");
+            (construction->target_kind == TypeKind::Vec3 ? "glm::vec3(" :
+                (construction->target_kind == TypeKind::Rect ? "EngineScript::Rect(" : "glm::vec4("));
         for (std::size_t index = 0; index < construction->args.size(); ++index) {
             result += emit_operation_cpp(construction->args[index].get());
             if (index + 1 < construction->args.size()) result += ", ";
@@ -1204,13 +1206,39 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     if (auto mc = dynamic_cast<const IRMethodCall*>(op)) {
-        if (mc->target && mc->target->result_type && mc->target->result_type->name == "Math") {
-            std::string call = "EngineScript::Math::" + mc->method_name + "(";
-            for (std::size_t index = 0; index < mc->args.size(); ++index) {
-                if (index > 0) call += ", ";
-                call += emit_operation_cpp(mc->args[index].get());
+        if (mc->target && mc->target->result_type) {
+            const std::string& owner = mc->target->result_type->name;
+            const bool is_vec2 = mc->target->result_type->kind == TypeKind::Vec2;
+            const bool is_vec3 = mc->target->result_type->kind == TypeKind::Vec3;
+            const bool is_vec4 = mc->target->result_type->kind == TypeKind::Vec4;
+            const bool is_color = mc->target->result_type->kind == TypeKind::Color;
+            const bool is_rect = mc->target->result_type->kind == TypeKind::Rect;
+            const std::string runtime_owner = (is_vec2 || is_vec3 || is_vec4 || is_color) ? "VectorOps" : (is_rect ? "RectOps" : owner);
+            if (owner == "Math" || owner == "Ease" || owner == "Random" || is_vec2 || is_vec3 || is_vec4 || is_color || is_rect) {
+                std::string runtime_method = is_rect && mc->method_name == "union" ? "unite" : mc->method_name;
+                if (is_vec3) {
+                    if (runtime_method == "zero") runtime_method = "zero3";
+                    else if (runtime_method == "one") runtime_method = "one3";
+                    else runtime_method += "3";
+                }
+                if (is_vec4) {
+                    if (runtime_method == "zero") runtime_method = "zero4";
+                    else if (runtime_method == "one") runtime_method = "one4";
+                    else runtime_method += "4";
+                }
+                if (is_color) {
+                    if (runtime_method == "black") runtime_method = "blackColor";
+                    else if (runtime_method == "white") runtime_method = "whiteColor";
+                    else if (runtime_method == "clear") runtime_method = "clearColor";
+                    else if (runtime_method == "lerp") runtime_method = "lerp4";
+                }
+                std::string call = "EngineScript::" + runtime_owner + "::" + runtime_method + "(";
+                for (std::size_t index = 0; index < mc->args.size(); ++index) {
+                    if (index > 0) call += ", ";
+                    call += emit_operation_cpp(mc->args[index].get());
+                }
+                return call + ")";
             }
-            return call + ")";
         }
         if (mc->target && mc->target->result_type) {
             const auto kind = mc->target->result_type->kind;
@@ -1225,6 +1253,27 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             if (kind == TypeKind::Array && mc->method_name == "remove") {
                 return "EngineScript::removeValue(" + target + ", " +
                     (mc->args.empty() ? std::string{} : emit_operation_cpp(mc->args[0].get())) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "indexOf") {
+                return "EngineScript::indexOfValue(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "lastIndexOf") {
+                return "EngineScript::lastIndexOfValue(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "removeAt") {
+                return "EngineScript::removeAt(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "reverse") {
+                return "EngineScript::reverseValues(" + target + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "swap") {
+                return "EngineScript::swapValues(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ", " + emit_operation_cpp(mc->args[1].get()) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "shuffle") {
+                return "EngineScript::shuffleValues(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "choose") {
+                return "EngineScript::chooseValue(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ")";
             }
             if (kind == TypeKind::Array && mc->method_name == "pop") {
                 return "EngineScript::popValue(" + target + ")";
@@ -1327,6 +1376,9 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     if (auto mg = dynamic_cast<const IRMemberGet*>(op)) {
+        if (mg->target && mg->target->result_type && mg->target->result_type->name == "Math") {
+            return "EngineScript::Math::" + mg->member_name;
+        }
         if (mg->target && mg->target->result_type &&
             (mg->target->result_type->kind == TypeKind::Array ||
              mg->target->result_type->kind == TypeKind::FixedArray ||

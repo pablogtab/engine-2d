@@ -228,6 +228,37 @@ int main() {
             wrap(value: Float): Float { return Math.pingPong(value, 2.0); }
             angle(degrees: Float): Float { return Math.sin(Math.degreesToRadians(degrees)); }
             close(a: Float, b: Float): Bool { return Math.approximately(a, b); }
+            motion(seed: UInt): Float {
+                let target: Vec2 = Vec2.fromAngle(Ease.inOutSine(0.5) * Math.PI);
+                let reached: Vec2 = Vec2.moveTowards(Vec2.zero(), target, 0.5);
+                let variation: Vec2 = Random.insideUnitCircle(seed);
+                return Vec2.length(reached) + Vec2.length(variation) + Random.rangeFloat(seed, 2.0, 3.0);
+            }
+            rectContains(): Bool {
+                let rect: Rect = Rect(2.0, 3.0, -4.0, 6.0);
+                let point: Vec2 = Rect.closestPoint(rect, Vec2(20.0, 4.0));
+                return Rect.contains(rect, Vec2(0.0, 5.0)) && point.x == 2.0;
+            }
+            volume(): Float {
+                let normal: Vec3 = Vec3.normalized(Vec3(0.0, 3.0, 4.0));
+                let axis: Vec3 = Vec3.cross(normal, Vec3(1.0, 0.0, 0.0));
+                return Vec3.length(axis) + Ease.inOutCubic(0.5) + Vec2.length(Random.onUnitCircle(UInt(17)));
+            }
+            standardBeta(seed: UInt): Float {
+                let reflected: Vec2 = Vec2.reflect(Vec2(1.0, -1.0), Vec2(0.0, 1.0));
+                let projected: Vec3 = Vec3.project(Vec3(2.0, 3.0, 4.0), Vec3(1.0, 0.0, 0.0));
+                let direction: Vec4 = Vec4.normalized(Vec4(0.0, 3.0, 4.0, 0.0));
+                let tint: Color = Color.withAlpha(Color.white(), 0.5);
+                let rect: Rect = Rect.fromMinMax(Vec2(0.0, 0.0), Vec2(2.0, 2.0));
+                return reflected.y + projected.x + Vec4.length(direction) + tint.w + Rect.min(rect).x + Ease.inOutExpo(0.5) + Ease.inBack(0.5) + Random.value(seed);
+            }
+            arrange(seed: UInt): Void {
+                let values: Array<Int> = [1, 2, 3];
+                values.shuffle(seed);
+                let picked = values.choose(seed);
+                let overlap = Rect.intersection(Rect(0.0, 0.0, 2.0, 2.0), Rect(1.0, 1.0, 2.0, 2.0));
+                values.reverse();
+            }
         }
     )";
     const FileId math_file = sm.register_source("Source/MathRuntime.e2s", math_code);
@@ -237,12 +268,20 @@ int main() {
     SymbolResolver math_resolver(sm, math_diags);
     math_resolver.resolve_module(math_module);
     TypeChecker math_checker(math_resolver, math_diags);
-    assert(math_checker.check_module(math_module));
+    if (!math_checker.check_module(math_module)) std::cerr << math_diags.render_cli(sm);
+    assert(!math_diags.has_errors());
     assert(!math_diags.has_errors());
     IRLowering math_lowering(math_checker);
     const IRModule math_ir = math_lowering.lower_module(*math_module);
     CppOutput math_output = emitter.emit_module(math_ir);
     assert(math_output.source_content.find("EngineScript::Math::clamp") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::VectorOps::reflect") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::VectorOps::project3") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::VectorOps::normalized4") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::VectorOps::whiteColor") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::RectOps::intersection") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::shuffleValues") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::chooseValue") != std::string::npos);
     require_generated_cpp_runs(math_output, R"(
         #include "MathRuntime.generated.hpp"
         #include <cassert>
@@ -256,6 +295,12 @@ int main() {
             assert(math.wrap(3.0f) == 1.0f);
             assert(math.angle(90.0f) > 0.999f);
             assert(math.close(1.0f, 1.000001f));
+            const float motion = math.motion(123u);
+            assert(motion >= 2.5f && motion < 4.5f);
+            assert(math.rectContains());
+            assert(math.volume() > 1.4f && math.volume() < 2.6f);
+            assert(math.standardBeta(9u) > 3.0f);
+            math.arrange(5u);
             return 0;
         }
     )");
@@ -361,6 +406,12 @@ int main() {
             numbers.push(3);
             let hasTwo: Bool = numbers.contains(2);
             let removedTwo: Bool = numbers.remove(2);
+            let firstIndex: Int = numbers.indexOf(1);
+            let lastIndex: Int = numbers.lastIndexOf(3);
+            let removedAt: Bool = numbers.removeAt(0);
+            numbers.push(1);
+            numbers.swap(0, 1);
+            numbers.reverse();
             let last: Int? = numbers.pop();
             numbers.clear();
             let tags: Set<String> = Set { "enemy", "flying" };
@@ -402,6 +453,11 @@ int main() {
     assert(v2_output.source_content.find("EngineScript::containsValue") != std::string::npos);
     assert(v2_output.source_content.find("EngineScript::removeValue") != std::string::npos);
     assert(v2_output.source_content.find("EngineScript::popValue") != std::string::npos);
+    assert(v2_output.source_content.find("EngineScript::indexOfValue") != std::string::npos);
+    assert(v2_output.source_content.find("EngineScript::lastIndexOfValue") != std::string::npos);
+    assert(v2_output.source_content.find("EngineScript::removeAt") != std::string::npos);
+    assert(v2_output.source_content.find("EngineScript::swapValues") != std::string::npos);
+    assert(v2_output.source_content.find("EngineScript::reverseValues") != std::string::npos);
     assert(v2_output.source_content.find("EngineScript::mapKeys") != std::string::npos);
     assert(v2_output.source_content.find("EngineScript::mapValues") != std::string::npos);
     assert(v2_output.source_content.find("EngineScript::StringOps::from_numeric(sum)") != std::string::npos);

@@ -1,6 +1,6 @@
 # Plan de biblioteca estándar de EngineScript
 
-**Estado:** propuesta ejecutable. Ámbito: Engine2D y EngineScript; sin gameplay, assets ni dependencias de proyectos externos. Complementa fase 11 de `ROADMAP.md` y `docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md`.
+**Estado:** beta implementada. Ámbito: Engine2D y EngineScript; sin gameplay, assets ni dependencias de proyectos externos. Complementa fase 11 de `ROADMAP.md` y `docs/ENGINE_SCRIPT_LANGUAGE_ROADMAP.md`.
 
 ## Objetivo
 
@@ -9,9 +9,9 @@ Crear una base chica, coherente y reproducible para matemática, vectores, aleat
 Experiencia buscada (a confirmar mediante spike):
 
 ```es
-var rng = Random(42u);
+seed = Random.nextUInt(seed);
 var target = Vec2.lerp(a, b, Ease.inOutSine(progress));
-position = target + Random.insideUnitCircle(rng) * Math.clamp(speed, 0.0, 20.0);
+position = target + Random.insideUnitCircle(seed) * Math.clamp(speed, 0.0, 20.0);
 ```
 
 ## Decisiones
@@ -22,8 +22,8 @@ position = target + Random.insideUnitCircle(rng) * Math.clamp(speed, 0.0, 20.0);
 | DECIDIDO | Math, Ease y vectoriales son puras. | Sin estado global; pruebas por propiedades. |
 | DECIDIDO | Random es explícito y sembrado. | Replays y tests reproducibles. |
 | DECIDIDO | ABI, SDK, cache y catálogo cambian juntos. | No hay C++ generado incompatible. |
-| A PROBAR | `Math.clamp(x,a,b)` y `Vec2.length(v)`. | El spike valida estáticos. |
-| A PROBAR | Random muta sin copia silenciosa. | El backend preserva estado. |
+| DECIDIDO | `Math.clamp(x,a,b)` y `Vec2.length(v)`. | Estáticos validados de punta a punta. |
+| DECIDIDO | Random recibe y devuelve seeds explícitas. | El juego controla su singleton y persistencia. |
 | IDEA | `EngineKit/Timer`, Grid y Steering. | Fuera del motor hasta tener paquetes. |
 | DESCARTADO | Física, UI, audio, IO, red, reflection y tween lifecycle. | Son servicios o gameplay. |
 
@@ -86,27 +86,25 @@ Normalizar cero devuelve cero; ángulos son radianes; `moveTowards` no sobrepasa
 
 ### Random
 
-Tipo de valor explícito: sin singleton, reloj ni `std::rand`.
+Primitivas estáticas explícitas: sin singleton del motor, reloj ni `std::rand`.
 
 | API | Resultado |
 | --- | --- |
-| `Random(seed: UInt64)` | Estado reproducible; seed 0 válida. |
-| `nextUInt(rng)` | UInt32 uniforme. |
-| `nextFloat01(rng)` | Float `[0,1)`. |
-| `rangeInt(rng,min,max)` | Int `[min,max)`. |
-| `rangeFloat(rng,min,max)` | Float `[min,max)`. |
-| `chance(rng,p)` | Falso para `p<=0`; verdadero para `p>=1`. |
-| `insideUnitCircle(rng)`, `onUnitCircle(rng)` | Vec2 dentro/sobre círculo. |
-| `fork(rng,stream)` | Stream independiente determinista. |
+| `nextUInt(seed)` | Siguiente seed determinista. |
+| `value(seed)` | Float `[0,1)`. |
+| `rangeInt(seed,min,max)` | Int `[min,max)`. |
+| `rangeFloat(seed,min,max)` | Float `[min,max)`. |
+| `chance(seed,p)` | Falso para `p<=0`; verdadero para `p>=1`. |
+| `insideUnitCircle(seed)`, `onUnitCircle(seed)` | Vec2 dentro/sobre círculo. |
 
-Propuesta: PCG32, fijado con vectores dorados. Si no se puede mutar por referencia, se retorna el estado nuevo; nunca hay copia muda.
+La biblioteca estándar expone primitivas estáticas con semilla explícita (`nextUInt`, `value`, `rangeInt`, `rangeFloat`). Cada juego decide si las envuelve en un singleton propio, por ejemplo `GameRng`, cómo serializa su seed y cuándo lo reinicia; el motor no impone esa abstracción ni estado global compartido entre proyectos.
 
 ### Ease, Rect y colecciones
 
 - Ease: linear e in/out/inOut de Quad, Cubic, Sine, Expo y Back. Clampa `t`, extremos 0 y 1. Bounce, Elastic y unclamped se postergan.
-- Rect: `{position: Vec2,size: Vec2}` con `normalized`, `fromMinMax`, `min`, `max`, `center`, `contains`, `overlaps`, `intersection: Option<Rect>`, `union`, `closestPoint`, `expand`. Contains incluye borde; overlaps exige área positiva.
+- Rect: `{position: Vec2,size: Vec2}` con `normalized`, `fromMinMax`, `min`, `max`, `center`, `contains`, `overlaps`, `intersection: Rect?`, `union`, `closestPoint`, `expand`. Contains incluye borde; overlaps exige área positiva.
 - Array: `contains`, `indexOf`, `lastIndexOf`, `clear`, `removeAt`, `removeValue`, `reverse`, `swap`.
-- Map/Set: básicos sin asignaciones inesperadas. `shuffle`/`choose` reciben Random explícito. `map`, `filter`, `reduce`, comparadores e iteradores lazy esperan spike de closures, genéricos y ownership.
+- Map/Set: básicos sin asignaciones inesperadas. `Array.shuffle(seed)` y `Array.choose(seed)` son deterministas; `choose` retorna nullable si el array está vacío. `map`, `filter`, `reduce`, comparadores e iteradores lazy esperan spike de closures, genéricos y ownership.
 
 ## Fases
 
@@ -185,6 +183,6 @@ No se acepta firma sin runtime, runtime sin catálogo, ni evidencia sólo headle
 
 Cada módulo termina sólo si catálogo, runtime y docs coinciden; casos felices y borde pasan desde fuente hasta C++ generado; proyecto real compila; LSP lo ve cuando aplica; versiones coherentes; y pasan `git diff --check` y las suites acordadas.
 
-## Próxima acción
+## Estado beta y siguiente etapa
 
-Ejecutar fase 0 con `Math.clamp(Float, Float, Float)`. Debe demostrar que estáticos resuelven y emiten sin fragilidad, módulo generado ve runtime correcto y catálogo/ABI/SDK/cache están sincronizados por tests.
+Las fases 0 a 7 están implementadas y validadas en catálogo, C++ generado, LSP y proyecto representativo. Bounds2, Noise, callbacks/iteradores, paquetes EngineKit, Tweens, Bounce/Elastic y conversiones sRGB/lineal permanecen fuera de la beta hasta contar con consumidores y contratos específicos.

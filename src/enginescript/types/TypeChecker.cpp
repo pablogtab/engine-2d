@@ -230,6 +230,7 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
     else if (annot.name == "Vec3") t = Type::make_primitive(TypeKind::Vec3);
     else if (annot.name == "Vec4") t = Type::make_primitive(TypeKind::Vec4);
     else if (annot.name == "Color") t = Type::make_primitive(TypeKind::Color);
+    else if (annot.name == "Rect") t = Type::make_primitive(TypeKind::Rect);
     else if (annot.name == "Duration") t = m_type_duration;
     else if (annot.name == "Entity") t = m_type_entity;
     else if (annot.name == "FixedArray") {
@@ -1388,6 +1389,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 if (target_t->kind == TypeKind::FixedArray) catalog_owner = "FixedArray";
                 if (target_t->kind == TypeKind::Map) catalog_owner = "Map";
                 if (target_t->kind == TypeKind::Set) catalog_owner = "Set";
+                if (target_t->kind == TypeKind::Rect) catalog_owner = "Rect";
                 if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(
                         catalog_owner, mem->member_name)) {
                     if (call->arguments.size() < method->min_arguments ||
@@ -1520,6 +1522,51 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     }
                     m_node_types[call] = m_type_bool;
                     return m_type_bool;
+                }
+                if (target_t->kind == TypeKind::Array &&
+                    (mem->member_name == "indexOf" || mem->member_name == "lastIndexOf")) {
+                    if (call->arguments.size() != 1 ||
+                        (call->arguments.size() == 1 && !get_type_of_node(call->arguments[0].get())->is_assignable_to(element_type))) {
+                        m_diagnostics.report_error("E3080", std::format("Array.{} expects one '{}' value",
+                            mem->member_name, element_type->to_string()), call->span);
+                    }
+                    m_node_types[call] = m_type_int;
+                    return m_type_int;
+                }
+                if (target_t->kind == TypeKind::Array && mem->member_name == "removeAt") {
+                    if (call->arguments.size() != 1 ||
+                        (call->arguments.size() == 1 && !get_type_of_node(call->arguments[0].get())->is_integer())) {
+                        m_diagnostics.report_error("E3080", "Array.removeAt expects one integer index", call->span);
+                    }
+                    m_node_types[call] = m_type_bool;
+                    return m_type_bool;
+                }
+                if (target_t->kind == TypeKind::Array && mem->member_name == "reverse") {
+                    if (!call->arguments.empty()) m_diagnostics.report_error("E3080", "Array.reverse expects no arguments", call->span);
+                    m_node_types[call] = m_type_void;
+                    return m_type_void;
+                }
+                if (target_t->kind == TypeKind::Array && mem->member_name == "swap") {
+                    const bool valid_indices = call->arguments.size() == 2 &&
+                        get_type_of_node(call->arguments[0].get())->is_integer() &&
+                        get_type_of_node(call->arguments[1].get())->is_integer();
+                    if (!valid_indices) m_diagnostics.report_error("E3080", "Array.swap expects two integer indices", call->span);
+                    m_node_types[call] = m_type_void;
+                    return m_type_void;
+                }
+                if (target_t->kind == TypeKind::Array && mem->member_name == "shuffle") {
+                    const bool valid_seed = call->arguments.size() == 1 && get_type_of_node(call->arguments[0].get())->kind == TypeKind::UInt32;
+                    if (!valid_seed) m_diagnostics.report_error("E3080", "Array.shuffle expects one UInt seed", call->span);
+                    m_node_types[call] = m_type_void;
+                    return m_type_void;
+                }
+                if (target_t->kind == TypeKind::Array && mem->member_name == "choose") {
+                    const bool valid_seed = call->arguments.size() == 1 && get_type_of_node(call->arguments[0].get())->kind == TypeKind::UInt32;
+                    if (!valid_seed) m_diagnostics.report_error("E3080", "Array.choose expects one UInt seed", call->span);
+                    auto result = std::make_shared<Type>(*element_type);
+                    result->is_nullable = true;
+                    m_node_types[call] = result;
+                    return result;
                 }
                 if (target_t->kind == TypeKind::Array && mem->member_name == "pop") {
                     if (!call->arguments.empty()) {
@@ -1991,6 +2038,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         if (obj_t->kind == TypeKind::Vec3) catalog_owner = "Vec3";
         if (obj_t->kind == TypeKind::Vec4) catalog_owner = "Vec4";
         if (obj_t->kind == TypeKind::Color) catalog_owner = "Color";
+        if (obj_t->kind == TypeKind::Rect) catalog_owner = "Rect";
         if (obj_t->kind == TypeKind::Array) catalog_owner = "Array";
         if (obj_t->kind == TypeKind::FixedArray) catalog_owner = "FixedArray";
         if (obj_t->kind == TypeKind::Map) catalog_owner = "Map";
@@ -2049,7 +2097,10 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         const bool collection_method =
             (obj_t->kind == TypeKind::Array &&
              (mem->member_name == "push" || mem->member_name == "contains" ||
-              mem->member_name == "remove" || mem->member_name == "pop" || mem->member_name == "clear")) ||
+              mem->member_name == "remove" || mem->member_name == "pop" || mem->member_name == "clear" ||
+              mem->member_name == "indexOf" || mem->member_name == "lastIndexOf" ||
+              mem->member_name == "removeAt" || mem->member_name == "reverse" || mem->member_name == "swap" ||
+              mem->member_name == "shuffle" || mem->member_name == "choose")) ||
             (obj_t->kind == TypeKind::Set &&
              (mem->member_name == "add" || mem->member_name == "contains" ||
               mem->member_name == "remove" || mem->member_name == "clear")) ||

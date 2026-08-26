@@ -8,6 +8,10 @@
 #include "../core/LanguageVersion.hpp"
 #include "../runtime/Collections.hpp"
 #include "../runtime/Math.hpp"
+#include "../runtime/VectorOps.hpp"
+#include "../runtime/Ease.hpp"
+#include "../runtime/Random.hpp"
+#include "../runtime/Rect.hpp"
 
 #include <glm/glm.hpp>
 
