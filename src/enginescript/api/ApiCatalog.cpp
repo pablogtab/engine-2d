@@ -100,8 +100,9 @@ ApiCatalog::ApiCatalog() {
     const Json document = load_catalog_document();
     m_abi_version = document.at("abiVersion").get<uint32_t>();
     m_sdk_hash = document.at("sdkHash").get<std::string>();
-    if (m_abi_version == 0 || m_sdk_hash.empty()) {
-        throw std::runtime_error("EngineScript API catalog requires a non-zero ABI version and SDK hash");
+    m_compiler_cache_id = document.at("compilerCacheId").get<std::string>();
+    if (m_abi_version == 0 || m_sdk_hash.empty() || m_compiler_cache_id.empty()) {
+        throw std::runtime_error("EngineScript API catalog requires ABI version, SDK hash, and compiler cache ID");
     }
 
     for (const Json& type : document.at("types")) {

@@ -63,6 +63,7 @@ public:
 
     [[nodiscard]] const std::string& sdk_hash() const { return m_sdk_hash; }
     [[nodiscard]] uint32_t abi_version() const { return m_abi_version; }
+    [[nodiscard]] const std::string& compiler_cache_id() const { return m_compiler_cache_id; }
     [[nodiscard]] const std::vector<ApiTypeDescriptor>& types() const { return m_types; }
     [[nodiscard]] const std::vector<ApiFunctionDescriptor>& functions() const { return m_functions; }
     [[nodiscard]] const std::vector<ApiMethodDescriptor>& methods() const { return m_methods; }
@@ -85,6 +86,7 @@ private:
 
     uint32_t m_abi_version{0};
     std::string m_sdk_hash;
+    std::string m_compiler_cache_id;
     std::vector<ApiTypeDescriptor> m_types;
     std::vector<ApiFunctionDescriptor> m_functions;
     std::vector<ApiMethodDescriptor> m_methods;

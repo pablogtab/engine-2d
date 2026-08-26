@@ -24,6 +24,7 @@ int main() {
     assert(body_velocity && body_velocity->writable && body_velocity->type == "Vec2");
     const ApiPropertyDescriptor* grounded = api.find_available_property("RigidBody2D", "isGrounded");
     assert(grounded && !grounded->writable);
+    assert(api.find_available_method("Math", "clamp") != nullptr);
 
     LanguageServer server("/workspace/My Game");
 
@@ -195,6 +196,39 @@ int main() {
         has_flip_x |= item["label"] == "flipX";
     }
     assert(has_flip_x);
+
+    // Standard-library static methods are catalog-driven in completion, hover,
+    // and signature help just like injected engine services.
+    const std::string math_uri = "file:///workspace/My%20Game/Source/MathUser.e2s";
+    const std::string math_line = "  value(): Float { return Math.clamp(2.0, 0.0, 1.0); }";
+    const std::string math_source = "export class MathUser {\n" + math_line + "\n}\n";
+    json math_open = {
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didOpen"},
+        {"params", {{"textDocument", {{"uri", math_uri}, {"version", 1}, {"text", math_source}}}}}
+    };
+    const json math_diagnostics = json::parse(server.handle_message(math_open.dump()));
+    assert(math_diagnostics["params"]["diagnostics"].empty());
+    const uint32_t math_dot = static_cast<uint32_t>(std::string("  value(): Float { return Math.").size());
+    const json math_completion = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 501}, {"method", "textDocument/completion"},
+        {"params", {{"textDocument", {{"uri", math_uri}}}, {"position", {{"line", 1}, {"character", math_dot}}}}}
+    }.dump()));
+    const auto clamp_item = std::find_if(math_completion["result"].begin(), math_completion["result"].end(),
+        [](const json& item) { return item["label"] == "clamp"; });
+    assert(clamp_item != math_completion["result"].end());
+    assert((*clamp_item)["detail"].get<std::string>().find("Math.clamp(value: Float, min: Float, max: Float) -> Float") != std::string::npos);
+    const uint32_t clamp_character = static_cast<uint32_t>(math_line.find("clamp") + 1);
+    const json math_hover = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 502}, {"method", "textDocument/hover"},
+        {"params", {{"textDocument", {{"uri", math_uri}}}, {"position", {{"line", 1}, {"character", clamp_character}}}}}
+    }.dump()));
+    assert(math_hover["result"]["contents"]["value"].get<std::string>().find("Math.clamp(value: Float, min: Float, max: Float) -> Float") != std::string::npos);
+    const uint32_t clamp_open_paren = static_cast<uint32_t>(math_line.find("clamp(") + std::string("clamp(").size());
+    const json math_signature = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 503}, {"method", "textDocument/signatureHelp"},
+        {"params", {{"textDocument", {{"uri", math_uri}}}, {"position", {{"line", 1}, {"character", clamp_open_paren}}}}}
+    }.dump()));
+    assert(math_signature["result"]["signatures"][0]["label"].get<std::string>() == "clamp(value: Float, min: Float, max: Float) -> Float");
 
     // Hover exposes the TypeChecker result for an inferred local variable.
     std::string inferred_hover_req = R"({

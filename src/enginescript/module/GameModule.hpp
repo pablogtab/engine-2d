@@ -7,6 +7,7 @@
 #include "../async/TypedEventBus.hpp"
 #include "../core/LanguageVersion.hpp"
 #include "../runtime/Collections.hpp"
+#include "../runtime/Math.hpp"
 
 #include <glm/glm.hpp>
 

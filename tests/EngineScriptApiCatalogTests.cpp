@@ -12,6 +12,12 @@ int main() {
     const ApiCatalog& catalog = ApiCatalog::instance();
     assert(catalog.abi_version() == ENGINE_SCRIPT_ABI_VERSION);
     assert(catalog.sdk_hash() == ENGINE_SCRIPT_SDK_HASH);
+    assert(catalog.compiler_cache_id() == ENGINE_SCRIPT_COMPILER_CACHE_ID);
+    assert(catalog.has_available_type("Math"));
+    const ApiMethodDescriptor* math_clamp = catalog.find_available_method("Math", "clamp");
+    assert(math_clamp != nullptr);
+    assert(math_clamp->return_type == "Float");
+    assert(math_clamp->parameters.size() == 3);
     assert(catalog.has_available_type("Input"));
     assert(catalog.has_available_type("SpriteRenderer2D"));
     assert(catalog.has_available_type("Audio"));

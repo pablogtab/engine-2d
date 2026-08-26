@@ -971,6 +971,7 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     if (auto v = dynamic_cast<const IRVarRef*>(op)) {
+        if (v->result_type && v->result_type->name == "Math") return "EngineScript::Math";
         return identifier_to_cpp(v->name);
     }
 
@@ -1203,6 +1204,14 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     }
 
     if (auto mc = dynamic_cast<const IRMethodCall*>(op)) {
+        if (mc->target && mc->target->result_type && mc->target->result_type->name == "Math") {
+            std::string call = "EngineScript::Math::" + mc->method_name + "(";
+            for (std::size_t index = 0; index < mc->args.size(); ++index) {
+                if (index > 0) call += ", ";
+                call += emit_operation_cpp(mc->args[index].get());
+            }
+            return call + ")";
+        }
         if (mc->target && mc->target->result_type) {
             const auto kind = mc->target->result_type->kind;
             const std::string target = emit_operation_cpp(mc->target.get());

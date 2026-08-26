@@ -220,6 +220,46 @@ int main() {
     assert(output.source_content.find("#line") != std::string::npos);
     require_generated_cpp_compiles(output, entrypoint);
 
+    DiagnosticEngine math_diags;
+    const std::string math_code = R"(
+        export class MathRuntime {
+            clampOrdered(value: Float): Float { return Math.clamp(value, 3.0, -2.0); }
+            interpolate(a: Float, b: Float, t: Float): Float { return Math.smoothStep(a, b, t); }
+            wrap(value: Float): Float { return Math.pingPong(value, 2.0); }
+            angle(degrees: Float): Float { return Math.sin(Math.degreesToRadians(degrees)); }
+            close(a: Float, b: Float): Bool { return Math.approximately(a, b); }
+        }
+    )";
+    const FileId math_file = sm.register_source("Source/MathRuntime.e2s", math_code);
+    Lexer math_lexer(math_file, math_code, math_diags);
+    Parser math_parser(math_file, "Source/MathRuntime.e2s", math_lexer.tokenize_all(), math_diags);
+    const auto math_module = math_parser.parse_module();
+    SymbolResolver math_resolver(sm, math_diags);
+    math_resolver.resolve_module(math_module);
+    TypeChecker math_checker(math_resolver, math_diags);
+    assert(math_checker.check_module(math_module));
+    assert(!math_diags.has_errors());
+    IRLowering math_lowering(math_checker);
+    const IRModule math_ir = math_lowering.lower_module(*math_module);
+    CppOutput math_output = emitter.emit_module(math_ir);
+    assert(math_output.source_content.find("EngineScript::Math::clamp") != std::string::npos);
+    require_generated_cpp_runs(math_output, R"(
+        #include "MathRuntime.generated.hpp"
+        #include <cassert>
+
+        int main() {
+            MathRuntime math;
+            assert(math.clampOrdered(-4.0f) == -2.0f);
+            assert(math.clampOrdered(0.5f) == 0.5f);
+            assert(math.clampOrdered(9.0f) == 3.0f);
+            assert(math.interpolate(0.0f, 10.0f, 0.5f) == 5.0f);
+            assert(math.wrap(3.0f) == 1.0f);
+            assert(math.angle(90.0f) > 0.999f);
+            assert(math.close(1.0f, 1.000001f));
+            return 0;
+        }
+    )");
+
     DiagnosticEngine numeric_diags;
     const std::string numeric_code = R"(
         export class NumericRuntime {
