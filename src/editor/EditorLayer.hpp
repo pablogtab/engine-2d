@@ -172,6 +172,7 @@ private:
     };
     struct LightingBakeJob {
         std::chrono::steady_clock::time_point deadline{};
+        std::chrono::steady_clock::time_point started_at{};
         std::future<LightingBakeJobResult> future;
         bool queued{false};
         bool running{false};

@@ -1226,12 +1226,17 @@ void EditorLayer::update_lighting_bakes() {
         if (job.running && job.future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             LightingBakeJobResult result = job.future.get();
             job.running = false;
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - job.started_at);
+            const std::string scene_name = std::filesystem::path(job_it->first).filename().string();
             if (result.success) {
-                ENGINE_LOG_INFO("[LIGHTING BAKE] Background bake completed: {} tile(s), {} light(s), {} caster(s)",
-                                result.status.tile_count, result.status.baked_light_count,
-                                result.status.baked_caster_count);
+                ENGINE_LOG_INFO(
+                    "[LIGHTING BAKE] Completed '{}' in {} ms: {} tile(s), {} light(s), {} caster(s)",
+                    scene_name, elapsed.count(), result.status.tile_count,
+                    result.status.baked_light_count, result.status.baked_caster_count);
             } else {
-                ENGINE_LOG_ERROR("[LIGHTING BAKE] Background bake failed: {}", result.error);
+                ENGINE_LOG_ERROR("[LIGHTING BAKE] Failed '{}' after {} ms: {}",
+                                 scene_name, elapsed.count(), result.error);
             }
         }
         if (job.queued && !job.running && now >= job.deadline) {
@@ -1239,6 +1244,7 @@ void EditorLayer::update_lighting_bakes() {
             const std::filesystem::path scene_path = job_it->first;
             job.queued = false;
             job.running = true;
+            job.started_at = std::chrono::steady_clock::now();
             job.future = std::async(std::launch::async, [project_root, scene_path]() {
                 LightingBakeJobResult result;
                 result.success = LightingBakeService::bake(
