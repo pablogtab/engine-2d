@@ -369,6 +369,28 @@ int main() {
     }
     assert(rejected_unsafe_generic_class);
 
+    // Truthiness accepts zero and empty strings, while a negated nullable
+    // guard narrows the value after its terminating branch.
+    DiagnosticEngine truthiness_diags;
+    const std::string truthiness_code = R"(
+        function follow(component: Transform2D?): Void {
+            let zero: Int = 0;
+            let empty: String = "";
+            if (zero && empty) return;
+            if (!component) return;
+            let position: Vec2 = component.position;
+        }
+    )";
+    const FileId f13 = sm.register_source("Source/Truthiness.e2s", truthiness_code);
+    Lexer l13(f13, truthiness_code, truthiness_diags);
+    Parser p13(f13, "Source/Truthiness.e2s", l13.tokenize_all(), truthiness_diags);
+    const auto m13 = p13.parse_module();
+    SymbolResolver res13(sm, truthiness_diags);
+    res13.resolve_module(m13);
+    TypeChecker check13(res13, truthiness_diags);
+    assert(check13.check_module(m13));
+    assert(!truthiness_diags.has_errors());
+
     std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;
 }

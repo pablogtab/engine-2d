@@ -42,6 +42,7 @@ private:
     void emit_statement_cpp(const IRStatement& st, std::string& out, int indent);
     void emit_operation_statement_cpp(const IROperation* op, std::string& out, int indent);
     std::string emit_operation_cpp(const IROperation* op);
+    std::string emit_truthy_cpp(const IROperation* op);
     [[nodiscard]] std::string member_access_operator(const IROperation* target) const;
     [[nodiscard]] std::string identifier_to_cpp(const std::string& identifier) const;
 

@@ -835,7 +835,7 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
             : std::format("{}{}[{}] = {};\n", ind, emit_operation_cpp(index_set->target.get()),
                 emit_operation_cpp(index_set->index.get()), emit_operation_cpp(index_set->value.get()));
     } else if (auto branch = dynamic_cast<const IRIf*>(op)) {
-        const std::string condition = emit_operation_cpp(branch->condition.get());
+        const std::string condition = emit_truthy_cpp(branch->condition.get());
         const bool already_parenthesized = condition.size() >= 2 &&
             condition.front() == '(' && condition.back() == ')';
         out += already_parenthesized
@@ -860,7 +860,7 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
             out += std::format("{}{};\n", ind, m_emitting_async_method ? "co_return" : "return");
         }
     } else if (auto loop = dynamic_cast<const IRWhile*>(op)) {
-        out += std::format("{}while ({}) {{\n", ind, emit_operation_cpp(loop->condition.get()));
+        out += std::format("{}while ({}) {{\n", ind, emit_truthy_cpp(loop->condition.get()));
         for (const auto& nested : loop->body) emit_operation_statement_cpp(nested.get(), out, indent + 1);
         out += ind + "}\n";
     } else if (auto loop = dynamic_cast<const IRFor*>(op)) {
@@ -872,7 +872,7 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
             out += emit_operation_cpp(loop->initializer.get());
         }
         out += "; ";
-        if (loop->condition) out += emit_operation_cpp(loop->condition.get());
+        if (loop->condition) out += emit_truthy_cpp(loop->condition.get());
         out += "; ";
         if (loop->update) out += emit_operation_cpp(loop->update.get());
         out += ") {\n";
@@ -904,6 +904,15 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
             out += std::format("{}{};\n", ind, emit_operation_cpp(op));
         }
     }
+}
+
+std::string CppEmitter::emit_truthy_cpp(const IROperation* op) {
+    const std::string value = emit_operation_cpp(op);
+    const Type* type = op ? op->result_type.get() : nullptr;
+    if (!type || type->is_bool()) return value;
+    if (type->is_numeric()) return std::format("({} != 0)", value);
+    if (type->is_string()) return std::format("(!({}).empty())", value);
+    return value;
 }
 
 std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
@@ -940,10 +949,17 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             }
             return std::format("({}).value_or({})", left, right);
         }
+        if (bin->op == TokenType::AmpAmp || bin->op == TokenType::PipePipe) {
+            return std::format("({} {} {})", emit_truthy_cpp(bin->left.get()),
+                token_type_to_string(bin->op), emit_truthy_cpp(bin->right.get()));
+        }
         return std::format("({} {} {})", emit_operation_cpp(bin->left.get()), token_type_to_string(bin->op), emit_operation_cpp(bin->right.get()));
     }
 
     if (auto un = dynamic_cast<const IRUnary*>(op)) {
+        if (un->op == TokenType::Exclamation) {
+            return std::format("(!{})", emit_truthy_cpp(un->operand.get()));
+        }
         return std::format("({}{})", token_type_to_string(un->op), emit_operation_cpp(un->operand.get()));
     }
 

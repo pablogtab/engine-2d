@@ -218,9 +218,8 @@ int main() {
         "  override update(deltaTime: Float): Void {\n"
         "    let player: Entity = entities.findByGameplayTag(\"player\");\n"
         "    let playerTransform = player.getComponent<Transform2D>();\n"
-        "    if (playerTransform != null) {\n"
-        "      let original: Vec2 = playerTransform.position;\n"
-        "    }\n"
+        "    if (!playerTransform) return;\n"
+        "    let original: Vec2 = playerTransform.position;\n"
         "  }\n"
         "}\n";
     const json component_call_diagnostics = json::parse(server.handle_message(json{

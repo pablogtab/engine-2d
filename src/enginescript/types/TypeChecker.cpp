@@ -131,6 +131,11 @@ bool is_send_type(const std::shared_ptr<Type>& type) {
     return false;
 }
 
+bool is_truthy_compatible(const std::shared_ptr<Type>& type) {
+    return type && (type->is_bool() || type->is_numeric() || type->is_string() ||
+        type->is_nullable || type->kind == TypeKind::Class || type->kind == TypeKind::Interface);
+}
+
 } // namespace
 
 TypeChecker::TypeChecker(const SymbolResolver& resolver, DiagnosticEngine& diagnostics)
@@ -646,8 +651,8 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
         check_expression(e->expr, scope);
     } else if (auto if_s = dynamic_cast<IfStmt*>(stmt.get())) {
         auto cond_t = check_expression(if_s->condition, scope);
-        if (!cond_t->is_bool() && !cond_t->is_error()) {
-            m_diagnostics.report_error("E3011", std::format("If condition must be of type Bool, got '{}'", cond_t->to_string()), if_s->condition->span);
+        if (!is_truthy_compatible(cond_t) && !cond_t->is_error()) {
+            m_diagnostics.report_error("E3011", std::format("If condition must be truthy-compatible, got '{}'", cond_t->to_string()), if_s->condition->span);
         }
         const auto previous_narrowing = m_narrowed_nonnull;
         const auto* condition = dynamic_cast<const BinaryExpr*>(if_s->condition.get());
@@ -662,6 +667,15 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
                 nullable_identifier = dynamic_cast<const IdentifierExpr*>(condition->right.get());
             }
             true_branch_nonnull = condition->op == TokenType::ExclamationEquals;
+        } else if (const auto* unary = dynamic_cast<const UnaryExpr*>(if_s->condition.get());
+                   unary && unary->op == TokenType::Exclamation) {
+            nullable_identifier = dynamic_cast<const IdentifierExpr*>(unary->operand.get());
+        } else {
+            nullable_identifier = dynamic_cast<const IdentifierExpr*>(if_s->condition.get());
+            true_branch_nonnull = nullable_identifier != nullptr;
+        }
+        if (nullable_identifier && !get_type_of_node(nullable_identifier)->is_nullable) {
+            nullable_identifier = nullptr;
         }
         if (nullable_identifier && true_branch_nonnull) m_narrowed_nonnull.insert(nullable_identifier->name);
         check_statement(if_s->then_branch, scope, expected_return, is_async);
@@ -671,10 +685,14 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
             check_statement(if_s->else_branch, scope, expected_return, is_async);
             m_narrowed_nonnull = previous_narrowing;
         }
+        if (nullable_identifier && !true_branch_nonnull && !if_s->else_branch &&
+            check_statement_returns(if_s->then_branch)) {
+            m_narrowed_nonnull.insert(nullable_identifier->name);
+        }
     } else if (auto w = dynamic_cast<WhileStmt*>(stmt.get())) {
         auto cond_t = check_expression(w->condition, scope);
-        if (!cond_t->is_bool() && !cond_t->is_error()) {
-            m_diagnostics.report_error("E3012", std::format("While condition must be of type Bool, got '{}'", cond_t->to_string()), w->condition->span);
+        if (!is_truthy_compatible(cond_t) && !cond_t->is_error()) {
+            m_diagnostics.report_error("E3012", std::format("While condition must be truthy-compatible, got '{}'", cond_t->to_string()), w->condition->span);
         }
         ++m_loop_depth;
         check_statement(w->body, scope, expected_return, is_async);
@@ -684,8 +702,8 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
         check_statement(f->initializer, for_scope, expected_return, is_async);
         if (f->condition) {
             auto cond_t = check_expression(f->condition, for_scope);
-            if (!cond_t->is_bool() && !cond_t->is_error()) {
-                m_diagnostics.report_error("E3013", std::format("For condition must be of type Bool, got '{}'", cond_t->to_string()), f->condition->span);
+            if (!is_truthy_compatible(cond_t) && !cond_t->is_error()) {
+                m_diagnostics.report_error("E3013", std::format("For condition must be truthy-compatible, got '{}'", cond_t->to_string()), f->condition->span);
             }
         }
         if (f->update) check_expression(f->update, for_scope);
@@ -1094,8 +1112,9 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
 
         // Logical
         if (bin->op == TokenType::AmpAmp || bin->op == TokenType::PipePipe) {
-            if ((!left_t->is_bool() && !left_t->is_error()) || (!right_t->is_bool() && !right_t->is_error())) {
-                m_diagnostics.report_error("E3064", "Logical operators require Bool operands", bin->span);
+            if ((!is_truthy_compatible(left_t) && !left_t->is_error()) ||
+                (!is_truthy_compatible(right_t) && !right_t->is_error())) {
+                m_diagnostics.report_error("E3064", "Logical operators require truthy-compatible operands", bin->span);
             }
             m_node_types[bin] = m_type_bool;
             return m_type_bool;
@@ -1123,6 +1142,9 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
     if (auto un = dynamic_cast<UnaryExpr*>(expr.get())) {
         auto op_t = check_expression(un->operand, scope);
         if (un->op == TokenType::Exclamation) {
+            if (!is_truthy_compatible(op_t) && !op_t->is_error()) {
+                m_diagnostics.report_error("E3095", std::format("'!' requires a truthy-compatible operand, got '{}'", op_t->to_string()), un->span);
+            }
             m_node_types[un] = m_type_bool;
             return m_type_bool;
         }
