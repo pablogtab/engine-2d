@@ -196,6 +196,22 @@ int shadow_sample_count(ShadowMode mode) {
     return mode == ShadowMode::Hard ? 1 : 0;
 }
 
+int effective_shadow_sample_count(
+    const Light2DComponent& light,
+    float caster_distance,
+    float caster_height
+) {
+    const int configured = shadow_sample_count(light.shadow_mode);
+    if (configured <= 1) return configured;
+    if (light.type == Light2DType::Area) return configured;
+    if (light.type == Light2DType::Directional) {
+        return light.directional_angular_radius * light.shadow_softness > 0.0001f
+            ? configured : 1;
+    }
+    return shadow_penumbra_radius(light, caster_distance, caster_height) > 0.0001f
+        ? configured : 1;
+}
+
 float shadow_penumbra_radius(
     const Light2DComponent& light,
     float caster_distance,
@@ -246,12 +262,7 @@ std::vector<glm::vec2> build_shadow_triangles(
     std::vector<glm::vec2> triangles;
     if (polygon.size() < 3 || extrusion_distance <= 0.0f) return triangles;
 
-    triangles.reserve((polygon.size() - 2 + polygon.size() * 2) * 3);
-    for (std::size_t index = 1; index + 1 < polygon.size(); ++index) {
-        triangles.push_back(polygon[0]);
-        triangles.push_back(polygon[index]);
-        triangles.push_back(polygon[index + 1]);
-    }
+    triangles.reserve(polygon.size() * 6);
 
     float signed_area = 0.0f;
     for (std::size_t index = 0; index < polygon.size(); ++index) {
@@ -286,10 +297,7 @@ std::vector<glm::vec2> build_directional_shadow_triangles(
     std::vector<glm::vec2> triangles;
     if (polygon.size() < 3 || extrusion_distance <= 0.0f || glm::length(light_direction) < 0.0001f) return triangles;
     const glm::vec2 direction = glm::normalize(light_direction);
-    triangles.reserve((polygon.size() + polygon.size() - 2) * 3);
-    for (std::size_t index = 1; index + 1 < polygon.size(); ++index) {
-        triangles.insert(triangles.end(), {polygon[0], polygon[index], polygon[index + 1]});
-    }
+    triangles.reserve(polygon.size() * 6);
     for (std::size_t index = 0; index < polygon.size(); ++index) {
         const glm::vec2 a = polygon[index];
         const glm::vec2 b = polygon[(index + 1) % polygon.size()];
@@ -640,7 +648,9 @@ bool Lighting2DPass::apply(const LightingContext& context) {
                 const float extrusion = std::clamp(
                     projected_distance, 1.0f, std::max(light.shadow_max_distance, 1.0f)
                 );
-                const int samples = shadow_sample_count(light.shadow_mode);
+                const int samples = effective_shadow_sample_count(
+                    light, caster_distance, caster.height
+                );
                 const float total_opacity = std::clamp(
                     light.shadow_strength * caster.opacity, 0.0f, 1.0f
                 );

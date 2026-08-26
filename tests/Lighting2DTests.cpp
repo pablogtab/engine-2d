@@ -71,8 +71,10 @@ void test_shadow_geometry_extrudes_only_light_facing_edges() {
         {-1.0f, -1.0f}, {1.0f, -1.0f}, {1.0f, 1.0f}, {-1.0f, 1.0f}
     };
     const auto triangles = build_shadow_triangles({-5.0f, 0.0f}, polygon, 10.0f);
-    assert(triangles.size() == 12);
-    assert(triangles[0] == polygon[0]);
+    assert(triangles.size() == 6);
+    assert(std::any_of(triangles.begin(), triangles.end(), [&](const glm::vec2& point) {
+        return point == polygon[0];
+    }));
     bool has_extruded_vertex = false;
     for (const glm::vec2& point : triangles) {
         if (point.x > 1.0f) has_extruded_vertex = true;
@@ -95,6 +97,14 @@ void test_shadow_modes_have_distinct_sampling_and_penumbra() {
     assert(shadow_sample_count(ShadowMode::Hard) == 1);
     assert(shadow_sample_count(ShadowMode::SoftFast) == 5);
     assert(shadow_sample_count(ShadowMode::ContactHardening) == 9);
+    Light2DComponent zero_penumbra;
+    zero_penumbra.type = Light2DType::Point;
+    zero_penumbra.shadow_mode = ShadowMode::SoftFast;
+    zero_penumbra.source_radius = 0.0f;
+    zero_penumbra.shadow_softness = 0.0f;
+    assert(effective_shadow_sample_count(zero_penumbra, 64.0f, 32.0f) == 1);
+    zero_penumbra.source_radius = 2.0f;
+    assert(effective_shadow_sample_count(zero_penumbra, 64.0f, 32.0f) == 5);
     light.shadow_mode = ShadowMode::SoftFast;
     const float soft_near = shadow_penumbra_radius(light, 16.0f, 32.0f);
     const float soft_far = shadow_penumbra_radius(light, 128.0f, 32.0f);

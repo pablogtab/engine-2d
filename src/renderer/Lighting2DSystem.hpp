@@ -36,6 +36,11 @@ struct ShadowPolygon2D {
 );
 [[nodiscard]] glm::vec4 point_light_bounds(const glm::vec2& position, float radius);
 [[nodiscard]] int shadow_sample_count(ShadowMode mode);
+[[nodiscard]] int effective_shadow_sample_count(
+    const Light2DComponent& light,
+    float caster_distance,
+    float caster_height
+);
 [[nodiscard]] float shadow_penumbra_radius(
     const Light2DComponent& light,
     float caster_distance,
