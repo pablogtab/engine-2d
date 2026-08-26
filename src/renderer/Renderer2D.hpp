@@ -80,28 +80,58 @@ struct SpriteCommand {
     std::uint64_t entity_effect_scope{0};
     SDL_BlendMode blend_mode{SDL_BLENDMODE_BLEND};
     bool baked_light_receiver{false};
+    bool receives_shadows{true};
+};
+
+struct SpriteMaterialLight {
+    glm::vec3 direction{0.0f, 0.0f, 1.0f};
+    glm::vec3 color{1.0f, 1.0f, 1.0f};
+    float intensity{0.0f};
 };
 
 struct SpriteMaterialLighting {
+    static constexpr std::size_t MaxLights = 4;
+
     Texture* normal_map{nullptr};
     Texture* emissive_map{nullptr};
     Texture* specular_map{nullptr};
     glm::vec3 light_direction{0.0f, 0.0f, 1.0f};
     glm::vec3 light_color{1.0f, 1.0f, 1.0f};
     float light_intensity{0.0f};
+    std::array<SpriteMaterialLight, MaxLights> lights{};
+    std::uint32_t light_count{0};
+    glm::vec3 baked_light{1.0f, 1.0f, 1.0f};
     float ambient{1.0f};
     float normal_strength{1.0f};
     SDL_Color emissive_tint{255, 255, 255, 255};
     float emissive_intensity{0.0f};
     float specular_strength{0.0f};
     float shininess{16.0f};
+
+    void add_light(const SpriteMaterialLight& candidate) {
+        const std::uint32_t count = std::min<std::uint32_t>(
+            light_count, static_cast<std::uint32_t>(MaxLights));
+        std::uint32_t insertion = 0;
+        while (insertion < count && lights[insertion].intensity >= candidate.intensity) ++insertion;
+        if (insertion >= MaxLights) return;
+        const std::uint32_t new_count = std::min<std::uint32_t>(
+            count + 1, static_cast<std::uint32_t>(MaxLights));
+        for (std::uint32_t index = new_count - 1; index > insertion; --index) {
+            lights[index] = lights[index - 1];
+        }
+        lights[insertion] = candidate;
+        light_count = new_count;
+    }
 };
 
 class Renderer2D {
 public:
     explicit Renderer2D(SDL_Renderer* renderer);
 
-    void set_thread_pool(ThreadPool* thread_pool) { m_thread_pool = thread_pool; }
+    void set_thread_pool(ThreadPool* thread_pool) {
+        m_thread_pool = thread_pool;
+        m_material_pack_cache.set_thread_pool(thread_pool);
+    }
     void set_low_latency_mode(bool low_latency) { m_low_latency_mode = low_latency; }
     bool is_low_latency_mode() const { return m_low_latency_mode; }
     void set_render_resolution(
@@ -179,7 +209,8 @@ public:
         std::uint64_t entity_effect_scope = 0,
         SDL_BlendMode blend_mode = SDL_BLENDMODE_BLEND,
         bool baked_light_receiver = false,
-        const SpriteMaterialLighting* material_lighting = nullptr
+        const SpriteMaterialLighting* material_lighting = nullptr,
+        bool receives_shadows = true
     );
     void submit_screen_sprite(
         Texture* texture,
@@ -229,7 +260,10 @@ public:
     SDL_Renderer* get_sdl_renderer() const { return m_sdl_renderer; }
 
 private:
-    void execute_lighting_stage(SDL_Texture* scene_target, RenderLayer layer, int width, int height);
+    void execute_lighting_stage(
+        SDL_Texture* scene_target, RenderLayer layer, int width, int height,
+        SDL_Texture* shadow_receiver_mask
+    );
     [[nodiscard]] std::shared_ptr<const Material> create_lit_sprite_material(
         const SpriteMaterialLighting& lighting
     );

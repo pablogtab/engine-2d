@@ -1,10 +1,13 @@
 #include "renderer/MaterialPack.hpp"
+#include "core/ThreadPool.hpp"
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -126,6 +129,23 @@ int main() {
     assert(cache.metrics().resident_entries == 0);
     assert(cache.metrics().evictions == 1);
     assert(cache.request(cached_request).status == Engine::MaterialPackStatus::Unsupported);
+
+    Engine::MaterialPackCache async_cache(renderer, 8, 1024);
+    Engine::ThreadPool workers(1);
+    async_cache.set_thread_pool(&workers);
+    const auto pending = async_cache.request(cached_request);
+    assert(pending.status == Engine::MaterialPackStatus::Pending && !pending.texture);
+    Engine::MaterialPackResult completed;
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        completed = async_cache.request(cached_request);
+        if (completed.ready()) break;
+        assert(completed.status == Engine::MaterialPackStatus::Pending);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    assert(completed.ready());
+    assert(async_cache.metrics().async_jobs == 1);
+    assert(async_cache.metrics().completed_jobs == 1);
+    assert(async_cache.metrics().pending_requests >= 1);
     std::filesystem::remove_all(cache_directory, filesystem_error);
     render_albedo.reset();
     SDL_DestroyRenderer(renderer);

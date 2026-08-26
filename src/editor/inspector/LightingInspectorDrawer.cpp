@@ -354,11 +354,9 @@ void LightingInspectorDrawer::draw_sprite_lighting(EntityManager& em, EntityID e
     property_float("Specular Strength", &value.specular_strength, Policies::unbounded_float(0.02f));
     property_float("Shininess", &value.shininess, Policies::unbounded_float(0.25f));
     property_bool("Receives Lighting", &value.receives_lighting);
-    ImGui::BeginDisabled();
-    property_bool("Receives Shadows", &value.receives_shadows);
-    ImGui::EndDisabled();
-    ImGui::TextDisabled("Per-sprite shadow reception will be enabled with the receiver mask stage.");
     if (custom_material) ImGui::EndDisabled();
+    property_bool("Receives Shadows", &value.receives_shadows);
+    ImGui::TextDisabled("Receives Shadows uses the realtime per-layer receiver mask.");
     property_bool("Baked Receiver", &value.baked_receiver);
     ImGui::TextDisabled("Realtime maps are packed on demand. Baked Receiver affects the next valid lighting bake.");
     property_bool("Enabled", &value.enabled);

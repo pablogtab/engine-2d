@@ -58,6 +58,7 @@ public:
     [[nodiscard]] const char* name() const override { return "Lighting2D"; }
     [[nodiscard]] bool is_enabled() const override { return !m_lights.empty(); }
     [[nodiscard]] RenderLayerMask affected_layers() const override { return m_affected_layers; }
+    [[nodiscard]] bool requires_shadow_receiver_mask() const override;
     bool apply(const LightingContext& context) override;
     void invalidate_resources() override {}
 

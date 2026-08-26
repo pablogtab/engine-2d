@@ -704,6 +704,7 @@ add_executable(MaterialPackTests
     src/renderer/Texture.cpp
     src/core/FileSystem.cpp
     src/core/Log.cpp
+    src/core/ThreadPool.cpp
     vendor/stb/stb_impl.cpp
 )
 target_include_directories(MaterialPackTests PRIVATE

@@ -67,6 +67,13 @@ SDL_BlendMode shadow_mask_blend() {
     );
 }
 
+SDL_BlendMode receiver_intersection_blend() {
+    return SDL_ComposeCustomBlendMode(
+        SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_SRC_ALPHA, SDL_BLENDOPERATION_ADD,
+        SDL_BLENDFACTOR_ZERO, SDL_BLENDFACTOR_SRC_ALPHA, SDL_BLENDOPERATION_ADD
+    );
+}
+
 bool draw_triangle_list(SDL_Renderer* renderer, const std::vector<glm::vec2>& points, float opacity, const glm::vec2& offset = {}) {
     if (points.empty()) return true;
     std::vector<SDL_Vertex> vertices;
@@ -278,6 +285,13 @@ void Lighting2DPass::update(
     }
 }
 
+bool Lighting2DPass::requires_shadow_receiver_mask() const {
+    return std::any_of(m_lights.begin(), m_lights.end(), [](const Light2DInstance& instance) {
+        return instance.light.enabled && instance.light.mobility == Light2DMobility::Realtime &&
+            instance.light.shadow_mode != ShadowMode::None && instance.light.intensity > 0.0f;
+    });
+}
+
 bool Lighting2DPass::draw_point_gradient(
     SDL_Renderer* renderer,
     const glm::vec2& center,
@@ -381,11 +395,17 @@ bool Lighting2DPass::apply(const LightingContext& context) {
 
     SDL_Texture* const light_map = context.render_targets->acquire(context.width, context.height);
     if (!light_map) return false;
+    SDL_Texture* const shadow_mask = context.shadow_receiver_mask
+        ? context.render_targets->acquire(context.width, context.height) : nullptr;
     struct ReturnTarget final {
         RenderTargetPool* pool{nullptr};
         SDL_Texture* texture{nullptr};
-        ~ReturnTarget() { if (pool && texture) pool->release(texture); }
-    } return_target{context.render_targets, light_map};
+        SDL_Texture* second{nullptr};
+        ~ReturnTarget() {
+            if (pool && texture) pool->release(texture);
+            if (pool && second) pool->release(second);
+        }
+    } return_target{context.render_targets, light_map, shadow_mask};
 
     SDL_Texture* previous_target = SDL_GetRenderTarget(context.renderer);
     SDL_BlendMode previous_blend = SDL_BLENDMODE_NONE;
@@ -462,10 +482,21 @@ bool Lighting2DPass::apply(const LightingContext& context) {
             draw_point_gradient(context.renderer, center, screen_radius, light, instance.world_rotation);
         }
 
-        const bool shadows_enabled = light.shadow_mode != ShadowMode::None && shadowed_lights < m_max_shadowed_lights;
+        const bool shadows_enabled = light.shadow_mode != ShadowMode::None &&
+            shadowed_lights < m_max_shadowed_lights &&
+            (!context.shadow_receiver_mask || shadow_mask);
         if (shadows_enabled) {
             ++shadowed_lights;
-            SDL_SetRenderDrawBlendMode(context.renderer, shadow_mask_blend());
+            if (shadow_mask) {
+                SDL_SetRenderTarget(context.renderer, shadow_mask);
+                SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_NONE);
+                SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
+                SDL_RenderClear(context.renderer);
+                SDL_SetRenderDrawBlendMode(context.renderer, SDL_BLENDMODE_ADD);
+            } else {
+                SDL_SetRenderTarget(context.renderer, light_map);
+                SDL_SetRenderDrawBlendMode(context.renderer, shadow_mask_blend());
+            }
             for (const ShadowPolygon2D& caster : m_casters) {
                 if (!renders_layer(caster.affected_layers, context.render_layer)) continue;
                 std::vector<glm::vec2> biased_vertices = caster.world_vertices;
@@ -497,6 +528,13 @@ bool Lighting2DPass::apply(const LightingContext& context) {
                     const glm::vec2 offset = samples == 1 ? glm::vec2{} : glm::vec2(std::cos(angle), std::sin(angle)) * softness;
                     draw_triangle_list(context.renderer, screen_triangles, light.shadow_strength / samples, offset);
                 }
+            }
+            if (shadow_mask) {
+                SDL_SetTextureBlendMode(context.shadow_receiver_mask, receiver_intersection_blend());
+                SDL_RenderTexture(context.renderer, context.shadow_receiver_mask, nullptr, nullptr);
+                SDL_SetRenderTarget(context.renderer, light_map);
+                SDL_SetTextureBlendMode(shadow_mask, shadow_mask_blend());
+                SDL_RenderTexture(context.renderer, shadow_mask, nullptr, nullptr);
             }
         }
 

@@ -5,13 +5,17 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <future>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 
 namespace Engine {
 
+class ThreadPool;
+
 enum class MaterialPackStatus {
+    Pending,
     Ready,
     Unsupported,
     Failed
@@ -41,6 +45,20 @@ struct MaterialPackRequest {
     MaterialPackRegion albedo_region{};
 };
 
+struct MaterialPackSource {
+    std::shared_ptr<const std::vector<std::uint32_t>> pixels;
+    int width{0};
+    int height{0};
+};
+
+struct MaterialPackSnapshot {
+    MaterialPackSource albedo;
+    MaterialPackSource normal;
+    MaterialPackSource emissive;
+    MaterialPackSource specular;
+    MaterialPackRegion albedo_region{};
+};
+
 struct MaterialPackResult {
     MaterialPackStatus status{MaterialPackStatus::Failed};
     Texture* texture{nullptr};
@@ -59,6 +77,9 @@ struct MaterialPackCacheMetrics {
     std::size_t evictions{0};
     std::size_t disk_hits{0};
     std::size_t disk_writes{0};
+    std::size_t pending_requests{0};
+    std::size_t async_jobs{0};
+    std::size_t completed_jobs{0};
     std::size_t resident_entries{0};
     std::size_t resident_bytes{0};
 };
@@ -73,6 +94,12 @@ public:
         const MaterialPackRequest& request,
         int max_dimension = 8192
     );
+    [[nodiscard]] static MaterialPackPixels build(
+        const MaterialPackSnapshot& snapshot,
+        int max_dimension = 8192
+    );
+
+    [[nodiscard]] static MaterialPackSnapshot snapshot(const MaterialPackRequest& request);
 
     [[nodiscard]] static std::uint64_t content_key(const MaterialPackRequest& request);
 };
@@ -90,6 +117,7 @@ public:
     void set_max_dimension(int value);
     void set_memory_budget(std::size_t bytes);
     void set_disk_cache_directory(std::filesystem::path directory);
+    void set_thread_pool(ThreadPool* thread_pool) { m_thread_pool = thread_pool; }
 
     [[nodiscard]] int max_dimension() const { return m_max_dimension; }
     [[nodiscard]] std::size_t memory_budget() const { return m_memory_budget; }
@@ -104,12 +132,19 @@ private:
         std::uint64_t last_used{0};
     };
 
+    struct PendingEntry {
+        std::future<MaterialPackPixels> future;
+        SDL_FRect albedo_rect{};
+    };
+
     SDL_Renderer* m_renderer{nullptr};
     int m_max_dimension{8192};
     std::size_t m_memory_budget{64u * 1024u * 1024u};
     std::uint64_t m_use_counter{0};
     std::filesystem::path m_disk_cache_directory;
     std::unordered_map<std::uint64_t, Entry> m_entries;
+    std::unordered_map<std::uint64_t, PendingEntry> m_pending;
+    ThreadPool* m_thread_pool{nullptr};
     MaterialPackCacheMetrics m_metrics{};
 
     [[nodiscard]] std::unique_ptr<Texture> load_from_disk(

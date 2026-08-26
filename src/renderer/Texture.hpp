@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <memory>
 
 namespace Engine {
 
@@ -44,7 +45,10 @@ public:
     int get_width() const { return m_width; }
     int get_height() const { return m_height; }
     [[nodiscard]] std::uint8_t alpha_at(int x, int y) const;
-    [[nodiscard]] std::span<const std::uint32_t> pixels() const { return m_pixels; }
+    [[nodiscard]] std::span<const std::uint32_t> pixels() const { return *m_pixels; }
+    [[nodiscard]] std::shared_ptr<const std::vector<std::uint32_t>> pixel_storage() const {
+        return m_pixels;
+    }
     [[nodiscard]] std::uint64_t content_hash() const { return m_content_hash; }
     const std::string& get_filepath() const { return m_filepath; }
     void set_filepath(const std::string& path) { m_filepath = path; }
@@ -69,7 +73,9 @@ private:
     int m_height{0};
     std::string m_filepath{""};
     std::vector<std::uint8_t> m_alpha;
-    std::vector<std::uint32_t> m_pixels;
+    std::shared_ptr<const std::vector<std::uint32_t>> m_pixels{
+        std::make_shared<const std::vector<std::uint32_t>>()
+    };
     std::uint64_t m_content_hash{0};
 };
 

@@ -1,5 +1,7 @@
 #include "MaterialPack.hpp"
+#include "../core/ThreadPool.hpp"
 #include <algorithm>
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -38,12 +40,31 @@ bool valid_region(const Texture& texture, const MaterialPackRegion& region) {
         region.y <= texture.get_height() - region.height;
 }
 
+bool valid_region(const MaterialPackSource& source, const MaterialPackRegion& region) {
+    if (!source.pixels || region.x < 0 || region.y < 0 || region.width <= 0 || region.height <= 0) {
+        return false;
+    }
+    return region.x <= source.width - region.width && region.y <= source.height - region.height &&
+        source.pixels->size() == static_cast<std::size_t>(source.width) * source.height;
+}
+
 MaterialPackRegion auxiliary_region(
     const Texture& texture,
     const MaterialPackRegion& albedo_region
 ) {
     if (valid_region(texture, albedo_region)) return albedo_region;
     if (texture.get_width() == albedo_region.width && texture.get_height() == albedo_region.height) {
+        return {0, 0, albedo_region.width, albedo_region.height};
+    }
+    return {};
+}
+
+MaterialPackRegion auxiliary_region(
+    const MaterialPackSource& source,
+    const MaterialPackRegion& albedo_region
+) {
+    if (valid_region(source, albedo_region)) return albedo_region;
+    if (source.width == albedo_region.width && source.height == albedo_region.height) {
         return {0, 0, albedo_region.width, albedo_region.height};
     }
     return {};
@@ -67,6 +88,29 @@ bool copy_region(
                     destination.begin() + static_cast<std::ptrdiff_t>(destination_offset));
     }
     return true;
+}
+
+bool copy_region(
+    const MaterialPackSource& source,
+    const MaterialPackRegion& region,
+    std::vector<std::uint32_t>& destination,
+    int destination_width,
+    int offset_x,
+    int offset_y
+) {
+    if (!valid_region(source, region)) return false;
+    for (int y = 0; y < region.height; ++y) {
+        const std::size_t source_offset = static_cast<std::size_t>(region.y + y) * source.width + region.x;
+        const std::size_t destination_offset = static_cast<std::size_t>(offset_y + y) * destination_width + offset_x;
+        std::copy_n(source.pixels->begin() + static_cast<std::ptrdiff_t>(source_offset), region.width,
+                    destination.begin() + static_cast<std::ptrdiff_t>(destination_offset));
+    }
+    return true;
+}
+
+MaterialPackSource snapshot_source(Texture* texture) {
+    if (!texture) return {};
+    return {texture->pixel_storage(), texture->get_width(), texture->get_height()};
 }
 
 void hash_texture_region(
@@ -97,10 +141,23 @@ MaterialPackPixels MaterialPackBuilder::build(
     const MaterialPackRequest& request,
     int max_dimension
 ) {
+    return build(snapshot(request), max_dimension);
+}
+
+MaterialPackSnapshot MaterialPackBuilder::snapshot(const MaterialPackRequest& request) {
+    return {
+        snapshot_source(request.albedo), snapshot_source(request.normal),
+        snapshot_source(request.emissive), snapshot_source(request.specular),
+        request.albedo_region
+    };
+}
+
+MaterialPackPixels MaterialPackBuilder::build(
+    const MaterialPackSnapshot& request,
+    int max_dimension
+) {
     MaterialPackPixels result;
-    if (!request.albedo || max_dimension <= 0 ||
-        !valid_region(*request.albedo, request.albedo_region) ||
-        request.albedo->pixels().empty()) return result;
+    if (max_dimension <= 0 || !valid_region(request.albedo, request.albedo_region)) return result;
 
     const int width = request.albedo_region.width;
     const int height = request.albedo_region.height;
@@ -109,8 +166,8 @@ MaterialPackPixels MaterialPackBuilder::build(
         return result;
     }
 
-    const auto auxiliary_is_valid = [&](const Texture* texture) {
-        return !texture || valid_region(*texture, auxiliary_region(*texture, request.albedo_region));
+    const auto auxiliary_is_valid = [&](const MaterialPackSource& source) {
+        return !source.pixels || valid_region(source, auxiliary_region(source, request.albedo_region));
     };
     if (!auxiliary_is_valid(request.normal) || !auxiliary_is_valid(request.emissive) ||
         !auxiliary_is_valid(request.specular)) {
@@ -123,14 +180,14 @@ MaterialPackPixels MaterialPackBuilder::build(
     const std::size_t pixel_count = static_cast<std::size_t>(result.width) * result.height;
     result.pixels.assign(pixel_count, Black);
 
-    if (!copy_region(*request.albedo, request.albedo_region, result.pixels, result.width, 0, 0)) {
+    if (!copy_region(request.albedo, request.albedo_region, result.pixels, result.width, 0, 0)) {
         result.pixels.clear(); result.width = 0; result.height = 0;
         return result;
     }
 
-    const auto fill_or_copy = [&](Texture* texture, std::uint32_t fallback, int offset_x, int offset_y) {
-        if (texture) {
-            return copy_region(*texture, auxiliary_region(*texture, request.albedo_region),
+    const auto fill_or_copy = [&](const MaterialPackSource& source, std::uint32_t fallback, int offset_x, int offset_y) {
+        if (source.pixels) {
+            return copy_region(source, auxiliary_region(source, request.albedo_region),
                                result.pixels, result.width, offset_x, offset_y);
         }
         for (int y = 0; y < height; ++y) {
@@ -171,6 +228,43 @@ MaterialPackResult MaterialPackCache::request(const MaterialPackRequest& request
         found->second.last_used = ++m_use_counter;
         return {MaterialPackStatus::Ready, found->second.texture.get(), found->second.albedo_rect, key};
     }
+    if (const auto pending = m_pending.find(key); pending != m_pending.end()) {
+        if (pending->second.future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            ++m_metrics.pending_requests;
+            return {MaterialPackStatus::Pending, nullptr, pending->second.albedo_rect, key};
+        }
+        MaterialPackPixels packed;
+        try {
+            packed = pending->second.future.get();
+        } catch (...) {
+            packed.status = MaterialPackStatus::Failed;
+        }
+        const SDL_FRect rect = pending->second.albedo_rect;
+        m_pending.erase(pending);
+        ++m_metrics.completed_jobs;
+        if (packed.status != MaterialPackStatus::Ready) {
+            ++m_metrics.failures;
+            return {packed.status, nullptr, rect, key};
+        }
+        const std::size_t byte_size = packed.pixels.size() * sizeof(std::uint32_t);
+        if (byte_size > m_memory_budget) {
+            ++m_metrics.failures;
+            return {MaterialPackStatus::Unsupported, nullptr, rect, key};
+        }
+        auto texture = std::make_unique<Texture>(m_renderer, packed.width, packed.height, packed.pixels.data());
+        if (!texture->get_sdl_texture()) {
+            ++m_metrics.failures;
+            return {MaterialPackStatus::Failed, nullptr, rect, key};
+        }
+        persist_to_disk(key, packed);
+        evict_until_fits(byte_size);
+        Entry entry{std::move(texture), rect, byte_size, ++m_use_counter};
+        Texture* texture_ptr = entry.texture.get();
+        m_metrics.resident_bytes += byte_size;
+        m_entries.emplace(key, std::move(entry));
+        m_metrics.resident_entries = m_entries.size();
+        return {MaterialPackStatus::Ready, texture_ptr, rect, key};
+    }
     ++m_metrics.misses;
     const int expected_width = request.albedo_region.width * 2;
     const int expected_height = request.albedo_region.height * 2;
@@ -196,6 +290,33 @@ MaterialPackResult MaterialPackCache::request(const MaterialPackRequest& request
                 return {MaterialPackStatus::Ready, texture_ptr, rect, key};
             }
         }
+    }
+    if (m_thread_pool && m_thread_pool->get_thread_count() > 0) {
+        constexpr std::size_t MaxPendingJobs = 4;
+        if (m_pending.size() >= MaxPendingJobs) {
+            for (auto pending = m_pending.begin(); pending != m_pending.end();) {
+                if (pending->second.future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+                    ++pending;
+                    continue;
+                }
+                try { (void)pending->second.future.get(); } catch (...) {}
+                pending = m_pending.erase(pending);
+                ++m_metrics.completed_jobs;
+            }
+        }
+        if (m_pending.size() < MaxPendingJobs) {
+            const MaterialPackSnapshot snapshot = MaterialPackBuilder::snapshot(request);
+            const SDL_FRect rect{0.0f, 0.0f,
+                static_cast<float>(request.albedo_region.width),
+                static_cast<float>(request.albedo_region.height)};
+            auto future = m_thread_pool->enqueue([snapshot, max_dimension = m_max_dimension]() {
+                return MaterialPackBuilder::build(snapshot, max_dimension);
+            });
+            m_pending.emplace(key, PendingEntry{std::move(future), rect});
+            ++m_metrics.async_jobs;
+        }
+        ++m_metrics.pending_requests;
+        return {MaterialPackStatus::Pending, nullptr, {}, key};
     }
     MaterialPackPixels packed = MaterialPackBuilder::build(request, m_max_dimension);
     if (packed.status != MaterialPackStatus::Ready) {
@@ -227,6 +348,7 @@ MaterialPackResult MaterialPackCache::request(const MaterialPackRequest& request
 
 void MaterialPackCache::clear() {
     m_entries.clear();
+    m_pending.clear();
     m_metrics.resident_entries = 0;
     m_metrics.resident_bytes = 0;
 }

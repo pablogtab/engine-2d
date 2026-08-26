@@ -21,14 +21,15 @@ namespace Engine {
 namespace {
 
 struct alignas(16) LitSpriteUniforms {
-    float light_direction_intensity[4];
-    float light_color_ambient[4];
+    float light_directions_intensity[SpriteMaterialLighting::MaxLights][4];
+    float light_colors[SpriteMaterialLighting::MaxLights][4];
+    float material[4];
     float emissive_tint_intensity[4];
     float surface[4];
 };
 
 std::shared_ptr<const FragmentShader> make_lit_sprite_shader() {
-    auto shader = std::make_shared<FragmentShader>("Engine Lit Sprite material-pack-v1");
+    auto shader = std::make_shared<FragmentShader>("Engine Lit Sprite material-pack-v2");
     shader->set_sampler_count(1);
     shader->set_uniform_buffer_count(1);
     const auto add_portable_variants = [&](const std::filesystem::path& directory) {
@@ -225,7 +226,8 @@ void Renderer2D::execute_lighting_stage(
     SDL_Texture* scene_target,
     RenderLayer layer,
     int width,
-    int height
+    int height,
+    SDL_Texture* shadow_receiver_mask
 ) {
     if (!scene_target || width <= 0 || height <= 0) return;
     auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::Lighting)];
@@ -243,7 +245,8 @@ void Renderer2D::execute_lighting_stage(
                 width,
                 height,
                 m_world_raster_scale,
-                previously_composited_layers
+                previously_composited_layers,
+                shadow_receiver_mask
             })) {
             ++metrics.draw_calls;
             m_lighting_composited_layers[pass.get()] |= render_layer_mask(layer);
@@ -356,7 +359,8 @@ void Renderer2D::submit_sprite(
     std::uint64_t entity_effect_scope,
     SDL_BlendMode blend_mode,
     bool baked_light_receiver,
-    const SpriteMaterialLighting* material_lighting
+    const SpriteMaterialLighting* material_lighting,
+    bool receives_shadows
 ) {
     render_layer = std::min<RenderLayer>(render_layer, 31);
     if (m_active_camera && !m_active_camera->renders_layer(render_layer)) {
@@ -384,6 +388,7 @@ void Renderer2D::submit_sprite(
     cmd.entity_effect_scope = entity_effect_profile.is_valid() ? entity_effect_scope : 0;
     cmd.blend_mode = blend_mode;
     cmd.baked_light_receiver = baked_light_receiver;
+    cmd.receives_shadows = receives_shadows;
     if (material_lighting && !cmd.material) {
         const MaterialPackRegion source_region = src_rect
             ? MaterialPackRegion{
@@ -426,22 +431,38 @@ void Renderer2D::submit_sprite(
 std::shared_ptr<const Material> Renderer2D::create_lit_sprite_material(
     const SpriteMaterialLighting& lighting
 ) {
-    const glm::vec3 direction = glm::length(lighting.light_direction) > 0.0001f
-        ? glm::normalize(lighting.light_direction) : glm::vec3(0.0f, 0.0f, 1.0f);
-    LitSpriteUniforms uniforms{
-        {direction.x, direction.y, direction.z, std::max(lighting.light_intensity, 0.0f)},
-        {std::clamp(lighting.light_color.r, 0.0f, 1.0f),
-         std::clamp(lighting.light_color.g, 0.0f, 1.0f),
-         std::clamp(lighting.light_color.b, 0.0f, 1.0f),
-         std::max(lighting.ambient, 0.0f)},
-        {lighting.emissive_tint.r / 255.0f,
-         lighting.emissive_tint.g / 255.0f,
-         lighting.emissive_tint.b / 255.0f,
-         std::max(lighting.emissive_intensity, 0.0f)},
-        {std::max(lighting.normal_strength, 0.0f),
-         std::max(lighting.specular_strength, 0.0f),
-         std::max(lighting.shininess, 1.0f), 0.0f}
-    };
+    LitSpriteUniforms uniforms{};
+    std::uint32_t light_count = std::min<std::uint32_t>(
+        lighting.light_count, static_cast<std::uint32_t>(SpriteMaterialLighting::MaxLights));
+    std::array<SpriteMaterialLight, SpriteMaterialLighting::MaxLights> lights = lighting.lights;
+    // Keep the original one-light API source-compatible while callers migrate.
+    if (light_count == 0 && lighting.light_intensity > 0.0f) {
+        lights[0] = {lighting.light_direction, lighting.light_color, lighting.light_intensity};
+        light_count = 1;
+    }
+    for (std::uint32_t index = 0; index < light_count; ++index) {
+        const glm::vec3 direction = glm::length(lights[index].direction) > 0.0001f
+            ? glm::normalize(lights[index].direction) : glm::vec3(0.0f, 0.0f, 1.0f);
+        uniforms.light_directions_intensity[index][0] = direction.x;
+        uniforms.light_directions_intensity[index][1] = direction.y;
+        uniforms.light_directions_intensity[index][2] = direction.z;
+        uniforms.light_directions_intensity[index][3] = std::max(lights[index].intensity, 0.0f);
+        uniforms.light_colors[index][0] = std::clamp(lights[index].color.r, 0.0f, 1.0f);
+        uniforms.light_colors[index][1] = std::clamp(lights[index].color.g, 0.0f, 1.0f);
+        uniforms.light_colors[index][2] = std::clamp(lights[index].color.b, 0.0f, 1.0f);
+    }
+    const float ambient = std::max(lighting.ambient, 0.0f);
+    uniforms.material[0] = std::max(lighting.baked_light.r, 0.0f) * ambient;
+    uniforms.material[1] = std::max(lighting.baked_light.g, 0.0f) * ambient;
+    uniforms.material[2] = std::max(lighting.baked_light.b, 0.0f) * ambient;
+    uniforms.material[3] = static_cast<float>(light_count);
+    uniforms.emissive_tint_intensity[0] = lighting.emissive_tint.r / 255.0f;
+    uniforms.emissive_tint_intensity[1] = lighting.emissive_tint.g / 255.0f;
+    uniforms.emissive_tint_intensity[2] = lighting.emissive_tint.b / 255.0f;
+    uniforms.emissive_tint_intensity[3] = std::max(lighting.emissive_intensity, 0.0f);
+    uniforms.surface[0] = std::max(lighting.normal_strength, 0.0f);
+    uniforms.surface[1] = std::max(lighting.specular_strength, 0.0f);
+    uniforms.surface[2] = std::max(lighting.shininess, 1.0f);
     std::uint64_t uniform_key = 1469598103934665603ull;
     const auto uniform_bytes = std::as_bytes(std::span<const LitSpriteUniforms>(&uniforms, 1));
     for (const std::byte value : uniform_bytes) {
@@ -945,6 +966,49 @@ void Renderer2D::end_scene() {
         SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &composition_width, &composition_height);
     }
 
+    const auto layer_needs_shadow_mask = [&](RenderLayer layer) {
+        return std::any_of(m_lighting_passes.begin(), m_lighting_passes.end(), [layer](const auto& pass) {
+            return pass && pass->is_enabled() && pass->requires_shadow_receiver_mask() &&
+                renders_layer(pass->affected_layers(), layer);
+        });
+    };
+
+    const auto build_shadow_receiver_mask = [&](size_t start_idx, size_t end_idx) -> SDL_Texture* {
+        SDL_Texture* mask = acquire_local_effect_surface(composition_width, composition_height);
+        if (!mask || !SDL_SetRenderTarget(m_sdl_renderer, mask)) {
+            if (mask) release_local_effect_surface(mask);
+            return nullptr;
+        }
+        SDL_SetRenderDrawBlendMode(m_sdl_renderer, SDL_BLENDMODE_NONE);
+        SDL_SetRenderDrawColor(m_sdl_renderer, 0, 0, 0, 0);
+        SDL_RenderClear(m_sdl_renderer);
+
+        size_t index = start_idx;
+        while (index < end_idx) {
+            while (index < end_idx && !m_sprite_queue[index].receives_shadows) ++index;
+            if (index >= end_idx) break;
+            Texture* texture = m_sprite_queue[index].texture;
+            const size_t batch_start = index++;
+            while (index < end_idx && m_sprite_queue[index].receives_shadows &&
+                   m_sprite_queue[index].texture == texture) ++index;
+            SDL_Texture* sdl_texture = texture ? texture->get_sdl_texture() : nullptr;
+            if (sdl_texture) {
+                SDL_SetTextureColorModFloat(sdl_texture, 1.0f, 1.0f, 1.0f);
+                SDL_SetTextureAlphaModFloat(sdl_texture, 1.0f);
+                SDL_SetTextureBlendMode(sdl_texture, SDL_BLENDMODE_BLEND);
+            } else {
+                SDL_SetRenderDrawBlendMode(m_sdl_renderer, SDL_BLENDMODE_BLEND);
+            }
+            SDL_RenderGeometry(
+                m_sdl_renderer, sdl_texture, m_vertex_buffer.data(),
+                static_cast<int>(m_vertex_buffer.size()),
+                &m_index_buffer[batch_start * 6],
+                static_cast<int>((index - batch_start) * 6)
+            );
+        }
+        return mask;
+    };
+
     auto flush_entity_effects = [&](
         size_t start_idx,
         size_t end_idx,
@@ -1035,9 +1099,18 @@ void Renderer2D::end_scene() {
                     );
                 }
                 SDL_Texture* const layer_target = output ? output : source;
-                if (has_lighting) {
-                    execute_lighting_stage(layer_target, layer, composition_width, composition_height);
+                SDL_Texture* shadow_receiver_mask = nullptr;
+                if (has_lighting && layer_needs_shadow_mask(layer)) {
+                    shadow_receiver_mask = build_shadow_receiver_mask(layer_start, layer_end);
                 }
+                if (has_lighting) {
+                    SDL_SetRenderTarget(m_sdl_renderer, layer_target);
+                    execute_lighting_stage(
+                        layer_target, layer, composition_width, composition_height,
+                        shadow_receiver_mask
+                    );
+                }
+                if (shadow_receiver_mask) release_local_effect_surface(shadow_receiver_mask);
                 SDL_SetRenderTarget(m_sdl_renderer, scene_target);
                 SDL_RenderTexture(m_sdl_renderer, layer_target, nullptr, nullptr);
                 if (has_layer_effects) {

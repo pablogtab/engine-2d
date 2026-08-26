@@ -36,6 +36,20 @@ void test_point_light_bounds_and_falloff() {
            point_light_falloff(50.0f, 100.0f, 1.0f, 2.0f));
 }
 
+void test_sprite_material_keeps_four_strongest_lights() {
+    SpriteMaterialLighting lighting;
+    for (const float intensity : {0.2f, 0.8f, 0.4f, 1.0f, 0.6f, 0.1f}) {
+        SpriteMaterialLight light;
+        light.intensity = intensity;
+        lighting.add_light(light);
+    }
+    assert(lighting.light_count == SpriteMaterialLighting::MaxLights);
+    assert(approximate(lighting.lights[0].intensity, 1.0f));
+    assert(approximate(lighting.lights[1].intensity, 0.8f));
+    assert(approximate(lighting.lights[2].intensity, 0.6f));
+    assert(approximate(lighting.lights[3].intensity, 0.4f));
+}
+
 void test_color_intensity_and_blend_modes() {
     const glm::vec4 base{0.25f, 0.5f, 0.75f, 0.8f};
     const glm::vec4 light{1.0f, 0.25f, 0.0f, 1.0f};
@@ -190,6 +204,37 @@ public:
     std::vector<RenderLayerMask> previous_layers_history;
 };
 
+class ShadowReceiverRecordingPass final : public ILightingPass {
+public:
+    [[nodiscard]] const char* name() const override { return "Shadow Receiver Recording"; }
+    [[nodiscard]] bool is_enabled() const override { return true; }
+    [[nodiscard]] RenderLayerMask affected_layers() const override { return render_layer_mask(0); }
+    [[nodiscard]] bool requires_shadow_receiver_mask() const override { return true; }
+    bool apply(const LightingContext& context) override {
+        assert(context.shadow_receiver_mask);
+        SDL_Texture* previous = SDL_GetRenderTarget(context.renderer);
+        assert(SDL_SetRenderTarget(context.renderer, context.shadow_receiver_mask));
+        const glm::vec2 receiver_position = context.camera->world_to_screen({-8.0f, 0.0f, 0.0f});
+        const glm::vec2 rejected_position = context.camera->world_to_screen({8.0f, 0.0f, 0.0f});
+        const auto read_alpha = [&](const glm::vec2& position) {
+            const SDL_Rect rect{static_cast<int>(position.x), static_cast<int>(position.y), 1, 1};
+            SDL_Surface* sample = SDL_RenderReadPixels(context.renderer, &rect);
+            assert(sample);
+            std::uint8_t red = 0, green = 0, blue = 0, alpha = 0;
+            assert(SDL_ReadSurfacePixel(sample, 0, 0, &red, &green, &blue, &alpha));
+            SDL_DestroySurface(sample);
+            return alpha;
+        };
+        receiver_alpha = read_alpha(receiver_position);
+        rejected_alpha = read_alpha(rejected_position);
+        SDL_SetRenderTarget(context.renderer, previous);
+        return true;
+    }
+
+    std::uint8_t receiver_alpha{0};
+    std::uint8_t rejected_alpha{255};
+};
+
 void test_renderer_routes_lighting_only_to_affected_layers() {
     SDL_Surface* surface = SDL_CreateSurface(48, 48, SDL_PIXELFORMAT_RGBA32);
     assert(surface);
@@ -279,16 +324,54 @@ void test_renderer_composites_uncovered_lighting_once_per_frame() {
     SDL_DestroySurface(surface);
 }
 
+void test_renderer_builds_explicit_shadow_receiver_mask() {
+    SDL_Surface* surface = SDL_CreateSurface(48, 48, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        Renderer2D renderer(sdl_renderer);
+        Camera2D camera(48.0f, 48.0f);
+        std::unique_ptr<Texture> white(Texture::create_solid(
+            sdl_renderer, 4, 4, 255, 255, 255, 255
+        ));
+        auto pass = std::make_shared<ShadowReceiverRecordingPass>();
+        renderer.add_lighting_pass(pass);
+
+        renderer.begin_scene(camera);
+        renderer.submit_sprite(
+            white.get(), {-8.0f, 0.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+            {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+            false, false, 0, 0, nullptr, 0, {}, 0, SDL_BLENDMODE_BLEND,
+            false, nullptr, true
+        );
+        renderer.submit_sprite(
+            white.get(), {8.0f, 0.0f, 0.0f}, {8.0f, 8.0f}, 0.0f,
+            {255, 255, 255, 255}, nullptr, {0.5f, 0.5f}, false,
+            false, false, 0, 0, nullptr, 0, {}, 0, SDL_BLENDMODE_BLEND,
+            false, nullptr, false
+        );
+        renderer.end_scene();
+        assert(pass->receiver_alpha > 240);
+        assert(pass->rejected_alpha < 5);
+        assert(renderer.get_render_target_pool_metrics().leased_targets == 0);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
     test_point_light_bounds_and_falloff();
+    test_sprite_material_keeps_four_strongest_lights();
     test_color_intensity_and_blend_modes();
     test_shadow_geometry_extrudes_only_light_facing_edges();
     test_system_extracts_lights_and_shadow_sources();
     test_components_serialize_validate_and_restore_commands();
     test_renderer_routes_lighting_only_to_affected_layers();
     test_renderer_composites_uncovered_lighting_once_per_frame();
+    test_renderer_builds_explicit_shadow_receiver_mask();
     std::cout << "Lighting2DTests passed\n";
     return 0;
 }

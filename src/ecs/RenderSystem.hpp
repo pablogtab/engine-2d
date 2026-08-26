@@ -247,7 +247,6 @@ private:
             material_lighting.ambient = 1.0f;
 
             if (sprite_lighting->receives_lighting) {
-                float best_score = -1.0f;
                 entity_manager.for_each<TransformComponent, Light2DComponent>(
                     [&](EntityID light_id, const TransformComponent& light_transform, const Light2DComponent& light) {
                         if (light_id == entity || !light.enabled || light.mobility != Light2DMobility::Realtime ||
@@ -262,21 +261,24 @@ private:
                             const float normalized = std::clamp(1.0f - distance / light.range, 0.0f, 1.0f);
                             influence *= std::pow(normalized, std::clamp(light.falloff, 0.1f, 8.0f));
                         }
-                        if (influence <= best_score) return;
-                        best_score = influence;
                         glm::vec2 direction = to_light;
                         if (light.type == Light2DType::Directional) {
                             const float radians = glm::radians(light_transform.world_rotation);
                             direction = {-std::cos(radians), -std::sin(radians)};
                         }
                         const float height = std::max(light.height - sprite_lighting->surface_height, 0.0f);
-                        material_lighting.light_direction = glm::normalize(glm::vec3(direction, height));
-                        material_lighting.light_color = {
+                        SpriteMaterialLight candidate;
+                        const glm::vec3 direction_3d(direction, height);
+                        candidate.direction = glm::length(direction_3d) > 0.0001f
+                            ? glm::normalize(direction_3d) : glm::vec3(0.0f, 0.0f, 1.0f);
+                        candidate.color = {
                             light.color.r / 255.0f,
                             light.color.g / 255.0f,
                             light.color.b / 255.0f
                         };
-                        material_lighting.light_intensity = influence;
+                        candidate.intensity = influence;
+
+                        material_lighting.add_light(candidate);
                     }
                 );
             }
@@ -302,7 +304,8 @@ private:
             effect_scope,
             SDL_BLENDMODE_BLEND,
             baked_light_receiver,
-            material_lighting_ptr
+            material_lighting_ptr,
+            !sprite_lighting || sprite_lighting->receives_shadows
         );
     }
 public:
