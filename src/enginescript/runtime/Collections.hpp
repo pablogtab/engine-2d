@@ -111,6 +111,33 @@ template <typename T, typename Allocator>
     return values[seed % values.size()];
 }
 
+template <typename T, typename Allocator, typename Callback>
+[[nodiscard]] auto mapValues(const std::vector<T, Allocator>& values, Callback&& callback) {
+    using Result = std::invoke_result_t<Callback, const T&>;
+    std::vector<Result> result;
+    result.reserve(values.size());
+    for (const T& value : values) result.push_back(callback(value));
+    return result;
+}
+
+template <typename T, typename Allocator, typename Predicate>
+[[nodiscard]] std::vector<T> filterValues(const std::vector<T, Allocator>& values, Predicate&& predicate) {
+    std::vector<T> result;
+    for (const T& value : values) if (predicate(value)) result.push_back(value);
+    return result;
+}
+
+template <typename T, typename Allocator, typename Value, typename Reducer>
+[[nodiscard]] Value reduceValues(const std::vector<T, Allocator>& values, Value initial, Reducer&& reducer) {
+    for (const T& value : values) initial = reducer(initial, value);
+    return initial;
+}
+
+template <typename T, typename Allocator, typename Compare>
+void sortValues(std::vector<T, Allocator>& values, Compare&& compare) {
+    std::stable_sort(values.begin(), values.end(), [&](const T& left, const T& right) { return compare(left, right) < 0; });
+}
+
 template <typename T, typename Allocator>
 [[nodiscard]] std::optional<T> popValue(std::vector<T, Allocator>& values) {
     if (values.empty()) return std::nullopt;

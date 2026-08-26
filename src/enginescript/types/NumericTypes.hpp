@@ -27,6 +27,7 @@ enum class TypeKind {
     Vec4,
     Color,
     Rect,
+    Bounds2,
     Duration,
     Entity,
     Class,
@@ -122,7 +123,7 @@ inline constexpr std::array<NumericTypeInfo, 10> NUMERIC_TYPES{{
     if (name == "Vec2") return 2;
     if (name == "Vec3") return 3;
     if (name == "Vec4" || name == "Color") return 4;
-    if (name == "Rect") return 4;
+    if (name == "Rect" || name == "Bounds2") return 4;
     return std::nullopt;
 }
 

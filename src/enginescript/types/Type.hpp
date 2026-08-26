@@ -113,6 +113,7 @@ struct Type : public std::enable_shared_from_this<Type> {
             case TypeKind::Vec4:       s = "Vec4"; break;
             case TypeKind::Color:      s = "Color"; break;
             case TypeKind::Rect:       s = "Rect"; break;
+            case TypeKind::Bounds2:    s = "Bounds2"; break;
             case TypeKind::Duration:   s = "Duration"; break;
             case TypeKind::Entity:     s = "Entity"; break;
             case TypeKind::Null:       s = "null"; break;

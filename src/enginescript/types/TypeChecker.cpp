@@ -123,7 +123,7 @@ bool is_send_type(const std::shared_ptr<Type>& type) {
     if (!type || type->is_error() || type->is_nullable) return false;
     if (type->is_numeric() || type->is_bool() || type->is_string() || type->kind == TypeKind::Enum ||
         type->kind == TypeKind::Struct || type->kind == TypeKind::Duration || type->kind == TypeKind::Vec2 ||
-        type->kind == TypeKind::Vec3 || type->kind == TypeKind::Vec4 || type->kind == TypeKind::Color) return true;
+        type->kind == TypeKind::Vec3 || type->kind == TypeKind::Vec4 || type->kind == TypeKind::Color || type->kind == TypeKind::Bounds2) return true;
     if (type->kind == TypeKind::Array || type->kind == TypeKind::FixedArray || type->kind == TypeKind::Set ||
         type->kind == TypeKind::Optional || type->kind == TypeKind::Map || type->kind == TypeKind::Result) {
         return !type->type_args.empty() && std::all_of(type->type_args.begin(), type->type_args.end(), is_send_type);
@@ -231,6 +231,7 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
     else if (annot.name == "Vec4") t = Type::make_primitive(TypeKind::Vec4);
     else if (annot.name == "Color") t = Type::make_primitive(TypeKind::Color);
     else if (annot.name == "Rect") t = Type::make_primitive(TypeKind::Rect);
+    else if (annot.name == "Bounds2") t = Type::make_primitive(TypeKind::Bounds2);
     else if (annot.name == "Duration") t = m_type_duration;
     else if (annot.name == "Entity") t = m_type_entity;
     else if (annot.name == "FixedArray") {
@@ -1390,6 +1391,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 if (target_t->kind == TypeKind::Map) catalog_owner = "Map";
                 if (target_t->kind == TypeKind::Set) catalog_owner = "Set";
                 if (target_t->kind == TypeKind::Rect) catalog_owner = "Rect";
+                if (target_t->kind == TypeKind::Bounds2) catalog_owner = "Bounds2";
                 if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(
                         catalog_owner, mem->member_name)) {
                     if (call->arguments.size() < method->min_arguments ||
@@ -1567,6 +1569,30 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     result->is_nullable = true;
                     m_node_types[call] = result;
                     return result;
+                }
+                if (target_t->kind == TypeKind::Array && (mem->member_name == "map" || mem->member_name == "filter" || mem->member_name == "sortBy")) {
+                    const auto callback = call->arguments.size() == 1 ? get_type_of_node(call->arguments[0].get()) : m_type_error;
+                    const bool valid = callback && callback->kind == TypeKind::Function && callback->param_types.size() == (mem->member_name == "sortBy" ? 2u : 1u) &&
+                        std::all_of(callback->param_types.begin(), callback->param_types.end(), [&](const auto& parameter) { return element_type->is_assignable_to(parameter); });
+                    if (!valid) m_diagnostics.report_error("E3080", std::format("Array.{} expects a callback over '{}' values", mem->member_name, element_type->to_string()), call->span);
+                    if (mem->member_name == "map") {
+                        auto result = Type::make_generic(TypeKind::Array, "Array", {valid ? callback->return_type : m_type_error});
+                        m_node_types[call] = result; return result;
+                    }
+                    if (mem->member_name == "filter") {
+                        if (valid && !callback->return_type->is_bool()) m_diagnostics.report_error("E3080", "Array.filter callback must return Bool", call->span);
+                        m_node_types[call] = target_t; return target_t;
+                    }
+                    if (valid && !callback->return_type->is_integer()) m_diagnostics.report_error("E3080", "Array.sortBy callback must return Int", call->span);
+                    m_node_types[call] = m_type_void; return m_type_void;
+                }
+                if (target_t->kind == TypeKind::Array && mem->member_name == "reduce") {
+                    const auto callback = call->arguments.size() == 2 ? get_type_of_node(call->arguments[1].get()) : m_type_error;
+                    const auto initial = call->arguments.empty() ? m_type_error : get_type_of_node(call->arguments[0].get());
+                    const bool valid = callback && initial && callback->kind == TypeKind::Function && callback->param_types.size() == 2 &&
+                        initial->is_assignable_to(callback->param_types[0]) && element_type->is_assignable_to(callback->param_types[1]) && callback->return_type->is_assignable_to(initial);
+                    if (!valid) m_diagnostics.report_error("E3080", "Array.reduce expects an initial value and compatible reducer", call->span);
+                    m_node_types[call] = initial; return initial;
                 }
                 if (target_t->kind == TypeKind::Array && mem->member_name == "pop") {
                     if (!call->arguments.empty()) {
@@ -2039,6 +2065,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         if (obj_t->kind == TypeKind::Vec4) catalog_owner = "Vec4";
         if (obj_t->kind == TypeKind::Color) catalog_owner = "Color";
         if (obj_t->kind == TypeKind::Rect) catalog_owner = "Rect";
+        if (obj_t->kind == TypeKind::Bounds2) catalog_owner = "Bounds2";
         if (obj_t->kind == TypeKind::Array) catalog_owner = "Array";
         if (obj_t->kind == TypeKind::FixedArray) catalog_owner = "FixedArray";
         if (obj_t->kind == TypeKind::Map) catalog_owner = "Map";
@@ -2100,7 +2127,8 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
               mem->member_name == "remove" || mem->member_name == "pop" || mem->member_name == "clear" ||
               mem->member_name == "indexOf" || mem->member_name == "lastIndexOf" ||
               mem->member_name == "removeAt" || mem->member_name == "reverse" || mem->member_name == "swap" ||
-              mem->member_name == "shuffle" || mem->member_name == "choose")) ||
+              mem->member_name == "shuffle" || mem->member_name == "choose" || mem->member_name == "map" ||
+              mem->member_name == "filter" || mem->member_name == "reduce" || mem->member_name == "sortBy")) ||
             (obj_t->kind == TypeKind::Set &&
              (mem->member_name == "add" || mem->member_name == "contains" ||
               mem->member_name == "remove" || mem->member_name == "clear")) ||

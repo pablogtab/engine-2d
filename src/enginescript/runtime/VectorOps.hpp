@@ -86,6 +86,14 @@ struct VectorOps {
     [[nodiscard]] static constexpr glm::vec4 whiteColor() { return {1.0f, 1.0f, 1.0f, 1.0f}; }
     [[nodiscard]] static constexpr glm::vec4 clearColor() { return zero4(); }
     [[nodiscard]] static constexpr glm::vec4 withAlpha(const glm::vec4& value, float alpha) { return {value.x, value.y, value.z, alpha}; }
+    [[nodiscard]] static glm::vec4 srgbToLinear(const glm::vec4& value) {
+        const auto convert = [](float channel) { return channel <= 0.04045f ? channel / 12.92f : std::pow((channel + 0.055f) / 1.055f, 2.4f); };
+        return {convert(value.x), convert(value.y), convert(value.z), value.w};
+    }
+    [[nodiscard]] static glm::vec4 linearToSrgb(const glm::vec4& value) {
+        const auto convert = [](float channel) { return channel <= 0.0031308f ? channel * 12.92f : 1.055f * std::pow(channel, 1.0f / 2.4f) - 0.055f; };
+        return {convert(value.x), convert(value.y), convert(value.z), value.w};
+    }
 };
 
 } // namespace EngineScript

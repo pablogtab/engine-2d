@@ -64,6 +64,7 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
         case TypeKind::Vec4:       s = "glm::vec4"; break;
         case TypeKind::Color:      s = "glm::vec4"; break;
         case TypeKind::Rect:       s = "EngineScript::Rect"; break;
+        case TypeKind::Bounds2:    s = "EngineScript::Bounds2"; break;
         case TypeKind::Duration:   s = "float"; break;
         case TypeKind::Entity:     s = "EngineScript::Entity"; break;
         case TypeKind::Array:
@@ -1047,7 +1048,8 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     if (auto construction = dynamic_cast<const IRValueConstruct*>(op)) {
         std::string result = construction->target_kind == TypeKind::Vec2 ? "glm::vec2(" :
             (construction->target_kind == TypeKind::Vec3 ? "glm::vec3(" :
-                (construction->target_kind == TypeKind::Rect ? "EngineScript::Rect(" : "glm::vec4("));
+                (construction->target_kind == TypeKind::Rect ? "EngineScript::Rect(" :
+                    (construction->target_kind == TypeKind::Bounds2 ? "EngineScript::Bounds2(" : "glm::vec4(")));
         for (std::size_t index = 0; index < construction->args.size(); ++index) {
             result += emit_operation_cpp(construction->args[index].get());
             if (index + 1 < construction->args.size()) result += ", ";
@@ -1213,8 +1215,9 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             const bool is_vec4 = mc->target->result_type->kind == TypeKind::Vec4;
             const bool is_color = mc->target->result_type->kind == TypeKind::Color;
             const bool is_rect = mc->target->result_type->kind == TypeKind::Rect;
-            const std::string runtime_owner = (is_vec2 || is_vec3 || is_vec4 || is_color) ? "VectorOps" : (is_rect ? "RectOps" : owner);
-            if (owner == "Math" || owner == "Ease" || owner == "Random" || is_vec2 || is_vec3 || is_vec4 || is_color || is_rect) {
+            const bool is_bounds2 = mc->target->result_type->kind == TypeKind::Bounds2;
+            const std::string runtime_owner = (is_vec2 || is_vec3 || is_vec4 || is_color) ? "VectorOps" : (is_rect ? "RectOps" : (is_bounds2 ? "Bounds2Ops" : owner));
+            if (owner == "Math" || owner == "Ease" || owner == "Random" || owner == "Noise" || is_vec2 || is_vec3 || is_vec4 || is_color || is_rect || is_bounds2) {
                 std::string runtime_method = is_rect && mc->method_name == "union" ? "unite" : mc->method_name;
                 if (is_vec3) {
                     if (runtime_method == "zero") runtime_method = "zero3";
@@ -1274,6 +1277,18 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             }
             if (kind == TypeKind::Array && mc->method_name == "choose") {
                 return "EngineScript::chooseValue(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "map") {
+                return "EngineScript::mapValues(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "filter") {
+                return "EngineScript::filterValues(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "reduce") {
+                return "EngineScript::reduceValues(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ", " + emit_operation_cpp(mc->args[1].get()) + ")";
+            }
+            if (kind == TypeKind::Array && mc->method_name == "sortBy") {
+                return "EngineScript::sortValues(" + target + ", " + emit_operation_cpp(mc->args[0].get()) + ")";
             }
             if (kind == TypeKind::Array && mc->method_name == "pop") {
                 return "EngineScript::popValue(" + target + ")";

@@ -183,6 +183,6 @@ No se acepta firma sin runtime, runtime sin catálogo, ni evidencia sólo headle
 
 Cada módulo termina sólo si catálogo, runtime y docs coinciden; casos felices y borde pasan desde fuente hasta C++ generado; proyecto real compila; LSP lo ve cuando aplica; versiones coherentes; y pasan `git diff --check` y las suites acordadas.
 
-## Estado beta y siguiente etapa
+## Incremento avanzado
 
-Las fases 0 a 7 están implementadas y validadas en catálogo, C++ generado, LSP y proyecto representativo. Bounds2, Noise, callbacks/iteradores, paquetes EngineKit, Tweens, Bounce/Elastic y conversiones sRGB/lineal permanecen fuera de la beta hasta contar con consumidores y contratos específicos.
+El incremento avanzado añade conversiones explícitas sRGB/lineal bajo el contrato actual de renderer sRGB, `Bounds2`, Noise determinista, Bounce/Elastic, callbacks eager de Array y paquetes de referencia game-side. Iteradores lazy, callbacks persistentes, Bounds3, ruido GPU y un framebuffer lineal completo permanecen diferidos.

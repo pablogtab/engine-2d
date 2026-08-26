@@ -141,7 +141,7 @@ bool IRVerifier::verify_operation(const IROperation* op) {
             const auto* value = dynamic_cast<const IRValueConstruct*>(op);
             const std::size_t expected = value && value->target_kind == TypeKind::Vec2 ? 2 :
                 (value && value->target_kind == TypeKind::Vec3 ? 3 :
-                    (value && (value->target_kind == TypeKind::Vec4 || value->target_kind == TypeKind::Color || value->target_kind == TypeKind::Rect) ? 4 : 0));
+                    (value && (value->target_kind == TypeKind::Vec4 || value->target_kind == TypeKind::Color || value->target_kind == TypeKind::Rect || value->target_kind == TypeKind::Bounds2) ? 4 : 0));
             if (!value || expected == 0 || value->args.size() != expected) {
                 m_diagnostics.report_error("E4027", "IRValueConstruct has an invalid target or arity", op->span);
                 return false;

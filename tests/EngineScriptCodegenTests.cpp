@@ -259,6 +259,19 @@ int main() {
                 let overlap = Rect.intersection(Rect(0.0, 0.0, 2.0, 2.0), Rect(1.0, 1.0, 2.0, 2.0));
                 values.reverse();
             }
+            callbacks(): Int {
+                let values: Array<Int> = [3, 1, 2];
+                let doubled = values.map((value: Int) => value * 2);
+                let positives = doubled.filter((value: Int) => value > 0);
+                positives.sortBy((left: Int, right: Int) => left - right);
+                return positives.reduce(0, (sum: Int, value: Int) => sum + value);
+            }
+            advanced(seed: UInt): Float {
+                let bounds: Bounds2 = Bounds2.fromMinMax(Vec2(-1.0, -1.0), Vec2(1.0, 1.0));
+                let point: Vec2 = Bounds2.closestPoint(bounds, Vec2(5.0, 0.0));
+                let linear: Color = Color.srgbToLinear(Color.white());
+                return point.x + linear.x + Noise.fbm2D(seed, 0.5, 0.25, 3) + Ease.outElasticUnclamped(0.5);
+            }
         }
     )";
     const FileId math_file = sm.register_source("Source/MathRuntime.e2s", math_code);
@@ -282,6 +295,12 @@ int main() {
     assert(math_output.source_content.find("EngineScript::RectOps::intersection") != std::string::npos);
     assert(math_output.source_content.find("EngineScript::shuffleValues") != std::string::npos);
     assert(math_output.source_content.find("EngineScript::chooseValue") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::mapValues") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::filterValues") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::reduceValues") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::sortValues") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::Bounds2Ops::closestPoint") != std::string::npos);
+    assert(math_output.source_content.find("EngineScript::Noise::fbm2D") != std::string::npos);
     require_generated_cpp_runs(math_output, R"(
         #include "MathRuntime.generated.hpp"
         #include <cassert>
@@ -301,6 +320,8 @@ int main() {
             assert(math.volume() > 1.4f && math.volume() < 2.6f);
             assert(math.standardBeta(9u) > 3.0f);
             math.arrange(5u);
+            assert(math.callbacks() == 12);
+            assert(math.advanced(9u) > 1.0f);
             return 0;
         }
     )");

@@ -18,6 +18,8 @@ int main() {
     assert(catalog.has_available_type("Ease"));
     assert(catalog.has_available_type("Random"));
     assert(catalog.has_available_type("Rect"));
+    assert(catalog.has_available_type("Bounds2"));
+    assert(catalog.has_available_type("Noise"));
     const ApiMethodDescriptor* math_clamp = catalog.find_available_method("Math", "clamp");
     assert(math_clamp != nullptr);
     assert(math_clamp->return_type == "Float");
@@ -33,12 +35,23 @@ int main() {
     assert(catalog.find_available_method("Random", "insideUnitCircle") != nullptr);
     assert(catalog.find_available_method("Rect", "intersection") != nullptr);
     assert(catalog.find_available_method("Rect", "intersection")->nullable_return);
+    assert(catalog.find_available_method("Bounds2", "intersects") != nullptr);
+    assert(catalog.find_available_method("Noise", "fbm2D") != nullptr);
+    assert(catalog.find_available_method("Color", "srgbToLinear") != nullptr);
+    assert(catalog.find_available_method("Ease", "outElasticUnclamped") != nullptr);
     assert(VectorOps::clampMagnitude(glm::vec2{3.0f, 4.0f}, 2.0f) == glm::vec2(1.2f, 1.6f));
     assert(std::abs(VectorOps::signedAngle(glm::vec2{1.0f, 0.0f}, glm::vec2{0.0f, 1.0f}) - Math::PI * 0.5f) < 0.0001f);
     assert(VectorOps::normalized4(glm::vec4{}) == glm::vec4{});
     assert(VectorOps::withAlpha(VectorOps::whiteColor(), 0.25f).w == 0.25f);
+    assert(std::abs(VectorOps::linearToSrgb(VectorOps::srgbToLinear(glm::vec4(0.5f, 0.25f, 0.75f, 1.0f))).x - 0.5f) < 0.0001f);
     assert(Ease::inExpo(0.0f) == 0.0f && Ease::outExpo(1.0f) == 1.0f);
     assert(Ease::inOutBack(-1.0f) == 0.0f && Ease::inOutBack(2.0f) == 1.0f);
+    assert(Ease::outBounce(0.0f) == 0.0f && Ease::outElastic(1.0f) == 1.0f);
+    assert(Ease::outBounceUnclamped(1.2f) != Ease::outBounce(1.2f));
+    assert(Bounds2Ops::contains(Bounds2{0.0f, 0.0f, 4.0f, 4.0f}, glm::vec2(2.0f, 0.0f)));
+    assert(Bounds2Ops::intersects(Bounds2{0.0f, 0.0f, 4.0f, 4.0f}, Bounds2{1.0f, 0.0f, 4.0f, 4.0f}));
+    assert(Noise::value2D(4u, 1.25f, 2.5f) == Noise::value2D(4u, 1.25f, 2.5f));
+    assert(Noise::fbm2D(4u, 1.25f, 2.5f, 3) >= 0.0f && Noise::fbm2D(4u, 1.25f, 2.5f, 3) <= 1.0f);
     constexpr std::array<std::uint32_t, 20> random_golden{
         1013904223u, 1196435762u, 3519870697u, 2868466484u, 1649599747u,
         2670642822u, 1476291629u, 2748932008u, 2180890343u, 2498801434u,

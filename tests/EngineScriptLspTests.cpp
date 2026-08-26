@@ -32,6 +32,10 @@ int main() {
     assert(api.find_available_method("Ease", "inOutExpo") != nullptr);
     assert(api.find_available_method("Random", "rangeFloat") != nullptr);
     assert(api.find_available_method("Rect", "intersection") != nullptr);
+    assert(api.find_available_method("Bounds2", "intersects") != nullptr);
+    assert(api.find_available_method("Noise", "value2D") != nullptr);
+    assert(api.find_available_method("Color", "linearToSrgb") != nullptr);
+    assert(api.find_available_method("Ease", "outElastic") != nullptr);
 
     LanguageServer server("/workspace/My Game");
 

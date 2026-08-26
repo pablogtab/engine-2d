@@ -288,7 +288,7 @@ game owns its own lifecycle policy, typically through a game-side singleton:
 
 ```enginescript
 class GameRng {
-    private static seed: UInt = 42u;
+    private static seed: UInt = UInt(42);
 
     static nextFloat(min: Float, max: Float): Float {
         seed = Random.nextUInt(seed);
@@ -299,9 +299,19 @@ class GameRng {
 
 The engine does not expose a shared RNG service. `Array.shuffle(seed)` and
 `Array.choose(seed)` are deterministic for the supplied seed; `choose` is
-nullable for an empty array. Callback-based collection algorithms, lazy
-iterators, Bounds2, Noise, EngineKit packages, Tweens, and color-space
-conversion remain post-beta work.
+nullable for an empty array. Lazy iterators and renderer-wide linear output
+remain post-beta work.
+
+## Advanced utilities
+
+The current renderer consumes sRGB `SDL_Color` values. `Color.srgbToLinear`
+and `Color.linearToSrgb` are explicit conversion helpers for calculations;
+they do not change the renderer's color-space contract. `Bounds2` supplies
+center/size spatial bounds and `Noise` supplies seeded value/fBm noise.
+
+`Ease` includes Bounce and Elastic curves, plus explicitly named unclamped
+variants. `Array.map`, `filter`, `reduce`, and `sortBy` execute callbacks
+eagerly: callbacks never escape or become persistent runtime state.
 
 ## Compiler cache and generated content
 

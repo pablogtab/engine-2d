@@ -12,6 +12,8 @@
 #include "../runtime/Ease.hpp"
 #include "../runtime/Random.hpp"
 #include "../runtime/Rect.hpp"
+#include "../runtime/Bounds2.hpp"
+#include "../runtime/Noise.hpp"
 
 #include <glm/glm.hpp>
 
