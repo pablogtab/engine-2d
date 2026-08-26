@@ -12,6 +12,7 @@ Texture::Texture(SDL_Renderer* renderer, int width, int height, const uint32_t* 
     : m_width(width), m_height(height) {
 
     if (pixels && width > 0 && height > 0) {
+        m_pixels.assign(pixels, pixels + static_cast<std::size_t>(width) * height);
         m_alpha.resize(static_cast<std::size_t>(width) * height);
         for (std::size_t index = 0; index < m_alpha.size(); ++index) {
             m_alpha[index] = static_cast<std::uint8_t>(pixels[index] & 0xffu);

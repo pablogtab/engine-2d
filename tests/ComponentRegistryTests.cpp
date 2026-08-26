@@ -789,7 +789,7 @@ void test_material_assets_load_by_handle() {
     const AssetHandle source_handle = source->handle;
     const nlohmann::json shader_json{
         {"name", "Test Shader"},
-        {"sampler_count", 1},
+        {"sampler_count", 2},
         {"uniform_buffers", nlohmann::json::array({{{"name", "TestUniforms"}, {"size", 4},
             {"parameters", nlohmann::json::array({{{"name", "Strength"}, {"type", "float"},
                 {"offset", 0}, {"default", nlohmann::json::array({0.5f})}, {"min", 0.0f}, {"max", 1.0f}}})}}})},
@@ -811,6 +811,7 @@ void test_material_assets_load_by_handle() {
     assert(loaded && loaded->name() == "Test Material");
     assert(loaded->uniform_bytes(0).size() == 4);
     assert(loaded->shader().variants().front().entry_point == "main0");
+    assert(loaded->shader().sampler_count() == 2);
     const auto shader_description = ShaderAsset::read(*shader_handle, database);
     assert(shader_description && shader_description->uniform_buffers.front().parameters.size() == 1);
     assert(shader_description->uniform_buffers.front().parameters.front().name == "Strength");

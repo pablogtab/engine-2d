@@ -1,6 +1,8 @@
 #include "SDLGPUMaterialBackend.hpp"
 #include "Material.hpp"
+#include "../Texture.hpp"
 #include "core/Log.hpp"
+#include <cstring>
 
 namespace Engine {
 
@@ -35,6 +37,7 @@ SDLGPUMaterialBackend::SDLGPUMaterialBackend(SDL_Renderer* renderer)
 
 SDLGPUMaterialBackend::~SDLGPUMaterialBackend() {
     destroy_states();
+    if (m_default_sampler && m_device) SDL_ReleaseGPUSampler(m_device, m_default_sampler);
 }
 
 const char* SDLGPUMaterialBackend::backend_name() const {
@@ -66,11 +69,19 @@ bool SDLGPUMaterialBackend::supports(
     return false;
 }
 
-SDLGPUMaterialBackend::CachedState* SDLGPUMaterialBackend::state_for(
-    const std::shared_ptr<const FragmentShader>& shader
-) {
+SDLGPUMaterialBackend::CachedState* SDLGPUMaterialBackend::state_for(const Material& material) {
     if (!m_device || !m_renderer) return nullptr;
-    if (auto found = m_states.find(shader); found != m_states.end()) return &found->second;
+    const auto& shader = material.shader_ptr();
+    if (auto found = m_states.find(shader); found != m_states.end()) {
+        CachedState& cached = found->second;
+        if (cached.sampler_material == &material && cached.sampler_revision == material.sampler_revision()) {
+            return &cached;
+        }
+        if (cached.render_state) SDL_DestroyGPURenderState(cached.render_state);
+        if (cached.shader) SDL_ReleaseGPUShader(m_device, cached.shader);
+        destroy_sampler_textures(cached);
+        m_states.erase(found);
+    }
     std::string support_error;
     if (!supports(m_renderer, *shader, &support_error)) {
         ENGINE_LOG_ERROR("[MATERIAL] Shader '{}' is unavailable: {}", shader->name(), support_error);
@@ -110,12 +121,49 @@ SDLGPUMaterialBackend::CachedState* SDLGPUMaterialBackend::state_for(
         return nullptr;
     }
 
+    const std::uint32_t additional_sampler_count = shader->sampler_count() - 1;
+    std::vector<SDL_GPUTextureSamplerBinding> sampler_bindings;
+    if (additional_sampler_count > 0) {
+        if (!m_default_sampler) {
+            SDL_GPUSamplerCreateInfo sampler_info{};
+            sampler_info.min_filter = SDL_GPU_FILTER_LINEAR;
+            sampler_info.mag_filter = SDL_GPU_FILTER_LINEAR;
+            sampler_info.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+            sampler_info.address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            sampler_info.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            sampler_info.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            m_default_sampler = SDL_CreateGPUSampler(m_device, &sampler_info);
+        }
+        if (!m_default_sampler) {
+            ENGINE_LOG_ERROR("[MATERIAL] Failed to create sampler: {}", SDL_GetError());
+            SDL_ReleaseGPUShader(m_device, state.shader);
+            return nullptr;
+        }
+        sampler_bindings.reserve(additional_sampler_count);
+        for (std::uint32_t slot = 1; slot <= additional_sampler_count; ++slot) {
+            Texture* texture = material.sampler_texture(slot);
+            const std::uint32_t fallback_pixel = 0xffffffffu;
+            SDL_GPUTexture* gpu_texture = texture ? create_gpu_texture(*texture) : create_gpu_texture(&fallback_pixel, 1, 1);
+            if (!gpu_texture) {
+                ENGINE_LOG_ERROR("[MATERIAL] GPU texture for sampler slot {} is unavailable", slot);
+                SDL_ReleaseGPUShader(m_device, state.shader);
+                destroy_sampler_textures(state);
+                return nullptr;
+            }
+            state.sampler_textures.push_back(gpu_texture);
+            sampler_bindings.push_back({gpu_texture, m_default_sampler});
+        }
+    }
+
     SDL_GPURenderStateCreateInfo state_info{};
     state_info.fragment_shader = state.shader;
+    state_info.num_sampler_bindings = static_cast<Sint32>(sampler_bindings.size());
+    state_info.sampler_bindings = sampler_bindings.empty() ? nullptr : sampler_bindings.data();
     state.render_state = SDL_CreateGPURenderState(m_renderer, &state_info);
     if (!state.render_state) {
         ENGINE_LOG_ERROR("[MATERIAL] Failed to create render state '{}': {}", shader->name(), SDL_GetError());
         SDL_ReleaseGPUShader(m_device, state.shader);
+        destroy_sampler_textures(state);
         return nullptr;
     }
 
@@ -125,11 +173,15 @@ SDLGPUMaterialBackend::CachedState* SDLGPUMaterialBackend::state_for(
         backend_name()
     );
 
-    return &m_states.emplace(shader, state).first->second;
+    state.sampler_material = &material;
+    state.sampler_revision = material.sampler_revision();
+    auto [inserted, added] = m_states.emplace(shader, state);
+    (void)added;
+    return &inserted->second;
 }
 
 bool SDLGPUMaterialBackend::bind(const Material& material, const MaterialRenderContext&) {
-    CachedState* state = state_for(material.shader_ptr());
+    CachedState* state = state_for(material);
     if (!state) return false;
 
     const std::uint32_t uniform_count = material.shader().uniform_buffer_count();
@@ -168,12 +220,15 @@ void SDLGPUMaterialBackend::discard_unused() {
         if (it->first.use_count() != 1) { ++it; continue; }
         if (it->second.render_state) SDL_DestroyGPURenderState(it->second.render_state);
         if (it->second.shader && m_device) SDL_ReleaseGPUShader(m_device, it->second.shader);
+        destroy_sampler_textures(it->second);
         it = m_states.erase(it);
     }
 }
 
 void SDLGPUMaterialBackend::invalidate_device_resources() {
     destroy_states();
+    if (m_default_sampler && m_device) SDL_ReleaseGPUSampler(m_device, m_default_sampler);
+    m_default_sampler = nullptr;
     m_device = nullptr;
 }
 
@@ -204,8 +259,56 @@ void SDLGPUMaterialBackend::destroy_states() {
         (void)shader_asset;
         if (state.render_state) SDL_DestroyGPURenderState(state.render_state);
         if (state.shader && m_device) SDL_ReleaseGPUShader(m_device, state.shader);
+        destroy_sampler_textures(state);
     }
     m_states.clear();
+}
+
+void SDLGPUMaterialBackend::destroy_sampler_textures(CachedState& state) {
+    for (SDL_GPUTexture* texture : state.sampler_textures) if (texture && m_device) SDL_ReleaseGPUTexture(m_device, texture);
+    state.sampler_textures.clear();
+}
+
+SDL_GPUTexture* SDLGPUMaterialBackend::create_gpu_texture(const Texture& texture) {
+    const auto pixels = texture.pixels();
+    return pixels.empty() ? nullptr : create_gpu_texture(pixels.data(), texture.get_width(), texture.get_height());
+}
+
+SDL_GPUTexture* SDLGPUMaterialBackend::create_gpu_texture(const std::uint32_t* pixels, int width, int height) {
+    if (!m_device || !pixels || width <= 0 || height <= 0) return nullptr;
+    const std::size_t pixel_count = static_cast<std::size_t>(width) * height;
+    std::vector<std::uint8_t> rgba(pixel_count * 4);
+    for (std::size_t i = 0; i < pixel_count; ++i) {
+        rgba[i * 4] = static_cast<std::uint8_t>(pixels[i] >> 24);
+        rgba[i * 4 + 1] = static_cast<std::uint8_t>(pixels[i] >> 16);
+        rgba[i * 4 + 2] = static_cast<std::uint8_t>(pixels[i] >> 8);
+        rgba[i * 4 + 3] = static_cast<std::uint8_t>(pixels[i]);
+    }
+    SDL_GPUTextureCreateInfo texture_info{};
+    texture_info.type = SDL_GPU_TEXTURETYPE_2D;
+    texture_info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    texture_info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    texture_info.width = static_cast<Uint32>(width); texture_info.height = static_cast<Uint32>(height);
+    texture_info.layer_count_or_depth = 1; texture_info.num_levels = 1; texture_info.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    SDL_GPUTexture* result = SDL_CreateGPUTexture(m_device, &texture_info);
+    if (!result) return nullptr;
+    SDL_GPUTransferBufferCreateInfo transfer_info{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, static_cast<Uint32>(rgba.size()), 0};
+    SDL_GPUTransferBuffer* transfer = SDL_CreateGPUTransferBuffer(m_device, &transfer_info);
+    if (!transfer) { SDL_ReleaseGPUTexture(m_device, result); return nullptr; }
+    void* mapped = SDL_MapGPUTransferBuffer(m_device, transfer, false);
+    if (!mapped) { SDL_ReleaseGPUTransferBuffer(m_device, transfer); SDL_ReleaseGPUTexture(m_device, result); return nullptr; }
+    std::memcpy(mapped, rgba.data(), rgba.size()); SDL_UnmapGPUTransferBuffer(m_device, transfer);
+    SDL_GPUCommandBuffer* command = SDL_AcquireGPUCommandBuffer(m_device);
+    if (!command) { SDL_ReleaseGPUTransferBuffer(m_device, transfer); SDL_ReleaseGPUTexture(m_device, result); return nullptr; }
+    SDL_GPUCopyPass* copy = SDL_BeginGPUCopyPass(command);
+    const SDL_GPUTextureTransferInfo source{transfer, 0, static_cast<Uint32>(width), static_cast<Uint32>(height)};
+    const SDL_GPUTextureRegion destination{result, 0, 0, 0, static_cast<Uint32>(width), static_cast<Uint32>(height), 1};
+    SDL_UploadToGPUTexture(copy, &source, &destination, false); SDL_EndGPUCopyPass(copy);
+    if (!SDL_SubmitGPUCommandBuffer(command) || !SDL_WaitForGPUIdle(m_device)) {
+        SDL_ReleaseGPUTransferBuffer(m_device, transfer); SDL_ReleaseGPUTexture(m_device, result); return nullptr;
+    }
+    SDL_ReleaseGPUTransferBuffer(m_device, transfer);
+    return result;
 }
 
 } // namespace Engine

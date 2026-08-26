@@ -5,10 +5,12 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Engine {
 
 class FragmentShader;
+class Texture;
 
 class SDLGPUMaterialBackend final : public IMaterialBackend {
 public:
@@ -38,14 +40,21 @@ private:
     struct CachedState {
         SDL_GPUShader* shader{nullptr};
         SDL_GPURenderState* render_state{nullptr};
+        std::uint64_t sampler_revision{0};
+        const Material* sampler_material{nullptr};
+        std::vector<SDL_GPUTexture*> sampler_textures;
     };
 
-    CachedState* state_for(const std::shared_ptr<const FragmentShader>& shader);
+    CachedState* state_for(const Material& material);
     void destroy_states();
+    void destroy_sampler_textures(CachedState& state);
+    [[nodiscard]] SDL_GPUTexture* create_gpu_texture(const Texture& texture);
+    [[nodiscard]] SDL_GPUTexture* create_gpu_texture(const std::uint32_t* pixels, int width, int height);
 
     SDL_Renderer* m_renderer{nullptr};
     SDL_GPUDevice* m_device{nullptr};
     std::unordered_map<std::shared_ptr<const FragmentShader>, CachedState> m_states;
+    SDL_GPUSampler* m_default_sampler{nullptr};
 };
 
 } // namespace Engine

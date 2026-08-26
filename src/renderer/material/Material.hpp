@@ -13,9 +13,14 @@
 
 namespace Engine {
 
+class Texture;
+
 class Material {
 public:
     static constexpr std::size_t MAX_UNIFORM_SLOTS = 4;
+    // Slot zero is provided by SDL_RenderTexture for every draw.  Additional
+    // slots are material-owned inputs such as normal, emissive or specular maps.
+    static constexpr std::size_t MAX_SAMPLER_SLOTS = 8;
 
     Material(std::string name, std::shared_ptr<const FragmentShader> shader)
         : m_name(std::move(name)), m_shader(std::move(shader)) {
@@ -42,10 +47,27 @@ public:
         return m_uniforms[slot];
     }
 
+    void set_sampler_texture(std::size_t slot, Texture* texture) {
+        if (slot == 0 || slot >= MAX_SAMPLER_SLOTS) {
+            throw std::out_of_range("Material sampler slot is out of range or reserved for the source texture");
+        }
+        if (m_sampler_textures[slot] == texture) return;
+        m_sampler_textures[slot] = texture;
+        ++m_sampler_revision;
+    }
+
+    [[nodiscard]] Texture* sampler_texture(std::size_t slot) const {
+        return slot < MAX_SAMPLER_SLOTS ? m_sampler_textures[slot] : nullptr;
+    }
+
+    [[nodiscard]] std::uint64_t sampler_revision() const { return m_sampler_revision; }
+
 private:
     std::string m_name;
     std::shared_ptr<const FragmentShader> m_shader;
     std::array<std::vector<std::byte>, MAX_UNIFORM_SLOTS> m_uniforms;
+    std::array<Texture*, MAX_SAMPLER_SLOTS> m_sampler_textures{};
+    std::uint64_t m_sampler_revision{0};
 };
 
 } // namespace Engine

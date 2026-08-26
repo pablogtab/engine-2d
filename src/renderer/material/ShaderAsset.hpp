@@ -67,7 +67,8 @@ public:
         description.name = json["name"].get<std::string>();
         description.sampler_count = json.value("sampler_count", 1u);
         const auto buffers = json.value("uniform_buffers", nlohmann::json::array());
-        if (description.name.empty() || description.sampler_count != 1 || !buffers.is_array() ||
+        if (description.name.empty() || description.sampler_count == 0 ||
+            description.sampler_count > MaterialSamplerLimit || !buffers.is_array() ||
             buffers.size() > MaterialUniformSlotLimit) {
             set_error(error, "Shader layout is unsupported");
             return {};
@@ -231,6 +232,7 @@ public:
 
 private:
     static constexpr std::size_t MaterialUniformSlotLimit = 4;
+    static constexpr std::uint32_t MaterialSamplerLimit = 8;
 
     static void set_error(std::string* error, std::string message) { if (error) *error = std::move(message); }
 
