@@ -602,6 +602,7 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
             : "untitled:" + scene_name + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(scene));
 
         it = m_scene_sessions.emplace(scene, std::move(session)).first;
+        refresh_scene_source_stamp(it->second);
         load_entity_state_preferences(scene, it->second);
         it->second.persisted_entity_state_revision =
             it->second.entity_state_store->persistence_revision();
@@ -614,6 +615,8 @@ void EditorLayer::bind_scene_path(const Scene* scene, const std::string& path) {
     EditorSceneSession& session = get_or_create_session(scene, scene->get_name());
     session.file_path = path;
     session.autosave_identity = normalized_scene_identity(path);
+    session.external_source_conflicted = false;
+    refresh_scene_source_stamp(session);
     load_entity_state_preferences(scene, session);
     if (session.entity_state_store) {
         session.persisted_entity_state_revision =
@@ -1167,6 +1170,12 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
         m_show_save_as_popup = true;
         return false;
     }
+    if (session.external_source_conflicted && custom_path.empty()) {
+        m_external_conflict_scene = scene;
+        ENGINE_LOG_WARN("[EDITOR] Scene '{}' changed on disk; reload it or use Save As before saving",
+                        scene->get_name());
+        return false;
+    }
 
     std::string path = custom_path;
     if (path.empty()) {
@@ -1188,9 +1197,11 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
     session.file_path = path;
     session.initial_snapshot_json.clear();
     session.recovery_source_conflicted = false;
+    session.external_source_conflicted = false;
     if (session.command_history) session.command_history->mark_saved();
     static_cast<void>(m_autosave_recovery.remove(session.autosave_identity));
     session.autosave_identity = normalized_scene_identity(path);
+    refresh_scene_source_stamp(session);
     save_entity_state_preferences();
     record_recent_scene(path);
     schedule_lighting_bake(path, std::chrono::milliseconds(500));
@@ -1448,6 +1459,7 @@ void EditorLayer::load_scene(const std::string& path) {
         session.file_path = path;
         session.initial_snapshot_json.clear();
         session.autosave_identity = normalized_scene_identity(path);
+        refresh_scene_source_stamp(session);
         load_entity_state_preferences(new_scene.get(), session);
         session.persisted_entity_state_revision =
             session.entity_state_store->persistence_revision();
@@ -1958,7 +1970,9 @@ void EditorLayer::render_panels(float delta_time) {
         m_recovery_scan_complete = true;
     }
     update_autosaves(delta_time);
+    update_external_scene_changes(delta_time);
     render_recovery_modal();
+    render_external_scene_change_modal();
 
     for (auto& panel : m_panels) {
         if (panel && panel->is_open) {
@@ -1991,6 +2005,128 @@ void EditorLayer::render_panels(float delta_time) {
         m_hot_exit_checkpoint_elapsed = 0.0f;
         save_hot_exit_session();
     }
+}
+
+void EditorLayer::refresh_scene_source_stamp(EditorSceneSession& session) {
+    session.source_write_time_initialized = false;
+    if (session.file_path.empty()) return;
+    std::error_code error;
+    const auto write_time = std::filesystem::last_write_time(session.file_path, error);
+    if (error) return;
+    session.observed_source_write_time = write_time;
+    session.source_write_time_initialized = true;
+}
+
+bool EditorLayer::reload_scene_from_disk(
+    Scene* scene,
+    EditorSceneSession& session,
+    const char* reason
+) {
+    if (!scene || session.file_path.empty()) return false;
+
+    SceneEditorMetadata editor_metadata;
+    SceneSerializer serializer(scene, m_renderer, nullptr, &editor_metadata);
+    if (!serializer.deserialize(session.file_path)) {
+        session.external_source_conflicted = true;
+        m_external_conflict_scene = scene;
+        ENGINE_LOG_ERROR("[EDITOR] Failed to reload externally modified scene '{}' from '{}'",
+                         scene->get_name(), session.file_path);
+        return false;
+    }
+
+    apply_scene_editor_metadata(editor_metadata, session.entity_state_store.get());
+    if (session.entity_state_store) {
+        session.entity_state_store->prune(scene->get_entity_manager());
+    }
+    if (session.selection) {
+        std::unordered_set<EntityID> surviving_selection;
+        const EntityManager& entities = scene->get_entity_manager();
+        for (EntityID selected : session.selection->get_selected()) {
+            if (entities.is_alive(selected)) surviving_selection.insert(selected);
+        }
+        session.selection->set_selection(surviving_selection);
+    }
+    if (session.command_history) session.command_history->reset_clean_baseline(0);
+    session.initial_snapshot_json.clear();
+    session.external_source_conflicted = false;
+    refresh_scene_source_stamp(session);
+    schedule_lighting_bake(session.file_path, std::chrono::milliseconds(500));
+    update_window_title();
+    ENGINE_LOG_INFO("[EDITOR] Reloaded scene '{}' from disk ({})", scene->get_name(), reason);
+    return true;
+}
+
+void EditorLayer::update_external_scene_changes(float delta_time) {
+    if (!m_scene_manager || !m_scene_manager->is_editing()) return;
+    m_external_scene_poll_elapsed += delta_time;
+    if (m_external_scene_poll_elapsed < 0.25f) return;
+    m_external_scene_poll_elapsed = 0.0f;
+
+    for (const auto& scene : m_scene_manager->get_scenes()) {
+        if (!scene) continue;
+        auto session_it = m_scene_sessions.find(scene.get());
+        if (session_it == m_scene_sessions.end()) continue;
+        EditorSceneSession& session = session_it->second;
+        if (session.file_path.empty()) continue;
+
+        std::error_code error;
+        const auto write_time = std::filesystem::last_write_time(session.file_path, error);
+        if (error) continue;
+        if (!session.source_write_time_initialized) {
+            session.observed_source_write_time = write_time;
+            session.source_write_time_initialized = true;
+            continue;
+        }
+        if (write_time == session.observed_source_write_time) continue;
+        session.observed_source_write_time = write_time;
+
+        if (session.command_history && session.command_history->is_dirty()) {
+            session.external_source_conflicted = true;
+            m_external_conflict_scene = scene.get();
+            ENGINE_LOG_WARN(
+                "[EDITOR] Scene '{}' changed on disk while local edits are unsaved; save is blocked",
+                scene->get_name());
+            continue;
+        }
+        static_cast<void>(reload_scene_from_disk(scene.get(), session, "external change"));
+    }
+}
+
+void EditorLayer::render_external_scene_change_modal() {
+    if (m_external_conflict_scene) {
+        ImGui::OpenPopup("Scene changed on disk");
+    }
+    if (!ImGui::BeginPopupModal(
+            "Scene changed on disk", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+    const Scene* conflicted_scene = m_external_conflict_scene;
+    ImGui::TextWrapped(
+        "This scene changed on disk while it has unsaved editor changes. "
+        "Saving over the external version is blocked.");
+    if (conflicted_scene) ImGui::Text("Scene: %s", conflicted_scene->get_name().c_str());
+    ImGui::Spacing();
+
+    if (ImGui::Button("Reload from disk", ImVec2(150.0f, 0.0f))) {
+        auto session_it = m_scene_sessions.find(conflicted_scene);
+        bool reloaded = false;
+        if (session_it != m_scene_sessions.end()) {
+            reloaded = reload_scene_from_disk(
+                const_cast<Scene*>(conflicted_scene), session_it->second, "conflict resolved");
+        }
+        if (reloaded) {
+            m_external_conflict_scene = nullptr;
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Keep editing", ImVec2(120.0f, 0.0f))) {
+        m_external_conflict_scene = nullptr;
+        ImGui::CloseCurrentPopup();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Your local edits stay in memory; use Save As to preserve them separately.");
+    }
+    ImGui::EndPopup();
 }
 
 void EditorLayer::update_autosaves(float delta_time) {

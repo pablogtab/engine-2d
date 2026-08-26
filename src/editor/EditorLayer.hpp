@@ -34,6 +34,9 @@ struct EditorSceneSession {
     std::string initial_snapshot_json;
     std::string autosave_identity;
     bool recovery_source_conflicted{false};
+    bool external_source_conflicted{false};
+    bool source_write_time_initialized{false};
+    std::filesystem::file_time_type observed_source_write_time{};
     std::uint64_t persisted_entity_state_revision{0};
 };
 
@@ -139,6 +142,10 @@ private:
     void render_prefab_stage_modals();
     bool save_scene(Scene* scene, EditorSceneSession& session, const std::string& custom_path = "");
     void update_autosaves(float delta_time);
+    void update_external_scene_changes(float delta_time);
+    bool reload_scene_from_disk(Scene* scene, EditorSceneSession& session, const char* reason);
+    void refresh_scene_source_stamp(EditorSceneSession& session);
+    void render_external_scene_change_modal();
     void schedule_lighting_bake(const std::filesystem::path& scene_path, std::chrono::milliseconds delay);
     void update_lighting_bakes();
     void render_recovery_modal();
@@ -202,10 +209,12 @@ private:
     bool m_recovery_scan_complete{false};
     bool m_hot_exit_restored{false};
     float m_autosave_elapsed{0.0f};
+    float m_external_scene_poll_elapsed{0.0f};
     float m_hot_exit_checkpoint_elapsed{0.0f};
     int m_autosave_interval_seconds{60};
     char m_autosave_directory[1024]{"Library/Autosaves"};
     PendingDestructiveAction m_pending_action;
+    const Scene* m_external_conflict_scene{nullptr};
     std::function<void()> m_project_hub_request_callback;
     char m_save_as_buf[128]{"NewLevel.scene"};
 
