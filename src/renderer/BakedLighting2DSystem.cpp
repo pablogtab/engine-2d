@@ -5,8 +5,50 @@
 #include "../scene/Camera2D.hpp"
 #include <SDL3/SDL.h>
 #include <array>
+#include <system_error>
 
 namespace Engine {
+namespace {
+
+std::string file_write_signature(const std::filesystem::path& path) {
+    std::error_code error;
+    const auto write_time = std::filesystem::last_write_time(path, error);
+    if (error) return "missing";
+    return std::to_string(static_cast<long long>(write_time.time_since_epoch().count()));
+}
+
+std::string manifest_generation_signature(
+    const std::filesystem::path& project_root,
+    const std::filesystem::path& scene_path
+) {
+    const std::filesystem::path root =
+        project_root / "Library" / "LightingBakes" / scene_path.stem();
+    std::error_code error;
+    if (!std::filesystem::is_directory(root, error)) return "missing";
+
+    std::filesystem::file_time_type newest{};
+    std::string newest_name;
+    std::size_t manifest_count = 0;
+    for (std::filesystem::directory_iterator iterator(root, error), end;
+         !error && iterator != end; iterator.increment(error)) {
+        const std::filesystem::path manifest = iterator->path() / "manifest.json";
+        std::error_code manifest_error;
+        if (!std::filesystem::is_regular_file(manifest, manifest_error)) continue;
+        const auto write_time = std::filesystem::last_write_time(manifest, manifest_error);
+        if (manifest_error) continue;
+        ++manifest_count;
+        const std::string name = iterator->path().filename().string();
+        if (newest_name.empty() || write_time > newest || (write_time == newest && name > newest_name)) {
+            newest = write_time;
+            newest_name = name;
+        }
+    }
+    return std::to_string(manifest_count) + ":" + newest_name + ":" +
+        (newest_name.empty() ? std::string{"none"}
+                             : std::to_string(static_cast<long long>(newest.time_since_epoch().count())));
+}
+
+} // namespace
 
 bool BakedLighting2DPass::load(const LightingBakeManifest& manifest, SDL_Renderer* renderer) {
     if (!renderer) return false;
@@ -143,6 +185,8 @@ void BakedLighting2DSystem::configure(
     if (scene_path.empty()) {
         m_runtime_pass->clear();
         m_scene_path.clear();
+        m_scene_write_signature.reset();
+        m_manifest_signature.reset();
         return;
     }
     const std::filesystem::path normalized = std::filesystem::absolute(scene_path).lexically_normal();
@@ -150,13 +194,25 @@ void BakedLighting2DSystem::configure(
         m_runtime_pass->clear();
         m_scene_path = normalized;
         m_next_poll = {};
+        m_scene_write_signature.reset();
+        m_manifest_signature.reset();
     }
     const auto now = std::chrono::steady_clock::now();
     if (now >= m_next_poll) {
         m_next_poll = now + std::chrono::milliseconds(500);
-        if (const auto manifest = LightingBakeService::load_latest_valid(project_root, normalized);
-            manifest && manifest->status.input_hash != m_runtime_pass->loaded_hash()) {
-            static_cast<void>(m_runtime_pass->load(*manifest, renderer.get_sdl_renderer()));
+        const std::string scene_signature = file_write_signature(normalized);
+        const std::string manifest_signature = manifest_generation_signature(project_root, normalized);
+        const bool scene_changed = !m_scene_write_signature || *m_scene_write_signature != scene_signature;
+        const bool manifest_changed = !m_manifest_signature || *m_manifest_signature != manifest_signature;
+        m_scene_write_signature = scene_signature;
+        m_manifest_signature = manifest_signature;
+        if (scene_changed || manifest_changed) {
+            if (const auto manifest = LightingBakeService::load_latest_valid(project_root, normalized);
+                manifest && (manifest_changed || manifest->status.input_hash != m_runtime_pass->loaded_hash())) {
+                if (!m_runtime_pass->load(*manifest, renderer.get_sdl_renderer())) {
+                    m_manifest_signature.reset();
+                }
+            }
         }
     }
     if (m_runtime_pass->is_enabled()) renderer.add_lighting_pass(m_runtime_pass);

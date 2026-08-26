@@ -6,6 +6,7 @@
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -49,13 +50,19 @@ public:
         const std::filesystem::path& scene_path,
         Renderer2D& renderer
     );
-    void force_refresh() { m_next_poll = {}; }
+    void force_refresh() {
+        m_next_poll = {};
+        m_scene_write_signature.reset();
+        m_manifest_signature.reset();
+    }
     [[nodiscard]] const std::shared_ptr<BakedLighting2DPass>& runtime_pass() const { return m_runtime_pass; }
 
 private:
     std::shared_ptr<BakedLighting2DPass> m_runtime_pass;
     std::filesystem::path m_scene_path;
     std::chrono::steady_clock::time_point m_next_poll{};
+    std::optional<std::string> m_scene_write_signature;
+    std::optional<std::string> m_manifest_signature;
 };
 
 } // namespace Engine
