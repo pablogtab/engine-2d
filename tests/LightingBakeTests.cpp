@@ -194,6 +194,11 @@ int main() {
     assert(previous && !previous->status.current);
     assert(previous->status.input_hash == baked.input_hash);
 
+    Json no_volume = fixture_scene(0.5f);
+    no_volume["entities"][0].erase("lighting_bake_volume_2d");
+    write_json(scene, no_volume);
+    assert(!Engine::LightingBakeService::load_latest_valid(root, scene));
+
     Json multiple_volumes = fixture_scene(0.5f);
     multiple_volumes["entities"].push_back({
         {"id", 5}, {"transform", transform(8, 0)},
@@ -212,6 +217,32 @@ int main() {
     assert(Engine::LightingBakeService::bake(root, scene, &baked, &bake_error));
     const auto empty_manifest = Engine::LightingBakeService::load_current(root, scene);
     assert(empty_manifest && empty_manifest->tiles.empty());
+
+    Json no_lights = fixture_scene(0.5f);
+    no_lights["entities"][2].erase("light_2d");
+    write_json(scene, no_lights);
+    assert(Engine::LightingBakeService::bake(root, scene, &baked, &bake_error));
+    const auto neutral_manifest = Engine::LightingBakeService::load_current(root, scene);
+    assert(neutral_manifest && neutral_manifest->status.baked_light_count == 0);
+    assert(neutral_manifest->tiles.size() == 1);
+    pixels = stbi_load(
+        neutral_manifest->tiles[0].image_path.string().c_str(),
+        &width, &height, &channels, 4
+    );
+    assert(pixels && pixels[0] == 255 && pixels[1] == 255 && pixels[2] == 255);
+    stbi_image_free(pixels);
+    SDL_Surface* neutral_output = SDL_CreateSurface(8, 4, SDL_PIXELFORMAT_RGBA32);
+    assert(neutral_output);
+    SDL_Renderer* neutral_renderer = SDL_CreateSoftwareRenderer(neutral_output);
+    assert(neutral_renderer);
+    {
+        Engine::BakedLighting2DPass neutral_pass;
+        assert(neutral_pass.load(*neutral_manifest, neutral_renderer));
+        assert(!neutral_pass.is_enabled());
+        assert(neutral_pass.loaded_hash() == neutral_manifest->status.input_hash);
+    }
+    SDL_DestroyRenderer(neutral_renderer);
+    SDL_DestroySurface(neutral_output);
 
     const std::string texture_handle = "0123456789abcdef";
     const auto alpha_texture = root / "Assets/Textures/alpha-caster.png";

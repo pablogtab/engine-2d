@@ -443,7 +443,10 @@ bool write_tile(
     for (int y = 0; y < surface->h; ++y) for (int x = 0; x < surface->w; ++x) {
         const Vec2 world{tile.origin.x + (static_cast<float>(x) + 0.5f) / tile.texels_per_unit,
                          tile.origin.y + (static_cast<float>(y) + 0.5f) / tile.texels_per_unit};
-        float red = 0.0f, green = 0.0f, blue = 0.0f;
+        // A baked lightmap is multiplied into the sprite albedo. With no
+        // baked lights the neutral result is therefore white, not black.
+        const float neutral = lights.empty() ? 1.0f : 0.0f;
+        float red = neutral, green = neutral, blue = neutral;
         for (const BakeLight& light : lights) {
             if (!renders_layer(light.affected_layers, tile.render_layer)) continue;
             const float amount = light_amount(light, world) * shadow_visibility(light, world, tile.render_layer, casters);
@@ -533,8 +536,12 @@ std::optional<LightingBakeManifest> LightingBakeService::load_latest_valid(
     const std::filesystem::path& project_root,
     const std::filesystem::path& requested_scene_path
 ) {
-    if (auto current = load_current(project_root, requested_scene_path)) return current;
     const std::filesystem::path scene_path = normalized_scene_path(project_root, requested_scene_path);
+    LightingBakeStatus current_status = status(project_root, scene_path);
+    if (!current_status.has_bake_volume) return std::nullopt;
+    if (current_status.current) {
+        return load_manifest_directory(current_status.directory, std::move(current_status));
+    }
     const std::filesystem::path root = scene_bake_root(project_root, scene_path);
     std::error_code error;
     std::filesystem::file_time_type newest{};

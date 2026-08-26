@@ -52,6 +52,13 @@ std::string manifest_generation_signature(
 
 bool BakedLighting2DPass::load(const LightingBakeManifest& manifest, SDL_Renderer* renderer) {
     if (!renderer) return false;
+    if (manifest.status.baked_light_count == 0) {
+        m_tiles.clear();
+        m_affected_layers = 0;
+        m_loaded_hash = manifest.status.input_hash;
+        m_using_stale_bake = !manifest.status.current;
+        return true;
+    }
     std::vector<RuntimeTile> loaded;
     loaded.reserve(manifest.tiles.size());
     RenderLayerMask layers = 0;
@@ -207,11 +214,11 @@ void BakedLighting2DSystem::configure(
         m_scene_write_signature = scene_signature;
         m_manifest_signature = manifest_signature;
         if (scene_changed || manifest_changed) {
-            if (const auto manifest = LightingBakeService::load_latest_valid(project_root, normalized);
-                manifest && (manifest_changed || manifest->status.input_hash != m_runtime_pass->loaded_hash())) {
-                if (!m_runtime_pass->load(*manifest, renderer.get_sdl_renderer())) {
-                    m_manifest_signature.reset();
-                }
+            const auto manifest = LightingBakeService::load_latest_valid(project_root, normalized);
+            if (!manifest) {
+                m_runtime_pass->clear();
+            } else if (manifest_changed || manifest->status.input_hash != m_runtime_pass->loaded_hash()) {
+                if (!m_runtime_pass->load(*manifest, renderer.get_sdl_renderer())) m_manifest_signature.reset();
             }
         }
     }

@@ -584,6 +584,7 @@ int main() {
                                 Engine::LightingBakeManifest baked_manifest;
                                 baked_manifest.status.current = true;
                                 baked_manifest.status.input_hash = "gpu-smoke-bake";
+                                baked_manifest.status.baked_light_count = 1;
                                 baked_manifest.tiles.push_back({
                                     baked_tile_path, -32.0f, -32.0f, 1.0f,
                                     Engine::render_layer_mask(0), 0, width, height
