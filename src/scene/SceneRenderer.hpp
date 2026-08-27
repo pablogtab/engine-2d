@@ -5,6 +5,7 @@
 #include "../renderer/Lighting2DSystem.hpp"
 #include "../renderer/BakedLighting2DSystem.hpp"
 #include "../renderer/RenderEffectSystem.hpp"
+#include "../renderer/Font.hpp"
 #include "../renderer/postprocess/PostProcessPipeline.hpp"
 #include "../renderer/postprocess/PostProcessProfile.hpp"
 #include "../ui/CanvasUISystem.hpp"
@@ -52,6 +53,7 @@ private:
     Lighting2DSystem m_lighting_system;
     BakedLighting2DSystem m_baked_lighting_system;
     CanvasUISystem m_canvas_ui_system;
+    std::unique_ptr<Font> m_world_text_font;
     bool m_post_process_initialized{false};
 };
 

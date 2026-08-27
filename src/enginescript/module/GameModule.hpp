@@ -499,6 +499,23 @@ public:
     ) = 0;
 };
 
+struct FloatingTextOptions {
+    glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec2 velocity{0.0f, 48.0f};
+    float duration{0.75f};
+    float scale{1.0f};
+};
+
+class WorldText {
+public:
+    virtual ~WorldText() = default;
+    virtual bool show(
+        const std::string& text,
+        const glm::vec2& position,
+        const FloatingTextOptions& options
+    ) = 0;
+};
+
 struct Texture {};
 struct AudioClip {};
 struct Font {};

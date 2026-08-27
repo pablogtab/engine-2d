@@ -87,6 +87,27 @@ void EntityManager::destroy_entity(EntityID entity) {
     m_free_entities.push_back(entity);
 }
 
+void EntityManager::destroy_entity_subtree(EntityID entity) {
+    if (!is_alive(entity)) return;
+
+    std::vector<EntityID> descendants;
+    std::vector<EntityID> pending{entity};
+    std::unordered_set<EntityID> visited;
+    while (!pending.empty()) {
+        const EntityID current = pending.back();
+        pending.pop_back();
+        if (!is_alive(current) || !visited.insert(current).second) continue;
+        descendants.push_back(current);
+        if (!has_component<HierarchyComponent>(current)) continue;
+        const auto& children = get_component<HierarchyComponent>(current).children;
+        pending.insert(pending.end(), children.begin(), children.end());
+    }
+
+    for (auto it = descendants.rbegin(); it != descendants.rend(); ++it) {
+        destroy_entity(*it);
+    }
+}
+
 EntityID EntityManager::clone_entity(EntityID src) {
     if (!is_alive(src)) return 0;
 

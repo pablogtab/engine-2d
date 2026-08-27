@@ -5,6 +5,7 @@
 #include "../physics/PhysicsSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
 #include "../debug/FrameProfiler.hpp"
+#include <algorithm>
 
 namespace Engine {
 
@@ -21,6 +22,7 @@ void SceneRuntime::attach(Scene& scene, SDL_Renderer* renderer) {
     TransformSystem::update(scene.get_entity_manager());
     m_ui_input.reset();
     m_particle_world.clear();
+    m_world_texts.clear();
     m_particle_world.set_renderer(renderer);
     auto& em = scene.get_entity_manager();
     em.for_each<ParticleEmitter2DComponent>([&](EntityID entity, ParticleEmitter2DComponent& emitter) {
@@ -38,6 +40,7 @@ void SceneRuntime::detach() {
     PhysicsSystem::clear();
     m_ui_input.reset();
     m_particle_world.clear();
+    m_world_texts.clear();
     m_camera_controller.reset_entity_tracking();
 }
 
@@ -100,6 +103,18 @@ void SceneRuntime::update(Scene& scene, float delta_time, FrameProfiler* profile
         FrameProfiler::Scope particles_scope(profiler, "particles");
         m_particle_world.update(scene, delta_time, AssetDatabase::get());
     }
+    for (RuntimeWorldText& text : m_world_texts) {
+        text.position += text.velocity * delta_time;
+        text.remaining -= delta_time;
+        const float fade_window = std::min(0.25f, text.duration);
+        const float fade = fade_window > 0.0f
+            ? std::clamp(text.remaining / fade_window, 0.0f, 1.0f)
+            : 0.0f;
+        text.color.a = static_cast<std::uint8_t>(static_cast<float>(text.base_alpha) * fade);
+    }
+    std::erase_if(m_world_texts, [](const RuntimeWorldText& text) {
+        return text.remaining <= 0.0f;
+    });
     {
         FrameProfiler::Scope transforms_scope(profiler, "transforms");
         TransformSystem::update(scene.get_entity_manager());
@@ -110,6 +125,15 @@ void SceneRuntime::update(Scene& scene, float delta_time, FrameProfiler* profile
             scene.get_entity_manager(), delta_time
         ));
     }
+}
+
+bool SceneRuntime::show_world_text(RuntimeWorldText text) {
+    if (text.text.empty() || text.duration <= 0.0f || text.scale <= 0.0f) return false;
+    constexpr std::size_t max_world_texts = 256;
+    if (m_world_texts.size() >= max_world_texts) m_world_texts.erase(m_world_texts.begin());
+    text.remaining = text.duration;
+    m_world_texts.push_back(std::move(text));
+    return true;
 }
 
 } // namespace Engine

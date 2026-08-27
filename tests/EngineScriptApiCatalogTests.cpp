@@ -87,6 +87,9 @@ int main() {
     assert(catalog.has_available_type("ParticleEffect2D"));
     assert(catalog.has_available_type("ParticleEmitOptions"));
     assert(catalog.find_available_type("ParticleEmitOptions")->value_type);
+    assert(catalog.has_available_type("WorldText"));
+    assert(catalog.has_available_type("FloatingTextOptions"));
+    assert(catalog.find_available_type("FloatingTextOptions")->value_type);
     assert(catalog.has_available_function("delay"));
     assert(catalog.find_available_function("self") != nullptr);
     assert(catalog.find_available_function("self")->return_type == "Entity");
@@ -123,6 +126,10 @@ int main() {
     assert(emit_particles->return_type == "Bool");
     assert(emit_particles->min_arguments == 2);
     assert(emit_particles->max_arguments == 3);
+    const ApiMethodDescriptor* show_world_text = catalog.find_available_method("WorldText", "show");
+    assert(show_world_text != nullptr);
+    assert(show_world_text->return_type == "Bool");
+    assert(show_world_text->parameters.size() == 3);
     const ApiMethodDescriptor* stop_emitter = catalog.find_available_method("ParticleEmitter2D", "stop");
     assert(stop_emitter != nullptr);
     assert(stop_emitter->min_arguments == 0);

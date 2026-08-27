@@ -327,6 +327,29 @@ void SceneManager::start_scripts(Scene& scene) {
             overrides
         );
     };
+    services.show_world_text = [this, &scene](
+        const std::string& text,
+        const glm::vec2& position,
+        const EngineScript::FloatingTextOptions& options
+    ) {
+        if (!is_playing() || dynamic_cast<CustomScene*>(&scene)) return false;
+        const auto channel = [](float value) {
+            return static_cast<std::uint8_t>(std::clamp(value, 0.0f, 1.0f) * 255.0f);
+        };
+        return execution_context(scene).runtime.show_world_text({
+            .text = text,
+            .position = position,
+            .velocity = options.velocity,
+            .color = {
+                channel(options.color.x), channel(options.color.y),
+                channel(options.color.z), channel(options.color.w)
+            },
+            .base_alpha = channel(options.color.w),
+            .duration = options.duration,
+            .remaining = options.duration,
+            .scale = options.scale
+        });
+    };
     services.play_particle_emitter = [this](EntityID entity) {
         return play_particle_emitter(entity);
     };

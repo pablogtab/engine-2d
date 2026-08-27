@@ -36,6 +36,25 @@ std::string specialized_name(std::string_view name, const std::vector<IRGenericP
     return result;
 }
 
+std::string cpp_string_literal(std::string_view value) {
+    std::string result;
+    result.reserve(value.size() + 2);
+    result.push_back('"');
+    for (const char character : value) {
+        switch (character) {
+            case '\\': result += "\\\\"; break;
+            case '"': result += "\\\""; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
+            case '\0': result += "\\0"; break;
+            default: result.push_back(character); break;
+        }
+    }
+    result.push_back('"');
+    return result;
+}
+
 } // namespace
 
 CppEmitter::CppEmitter(const SourceManager& source_manager)
@@ -899,7 +918,12 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
             out += std::format("{}{};\n", ind, m_emitting_async_method ? "co_return" : "return");
         }
     } else if (auto loop = dynamic_cast<const IRWhile*>(op)) {
-        out += std::format("{}while ({}) {{\n", ind, emit_truthy_cpp(loop->condition.get()));
+        const std::string condition = emit_truthy_cpp(loop->condition.get());
+        const bool already_parenthesized = condition.size() >= 2 &&
+            condition.front() == '(' && condition.back() == ')';
+        out += already_parenthesized
+            ? std::format("{}while {} {{\n", ind, condition)
+            : std::format("{}while ({}) {{\n", ind, condition);
         for (const auto& nested : loop->body) emit_operation_statement_cpp(nested.get(), out, indent + 1);
         out += ind + "}\n";
     } else if (auto loop = dynamic_cast<const IRFor*>(op)) {
@@ -960,7 +984,7 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     if (auto c = dynamic_cast<const IRConstant*>(op)) {
         if (c->is_null) return "nullptr";
         if (c->result_type && c->result_type->is_bool()) return c->bool_val ? "true" : "false";
-        if (c->result_type && c->result_type->is_string()) return std::format("\"{}\"", c->string_val);
+        if (c->result_type && c->result_type->is_string()) return cpp_string_literal(c->string_val);
         if (c->result_type && c->result_type->is_float()) {
             std::ostringstream number;
             number << std::setprecision(9) << c->float_val;

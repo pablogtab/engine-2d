@@ -3,7 +3,7 @@
   "languageVersion": 2,
   "compilerCacheId": "enginescript_codegen_v9_advanced_library",
   "abiVersion": 34,
-  "sdkHash": "engine2d_abi_v35",
+  "sdkHash": "engine2d_abi_v36",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",
@@ -28,6 +28,7 @@
     { "name": "Audio" }, { "name": "Events" }, { "name": "PlayerPrefs" },
     { "name": "UI" }, { "name": "Tilemap" },
     { "name": "Particles" }, { "name": "ParticleEffect2D" }, { "name": "ParticleEmitOptions", "valueType": true },
+    { "name": "WorldText" }, { "name": "FloatingTextOptions", "valueType": true },
     { "name": "ParticleEmitter2D" }, { "name": "Joint2D" }
   ],
   "functions": [
@@ -100,6 +101,10 @@
     { "ownerType": "ParticleEmitOptions", "name": "color", "type": "Color", "writable": true },
     { "ownerType": "ParticleEmitOptions", "name": "scale", "type": "Float", "writable": true },
     { "ownerType": "ParticleEmitOptions", "name": "rotation", "type": "Float", "writable": true },
+    { "ownerType": "FloatingTextOptions", "name": "color", "type": "Color", "writable": true },
+    { "ownerType": "FloatingTextOptions", "name": "velocity", "type": "Vec2", "writable": true },
+    { "ownerType": "FloatingTextOptions", "name": "duration", "type": "Float", "writable": true },
+    { "ownerType": "FloatingTextOptions", "name": "scale", "type": "Float", "writable": true },
     { "ownerType": "Joint2D", "name": "target", "type": "Entity", "writable": true },
     { "ownerType": "Joint2D", "name": "collideConnected", "type": "Bool", "writable": true },
     { "ownerType": "String", "name": "length", "type": "Int" },
@@ -252,6 +257,7 @@
     { "ownerType": "ParticleEmitter2D", "name": "setEffect", "returnType": "Bool", "parameters": [{ "name": "effect", "type": "Asset" }], "documentation": "Assigns a ready ParticleEffect2D asset and resets the emitter runtime state." },
     { "ownerType": "Particles", "name": "emit", "returnType": "Bool", "parameters": [{ "name": "effect", "type": "Asset" }, { "name": "position", "type": "Vec2" }, { "name": "count", "type": "Int", "optional": true, "default": "1" }], "documentation": "Emits a particle effect asset once at a world position." },
     { "ownerType": "Particles", "name": "emitWithOptions", "returnType": "Bool", "parameters": [{ "name": "effect", "type": "Asset" }, { "name": "position", "type": "Vec2" }, { "name": "options", "type": "ParticleEmitOptions" }], "documentation": "Emits a particle effect with bounded per-call overrides." },
+    { "ownerType": "WorldText", "name": "show", "returnType": "Bool", "parameters": [{ "name": "text", "type": "String" }, { "name": "position", "type": "Vec2" }, { "name": "options", "type": "FloatingTextOptions" }], "documentation": "Shows bounded transient text at a world position." },
     { "ownerType": "PlayerPrefs", "name": "has", "returnType": "Bool", "parameters": [{ "name": "key", "type": "String" }] },
     { "ownerType": "PlayerPrefs", "name": "getInt", "returnType": "Int", "parameters": [{ "name": "key", "type": "String" }, { "name": "fallback", "type": "Int", "optional": true, "default": "0" }] },
     { "ownerType": "PlayerPrefs", "name": "getFloat", "returnType": "Float", "parameters": [{ "name": "key", "type": "String" }, { "name": "fallback", "type": "Float", "optional": true, "default": "0" }] },

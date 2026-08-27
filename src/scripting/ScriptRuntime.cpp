@@ -112,7 +112,7 @@ public:
     explicit NativeBehaviourHost(ScriptRuntimeBinding& binding)
         : m_binding(binding), m_input(binding), m_log(), m_audio(binding), m_scene(binding),
           m_prefabs(binding), m_events(binding.typed_event_bus, binding.slot_id), m_prefs(), m_assets(binding),
-          m_particles(binding), m_ui(binding), m_tilemap(binding), m_display(binding),
+          m_particles(binding), m_world_text(binding), m_ui(binding), m_tilemap(binding), m_display(binding),
           m_physics(binding), m_animator(binding), m_jobs(binding.async_scheduler, binding.slot_id),
           m_task_scope(binding.async_scheduler, binding.slot_id) {
         m_binding.native_component_context = &m_entities;
@@ -139,6 +139,7 @@ public:
             else if (type == "PlayerPrefs") m_arguments.push_back(&m_prefs);
             else if (type == "Assets") m_arguments.push_back(&m_assets);
             else if (type == "Particles") m_arguments.push_back(&m_particles);
+            else if (type == "WorldText") m_arguments.push_back(&m_world_text);
             else if (type == "UI") m_arguments.push_back(&m_ui);
             else if (type == "Tilemap") m_arguments.push_back(&m_tilemap);
             else if (type == "RigidBody2D") m_arguments.push_back(&m_rigid_body);
@@ -406,6 +407,20 @@ private:
     private:
         const ScriptRuntimeBinding& m_binding;
     };
+    class WorldText final : public EngineScript::WorldText {
+    public:
+        explicit WorldText(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        bool show(
+            const std::string& text,
+            const glm::vec2& position,
+            const EngineScript::FloatingTextOptions& options
+        ) override {
+            return m_binding.services && m_binding.services->show_world_text &&
+                m_binding.services->show_world_text(text, position, options);
+        }
+    private:
+        const ScriptRuntimeBinding& m_binding;
+    };
     class UI final : public EngineScript::UI {
     public:
         explicit UI(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
@@ -523,7 +538,7 @@ private:
                 if (!binding) return;
                 require_main_thread(*binding);
                 auto* entities = binding->entity_manager;
-                if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
+                if (entities && entities->is_alive(entity_id)) entities->destroy_entity_subtree(entity_id);
             };
             bind_dynamic_component_access(entity, m_binding);
             return entity;
@@ -596,7 +611,7 @@ private:
         bool destroy(const EngineScript::Entity& entity) override {
             require_main_thread(m_binding);
             if (!m_binding.entity_manager || !m_binding.entity_manager->is_alive(entity.id)) return false;
-            m_binding.entity_manager->destroy_entity(entity.id);
+            m_binding.entity_manager->destroy_entity_subtree(entity.id);
             return true;
         }
         bool setTag(const EngineScript::Entity& entity, const std::string& tag) override {
@@ -931,7 +946,7 @@ private:
                 if (!binding) return;
                 require_main_thread(*binding);
                 auto* entities = binding->entity_manager;
-                if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
+                if (entities && entities->is_alive(entity_id)) entities->destroy_entity_subtree(entity_id);
             };
             bind_dynamic_component_access(entity, m_binding);
             return entity;
@@ -961,6 +976,7 @@ private:
     PlayerPrefs m_prefs;
     Assets m_assets;
     Particles m_particles;
+    WorldText m_world_text;
     UI m_ui;
     Tilemap m_tilemap;
     Display m_display;
@@ -1127,7 +1143,7 @@ private:
         entity.runtime_context = m_binding ? m_binding->entity_manager : nullptr;
         entity.destroy_callback = [](void* context, uint32_t entity_id) {
             auto* entities = static_cast<EntityManager*>(context);
-            if (entities && entities->is_alive(entity_id)) entities->destroy_entity(entity_id);
+            if (entities && entities->is_alive(entity_id)) entities->destroy_entity_subtree(entity_id);
         };
         if (m_binding) bind_dynamic_component_access(entity, *m_binding);
         return entity;
@@ -1434,7 +1450,7 @@ private:
             // Serialized Entity fields also expose destroy through their ID.
             if (const auto* entity_id = std::get_if<EntityID>(&target)) {
                 if (method->method_name == "destroy" && m_binding && m_binding->entity_manager) {
-                    m_binding->entity_manager->destroy_entity(*entity_id);
+                    m_binding->entity_manager->destroy_entity_subtree(*entity_id);
                     return true;
                 }
             }
@@ -1784,7 +1800,7 @@ EngineScript::Entity script_entity(
     result.destroy_callback = [](void* context, uint32_t entity_id) {
         auto* runtime_entities = static_cast<EntityManager*>(context);
         if (runtime_entities && runtime_entities->is_alive(entity_id)) {
-            runtime_entities->destroy_entity(entity_id);
+            runtime_entities->destroy_entity_subtree(entity_id);
         }
     };
     if (binding) bind_dynamic_component_access(result, *binding);
@@ -2141,7 +2157,7 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
     const auto is_service = [](const std::string& type) {
         static const std::unordered_set<std::string> services{
             "Input", "Log", "Audio", "Scene", "Time", "Entities", "Display", "Physics",
-            "Events", "Assets", "UI", "Tilemap", "PlayerPrefs", "Particles", "Prefabs"
+            "Events", "Assets", "UI", "Tilemap", "PlayerPrefs", "Particles", "WorldText", "Prefabs"
         };
         return services.contains(type);
     };
@@ -2420,7 +2436,7 @@ void ScriptRuntime::dispatch_events() {
                     other.runtime_context = m_entity_manager;
                     other.destroy_callback = [](void* context, uint32_t id) {
                         auto* entities = static_cast<EntityManager*>(context);
-                        if (entities && entities->is_alive(id)) entities->destroy_entity(id);
+                        if (entities && entities->is_alive(id)) entities->destroy_entity_subtree(id);
                     };
                     if (instance.binding) bind_dynamic_component_access(other, *instance.binding);
                     if (instance.native_host) instance.native_host->sync_before();

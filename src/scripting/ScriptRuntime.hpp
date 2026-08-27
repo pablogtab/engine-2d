@@ -25,6 +25,7 @@ class TypedEventBus;
 class GameModule;
 class NativeBehaviour;
 struct ParticleEmitOptions;
+struct FloatingTextOptions;
 }
 
 namespace Engine {
@@ -76,6 +77,7 @@ struct ScriptRuntimeServices {
     std::function<bool(AssetHandle, std::string&)> preload_asset;
     std::function<bool(AssetHandle, const glm::vec2&, int)> emit_particles;
     std::function<bool(AssetHandle, const glm::vec2&, const EngineScript::ParticleEmitOptions&)> emit_particles_with_options;
+    std::function<bool(const std::string&, const glm::vec2&, const EngineScript::FloatingTextOptions&)> show_world_text;
     std::function<bool(EntityID)> play_particle_emitter;
     std::function<bool(EntityID, bool)> stop_particle_emitter;
     std::function<bool(EntityID, int)> burst_particle_emitter;

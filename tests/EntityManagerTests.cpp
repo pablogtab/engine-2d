@@ -144,6 +144,25 @@ void test_unparent_and_destroy_preserve_reciprocal_links() {
     assert(em.get_component<HierarchyComponent>(child).parent == 0);
 }
 
+void test_destroy_subtree_removes_all_descendants() {
+    EntityManager em;
+    const EntityID root = em.create_entity();
+    const EntityID child = em.create_entity();
+    const EntityID grandchild = em.create_entity();
+    em.add_component<TransformComponent>(root, TransformComponent{});
+    em.add_component<TransformComponent>(child, TransformComponent{});
+    em.add_component<TransformComponent>(grandchild, TransformComponent{});
+    assert(em.set_parent(child, root).changed());
+    assert(em.set_parent(grandchild, child).changed());
+
+    em.destroy_entity_subtree(root);
+
+    assert(!em.is_alive(root));
+    assert(!em.is_alive(child));
+    assert(!em.is_alive(grandchild));
+    assert(em.get_root_entities().empty());
+}
+
 } // namespace
 
 int main() {
@@ -152,6 +171,7 @@ int main() {
     test_component_lifecycle_clone_and_filtered_views();
     test_hierarchy_rejects_invalid_relations_atomically();
     test_unparent_and_destroy_preserve_reciprocal_links();
+    test_destroy_subtree_removes_all_descendants();
     std::cout << "Entity manager tests passed\n";
     return 0;
 }

@@ -2,6 +2,7 @@
 #include "../core/AssetDatabase.hpp"
 #include "../ecs/RenderSystem.hpp"
 #include "../renderer/Renderer2D.hpp"
+#include "../renderer/Font.hpp"
 #include "../renderer/postprocess/PostProcessPasses.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
 #include <algorithm>
@@ -112,6 +113,28 @@ void SceneRenderer::render(
     );
     if (!editing) {
         runtime.particle_world().render(renderer, scene.get_entity_manager());
+        if (!runtime.world_texts().empty()) {
+            if (!m_world_text_font) {
+                m_world_text_font = Font::create_default(renderer.get_sdl_renderer(), 32.0f);
+            }
+            if (m_world_text_font) {
+                for (const RuntimeWorldText& text : runtime.world_texts()) {
+                    const glm::vec2 screen_position = camera.world_to_screen(
+                        {text.position.x, text.position.y, 0.0f}
+                    );
+                    renderer.submit_screen_text(
+                        *m_world_text_font,
+                        text.text,
+                        screen_position,
+                        text.scale,
+                        text.color,
+                        {0.5f, 0.5f},
+                        5.0f,
+                        false
+                    );
+                }
+            }
+        }
     }
     if (editing) {
         m_canvas_ui_system.render_editor_preview(
@@ -137,6 +160,7 @@ void SceneRenderer::configure_view(RenderViewKind, const RenderViewConfiguration
 void SceneRenderer::invalidate_resources() {
     m_post_process_pipeline.destroy_targets();
     m_canvas_ui_system.clear();
+    m_world_text_font.reset();
     m_post_process_initialized = false;
 }
 

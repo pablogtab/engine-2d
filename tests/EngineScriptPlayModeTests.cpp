@@ -22,6 +22,7 @@
 #include "scripting/ScriptRuntime.hpp"
 #include "scene/EntitySubtreeArchive.hpp"
 #include "scene/GameSession.hpp"
+#include "scene/SceneRuntime.hpp"
 #include "enginescript/editor/EngineScriptWorkspace.hpp"
 #include "enginescript/async/AsyncScheduler.hpp"
 
@@ -662,6 +663,88 @@ export class RangeError extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_world_text_service() {
+    std::cout << "[Test] WorldTextService... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_world_text_service_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/DamageText.e2s", R"(
+@behaviour
+export class DamageText extends Behaviour {
+    constructor(@inject private worldText: WorldText) {}
+
+    override on_start(): Void {
+        let options: FloatingTextOptions = {
+            color: Color(0.25, 0.75, 1.0, 1.0),
+            velocity: Vec2(0.0, 60.0),
+            duration: 0.8,
+            scale: 1.25
+        };
+        worldText.show("42", Vec2(12.0, 34.0), options);
+    }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* record = asset_database.find_by_path(root / "Assets/Scripts/DamageText.e2s");
+    assert(record != nullptr);
+
+    EntityManager entity_manager;
+    const EntityID entity = entity_manager.create_entity();
+    ScriptComponent script;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = record->handle;
+    entity_manager.add_component<ScriptComponent>(entity, script);
+
+    int calls = 0;
+    ScriptRuntimeServices services;
+    services.show_world_text = [&calls](
+        const std::string& text,
+        const glm::vec2& position,
+        const EngineScript::FloatingTextOptions& options
+    ) {
+        ++calls;
+        assert(text == "42");
+        assert(position == glm::vec2(12.0f, 34.0f));
+        assert(std::abs(options.velocity.y - 60.0f) < 0.001f);
+        assert(std::abs(options.duration - 0.8f) < 0.001f);
+        assert(std::abs(options.scale - 1.25f) < 0.001f);
+        return true;
+    };
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, nullptr, services);
+    assert(started.started == 1 && started.failed == 0);
+    assert(calls == 1);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
+void test_world_text_queue_is_bounded() {
+    std::cout << "[Test] WorldTextQueue_IsBounded... ";
+
+    SceneRuntime runtime;
+    assert(!runtime.show_world_text({.text = "", .duration = 0.75f}));
+    for (int index = 0; index < 257; ++index) {
+        assert(runtime.show_world_text({
+            .text = std::to_string(index),
+            .duration = 0.75f,
+            .remaining = 0.75f
+        }));
+    }
+    assert(runtime.world_texts().size() == 256);
+    assert(runtime.world_texts().front().text == "1");
+    assert(runtime.world_texts().back().text == "256");
+
+    std::cout << "PASSED\n";
+}
+
 void test_entity_transform_following_across_updates() {
     std::cout << "[Test] EntityTransformFollowing_AcrossUpdates... ";
 
@@ -1298,6 +1381,10 @@ export class SelfDestruct extends Behaviour {
     EntityManager entity_manager;
     ScriptRuntime runtime;
     const EntityID entity = entity_manager.create_entity();
+    const EntityID child = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(entity, TransformComponent{});
+    entity_manager.add_component<TransformComponent>(child, TransformComponent{});
+    assert(entity_manager.set_parent(child, entity).changed());
     ScriptComponent script;
     script.instances.front().enabled = true;
     script.instances.front().script_handle = record->handle;
@@ -1308,6 +1395,7 @@ export class SelfDestruct extends Behaviour {
     assert(started.started == 1 && started.failed == 0);
     runtime.update(0.016f);
     assert(!entity_manager.is_alive(entity));
+    assert(!entity_manager.is_alive(child));
 
     runtime.shutdown();
     fs::remove_all(root, error);
@@ -1380,6 +1468,8 @@ int main() {
     test_coin_pickup_speed_boost();
     test_audio_and_scene_services();
     test_particle_services_and_component();
+    test_world_text_service();
+    test_world_text_queue_is_bounded();
     test_collection_range_error_is_controlled();
     test_entity_transform_following_across_updates();
     test_member_initializer_keeps_component_field_reference();

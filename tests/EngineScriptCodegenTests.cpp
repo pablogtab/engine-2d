@@ -156,6 +156,7 @@ int main() {
                 body.velocity.x = axis * walkSpeed;
                 sprite.flipX = axis < 0.0;
                 log("Updated");
+                log("Line 1\n\"Quoted\"\\Path\tEnd");
                 audio.playSound("Assets/Audio/step.wav");
                 scene.load("Assets/Scenes/Next.scene");
             }
@@ -206,6 +207,7 @@ int main() {
     assert(entrypoint.find("NativeDependencyKind::RequiredComponent") != std::string::npos);
     assert(output.source_content.find("EngineScript::StringOps::to_lower") != std::string::npos);
     assert(output.source_content.find("EngineScript::StringOps::includes") != std::string::npos);
+    assert(output.source_content.find("\"Line 1\\n\\\"Quoted\\\"\\\\Path\\tEnd\"") != std::string::npos);
     assert(output.header_content.find("EngineScript::SpriteRenderer2D* sprite") != std::string::npos);
     assert(output.header_content.find("EngineScript::Audio* audio") != std::string::npos);
     assert(output.header_content.find("EngineScript::Scene* scene") != std::string::npos);

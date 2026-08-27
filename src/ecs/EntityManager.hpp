@@ -62,6 +62,9 @@ public:
     // Destroy an entity and purge its components
     void destroy_entity(EntityID entity);
 
+    // Destroy an entity together with every descendant in its hierarchy.
+    void destroy_entity_subtree(EntityID entity);
+
     // Check if an entity ID is active
     bool is_alive(EntityID entity) const;
 
