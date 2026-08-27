@@ -71,6 +71,10 @@ int main() {
     // Register active entity instance
     auto inst1 = std::make_unique<MockPlayerV1>();
     inst1->speed = 350.0f; // modified authored property
+    int owner_context = 7;
+    inst1->owner_entity = Entity{.id = 10};
+    inst1->owner_entity.runtime_context = &owner_context;
+    inst1->owner_entity.destroy_callback = [](void*, uint32_t) {};
     hrm.register_instance(10, "PlatformerPlayer", std::move(inst1));
 
     assert(hrm.active_instances_count() == 1);
@@ -94,6 +98,9 @@ int main() {
     assert(p2 != nullptr);
     assert(p2->speed == 350.0f);
     assert(p2->started);
+    assert(p2->self().id == 10);
+    assert(p2->self().runtime_context == &owner_context);
+    assert(p2->self().destroy_callback != nullptr);
 
     // 3. Failed Hot Reload stops execution instead of hiding the failure by rollback.
     ModuleDescriptor d_broken;

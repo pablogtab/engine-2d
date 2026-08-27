@@ -592,6 +592,10 @@ public:
         return entities ? entities->create(name) : Entity{};
     }
 
+    [[nodiscard]] Entity self() const {
+        return owner_entity;
+    }
+
     [[nodiscard]] std::vector<Entity> findEntities(const std::string& tag) const {
         return entities ? entities->findAllByTag(tag) : std::vector<Entity>{};
     }
@@ -615,6 +619,7 @@ public:
     }
 
     uint32_t entity_id = 0;
+    Entity owner_entity{};
     uint32_t task_scope_id = 0;
     AsyncScheduler* async_scheduler = nullptr;
     Entities* entities = nullptr;

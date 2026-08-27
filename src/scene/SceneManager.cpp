@@ -265,6 +265,10 @@ void SceneManager::start_scripts(Scene& scene) {
                     PrefabLinkComponent{asset->source_path, result.base_prefab_path, source_local_id, false});
             }
         }
+        // Entity IDs are recycled immediately, while Box2D bodies are normally
+        // retired on the following physics tick. Rebuild now so a runtime
+        // prefab never inherits a stale body or fixtures from the prior entity.
+        PhysicsSystem::rebuild_body_hierarchy(entities, result.root_entity);
         for (const EntityID entity : result.created_entities) m_script_runtime.queue_entity_start(entity);
         return result.root_entity;
     };
@@ -281,6 +285,9 @@ void SceneManager::start_scripts(Scene& scene) {
         transform.position = {position.x, position.y, 0.0f};
         transform.world_position = transform.position;
         TransformSystem::update(entities);
+        // create() stages the prefab before its final world position is known.
+        // Keep every existing body in the prefab subtree aligned with spawn().
+        PhysicsSystem::sync_body_hierarchy(entities, entity);
         return m_script_runtime.activate_entity(entity);
     };
     services.emit_particles = [this, &scene](AssetHandle handle, const glm::vec2& position, int count) {

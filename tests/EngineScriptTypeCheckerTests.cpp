@@ -391,6 +391,26 @@ int main() {
     assert(check13.check_module(m13));
     assert(!truthiness_diags.has_errors());
 
+    // Native API generic return types retain their collection kind and
+    // element type instead of degrading to a class named "Array<Entity>".
+    DiagnosticEngine native_collection_diags;
+    const std::string native_collection_code = R"(
+        function findEnemies(entities: Entities): Entity {
+            let enemies: Array<Entity> = entities.findAllByGameplayTag("enemy.basic");
+            if (enemies.length > 0) return enemies[0];
+            return entities.findByGameplayTag("enemy.basic");
+        }
+    )";
+    const FileId f14 = sm.register_source("Source/NativeCollection.e2s", native_collection_code);
+    Lexer l14(f14, native_collection_code, native_collection_diags);
+    Parser p14(f14, "Source/NativeCollection.e2s", l14.tokenize_all(), native_collection_diags);
+    const auto m14 = p14.parse_module();
+    SymbolResolver res14(sm, native_collection_diags);
+    res14.resolve_module(m14);
+    TypeChecker check14(res14, native_collection_diags);
+    assert(check14.check_module(m14));
+    assert(!native_collection_diags.has_errors());
+
     std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;
 }

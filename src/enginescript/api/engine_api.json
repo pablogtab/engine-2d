@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "languageVersion": 2,
   "compilerCacheId": "enginescript_codegen_v9_advanced_library",
-  "abiVersion": 33,
-  "sdkHash": "engine2d_abi_v33",
+  "abiVersion": 34,
+  "sdkHash": "engine2d_abi_v34",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",
@@ -35,6 +35,7 @@
     { "name": "realDelay", "returnType": "Task<Void>", "parameters": [{ "name": "duration", "type": "Duration" }] },
     { "name": "nextFrame", "returnType": "Task<Void>" },
     { "name": "fixedUpdate", "returnType": "Task<Void>" },
+    { "name": "self", "returnType": "Entity", "documentation": "Returns the entity that owns the current Behaviour." },
     { "name": "instantiate", "returnType": "Entity", "parameters": [{ "name": "name", "type": "String" }] },
     { "name": "findEntities", "returnType": "Array<Entity>", "parameters": [{ "name": "tag", "type": "String" }] }
   ],

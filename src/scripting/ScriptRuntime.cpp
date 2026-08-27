@@ -213,9 +213,13 @@ public:
         }
         if (entities.has_component<TransformComponent>(m_binding.entity)) {
             TransformComponent& transform = entities.get_component<TransformComponent>(m_binding.entity);
+            const bool position_changed = glm::vec2(transform.position) != m_transform.position;
             transform.position = glm::vec3(m_transform.position, transform.position.z);
             transform.rotation = m_transform.rotation;
             transform.scale = m_transform.scale;
+            if (position_changed && entities.has_component<RigidBodyComponent>(m_binding.entity)) {
+                PhysicsSystem::set_position(entities, m_binding.entity, m_transform.position);
+            }
         }
         m_entities.sync_after();
     }
@@ -826,9 +830,15 @@ private:
             if (!m_binding.entity_manager) return;
             if (m_transform.id != 0 && alive_with<TransformComponent>(m_transform.id)) {
                 TransformComponent& target = m_binding.entity_manager->get_component<TransformComponent>(m_transform.id);
+                const bool position_changed = glm::vec2(target.position) != m_transform.value.position;
                 target.position = glm::vec3(m_transform.value.position, target.position.z);
                 target.rotation = m_transform.value.rotation;
                 target.scale = m_transform.value.scale;
+                if (position_changed && alive_with<RigidBodyComponent>(m_transform.id)) {
+                    PhysicsSystem::set_position(
+                        *m_binding.entity_manager, m_transform.id, m_transform.value.position
+                    );
+                }
             }
             if (m_rigid_body.id != 0 && alive_with<RigidBodyComponent>(m_rigid_body.id)) {
                 PhysicsSystem::set_velocity(*m_binding.entity_manager, m_rigid_body.id, m_rigid_body.value.velocity);
@@ -2218,6 +2228,7 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
         return false;
     }
     instance.behaviour->entity_id = entity;
+    instance.behaviour->owner_entity = script_entity(*m_entity_manager, entity, instance.binding.get());
     instance.behaviour->task_scope_id = slot.id;
     instance.behaviour->async_scheduler = m_native_async_scheduler.get();
     instance.behaviour->entities = instance.native_host->entities();
@@ -2238,9 +2249,35 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
 
 bool ScriptRuntime::prepare_entity(EntityID entity) {
     if (!m_entity_manager || !m_entity_manager->has_component<ScriptComponent>(entity)) return true;
+    // create_prefab() stages an entity through instantiate_prefab(), which also
+    // queues its normal end-of-frame start. Preparing it immediately must take
+    // ownership of that start and discard any runtime instances left behind by
+    // a recycled EntityID.
+    std::erase(m_pending_entity_starts, entity);
+    discard_entity_instances(entity);
     auto& scripts = m_entity_manager->get_component<ScriptComponent>(entity);
     for (auto& slot : scripts.instances) { std::string error; if (slot.enabled && !instantiate_slot(entity, slot, error, false)) { set_error(entity, error); return false; } }
     return true;
+}
+
+void ScriptRuntime::discard_entity_instances(EntityID entity) {
+    for (auto instance = m_instances.begin(); instance != m_instances.end();) {
+        if (instance->entity != entity) {
+            ++instance;
+            continue;
+        }
+        if (instance->behaviour) {
+            if (m_native_async_scheduler) {
+                m_native_async_scheduler->cancel_scope(instance->behaviour->task_scope_id);
+            }
+            if (m_typed_event_bus) {
+                m_typed_event_bus->cancel_scope(instance->behaviour->task_scope_id);
+            }
+            instance->behaviour->cancel_owned_tasks();
+        }
+        instance = m_instances.erase(instance);
+    }
+    m_statuses.erase(entity);
 }
 
 bool ScriptRuntime::activate_entity(EntityID entity) {
@@ -2263,6 +2300,10 @@ bool ScriptRuntime::activate_entity(EntityID entity) {
 
 void ScriptRuntime::queue_entity_start(EntityID entity) {
     if (!m_entity_manager || entity == 0 || !m_entity_manager->is_alive(entity)) return;
+    // Entity IDs are recycled immediately. A newly instantiated prefab must
+    // never inherit the native behaviour object or execution status belonging
+    // to the previous entity that used the same numeric ID.
+    discard_entity_instances(entity);
     if (std::find(m_pending_entity_starts.begin(), m_pending_entity_starts.end(), entity) == m_pending_entity_starts.end()) {
         m_pending_entity_starts.push_back(entity);
     }

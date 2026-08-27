@@ -88,6 +88,13 @@ int main() {
     assert(catalog.has_available_type("ParticleEmitOptions"));
     assert(catalog.find_available_type("ParticleEmitOptions")->value_type);
     assert(catalog.has_available_function("delay"));
+    assert(catalog.find_available_function("self") != nullptr);
+    assert(catalog.find_available_function("self")->return_type == "Entity");
+    NativeBehaviour owner;
+    owner.entity_id = 42;
+    owner.owner_entity = Entity{.id = 42, .name = "Owner"};
+    assert(owner.self().id == 42);
+    assert(owner.self().name == "Owner");
     assert(catalog.has_available_function("instantiate"));
     assert(catalog.has_available_function("findEntities"));
     assert(catalog.find_available_function("toString") == nullptr);

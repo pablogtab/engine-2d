@@ -14,9 +14,32 @@ ScriptAnalysisResult ScriptAnalyzer::analyze_asset(
     if (!record || record->type != AssetType::Script || record->status != AssetStatus::Ready) {
         return {false, {{1, 1, "Script asset is missing or unavailable"}}};
     }
-    const std::string source = FileSystem::read_text(asset_database.resolve(handle));
-    if (source.empty()) return {false, {{1, 1, "Script source is empty or unreadable"}}};
-    return analyze_source(source, record->source_path);
+    EngineScript::EngineScriptWorkspace workspace(asset_database.project_root().string());
+    for (const AssetRecord& script : asset_database.records()) {
+        if (script.type != AssetType::Script || script.status != AssetStatus::Ready) continue;
+        const std::string source = FileSystem::read_text(asset_database.resolve(script.handle));
+        if (!source.empty()) workspace.add_source_file(script.source_path, source);
+    }
+
+    const EngineScript::SourceFile* target = workspace.source_manager().get_file(record->source_path);
+    if (!target) return {false, {{1, 1, "Script source is empty or unreadable"}}};
+
+    const EngineScript::CompilationResult compiled = workspace.compile();
+    ScriptAnalysisResult result;
+    result.success = true;
+    for (const EngineScript::Diagnostic& diagnostic : compiled.diagnostics) {
+        if (diagnostic.span.file_id != EngineScript::INVALID_FILE_ID &&
+            diagnostic.span.file_id != target->id) {
+            continue;
+        }
+        result.diagnostics.push_back({
+            static_cast<int>(diagnostic.span.start_line),
+            static_cast<int>(diagnostic.span.start_column),
+            diagnostic.message
+        });
+        if (diagnostic.is_error()) result.success = false;
+    }
+    return result;
 }
 
 ScriptAnalysisResult ScriptAnalyzer::analyze_source(
@@ -50,4 +73,3 @@ ScriptAnalysisResult ScriptAnalyzer::analyze_source(
 }
 
 } // namespace Engine
-

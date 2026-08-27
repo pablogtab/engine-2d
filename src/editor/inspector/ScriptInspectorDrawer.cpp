@@ -14,8 +14,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <imgui.h>
 #include <optional>
 #include <unordered_map>
@@ -25,9 +27,27 @@ namespace {
 
 struct CachedScriptInfo {
     std::filesystem::file_time_type modified{};
+    std::uint64_t project_signature{0};
     ScriptInspectionResult inspection;
     ScriptAnalysisResult analysis;
 };
+
+std::uint64_t script_project_signature(const AssetDatabase& database) {
+    std::uint64_t signature = 1469598103934665603ull;
+    for (const AssetRecord& record : database.records()) {
+        if (record.type != AssetType::Script || record.status != AssetStatus::Ready) continue;
+        std::error_code error;
+        const auto modified = std::filesystem::last_write_time(database.resolve(record.handle), error);
+        const std::uint64_t timestamp = error
+            ? 0ull
+            : static_cast<std::uint64_t>(modified.time_since_epoch().count());
+        signature ^= std::hash<std::string>{}(record.source_path);
+        signature *= 1099511628211ull;
+        signature ^= timestamp;
+        signature *= 1099511628211ull;
+    }
+    return signature;
+}
 
 const CachedScriptInfo& script_info(AssetHandle handle) {
     static std::unordered_map<AssetHandle, CachedScriptInfo> cache;
@@ -36,10 +56,13 @@ const CachedScriptInfo& script_info(AssetHandle handle) {
     std::error_code error;
     const auto modified = path.empty()
         ? std::filesystem::file_time_type{} : std::filesystem::last_write_time(path, error);
+    const std::uint64_t project_signature = script_project_signature(database);
     auto found = cache.find(handle);
-    if (found == cache.end() || error || found->second.modified != modified) {
+    if (found == cache.end() || error || found->second.modified != modified ||
+        found->second.project_signature != project_signature) {
         CachedScriptInfo refreshed;
         refreshed.modified = modified;
+        refreshed.project_signature = project_signature;
         refreshed.inspection = ScriptRuntime::inspect_asset(handle, database);
         refreshed.analysis = ScriptAnalyzer::analyze_asset(handle, database);
         found = cache.insert_or_assign(handle, std::move(refreshed)).first;

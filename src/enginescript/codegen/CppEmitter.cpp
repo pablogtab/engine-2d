@@ -1139,7 +1139,8 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
         std::string s;
         if (call->callee_name == "delay" || call->callee_name == "realDelay" ||
             call->callee_name == "nextFrame" || call->callee_name == "fixedUpdate" ||
-            call->callee_name == "instantiate" || call->callee_name == "findEntities") {
+            call->callee_name == "self" || call->callee_name == "instantiate" ||
+            call->callee_name == "findEntities") {
             s = "this->" + identifier_to_cpp(call->callee_name) + "(";
         } else if (injected_callable) {
             s = "(*" + identifier_to_cpp(call->callee_name) + ")(";

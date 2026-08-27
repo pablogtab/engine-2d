@@ -193,6 +193,7 @@ private:
     void unsubscribe_from_events();
     void set_error(EntityID entity, std::string message, std::string source_path = {}, uint32_t line = 0, uint32_t column = 0);
     bool instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error, bool start_lifecycle = true);
+    void discard_entity_instances(EntityID entity);
     void flush_pending_component_removals();
 
     EntityManager* m_entity_manager{nullptr};

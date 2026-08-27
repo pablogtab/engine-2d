@@ -1422,8 +1422,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                             );
                         }
                     }
-                    TypeAnnotation return_annotation;
-                    return_annotation.name = method->return_type;
+                    TypeAnnotation return_annotation = parse_type_text(method->return_type);
                     auto return_type = resolve_type_annotation(return_annotation, scope.get());
           if (method->nullable_return) {
             return_type = std::make_shared<Type>(*return_type);

@@ -14,6 +14,7 @@ bool HotReloadManager::load_initial_module(std::shared_ptr<GameModule> module) {
 void HotReloadManager::register_instance(uint32_t entity_id, const std::string& type_name, std::unique_ptr<NativeBehaviour> instance) {
     if (!instance) return;
     instance->entity_id = entity_id;
+    if (instance->owner_entity.id == 0) instance->owner_entity = Entity{.id = entity_id};
     m_active_instances.push_back({entity_id, type_name, std::move(instance)});
     m_active_descriptors.push_back({entity_id, type_name});
 }
@@ -111,6 +112,16 @@ bool HotReloadManager::hot_reload(std::shared_ptr<GameModule> new_module, AsyncS
         }
 
         raw_inst->entity_id = entity_id;
+        const auto previous = std::find_if(
+            m_active_instances.begin(),
+            m_active_instances.end(),
+            [&](const ActiveBehaviourSlot& slot) {
+                return slot.entity_id == entity_id && slot.type_name == type_name;
+            }
+        );
+        raw_inst->owner_entity = previous != m_active_instances.end() && previous->instance
+            ? previous->instance->owner_entity
+            : Entity{.id = entity_id};
         raw_inst->task_scope_id = entity_id;
         raw_inst->async_scheduler = &scheduler;
         candidate_instances.push_back({entity_id, type_name, std::unique_ptr<NativeBehaviour>(raw_inst)});

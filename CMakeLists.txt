@@ -1347,6 +1347,18 @@ target_include_directories(EngineScriptPlayModeTests PRIVATE
 target_link_libraries(EngineScriptPlayModeTests PRIVATE EngineRuntime EngineScriptLib glm::glm)
 add_test(NAME EngineScriptPlayModeTests COMMAND EngineScriptPlayModeTests)
 
+add_executable(ScriptAnalyzerTests
+    tests/ScriptAnalyzerTests.cpp
+    src/editor/scripting/ScriptAnalyzer.cpp
+)
+target_include_directories(ScriptAnalyzerTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/box2d/include
+)
+target_link_libraries(ScriptAnalyzerTests PRIVATE EngineRuntime EngineScriptLib glm::glm)
+add_test(NAME ScriptAnalyzerTests COMMAND ScriptAnalyzerTests)
+
 add_executable(ParticleSystemTests
     tests/ParticleSystemTests.cpp
 )

@@ -55,6 +55,12 @@ void Input::init() {
         { GamepadButton::X }
     });
 
+    map_action("Ability", ActionBinding{
+        { SDL_SCANCODE_SPACE },
+        {},
+        { GamepadButton::B }
+    });
+
     map_axis("Horizontal", AxisBinding{
         SDL_SCANCODE_A,
         SDL_SCANCODE_D,

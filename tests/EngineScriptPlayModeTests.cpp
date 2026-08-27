@@ -20,6 +20,7 @@
 #include "events/EventDispatcher.hpp"
 #include "physics/PhysicsSystem.hpp"
 #include "scripting/ScriptRuntime.hpp"
+#include "scene/EntitySubtreeArchive.hpp"
 #include "scene/GameSession.hpp"
 #include "enginescript/editor/EngineScriptWorkspace.hpp"
 #include "enginescript/async/AsyncScheduler.hpp"
@@ -938,6 +939,381 @@ export class PetBehaviour extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_update_spawns_prefab_at_moved_owner_position() {
+    std::cout << "[Test] Update_SpawnsPrefabAtMovedOwnerPosition... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_update_prefab_spawn_position_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/ProjectileSpawner.e2s", R"(
+@behaviour
+export class ProjectileSpawner extends Behaviour {
+    constructor(
+        @inject private prefabs: Prefabs,
+        @component private transform: Transform2D
+    ) {}
+
+    @expose
+    projectilePrefab: Prefab;
+
+    private fired: Bool = false;
+
+    override update(deltaTime: Float): Void {
+        if (fired) return;
+        fired = true;
+        let projectile: Entity = prefabs.create(projectilePrefab);
+        prefabs.spawn(projectile, transform.position);
+    }
+}
+)");
+    write_test_file(root / "Assets/Scripts/ProjectileBehaviour.e2s", R"(
+@behaviour
+export class ProjectileBehaviour extends Behaviour {
+    constructor(@component private transform: Transform2D) {}
+}
+)");
+    write_test_file(root / "Assets/Prefabs/Projectile.prefab", "{}");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* spawner_script = asset_database.find_by_path(root / "Assets/Scripts/ProjectileSpawner.e2s");
+    const AssetRecord* projectile_script = asset_database.find_by_path(root / "Assets/Scripts/ProjectileBehaviour.e2s");
+    const AssetRecord* prefab_record = asset_database.find_by_path(root / "Assets/Prefabs/Projectile.prefab");
+    assert(spawner_script && projectile_script && prefab_record);
+
+    EntityManager entity_manager;
+    ScriptRuntime runtime;
+    const EntityID spawner = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(spawner, TransformComponent{});
+    ScriptComponent spawner_component;
+    spawner_component.instances.front().enabled = true;
+    spawner_component.instances.front().script_handle = spawner_script->handle;
+    spawner_component.instances.front().public_fields = {
+        {"projectilePrefab", ScriptFieldType::Asset, prefab_record->handle, {}, "Prefab"}
+    };
+    entity_manager.add_component<ScriptComponent>(spawner, spawner_component);
+
+    const EntityID projectile = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(projectile, TransformComponent{});
+    RigidBodyComponent projectile_body;
+    projectile_body.body_type = BodyType::Kinematic;
+    projectile_body.gravity_scale = 0.0f;
+    entity_manager.add_component<RigidBodyComponent>(projectile, projectile_body);
+    ColliderComponent projectile_collider;
+    ColliderShape projectile_shape;
+    projectile_shape.type = ColliderShapeType::Circle;
+    projectile_shape.radius = 7.0f;
+    projectile_collider.shapes.push_back(projectile_shape);
+    entity_manager.add_component<ColliderComponent>(projectile, projectile_collider);
+    ScriptComponent projectile_component;
+    projectile_component.instances.front().enabled = false;
+    projectile_component.instances.front().script_handle = projectile_script->handle;
+    entity_manager.add_component<ScriptComponent>(projectile, projectile_component);
+
+    EventDispatcher dispatcher;
+    PhysicsSystem::clear();
+    TransformSystem::update(entity_manager);
+    PhysicsSystem::update(entity_manager, dispatcher, 0.016f);
+
+    glm::vec2 spawned_position{};
+    ScriptRuntimeServices services;
+    services.create_prefab = [&](AssetHandle) {
+        entity_manager.get_component<ScriptComponent>(projectile).instances.front().enabled = true;
+        PhysicsSystem::rebuild_body_hierarchy(entity_manager, projectile);
+        runtime.queue_entity_start(projectile);
+        assert(runtime.prepare_entity(projectile));
+        return projectile;
+    };
+    services.spawn_prefab = [&](EntityID entity, const glm::vec2& position) {
+        spawned_position = position;
+        TransformComponent& target = entity_manager.get_component<TransformComponent>(entity);
+        target.position = {position.x, position.y, 0.0f};
+        target.world_position = target.position;
+        TransformSystem::update(entity_manager);
+        PhysicsSystem::sync_body_hierarchy(entity_manager, entity);
+        return runtime.activate_entity(entity);
+    };
+
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, &dispatcher, services);
+    assert(started.started == 1 && started.failed == 0);
+    TransformComponent& moved = entity_manager.get_component<TransformComponent>(spawner);
+    moved.position = {251.0f, -93.0f, 0.0f};
+    moved.world_position = moved.position;
+
+    runtime.update(0.016f);
+    PhysicsSystem::update(entity_manager, dispatcher, 0.016f);
+
+    assert(runtime.instance_count() == 2);
+
+    assert(std::abs(spawned_position.x - moved.position.x) < 0.001f);
+    assert(std::abs(spawned_position.y - moved.position.y) < 0.001f);
+    const TransformComponent& spawned = entity_manager.get_component<TransformComponent>(projectile);
+    assert(std::abs(spawned.position.x - moved.position.x) < 0.001f);
+    assert(std::abs(spawned.position.y - moved.position.y) < 0.001f);
+
+    runtime.shutdown();
+    PhysicsSystem::clear();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
+void test_instantiated_enemy_recycled_id_starts_fresh() {
+    std::cout << "[Test] InstantiatedEnemy_RecycledIdStartsFresh... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_instantiated_enemy_velocity_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/EnemySpawner.e2s", R"(
+@behaviour
+export class EnemySpawner extends Behaviour {
+    constructor(@inject private prefabs: Prefabs) {}
+
+    @expose
+    enemyPrefab: Prefab;
+
+    private spawned: Bool = false;
+
+    override update(deltaTime: Float): Void {
+        if (spawned) return;
+        spawned = true;
+        prefabs.instantiate(enemyPrefab, Vec2(300.0, 0.0));
+    }
+}
+)");
+    write_test_file(root / "Assets/Scripts/EnemyMover.e2s", R"(
+@behaviour
+export class EnemyMover extends Behaviour {
+    constructor(
+        @inject private entities: Entities,
+        @component private body: RigidBody2D,
+        @component private transform: Transform2D
+    ) {}
+
+    override on_start(): Void {
+        body.velocity = Vec2(123.0, 0.0);
+    }
+
+    override update(deltaTime: Float): Void {
+        let player: Entity = entities.findByGameplayTag("player");
+        if (!entities.exists(player) || !entities.hasTransform(player)) {
+            body.velocity = Vec2.zero();
+            return;
+        }
+        let offset: Vec2 = entities.transform(player).position - transform.position;
+        body.velocity = Vec2.normalized(offset) * 75.0;
+    }
+}
+)");
+    write_test_file(root / "Assets/Prefabs/Enemy.prefab", "{}");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* spawner_script = asset_database.find_by_path(root / "Assets/Scripts/EnemySpawner.e2s");
+    const AssetRecord* enemy_script = asset_database.find_by_path(root / "Assets/Scripts/EnemyMover.e2s");
+    const AssetRecord* prefab_record = asset_database.find_by_path(root / "Assets/Prefabs/Enemy.prefab");
+    assert(spawner_script && enemy_script && prefab_record);
+
+    EntityManager prefab_source;
+    const EntityID prefab_root = prefab_source.create_entity();
+    prefab_source.add_component<TransformComponent>(prefab_root, TransformComponent{});
+    prefab_source.add_component<GameplayTagsComponent>(prefab_root, GameplayTagsComponent{{"enemy.basic"}});
+    RigidBodyComponent prefab_body;
+    prefab_body.body_type = BodyType::Kinematic;
+    prefab_body.gravity_scale = 0.0f;
+    prefab_source.add_component<RigidBodyComponent>(prefab_root, prefab_body);
+    ColliderComponent prefab_collider;
+    ColliderShape prefab_shape;
+    prefab_shape.type = ColliderShapeType::Circle;
+    prefab_shape.radius = 25.0f;
+    prefab_shape.is_trigger = true;
+    prefab_collider.shapes.push_back(prefab_shape);
+    prefab_source.add_component<ColliderComponent>(prefab_root, prefab_collider);
+    ScriptComponent prefab_scripts;
+    prefab_scripts.instances.front().enabled = true;
+    prefab_scripts.instances.front().script_handle = enemy_script->handle;
+    prefab_source.add_component<ScriptComponent>(prefab_root, prefab_scripts);
+    const ComponentSerializationContext serialization_context{
+        .asset_database = &asset_database
+    };
+    const std::string prefab_json = EntitySubtreeArchive::capture_to_json(
+        prefab_source, prefab_root, serialization_context
+    );
+    assert(!prefab_json.empty());
+
+    EntityManager entity_manager;
+    EventDispatcher dispatcher;
+    PhysicsSystem::clear();
+    const EntityID player = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(player, TransformComponent{});
+    entity_manager.add_component<GameplayTagsComponent>(player, GameplayTagsComponent{{"player"}});
+
+    const EntityID spawner = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(spawner, TransformComponent{});
+    ScriptComponent spawner_component;
+    spawner_component.instances.front().enabled = true;
+    spawner_component.instances.front().script_handle = spawner_script->handle;
+    spawner_component.instances.front().public_fields = {
+        {"enemyPrefab", ScriptFieldType::Asset, prefab_record->handle, {}, "Prefab"}
+    };
+    entity_manager.add_component<ScriptComponent>(spawner, spawner_component);
+
+    EntityID enemy = 0;
+    ScriptRuntime runtime;
+    ScriptRuntimeServices services;
+    services.instantiate_prefab = [&](AssetHandle handle, const glm::vec2& position) {
+        assert(handle == prefab_record->handle);
+        TransformComponent transform;
+        transform.position = {position.x, position.y, 0.0f};
+        const SubtreeInstantiationResult result = EntitySubtreeArchive::instantiate_from_json(
+            entity_manager, prefab_json, transform, 0, serialization_context
+        );
+        assert(result.success);
+        enemy = result.root_entity;
+        PhysicsSystem::rebuild_body_hierarchy(entity_manager, enemy);
+        for (const EntityID created : result.created_entities) runtime.queue_entity_start(created);
+        return enemy;
+    };
+
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, &dispatcher, services);
+    assert(started.started == 1 && started.failed == 0);
+    runtime.update(0.016f);
+    assert(enemy != 0);
+    assert(runtime.instance_count() == 2);
+    assert(std::abs(entity_manager.get_component<RigidBodyComponent>(enemy).velocity.x - 123.0f) < 0.001f);
+    runtime.update(0.016f);
+
+    const glm::vec2 velocity = entity_manager.get_component<RigidBodyComponent>(enemy).velocity;
+    assert(std::abs(velocity.x + 75.0f) < 0.001f);
+    assert(std::abs(velocity.y) < 0.001f);
+    PhysicsSystem::update(entity_manager, dispatcher, 0.1f);
+    assert(entity_manager.get_component<TransformComponent>(enemy).position.x < 300.0f);
+
+    // Destroy the first runtime prefab and immediately reuse its numeric ID.
+    // The replacement must receive a new behaviour object and run on_start();
+    // otherwise the stale instance writes its normal chase velocity (+75).
+    const EntityID first_enemy = enemy;
+    entity_manager.destroy_entity(first_enemy);
+    const EntityID reused_enemy = services.instantiate_prefab(prefab_record->handle, {-300.0f, 0.0f});
+    assert(reused_enemy == first_enemy);
+    runtime.update(0.016f);
+    assert(runtime.instance_count() == 2);
+    assert(std::abs(entity_manager.get_component<RigidBodyComponent>(reused_enemy).velocity.x - 123.0f) < 0.001f);
+
+    runtime.shutdown();
+    PhysicsSystem::clear();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
+void test_transform_write_moves_kinematic_body() {
+    std::cout << "[Test] TransformWrite_MovesKinematicBody... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_transform_physics_sync_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/MoveKinematic.e2s", R"(
+@behaviour
+export class MoveKinematic extends Behaviour {
+    constructor(@component private transform: Transform2D) {}
+
+    override update(deltaTime: Float): Void {
+        transform.position = Vec2(215.0, -84.0);
+    }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* script_record = asset_database.find_by_path(root / "Assets/Scripts/MoveKinematic.e2s");
+    assert(script_record);
+
+    EntityManager entity_manager;
+    EventDispatcher dispatcher;
+    ScriptRuntime runtime;
+    const EntityID entity = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(entity, TransformComponent{});
+    RigidBodyComponent body;
+    body.body_type = BodyType::Kinematic;
+    body.gravity_scale = 0.0f;
+    entity_manager.add_component<RigidBodyComponent>(entity, body);
+    ColliderComponent collider;
+    ColliderShape shape;
+    shape.type = ColliderShapeType::Circle;
+    shape.radius = 8.0f;
+    collider.shapes.push_back(shape);
+    entity_manager.add_component<ColliderComponent>(entity, collider);
+    ScriptComponent script;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = script_record->handle;
+    entity_manager.add_component<ScriptComponent>(entity, script);
+
+    PhysicsSystem::clear();
+    TransformSystem::update(entity_manager);
+    PhysicsSystem::update(entity_manager, dispatcher, 0.016f);
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, &dispatcher);
+    assert(started.started == 1 && started.failed == 0);
+
+    runtime.update(0.016f);
+    PhysicsSystem::update(entity_manager, dispatcher, 0.016f);
+
+    const TransformComponent& moved = entity_manager.get_component<TransformComponent>(entity);
+    assert(std::abs(moved.position.x - 215.0f) < 0.001f);
+    assert(std::abs(moved.position.y + 84.0f) < 0.001f);
+
+    runtime.shutdown();
+    PhysicsSystem::clear();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
+void test_behaviour_self_can_destroy_owner() {
+    std::cout << "[Test] BehaviourSelf_DestroysOwner... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_behaviour_self_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    const std::string code = R"(
+@behaviour
+export class SelfDestruct extends Behaviour {
+    override update(deltaTime: Float): Void {
+        self().destroy();
+    }
+}
+)";
+    write_test_file(root / "Assets/scripts/SelfDestruct.e2s", code);
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* record = asset_database.find_by_path(root / "Assets/scripts/SelfDestruct.e2s");
+    assert(record != nullptr);
+
+    EntityManager entity_manager;
+    ScriptRuntime runtime;
+    const EntityID entity = entity_manager.create_entity();
+    ScriptComponent script;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = record->handle;
+    entity_manager.add_component<ScriptComponent>(entity, script);
+
+    ScriptRuntimeServices services;
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, nullptr, services);
+    assert(started.started == 1 && started.failed == 0);
+    runtime.update(0.016f);
+    assert(!entity_manager.is_alive(entity));
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
@@ -950,6 +1326,10 @@ int main() {
     test_member_initializer_keeps_component_field_reference();
     test_exposed_component_reference_targets_other_entity();
     test_coin_pickup_spawns_prefab_at_knight_position();
+    test_update_spawns_prefab_at_moved_owner_position();
+    test_instantiated_enemy_recycled_id_starts_fresh();
+    test_transform_write_moves_kinematic_body();
+    test_behaviour_self_can_destroy_owner();
     test_async_scheduler_cancellation();
     test_game_session_transitions();
     test_e2s_script_inspection();
