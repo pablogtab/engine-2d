@@ -1314,6 +1314,65 @@ export class SelfDestruct extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_button_click_dispatches_to_owning_behaviour() {
+    std::cout << "[Test] UIButtonClick_DispatchesToOwningBehaviour... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_button_script_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/Clickable.e2s", R"(
+@behaviour
+export class Clickable extends Behaviour {
+    @expose
+    clicks: Int = 0;
+
+    override on_button_clicked(): Void {
+        clicks = clicks + 1;
+    }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* record = asset_database.find_by_path(root / "Assets/Scripts/Clickable.e2s");
+    assert(record != nullptr);
+
+    EntityManager entity_manager;
+    EventDispatcher dispatcher;
+    ScriptRuntime runtime;
+    const EntityID first = entity_manager.create_entity();
+    const EntityID second = entity_manager.create_entity();
+    for (const EntityID entity : {first, second}) {
+        entity_manager.add_component<UIButtonComponent>(entity, UIButtonComponent{});
+        ScriptComponent script;
+        script.instances.front().enabled = true;
+        script.instances.front().script_handle = record->handle;
+        entity_manager.add_component<ScriptComponent>(entity, script);
+    }
+
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database, &dispatcher);
+    assert(started.started == 2 && started.failed == 0);
+    dispatcher.publish(UIButtonClickedEvent{second});
+    runtime.dispatch_events();
+
+    const auto clicks_for = [&](EntityID entity) {
+        const auto& fields = entity_manager.get_component<ScriptComponent>(entity).instances.front().public_fields;
+        const auto found = std::find_if(fields.begin(), fields.end(), [](const ScriptPublicField& field) {
+            return field.name == "clicks";
+        });
+        assert(found != fields.end());
+        return std::get<double>(found->value);
+    };
+    assert(clicks_for(first) == 0.0);
+    assert(clicks_for(second) == 1.0);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
@@ -1330,6 +1389,7 @@ int main() {
     test_instantiated_enemy_recycled_id_starts_fresh();
     test_transform_write_moves_kinematic_body();
     test_behaviour_self_can_destroy_owner();
+    test_button_click_dispatches_to_owning_behaviour();
     test_async_scheduler_cancellation();
     test_game_session_transitions();
     test_e2s_script_inspection();

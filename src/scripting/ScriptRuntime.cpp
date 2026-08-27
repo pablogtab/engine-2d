@@ -1055,6 +1055,10 @@ public:
         execute_method("on_collision_enter", {other});
     }
 
+    void on_button_clicked() override {
+        execute_method("on_button_clicked", {});
+    }
+
     bool set_exposed_property(
         const std::string& name,
         const ExposedPropertyValue& value
@@ -2374,7 +2378,32 @@ void ScriptRuntime::dispatch_events() {
     }
 
     for (const auto& event : m_pending_events) {
-        if (event.type == PendingEventType::CollisionEnter) {
+        if (event.type == PendingEventType::ButtonClicked) {
+            for (auto& instance : m_instances) {
+                if (!instance.behaviour || instance.entity != event.entity_a) continue;
+                if (instance.native_host) instance.native_host->sync_before();
+                try {
+                    instance.behaviour->on_button_clicked();
+                } catch (const std::exception& runtime_error) {
+                    set_error(instance.entity,
+                        std::string{"EngineScript runtime error in on_button_clicked: "} + runtime_error.what(),
+                        instance.script_path);
+                    if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(instance.behaviour->task_scope_id);
+                    if (m_typed_event_bus) m_typed_event_bus->cancel_scope(instance.behaviour->task_scope_id);
+                    instance.behaviour->cancel_owned_tasks();
+                    continue;
+                } catch (...) {
+                    set_error(instance.entity, "EngineScript runtime error in on_button_clicked: unknown exception",
+                        instance.script_path);
+                    continue;
+                }
+                if (instance.native_host) instance.native_host->sync_after();
+                if (ScriptBehaviourSlot* slot = find_script_slot(
+                        *m_entity_manager, instance.entity, instance.slot_id)) {
+                    pull_exposed_properties(*instance.behaviour, *slot);
+                }
+            }
+        } else if (event.type == PendingEventType::CollisionEnter) {
             for (auto& instance : m_instances) {
                 if (!instance.behaviour) continue;
                 const EntityID other_id = instance.entity == event.entity_a

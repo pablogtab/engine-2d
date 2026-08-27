@@ -553,6 +553,7 @@ public:
     virtual void on_start() {}
     virtual void on_destroy() {}
     virtual void on_collision_enter(const Entity& other) { static_cast<void>(other); }
+    virtual void on_button_clicked() {}
     virtual bool set_exposed_property(const std::string& name, const ExposedPropertyValue& value) {
         static_cast<void>(name);
         static_cast<void>(value);

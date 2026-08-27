@@ -1012,7 +1012,7 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
 
     // 1. Decorators
     if (word == "@behaviour" || word == "behaviour") {
-        markdown = "### `@behaviour`\n\n```enginescript\n@behaviour\nexport class <Name> extends Behaviour\n```\n\nMarks this class as an **Engine2D Behaviour** script component.\n\nParticipates in entity lifecycle events:\n- `update(deltaTime: Float): Void`\n- `on_start(): Void`\n- `on_destroy(): Void`";
+        markdown = "### `@behaviour`\n\n```enginescript\n@behaviour\nexport class <Name> extends Behaviour\n```\n\nMarks this class as an **Engine2D Behaviour** script component.\n\nParticipates in entity lifecycle events:\n- `update(deltaTime: Float): Void`\n- `on_start(): Void`\n- `on_destroy(): Void`\n- `on_collision_enter(other: Entity): Void`\n- `on_button_clicked(): Void`";
     } else if (word == "@expose" || word == "expose") {
         markdown = "### `@expose`\n\n```enginescript\n@expose({ min?: Float, max?: Float, step?: Float })\n```\n\nExposes this field to the **Engine2D Inspector UI** for live editing and serializes it in scenes and prefabs.";
     } else if (word == "@inject" || word == "inject") {

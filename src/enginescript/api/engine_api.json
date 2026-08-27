@@ -3,7 +3,7 @@
   "languageVersion": 2,
   "compilerCacheId": "enginescript_codegen_v9_advanced_library",
   "abiVersion": 34,
-  "sdkHash": "engine2d_abi_v34",
+  "sdkHash": "engine2d_abi_v35",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",
