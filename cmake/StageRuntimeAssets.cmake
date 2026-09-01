@@ -36,6 +36,15 @@ if(EXISTS "${ENGINE_PROJECT_DIR}/Library/LightingBakes")
     file(COPY "${ENGINE_PROJECT_DIR}/Library/LightingBakes" DESTINATION "${ENGINE_STAGE_DIR}/Library")
 endif()
 file(COPY_FILE "${ENGINE_PROJECT_DIR}/project.engine2d" "${ENGINE_STAGE_DIR}/project.engine2d" ONLY_IF_DIFFERENT)
+set(engine_script_api_catalog "${ENGINE_SOURCE_DIR}/src/enginescript/api/engine_api.json")
+if(NOT EXISTS "${engine_script_api_catalog}")
+    message(FATAL_ERROR "EngineScript API catalog is missing: ${engine_script_api_catalog}")
+endif()
+file(COPY_FILE
+    "${engine_script_api_catalog}"
+    "${ENGINE_STAGE_DIR}/engine_api.json"
+    ONLY_IF_DIFFERENT
+)
 execute_process(
     COMMAND "${ENGINE_SCRIPT_COMPILER}" "${ENGINE_STAGE_DIR}" --native-module
     RESULT_VARIABLE native_module_result

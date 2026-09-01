@@ -211,7 +211,12 @@ void Window::poll_events() {
     drain_lifecycle_events();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        if (m_uses_logical_presentation) SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
+        SDL_Event input_event = event;
+        // SDL pointer events use window coordinates, which differ from render
+        // coordinates on Retina/high-DPI displays even when logical
+        // presentation is disabled (for example, responsive fullscreen). Keep
+        // the original event for ImGui, which applies its own DPI scaling.
+        static_cast<void>(SDL_ConvertEventToRenderCoordinates(m_renderer, &input_event));
         bool display_changed = false;
         if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
             if (m_close_request_callback) {
@@ -271,9 +276,9 @@ void Window::poll_events() {
         }
 
         if (m_event_callback) {
-            m_event_callback(event);
+            m_event_callback(event, input_event);
         } else {
-            Input::process_event(event);
+            Input::process_event(input_event);
         }
     }
     if (m_startup_focus_attempts_remaining > 0) {

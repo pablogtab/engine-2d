@@ -59,6 +59,9 @@ Json load_catalog_document() {
     }
     if (const auto directory = executable_directory()) {
         candidates.push_back(*directory / "engine_api.json");
+#if defined(__APPLE__)
+        candidates.push_back(*directory / "../Resources/engine_api.json");
+#endif
     }
     candidates.emplace_back(ENGINE_SCRIPT_API_CATALOG_PATH);
 

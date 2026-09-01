@@ -32,6 +32,11 @@ if(EXISTS "${resources_dir}/editor_assets")
     message(FATAL_ERROR "macOS bundle includes editor-only assets")
 endif()
 
+file(GLOB_RECURSE runtime_module_dylibs "${resources_dir}/Library/*.dylib")
+if(NOT runtime_module_dylibs)
+    message(FATAL_ERROR "macOS bundle is missing the generated EngineScript runtime module")
+endif()
+
 execute_process(
     COMMAND "${OTOOL_EXECUTABLE}" -L "${executable}"
     RESULT_VARIABLE executable_otool_result

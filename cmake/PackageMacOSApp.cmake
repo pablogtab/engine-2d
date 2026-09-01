@@ -13,6 +13,9 @@ endif()
 if(NOT EXISTS "${ENGINE_EXECUTABLE}")
     message(FATAL_ERROR "Standalone executable is missing: ${ENGINE_EXECUTABLE}")
 endif()
+if(NOT EXISTS "${ENGINE_STAGE_DIR}/engine_api.json")
+    message(FATAL_ERROR "EngineScript API catalog is missing: ${ENGINE_STAGE_DIR}/engine_api.json")
+endif()
 
 find_program(OTOOL_EXECUTABLE otool REQUIRED)
 find_program(INSTALL_NAME_TOOL_EXECUTABLE install_name_tool REQUIRED)
@@ -30,7 +33,11 @@ file(REMOVE_RECURSE "${ENGINE_APP_DIR}")
 file(MAKE_DIRECTORY "${macos_dir}" "${resources_dir}" "${frameworks_dir}")
 file(COPY "${ENGINE_STAGE_DIR}/Assets" DESTINATION "${resources_dir}")
 file(COPY "${ENGINE_STAGE_DIR}/ProjectSettings" DESTINATION "${resources_dir}")
+if(EXISTS "${ENGINE_STAGE_DIR}/Library")
+    file(COPY "${ENGINE_STAGE_DIR}/Library" DESTINATION "${resources_dir}")
+endif()
 file(COPY_FILE "${ENGINE_STAGE_DIR}/project.engine2d" "${resources_dir}/project.engine2d")
+file(COPY_FILE "${ENGINE_STAGE_DIR}/engine_api.json" "${resources_dir}/engine_api.json")
 file(COPY_FILE "${ENGINE_EXECUTABLE}" "${bundle_executable}")
 
 file(WRITE "${contents_dir}/Info.plist" [=[<?xml version="1.0" encoding="UTF-8"?>
@@ -123,8 +130,25 @@ endif()
 
 file(GLOB bundled_dylibs "${frameworks_dir}/*.dylib")
 foreach(bundled_dylib IN LISTS bundled_dylibs)
+    file(CHMOD "${bundled_dylib}" PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+    )
     execute_process(
         COMMAND "${CODESIGN_EXECUTABLE}" --force --sign - --timestamp=none "${bundled_dylib}"
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+endforeach()
+file(GLOB_RECURSE runtime_module_dylibs "${resources_dir}/Library/*.dylib")
+foreach(runtime_module_dylib IN LISTS runtime_module_dylibs)
+    file(CHMOD "${runtime_module_dylib}" PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+    )
+    execute_process(
+        COMMAND "${CODESIGN_EXECUTABLE}" --force --sign - --timestamp=none "${runtime_module_dylib}"
         COMMAND_ERROR_IS_FATAL ANY
     )
 endforeach()

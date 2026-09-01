@@ -65,7 +65,7 @@ ProjectHub::ProjectHub() {
     EditorTheme::apply_dark_theme();
     ImGui_ImplSDL3_InitForSDLRenderer(m_window->get_sdl_window(), m_window->get_sdl_renderer());
     ImGui_ImplSDLRenderer3_Init(m_window->get_sdl_renderer());
-    m_window->set_event_callback([](const SDL_Event& event) {
+    m_window->set_event_callback([](const SDL_Event& event, const SDL_Event&) {
         ImGui_ImplSDL3_ProcessEvent(&event);
     });
 

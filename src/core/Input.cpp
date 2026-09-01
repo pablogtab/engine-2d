@@ -144,10 +144,12 @@ void Input::process_event(const SDL_Event& event) {
 
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             s_current_mouse[event.button.button] = true;
+            s_mouse_pos = {event.button.x, event.button.y};
             break;
 
         case SDL_EVENT_MOUSE_BUTTON_UP:
             s_current_mouse[event.button.button] = false;
+            s_mouse_pos = {event.button.x, event.button.y};
             break;
 
         case SDL_EVENT_WINDOW_FOCUS_LOST:

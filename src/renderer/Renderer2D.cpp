@@ -1200,7 +1200,13 @@ void Renderer2D::end_scene() {
     const auto presentation_begin = std::chrono::high_resolution_clock::now();
     SDL_SetRenderTarget(m_sdl_renderer, m_custom_render_target);
     if (m_frame_world_target_leased) {
-        SDL_RenderTexture(m_sdl_renderer, m_frame_world_target, nullptr, nullptr);
+        const SDL_FRect presentation_rect{
+            0.0f,
+            0.0f,
+            static_cast<float>(m_frame_metrics.output_width),
+            static_cast<float>(m_frame_metrics.output_height)
+        };
+        SDL_RenderTexture(m_sdl_renderer, m_frame_world_target, nullptr, &presentation_rect);
         auto& presentation = m_frame_metrics.stages[static_cast<std::size_t>(RenderStage::Presentation)];
         ++presentation.draw_calls;
         presentation.cpu_milliseconds += std::chrono::duration<float, std::milli>(

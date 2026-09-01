@@ -94,13 +94,21 @@ SafeAreaInsets map_safe_area_to_reference(
 
 Application::Application(ProjectContext project, const std::string& name, int width, int height, bool start_with_editor)
     : m_project(std::move(project)) {
-    Log::init((m_project.library_directory() / "engine.log").string());
+    // Packaged applications must treat Contents/Resources as immutable: writing
+    // logs, saves, caches, or asset metadata there invalidates the app's code
+    // signature. Editor projects remain portable and keep their local data.
+    FileSystem::init("Engine2D", m_project.descriptor().name, start_with_editor, m_project.root());
+    const std::filesystem::path writable_runtime_directory = start_with_editor
+        ? m_project.library_directory()
+        : std::filesystem::path(FileSystem::get_save_directory());
+    Log::init((writable_runtime_directory / "engine.log").string());
     ENGINE_LOG_INFO("Initializing Engine Application: '{}' ({}x{}) | Project: '{}'", name, width, height, m_project.root().string());
-    FileSystem::init("Engine2D", m_project.descriptor().name, true, m_project.root());
-    AssetDatabase::get().set_project_root(m_project.root());
+    auto& asset_database = AssetDatabase::get();
+    asset_database.set_project_root(m_project.root());
+    asset_database.set_read_only(!start_with_editor);
     m_project_settings.load((m_project.settings_directory() / "Project.json").string());
     m_dynamic_resolution.configure(m_project_settings.display().render_resolution);
-    [[maybe_unused]] const AssetScanResult asset_scan = AssetDatabase::get().scan("Assets");
+    [[maybe_unused]] const AssetScanResult asset_scan = asset_database.scan("Assets");
 
     Input::init();
     Time::reset();
@@ -121,7 +129,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     ));
     m_renderer = std::make_unique<Renderer2D>(m_window->get_sdl_renderer());
     m_renderer->material_pack_cache().set_disk_cache_directory(
-        m_project.library_directory() / "MaterialPacks"
+        writable_runtime_directory / "MaterialPacks"
     );
     m_renderer->set_material_backend(std::make_shared<SDLGPUMaterialBackend>(
         m_window->get_sdl_renderer()
@@ -140,6 +148,10 @@ Application::Application(ProjectContext project, const std::string& name, int wi
         if (!result.success) {
             ENGINE_LOG_WARN("[DISPLAY] Could not apply project defaults: {}", result.message);
         }
+        // Applying a fullscreen default can change the framebuffer before the
+        // display-change callback is registered below. Refresh now so the
+        // initial game view uses the fullscreen dimensions on its first frame.
+        m_display_manager->refresh_from_system();
     }
 
     m_display_manager->set_apply_enabled(!start_with_editor);
@@ -474,13 +486,13 @@ Application::Application(ProjectContext project, const std::string& name, int wi
 #endif
 
     // Event routing: Pass events through EditorLayer and Input Manager (isolated via Viewport focus)
-    m_window->set_event_callback([this](const SDL_Event& event) {
+    m_window->set_event_callback([this](const SDL_Event& event, const SDL_Event& input_event) {
 #if ENGINE_WITH_EDITOR
         if (this->m_editor_layer) {
             this->m_editor_layer->process_event(event);
         }
 #endif
-        Input::process_event(event);
+        Input::process_event(input_event);
     });
     m_window->set_lifecycle_callback([this](ApplicationLifecycleEvent event) {
         this->handle_lifecycle_event(event);
@@ -537,7 +549,16 @@ void Application::apply_display_mode(bool editor_visible) {
 #else
     (void)editor_visible;
 #endif
-    const RenderViewKind view = m_scene_manager.is_editing() ? RenderViewKind::Editor : RenderViewKind::Game;
+#if ENGINE_WITH_EDITOR
+    const RenderViewKind view = m_scene_manager.is_editing()
+        ? RenderViewKind::Editor
+        : RenderViewKind::Game;
+#else
+    // Standalone startup enters Play asynchronously. During its preparation
+    // phase SceneManager can still report Edit, but there is no editor view to
+    // present; display changes must always configure the game framebuffer.
+    constexpr RenderViewKind view = RenderViewKind::Game;
+#endif
     m_window->set_logical_presentation(game_view.reference_width, game_view.reference_height, game_view.presentation);
     if (game_view.presentation == PresentationMode::Responsive) {
         m_scene_manager.configure_view(view, {

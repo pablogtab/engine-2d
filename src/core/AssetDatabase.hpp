@@ -66,6 +66,8 @@ public:
     static AssetDatabase& get();
 
     void set_project_root(const std::filesystem::path& project_root);
+    void set_read_only(bool read_only) { m_read_only = read_only; }
+    [[nodiscard]] bool is_read_only() const { return m_read_only; }
 
     // Scans an asset root, persisting identity in ProjectSettings/AssetDatabase.json.
     [[nodiscard]] AssetScanResult scan(const std::filesystem::path& assets_root = "Assets");
@@ -111,6 +113,7 @@ private:
     std::unordered_map<std::uint64_t, std::vector<AssetHandle>> m_dependencies;
     std::unordered_map<std::uint64_t, std::vector<AssetHandle>> m_dependents;
     std::function<void()> m_on_assets_changed;
+    bool m_read_only{false};
 };
 
 } // namespace Engine

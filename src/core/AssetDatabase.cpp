@@ -260,6 +260,7 @@ bool AssetDatabase::load_database() {
     } return true;
 }
 bool AssetDatabase::save_database() const {
+    if (m_read_only) return true;
     nlohmann::json assets=nlohmann::json::array(); for (const auto& r:m_records) assets.push_back({{"handle",r.handle.to_string()},{"path",r.source_path},{"type",type_name(r.type)},{"status",status_name(r.status)},{"import_settings",{{"filter",r.import_settings.filter},{"pixels_per_unit",r.import_settings.pixels_per_unit},{"pivot_x",r.import_settings.pivot_x},{"pivot_y",r.import_settings.pivot_y},{"compression",r.import_settings.compression},{"platform_overrides",r.import_settings.platform_overrides}}}});
     return FileSystem::write_text_atomically(database_path().string(), nlohmann::json{{"version",k_database_version},{"assets",assets}}.dump(2)+"\n");
 }

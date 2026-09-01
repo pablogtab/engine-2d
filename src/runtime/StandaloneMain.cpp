@@ -68,9 +68,10 @@ protected:
 };
 
 int run_smoke_test(const Engine::ProjectContext& project) {
-    Engine::FileSystem::init("Engine2D", project.descriptor().name, true, project.root());
+    Engine::FileSystem::init("Engine2D", project.descriptor().name, false, project.root());
     auto& database = Engine::AssetDatabase::get();
     database.set_project_root(project.root());
+    database.set_read_only(true);
     const auto scan = database.scan("Assets");
     const auto* scene = database.find_by_path(project.descriptor().startup_scene);
     if (!scene || scene->status != Engine::AssetStatus::Ready) {

@@ -20,6 +20,11 @@ void write_file(const std::filesystem::path& path, const std::string& text = "as
     stream << text;
 }
 
+std::string read_file(const std::filesystem::path& path) {
+    std::ifstream stream(path);
+    return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+}
+
 } // namespace
 
 int main() {
@@ -96,6 +101,23 @@ int main() {
 
     fs::remove_all(root, error);
     fs::remove(outside, error);
+
+    const fs::path readonly_root = fs::temp_directory_path() / "engine2d_readonly_asset_database_tests";
+    fs::remove_all(readonly_root, error);
+    write_file(readonly_root / "Assets/Scenes/Startup.scene", "{}");
+    Engine::AssetDatabase readonly_database(readonly_root);
+    [[maybe_unused]] const auto writable_scan = readonly_database.scan("Assets");
+    const fs::path readonly_database_path = readonly_database.database_path();
+    const std::string original_database = read_file(readonly_database_path);
+    write_file(readonly_root / "Assets/Textures/New.png");
+    readonly_database.set_read_only(true);
+    const auto readonly_scan = readonly_database.scan("Assets");
+    require(readonly_scan.imported == 1, "read-only scan still discovers packaged assets in memory");
+    require(readonly_database.find_by_path("Assets/Textures/New.png") != nullptr,
+        "read-only scan exposes newly discovered assets");
+    require(read_file(readonly_database_path) == original_database,
+        "read-only scan does not rewrite packaged asset metadata");
+    fs::remove_all(readonly_root, error);
 
     const fs::path dependency_root = fs::temp_directory_path() / "engine2d_asset_dependency_tests";
     fs::remove_all(dependency_root, error);
