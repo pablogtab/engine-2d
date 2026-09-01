@@ -81,6 +81,10 @@ int main() {
     assert(!EngineScript::chooseValue(std::vector<int>{}, 7u).has_value());
     assert(catalog.has_available_type("Input"));
     assert(catalog.has_available_type("SpriteRenderer2D"));
+    const ApiPropertyDescriptor* sprite_color = catalog.find_available_property("SpriteRenderer2D", "color");
+    assert(sprite_color != nullptr);
+    assert(sprite_color->type == "Color");
+    assert(sprite_color->writable);
     assert(catalog.has_available_type("Audio"));
     assert(catalog.has_available_type("Scene"));
     assert(catalog.has_available_type("Particles"));

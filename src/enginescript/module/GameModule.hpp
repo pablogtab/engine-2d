@@ -168,6 +168,7 @@ struct RigidBody2D {
 struct SpriteRenderer2D {
     static constexpr const char* ENGINE_SCRIPT_TYPE_NAME = "SpriteRenderer2D";
     bool flipX{false};
+    glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
 };
 
 struct Transform2D {

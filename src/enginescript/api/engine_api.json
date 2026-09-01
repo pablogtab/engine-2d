@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "languageVersion": 2,
   "compilerCacheId": "enginescript_codegen_v9_advanced_library",
-  "abiVersion": 34,
-  "sdkHash": "engine2d_abi_v36",
+  "abiVersion": 35,
+  "sdkHash": "engine2d_abi_v37",
   "policy": {
     "scope": "gameplay-runtime-only",
     "parity": "editor-play-and-export",
@@ -66,6 +66,7 @@
     { "ownerType": "RigidBody2D", "name": "velocity", "type": "Vec2", "writable": true },
     { "ownerType": "RigidBody2D", "name": "isGrounded", "type": "Bool" },
     { "ownerType": "SpriteRenderer2D", "name": "flipX", "type": "Bool", "writable": true },
+    { "ownerType": "SpriteRenderer2D", "name": "color", "type": "Color", "writable": true, "documentation": "Normalized RGBA tint multiplied with the current sprite frame." },
     { "ownerType": "Time", "name": "deltaTime", "type": "Float" },
     { "ownerType": "Time", "name": "realDeltaTime", "type": "Float" },
     { "ownerType": "Time", "name": "elapsed", "type": "Float" },

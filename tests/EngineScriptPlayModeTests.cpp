@@ -226,6 +226,7 @@ export class DynamicPlayer extends Behaviour {
     override update(deltaTime: Float): Void {
         body.velocity.x = walkSpeed;
         sprite.flipX = true;
+        sprite.color = Color(1.0, 0.2, 0.3, 0.8);
         transform.position.x = time.deltaTime;
     }
 }
@@ -264,6 +265,8 @@ export class DynamicPlayer extends Behaviour {
     runtime.update(0.016f);
     assert(std::abs(entity_manager.get_component<RigidBodyComponent>(entity).velocity.x - 280.0f) < 0.001f);
     assert(entity_manager.get_component<SpriteComponent>(entity).flip_x);
+    const SDL_Color sprite_color = entity_manager.get_component<SpriteComponent>(entity).color;
+    assert(sprite_color.r == 255 && sprite_color.g == 51 && sprite_color.b == 77 && sprite_color.a == 204);
     assert(entity_manager.get_component<TransformComponent>(entity).position.x > 0.0f);
 
     // Modify speed dynamically in-game (as done via Inspector)

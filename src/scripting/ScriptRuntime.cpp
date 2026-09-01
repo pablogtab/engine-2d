@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <limits>
@@ -62,6 +63,22 @@ void require_main_thread(const ScriptRuntimeBinding& binding) {
     if (binding.main_thread_id != std::thread::id{} && std::this_thread::get_id() != binding.main_thread_id) {
         throw EngineScript::ScriptRuntimeError("EngineScript ECS access is restricted to the main thread");
     }
+}
+
+glm::vec4 sprite_color_to_script(const SDL_Color color) {
+    return {
+        static_cast<float>(color.r) / 255.0f,
+        static_cast<float>(color.g) / 255.0f,
+        static_cast<float>(color.b) / 255.0f,
+        static_cast<float>(color.a) / 255.0f
+    };
+}
+
+SDL_Color script_color_to_sprite(const glm::vec4& color) {
+    const auto channel = [](float value) {
+        return static_cast<std::uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+    };
+    return {channel(color.r), channel(color.g), channel(color.b), channel(color.a)};
 }
 
 void bind_dynamic_component_access(EngineScript::Entity& entity, const ScriptRuntimeBinding& binding) {
@@ -187,7 +204,9 @@ public:
             bind_rigid_body(m_rigid_body, m_binding.entity);
         }
         if (entities.has_component<SpriteComponent>(m_binding.entity)) {
-            m_sprite.flipX = entities.get_component<SpriteComponent>(m_binding.entity).flip_x;
+            const SpriteComponent& sprite = entities.get_component<SpriteComponent>(m_binding.entity);
+            m_sprite.flipX = sprite.flip_x;
+            m_sprite.color = sprite_color_to_script(sprite.color);
         }
         if (entities.has_component<TransformComponent>(m_binding.entity)) {
             const TransformComponent& transform = entities.get_component<TransformComponent>(m_binding.entity);
@@ -210,7 +229,9 @@ public:
             PhysicsSystem::set_velocity(entities, m_binding.entity, m_rigid_body.velocity);
         }
         if (entities.has_component<SpriteComponent>(m_binding.entity)) {
-            entities.get_component<SpriteComponent>(m_binding.entity).flip_x = m_sprite.flipX;
+            SpriteComponent& sprite = entities.get_component<SpriteComponent>(m_binding.entity);
+            sprite.flip_x = m_sprite.flipX;
+            sprite.color = script_color_to_sprite(m_sprite.color);
         }
         if (entities.has_component<TransformComponent>(m_binding.entity)) {
             TransformComponent& transform = entities.get_component<TransformComponent>(m_binding.entity);
@@ -770,7 +791,9 @@ private:
         EngineScript::SpriteRenderer2D* spriteRenderer(const EngineScript::Entity& entity) override {
             if (!hasSpriteRenderer(entity)) return nullptr;
             m_sprite_renderer.id = entity.id;
-            m_sprite_renderer.value.flipX = m_binding.entity_manager->get_component<SpriteComponent>(entity.id).flip_x;
+            const SpriteComponent& source = m_binding.entity_manager->get_component<SpriteComponent>(entity.id);
+            m_sprite_renderer.value.flipX = source.flip_x;
+            m_sprite_renderer.value.color = sprite_color_to_script(source.color);
             return &m_sprite_renderer.value;
         }
         bool hasParticleEmitter(const EngineScript::Entity& entity) const override { return alive_with<ParticleEmitter2DComponent>(entity.id); }
@@ -859,7 +882,9 @@ private:
                 PhysicsSystem::set_velocity(*m_binding.entity_manager, m_rigid_body.id, m_rigid_body.value.velocity);
             }
             if (m_sprite_renderer.id != 0 && alive_with<SpriteComponent>(m_sprite_renderer.id)) {
-                m_binding.entity_manager->get_component<SpriteComponent>(m_sprite_renderer.id).flip_x = m_sprite_renderer.value.flipX;
+                SpriteComponent& target = m_binding.entity_manager->get_component<SpriteComponent>(m_sprite_renderer.id);
+                target.flip_x = m_sprite_renderer.value.flipX;
+                target.color = script_color_to_sprite(m_sprite_renderer.value.color);
             }
             if (m_particle.id != 0 && alive_with<ParticleEmitter2DComponent>(m_particle.id)) {
                 ParticleEmitter2DComponent& target = m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(m_particle.id);
