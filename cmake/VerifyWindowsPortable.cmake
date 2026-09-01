@@ -23,11 +23,18 @@ foreach(required_path
     "${ENGINE_OUTPUT_DIR}/${shader_variant_base}.dxil"
     "${ENGINE_OUTPUT_DIR}/${shader_descriptor}"
     "${ENGINE_OUTPUT_DIR}/ProjectSettings/AssetDatabase.json"
+    "${ENGINE_OUTPUT_DIR}/engine_api.json"
+    "${ENGINE_OUTPUT_DIR}/Engine/Shaders/lit_sprite.frag.dxil"
 )
     if(NOT EXISTS "${required_path}")
         message(FATAL_ERROR "Portable Windows runtime is missing: ${required_path}")
     endif()
 endforeach()
+file(GLOB engine_script_modules
+    "${ENGINE_OUTPUT_DIR}/Library/EngineScript/Generated/*/EngineScript_*.dll")
+if(NOT engine_script_modules)
+    message(FATAL_ERROR "Portable Windows runtime is missing its EngineScript gameplay module")
+endif()
 if(EXISTS "${ENGINE_OUTPUT_DIR}/editor_assets")
     message(FATAL_ERROR "Portable Windows runtime includes editor-only assets")
 endif()

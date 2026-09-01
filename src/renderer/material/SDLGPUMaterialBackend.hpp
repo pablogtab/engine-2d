@@ -2,6 +2,7 @@
 
 #include "IMaterialBackend.hpp"
 #include <SDL3/SDL.h>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>

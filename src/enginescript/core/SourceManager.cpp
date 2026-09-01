@@ -5,6 +5,17 @@
 
 namespace EngineScript {
 
+namespace {
+
+bool escapes_project_root(const std::filesystem::path& relative_path) {
+    for (const auto& component : relative_path) {
+        if (component == "..") return true;
+    }
+    return false;
+}
+
+} // namespace
+
 SourceManager::SourceManager(std::string project_root)
     : m_project_root(std::move(project_root)) {
     if (!m_project_root.empty()) {
@@ -22,7 +33,7 @@ std::string SourceManager::normalize_path(const std::string& raw_path) const {
     if (!m_project_root.empty() && p.is_absolute()) {
         std::filesystem::path root(m_project_root);
         auto rel = std::filesystem::relative(p, root);
-        if (!rel.empty() && rel.native().find("..") == std::string::npos) {
+        if (!rel.empty() && !escapes_project_root(rel)) {
             return rel.generic_string();
         }
     }
@@ -38,7 +49,7 @@ bool SourceManager::is_within_project(const std::string& raw_path) const {
     p = p.lexically_normal();
     std::filesystem::path root(m_project_root);
     auto rel = std::filesystem::relative(p, root);
-    return !rel.empty() && rel.native().find("..") == std::string::npos;
+    return !rel.empty() && !escapes_project_root(rel);
 }
 
 std::optional<std::string> SourceManager::resolve_import(const std::string& importing_file, const std::string& import_target) const {

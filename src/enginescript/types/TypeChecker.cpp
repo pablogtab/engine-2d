@@ -1,6 +1,7 @@
 #include "TypeChecker.hpp"
 #include "../api/ApiCatalog.hpp"
 #include <algorithm>
+#include <functional>
 #include <format>
 #include <charconv>
 
