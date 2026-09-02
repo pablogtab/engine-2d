@@ -105,9 +105,14 @@ set(SOURCES
     src/sandbox/PostProcessValidationScene.cpp
     src/sandbox/StressTestScene.cpp
     src/editor/EditorTheme.cpp
+    src/editor/EditorShell.cpp
+    src/editor/app/EditorActionRegistry.cpp
+    src/editor/ui/EditorUi.cpp
+    src/editor/workspace/WorkspaceManager.cpp
     src/editor/ProjectHub.cpp
     src/editor/EditorLayer.cpp
     src/editor/panels/ViewportPanel.cpp
+    src/editor/panels/EditorPanelRegistry.cpp
     src/editor/panels/SceneHierarchyPanel.cpp
     src/editor/panels/InspectorPanel.cpp
     src/editor/panels/ConsolePanel.cpp
@@ -121,6 +126,7 @@ set(SOURCES
     src/editor/panels/TilemapPalettePanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/panels/AiAssistantPanel.cpp
+    src/editor/panels/UiGalleryPanel.cpp
     src/editor/panels/EditorAiAttachmentView.cpp
     src/editor/ai/EditorAiActivityFormatter.cpp
     src/editor/ai/EditorAiAttachmentStore.cpp
@@ -172,6 +178,7 @@ set(SOURCES
     src/editor/state/EditorPanelStateStore.cpp
     src/editor/state/AutosaveRecovery.cpp
     src/editor/state/RecentSceneList.cpp
+    src/editor/session/EditorSessionController.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorCommandGroup.cpp
     src/editor/commands/EditorPropertyTransaction.cpp
@@ -902,6 +909,46 @@ target_include_directories(EditorPanelStateStoreTests PRIVATE
 target_link_libraries(EditorPanelStateStoreTests PRIVATE SDL3::SDL3)
 add_test(NAME EditorPanelStateStoreTests COMMAND EditorPanelStateStoreTests)
 
+add_executable(EditorActionRegistryTests
+    tests/EditorActionRegistryTests.cpp
+    src/editor/app/EditorActionRegistry.cpp
+)
+target_include_directories(EditorActionRegistryTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME EditorActionRegistryTests COMMAND EditorActionRegistryTests)
+
+add_executable(EditorPanelRegistryTests
+    tests/EditorPanelRegistryTests.cpp
+    src/editor/panels/EditorPanelRegistry.cpp
+)
+target_include_directories(EditorPanelRegistryTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME EditorPanelRegistryTests COMMAND EditorPanelRegistryTests)
+
+add_executable(EditorSessionControllerTests
+    tests/EditorSessionControllerTests.cpp
+    src/editor/session/EditorSessionController.cpp
+)
+target_include_directories(EditorSessionControllerTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME EditorSessionControllerTests COMMAND EditorSessionControllerTests)
+
+add_executable(WorkspaceManagerTests
+    tests/WorkspaceManagerTests.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+    src/editor/workspace/WorkspaceManager.cpp
+)
+target_include_directories(WorkspaceManagerTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(WorkspaceManagerTests PRIVATE SDL3::SDL3)
+add_test(NAME WorkspaceManagerTests COMMAND WorkspaceManagerTests)
+
 add_executable(RecentSceneListTests
     tests/RecentSceneListTests.cpp
     src/core/Log.cpp
@@ -1422,6 +1469,10 @@ foreach(runtime_test
     SceneValidatorTests
     EditorEntityStateStoreTests
     EditorPanelStateStoreTests
+    EditorActionRegistryTests
+    EditorPanelRegistryTests
+    EditorSessionControllerTests
+    WorkspaceManagerTests
     RecentSceneListTests
     EditorAiConversationStoreTests
     HierarchyCommandTests
@@ -1462,14 +1513,23 @@ target_include_directories(Engine2DStandalone PRIVATE
 )
 target_link_libraries(Engine2DStandalone PRIVATE EngineRuntime)
 
-# Lucide is an editor-only visual dependency. Keep it next to the editor
-# executable instead of copying it into game assets or standalone packages.
+# Inter and Lucide are editor-only visual dependencies. Keep them next to the
+# editor executable instead of copying them into game assets or standalone
+# packages.
 add_custom_command(TARGET Engine2D POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:Engine2D>/editor_assets/lucide"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:Engine2D>/editor_assets/inter"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/vendor/lucide/lucide.ttf"
         "$<TARGET_FILE_DIR:Engine2D>/editor_assets/lucide/lucide.ttf"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/inter/InterVariable.ttf"
+        "$<TARGET_FILE_DIR:Engine2D>/editor_assets/inter/InterVariable.ttf"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/inter/LICENSE.txt"
+        "$<TARGET_FILE_DIR:Engine2D>/editor_assets/inter/LICENSE.txt"
     VERBATIM
 )
 

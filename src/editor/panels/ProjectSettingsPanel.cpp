@@ -1,4 +1,5 @@
 #include "ProjectSettingsPanel.hpp"
+#include "../ui/EditorUi.hpp"
 
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/ProjectSettingsCommands.hpp"
@@ -59,6 +60,7 @@ void ProjectSettingsPanel::on_gui() {
 
     ImGui::SetNextWindowSize(ImVec2(560.0f, 520.0f), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
+        EditorUi::area_heading(EditorIcon::Settings, "Project Settings", "Display and authoring defaults");
         if (ImGui::BeginTable("ProjectSettingsLayout", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV)) {
             ImGui::TableSetupColumn("Categories", ImGuiTableColumnFlags_WidthFixed, 145.0f);
             ImGui::TableSetupColumn("Settings", ImGuiTableColumnFlags_WidthStretch);

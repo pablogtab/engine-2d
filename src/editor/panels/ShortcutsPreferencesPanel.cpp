@@ -1,4 +1,5 @@
 #include "ShortcutsPreferencesPanel.hpp"
+#include "../ui/EditorUi.hpp"
 #include <imgui.h>
 #include <algorithm>
 
@@ -9,9 +10,7 @@ void ShortcutsPreferencesPanel::on_gui() {
 
     ImGui::SetNextWindowSize(ImVec2(520, 440), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
-        ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "KEYBOARD SHORTCUTS & ACTION MAPPING");
-        ImGui::TextDisabled("Customize shortcut keybindings across the editor.");
-        ImGui::Separator();
+        EditorUi::area_heading(EditorIcon::Settings, "Shortcuts", "Keyboard action mapping");
 
         // Search Filter
         ImGui::InputTextWithHint("##search_shortcuts", "Filter actions (e.g. Undo, Save)...", m_search_filter, sizeof(m_search_filter));
@@ -77,32 +76,21 @@ void ShortcutsPreferencesPanel::on_gui() {
                 if (is_rebinding) {
                     ImGui::PopStyleColor();
 
-                    // Rebind key listener
-                    for (int key_i = ImGuiKey_NamedKey_BEGIN; key_i < ImGuiKey_NamedKey_END; key_i++) {
-                        ImGuiKey key = static_cast<ImGuiKey>(key_i);
-                        if (ImGui::IsKeyPressed(key, false)) {
-                            // Exclude pure modifier keypresses alone
-                            if (key != ImGuiKey_LeftSuper && key != ImGuiKey_RightSuper &&
-                                key != ImGuiKey_LeftCtrl && key != ImGuiKey_RightCtrl &&
-                                key != ImGuiKey_LeftShift && key != ImGuiKey_RightShift &&
-                                key != ImGuiKey_LeftAlt && key != ImGuiKey_RightAlt) {
-                                
-                                ShortcutManager::get().rebind(
-                                    id, key,
-                                    io.KeySuper || io.KeyCtrl,
-                                    false,
-                                    io.KeyShift,
-                                    io.KeyAlt
-                                );
-                                m_rebinding_action_id = "";
-                                break;
-                            }
-                        }
-                    }
-
                     // Cancel on Escape
                     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
                         m_rebinding_action_id = "";
+                    } else {
+                        const EditorKey key = ShortcutManager::get().capture_pressed_key();
+                        if (key != EditorKey::None) {
+                            ShortcutManager::get().rebind(
+                                id, key,
+                                io.KeySuper || io.KeyCtrl,
+                                false,
+                                io.KeyShift,
+                                io.KeyAlt
+                            );
+                            m_rebinding_action_id = "";
+                        }
                     }
                 }
             }

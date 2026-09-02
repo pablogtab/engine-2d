@@ -23,6 +23,9 @@ public:
     ~ParticleEffectEditorPanel() override;
 
     void on_gui() override;
+    void on_context_changed(const EditorPanelContext& context) override {
+        set_command_history(context.command_history);
+    }
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = std::move(ch); }
 

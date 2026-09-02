@@ -1,4 +1,5 @@
 #include "ParticleEffectEditorPanel.hpp"
+#include "../ui/EditorUi.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/AssetFileCommands.hpp"
 #include "../commands/EditorPropertyTransaction.hpp"
@@ -161,6 +162,8 @@ void ParticleEffectEditorPanel::on_gui() {
         ImGui::End();
         return;
     }
+
+    EditorUi::area_heading(EditorIcon::Zap, "Particle Editor", "Author and preview particle assets");
 
     AssetDatabase& db = AssetDatabase::get();
 

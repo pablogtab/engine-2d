@@ -7,6 +7,7 @@
 #include "../commands/EditorEntityStateCommands.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../inspector/InspectorWidgets.hpp"
+#include "../ui/EditorUi.hpp"
 #include "../inspector/MultiComponentInspectorTransaction.hpp"
 #include "../commands/SceneSettingsCommands.hpp"
 #include "../../core/AssetDatabase.hpp"
@@ -111,6 +112,12 @@ void InspectorPanel::on_gui() {
             return;
         }
 
+        EditorUi::area_heading(
+            EditorIcon::Settings,
+            "Inspector",
+            active_scene->get_name().c_str()
+        );
+
         const bool runtime_mode = !m_scene_manager->is_editing();
         std::unordered_set<EntityID> runtime_selection;
         if (runtime_mode && m_scene_manager->runtime_selected_entity() != 0) {
@@ -119,10 +126,8 @@ void InspectorPanel::on_gui() {
         const auto& selected_set = runtime_mode ? runtime_selection : m_selection->get_selected();
         EntityManager& em = active_scene->get_entity_manager();
         if (runtime_mode) {
-            ImGui::TextColored(ImVec4(0.35f, 0.78f, 1.0f, 1.0f), "RUNTIME (temporary edits)");
-            ImGui::SameLine();
-            ImGui::TextDisabled("Changes are discarded on Stop");
-            ImGui::Separator();
+            EditorUi::badge("RUNTIME - TEMPORARY EDITS", EditorUi::BadgeTone::Warning);
+            ImGui::Spacing();
         }
 
         if (selected_set.empty()) {

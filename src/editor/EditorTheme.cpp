@@ -1,103 +1,202 @@
 #include "EditorTheme.hpp"
+#include "../core/Log.hpp"
+
+#include <SDL3/SDL_filesystem.h>
 #include <imgui.h>
+
+#include <algorithm>
+#include <array>
+#include <filesystem>
 
 namespace Engine {
 
-void EditorTheme::apply_dark_theme() {
+namespace {
+
+EditorUiPalette g_palette{};
+EditorUiMetrics g_metrics{};
+
+std::filesystem::path locate_editor_font() {
+    const char* base_path = SDL_GetBasePath();
+    const std::array<std::filesystem::path, 3> candidates{
+        std::filesystem::path(base_path ? base_path : "") /
+            "editor_assets/inter/InterVariable.ttf",
+        std::filesystem::path("editor_assets/inter/InterVariable.ttf"),
+        std::filesystem::path("vendor/inter/InterVariable.ttf")
+    };
+    for (const auto& candidate : candidates) {
+        std::error_code error;
+        if (std::filesystem::is_regular_file(candidate, error)) return candidate;
+    }
+    return {};
+}
+
+float bounded_scale(float scale) {
+    return std::clamp(scale, 0.75f, 2.5f);
+}
+
+} // namespace
+
+bool EditorTheme::initialize_fonts(float scale) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+
+    const float safe_scale = bounded_scale(scale);
+    const std::filesystem::path font_path = locate_editor_font();
+    if (!font_path.empty()) {
+        ImFontConfig config;
+        config.OversampleH = 2;
+        config.OversampleV = 2;
+        config.PixelSnapH = false;
+        config.SizePixels = 14.0f * safe_scale;
+        ImFont* font = io.Fonts->AddFontFromFileTTF(
+            font_path.string().c_str(), config.SizePixels, &config,
+            io.Fonts->GetGlyphRangesDefault()
+        );
+        if (font) {
+            io.FontDefault = font;
+            ENGINE_LOG_INFO("[EDITOR UI] Loaded Inter from '{}'.", font_path.string());
+            return true;
+        }
+    }
+
+    ImFontConfig fallback;
+    fallback.SizePixels = 14.0f * safe_scale;
+    io.FontDefault = io.Fonts->AddFontDefault(&fallback);
+    ENGINE_LOG_WARN("[EDITOR UI] Inter not found; using the built-in font.");
+    return false;
+}
+
+void EditorTheme::apply_dark_theme(float scale) {
     ImGuiStyle& style = ImGui::GetStyle();
     ImVec4* colors = style.Colors;
 
+    g_metrics = {};
+    g_metrics.scale = bounded_scale(scale);
+    g_metrics.menu_height *= g_metrics.scale;
+    g_metrics.status_height *= g_metrics.scale;
+    g_metrics.area_header_height *= g_metrics.scale;
+    g_metrics.toolbar_height *= g_metrics.scale;
+    g_metrics.row_height *= g_metrics.scale;
+    g_metrics.icon_size *= g_metrics.scale;
+    g_metrics.small_rounding *= g_metrics.scale;
+    g_metrics.panel_padding *= g_metrics.scale;
+    g_metrics.compact_spacing *= g_metrics.scale;
+
+    // Neutral graphite surfaces keep the viewport dominant. Blue communicates
+    // selection and interaction; amber is reserved for running/transient state.
+    g_palette.window         = ImVec4(0.075f, 0.078f, 0.085f, 1.00f); // #131416
+    g_palette.panel          = ImVec4(0.105f, 0.110f, 0.120f, 1.00f); // #1B1C1F
+    g_palette.panel_raised   = ImVec4(0.135f, 0.140f, 0.153f, 1.00f); // #222427
+    g_palette.header         = ImVec4(0.155f, 0.160f, 0.173f, 1.00f); // #28292C
+    g_palette.field          = ImVec4(0.115f, 0.120f, 0.132f, 1.00f);
+    g_palette.border         = ImVec4(0.235f, 0.245f, 0.265f, 1.00f);
+    g_palette.text           = ImVec4(0.875f, 0.890f, 0.910f, 1.00f);
+    g_palette.text_muted     = ImVec4(0.510f, 0.535f, 0.575f, 1.00f);
+    g_palette.accent         = ImVec4(0.275f, 0.475f, 0.760f, 1.00f);
+    g_palette.accent_hovered = ImVec4(0.340f, 0.555f, 0.860f, 1.00f);
+    g_palette.accent_active  = ImVec4(0.225f, 0.400f, 0.675f, 1.00f);
+    g_palette.selected       = ImVec4(0.220f, 0.365f, 0.560f, 1.00f);
+    g_palette.success        = ImVec4(0.300f, 0.700f, 0.460f, 1.00f);
+    g_palette.warning        = ImVec4(0.930f, 0.620f, 0.230f, 1.00f);
+    g_palette.error          = ImVec4(0.880f, 0.330f, 0.350f, 1.00f);
+
     ImGui::GetIO().ConfigInputTextCursorBlink = true;
 
-    // --- Modern Rounded Geometry ---
-    style.WindowPadding     = ImVec2(10.0f, 10.0f);
-    style.FramePadding      = ImVec2(8.0f, 5.0f);
-    style.ItemSpacing       = ImVec2(8.0f, 6.0f);
-    style.ItemInnerSpacing  = ImVec2(6.0f, 4.0f);
+    // Compact desktop-editor geometry. Large rounding and saturated controls
+    // make tools read like a dashboard instead of an authoring application.
+    style.WindowPadding     = ImVec2(8.0f, 7.0f);
+    style.FramePadding      = ImVec2(7.0f, 4.0f);
+    style.ItemSpacing       = ImVec2(7.0f, 5.0f);
+    style.ItemInnerSpacing  = ImVec2(5.0f, 4.0f);
     style.TouchExtraPadding = ImVec2(0.0f, 0.0f);
-    style.IndentSpacing     = 21.0f;
-    style.ScrollbarSize     = 14.0f;
-    style.GrabMinSize       = 10.0f;
+    style.IndentSpacing     = 18.0f;
+    style.ScrollbarSize     = 12.0f;
+    style.GrabMinSize       = 9.0f;
 
     style.WindowBorderSize  = 1.0f;
-    style.ChildBorderSize   = 1.0f;
+    style.ChildBorderSize   = 0.0f;
     style.PopupBorderSize   = 1.0f;
-    style.FrameBorderSize   = 1.0f;
+    style.FrameBorderSize   = 0.0f;
     style.TabBorderSize     = 0.0f;
 
-    style.WindowRounding    = 6.0f;
-    style.ChildRounding     = 5.0f;
-    style.FrameRounding     = 4.0f;
-    style.PopupRounding     = 6.0f;
-    style.ScrollbarRounding = 9.0f;
-    style.GrabRounding      = 4.0f;
-    style.TabRounding       = 5.0f;
+    style.WindowRounding    = 3.0f;
+    style.ChildRounding     = 2.0f;
+    style.FrameRounding     = 3.0f;
+    style.PopupRounding     = 4.0f;
+    style.ScrollbarRounding = 3.0f;
+    style.GrabRounding      = 2.0f;
+    style.TabRounding       = 3.0f;
     style.InputTextCursorSize = 2.0f;
 
-    // --- Modern Dark Slate & Violet Accent Palette ---
-    // Backgrounds
-    colors[ImGuiCol_WindowBg]             = ImVec4(0.09f, 0.10f, 0.13f, 1.00f); // #171A21
-    colors[ImGuiCol_ChildBg]              = ImVec4(0.12f, 0.13f, 0.17f, 1.00f); // #1E212B
-    colors[ImGuiCol_PopupBg]              = ImVec4(0.14f, 0.15f, 0.20f, 0.98f); // #242733
-    colors[ImGuiCol_Border]               = ImVec4(0.18f, 0.20f, 0.26f, 1.00f); // #2E3342
+    style.ScaleAllSizes(g_metrics.scale);
+
+    colors[ImGuiCol_WindowBg]             = g_palette.panel;
+    colors[ImGuiCol_ChildBg]              = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    colors[ImGuiCol_PopupBg]              = g_palette.panel_raised;
+    colors[ImGuiCol_Border]               = g_palette.border;
     colors[ImGuiCol_BorderShadow]         = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
-    // Text & Headers
-    colors[ImGuiCol_Text]                 = ImVec4(0.92f, 0.93f, 0.96f, 1.00f); // Clean light
-    colors[ImGuiCol_TextDisabled]         = ImVec4(0.48f, 0.51f, 0.60f, 1.00f);
-    colors[ImGuiCol_InputTextCursor]      = ImVec4(0.49f, 0.73f, 1.00f, 1.00f);
-    colors[ImGuiCol_MenuBarBg]            = ImVec4(0.12f, 0.13f, 0.17f, 1.00f);
+    colors[ImGuiCol_Text]                 = g_palette.text;
+    colors[ImGuiCol_TextDisabled]         = g_palette.text_muted;
+    colors[ImGuiCol_InputTextCursor]      = g_palette.accent_hovered;
+    colors[ImGuiCol_MenuBarBg]            = g_palette.header;
 
-    // Frame inputs (Sliders, Textboxes)
-    colors[ImGuiCol_FrameBg]              = ImVec4(0.15f, 0.17f, 0.22f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered]       = ImVec4(0.22f, 0.24f, 0.31f, 1.00f);
-    colors[ImGuiCol_FrameBgActive]        = ImVec4(0.28f, 0.31f, 0.40f, 1.00f);
+    colors[ImGuiCol_FrameBg]              = g_palette.field;
+    colors[ImGuiCol_FrameBgHovered]       = g_palette.panel_raised;
+    colors[ImGuiCol_FrameBgActive]        = g_palette.selected;
 
-    // Tabs & Docking
-    colors[ImGuiCol_Tab]                  = ImVec4(0.13f, 0.15f, 0.19f, 1.00f);
-    colors[ImGuiCol_TabHovered]           = ImVec4(0.31f, 0.27f, 0.82f, 0.80f); // Violet glow
-    colors[ImGuiCol_TabSelected]          = ImVec4(0.31f, 0.27f, 0.82f, 1.00f); // Indigo-Violet #4F46E5
-    colors[ImGuiCol_TabSelectedOverline]  = ImVec4(0.49f, 0.46f, 0.95f, 1.00f); // #7C3AED
-    colors[ImGuiCol_TabDimmed]            = ImVec4(0.10f, 0.11f, 0.14f, 1.00f);
-    colors[ImGuiCol_TabDimmedSelected]    = ImVec4(0.20f, 0.22f, 0.29f, 1.00f);
+    colors[ImGuiCol_Tab]                  = g_palette.panel_raised;
+    colors[ImGuiCol_TabHovered]           = g_palette.selected;
+    colors[ImGuiCol_TabSelected]          = g_palette.header;
+    colors[ImGuiCol_TabSelectedOverline]  = g_palette.accent_hovered;
+    colors[ImGuiCol_TabDimmed]            = g_palette.window;
+    colors[ImGuiCol_TabDimmedSelected]    = g_palette.panel;
 
-    // Title Bars
-    colors[ImGuiCol_TitleBg]              = ImVec4(0.09f, 0.10f, 0.13f, 1.00f);
-    colors[ImGuiCol_TitleBgActive]        = ImVec4(0.12f, 0.13f, 0.17f, 1.00f);
-    colors[ImGuiCol_TitleBgCollapsed]     = ImVec4(0.09f, 0.10f, 0.13f, 0.75f);
+    colors[ImGuiCol_TitleBg]              = g_palette.panel;
+    colors[ImGuiCol_TitleBgActive]        = g_palette.header;
+    colors[ImGuiCol_TitleBgCollapsed]     = g_palette.window;
 
-    // Buttons
-    colors[ImGuiCol_Button]               = ImVec4(0.27f, 0.24f, 0.73f, 0.85f); // #4338CA
-    colors[ImGuiCol_ButtonHovered]        = ImVec4(0.35f, 0.31f, 0.89f, 1.00f); // #5950E3
-    colors[ImGuiCol_ButtonActive]         = ImVec4(0.23f, 0.20f, 0.64f, 1.00f);
+    colors[ImGuiCol_Button]               = g_palette.panel_raised;
+    colors[ImGuiCol_ButtonHovered]        = g_palette.selected;
+    colors[ImGuiCol_ButtonActive]         = g_palette.accent_active;
 
-    // Headers (Collapsing headers, tree nodes)
-    colors[ImGuiCol_Header]               = ImVec4(0.22f, 0.24f, 0.32f, 0.70f);
-    colors[ImGuiCol_HeaderHovered]        = ImVec4(0.31f, 0.27f, 0.82f, 0.80f);
-    colors[ImGuiCol_HeaderActive]         = ImVec4(0.31f, 0.27f, 0.82f, 1.00f);
+    colors[ImGuiCol_Header]               = g_palette.selected;
+    colors[ImGuiCol_HeaderHovered]        = g_palette.accent;
+    colors[ImGuiCol_HeaderActive]         = g_palette.accent_active;
 
-    // Sliders & Handles
-    colors[ImGuiCol_SliderGrab]           = ImVec4(0.49f, 0.46f, 0.95f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive]     = ImVec4(0.61f, 0.58f, 0.99f, 1.00f);
-    colors[ImGuiCol_CheckMark]            = ImVec4(0.49f, 0.46f, 0.95f, 1.00f);
+    colors[ImGuiCol_SliderGrab]           = g_palette.accent;
+    colors[ImGuiCol_SliderGrabActive]     = g_palette.accent_hovered;
+    colors[ImGuiCol_CheckMark]            = g_palette.accent_hovered;
 
-    // Separators & Resize Grips
-    colors[ImGuiCol_Separator]            = ImVec4(0.18f, 0.20f, 0.26f, 1.00f);
-    colors[ImGuiCol_SeparatorHovered]     = ImVec4(0.31f, 0.27f, 0.82f, 0.78f);
-    colors[ImGuiCol_SeparatorActive]      = ImVec4(0.31f, 0.27f, 0.82f, 1.00f);
-    colors[ImGuiCol_ResizeGrip]           = ImVec4(0.27f, 0.24f, 0.73f, 0.25f);
-    colors[ImGuiCol_ResizeGripHovered]    = ImVec4(0.35f, 0.31f, 0.89f, 0.67f);
-    colors[ImGuiCol_ResizeGripActive]     = ImVec4(0.49f, 0.46f, 0.95f, 0.95f);
+    colors[ImGuiCol_Separator]            = g_palette.border;
+    colors[ImGuiCol_SeparatorHovered]     = g_palette.accent;
+    colors[ImGuiCol_SeparatorActive]      = g_palette.accent_hovered;
+    colors[ImGuiCol_ResizeGrip]           = ImVec4(0.28f, 0.48f, 0.76f, 0.18f);
+    colors[ImGuiCol_ResizeGripHovered]    = ImVec4(0.34f, 0.56f, 0.86f, 0.55f);
+    colors[ImGuiCol_ResizeGripActive]     = g_palette.accent_hovered;
 
-    // Docking
-    colors[ImGuiCol_DockingPreview]       = ImVec4(0.31f, 0.27f, 0.82f, 0.70f);
-    colors[ImGuiCol_DockingEmptyBg]       = ImVec4(0.08f, 0.08f, 0.11f, 1.00f);
+    colors[ImGuiCol_DockingPreview]       = ImVec4(0.28f, 0.48f, 0.76f, 0.70f);
+    colors[ImGuiCol_DockingEmptyBg]       = g_palette.window;
 
-    // Scrollbars
-    colors[ImGuiCol_ScrollbarBg]          = ImVec4(0.09f, 0.10f, 0.13f, 0.60f);
-    colors[ImGuiCol_ScrollbarGrab]        = ImVec4(0.22f, 0.24f, 0.31f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.30f, 0.33f, 0.42f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.40f, 0.43f, 0.55f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg]          = ImVec4(0.075f, 0.078f, 0.085f, 0.65f);
+    colors[ImGuiCol_ScrollbarGrab]        = g_palette.border;
+    colors[ImGuiCol_ScrollbarGrabHovered] = g_palette.text_muted;
+    colors[ImGuiCol_ScrollbarGrabActive]  = g_palette.accent;
+
+    colors[ImGuiCol_TableHeaderBg]        = g_palette.header;
+    colors[ImGuiCol_TableBorderStrong]    = g_palette.border;
+    colors[ImGuiCol_TableBorderLight]     = ImVec4(0.19f, 0.20f, 0.22f, 1.0f);
+    colors[ImGuiCol_TableRowBgAlt]        = ImVec4(1.0f, 1.0f, 1.0f, 0.018f);
+    colors[ImGuiCol_NavCursor]            = g_palette.accent_hovered;
+    colors[ImGuiCol_TextSelectedBg]       = ImVec4(0.28f, 0.48f, 0.76f, 0.45f);
+}
+
+const EditorUiPalette& EditorTheme::palette() {
+    return g_palette;
+}
+
+const EditorUiMetrics& EditorTheme::metrics() {
+    return g_metrics;
 }
 
 } // namespace Engine

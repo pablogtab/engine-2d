@@ -1,4 +1,5 @@
 #include "ViewportPanel.hpp"
+#include "../EditorTheme.hpp"
 #include "../stage/PrefabStageController.hpp"
 #include "TilemapPalettePanel.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
@@ -1109,8 +1110,8 @@ void ViewportPanel::on_gui() {
 
                 if (!can_activate) ImGui::BeginDisabled();
                 if (is_active) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.30f, 0.23f, 0.62f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.38f, 0.30f, 0.75f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::palette().selected);
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::palette().accent);
                 }
                 if (ImGui::Button(label.c_str(), ImVec2(0.0f, 24.0f)) && !is_active && m_on_activate_scene) {
                     m_on_activate_scene(index);

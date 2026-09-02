@@ -29,6 +29,11 @@ public:
     ~InspectorPanel() override = default;
 
     void on_gui() override;
+    void on_context_changed(const EditorPanelContext& context) override {
+        set_command_history(context.command_history);
+        set_entity_state_store(context.entity_state_store);
+        set_selection(context.selection);
+    }
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
     void set_selection(std::shared_ptr<EditorSelection> selection) { m_selection = selection; }

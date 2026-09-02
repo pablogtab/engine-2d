@@ -1,4 +1,5 @@
 #include "StatsPanel.hpp"
+#include "../ui/EditorUi.hpp"
 #include "../../core/Time.hpp"
 #include "../../debug/FrameProfiler.hpp"
 #include "../../debug/StressScenarios.hpp"
@@ -31,9 +32,7 @@ void StatsPanel::on_gui() {
 
     ImGui::SetNextWindowSize(ImVec2(340, 380), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
-        // --- 1. Performance Overview ---
-        ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "PERFORMANCE OVERVIEW");
-        ImGui::Separator();
+        EditorUi::area_heading(EditorIcon::Zap, "Performance", "Frame and subsystem metrics");
 
         ImGuiIO& io = ImGui::GetIO();
         ImGui::Text("Framerate: %.1f FPS", io.Framerate);

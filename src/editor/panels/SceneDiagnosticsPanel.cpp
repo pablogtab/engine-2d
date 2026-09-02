@@ -1,4 +1,5 @@
 #include "SceneDiagnosticsPanel.hpp"
+#include "../ui/EditorUi.hpp"
 
 #include "../../core/AssetDatabase.hpp"
 #include "../../scene/Scene.hpp"
@@ -30,6 +31,8 @@ void SceneDiagnosticsPanel::on_gui() {
         ImGui::End();
         return;
     }
+
+    EditorUi::area_heading(EditorIcon::Shield, "Diagnostics", "Scene validation and repair");
 
     Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
     if (!active_scene) {

@@ -1,4 +1,5 @@
 #include "EditorIcons.hpp"
+#include "../EditorTheme.hpp"
 
 #include "../../core/Log.hpp"
 #include <SDL3/SDL_filesystem.h>
@@ -163,12 +164,13 @@ bool editor_icon_button(const char* id, EditorIcon icon, const char* tooltip, bo
         draw_list->AddRectFilled(minimum, maximum, IM_COL32(255, 255, 255, 14), 3.0f);
     }
 
-    ImU32 icon_color = active
-        ? IM_COL32(245, 175, 65, 255)
-        : (hovered ? IM_COL32(235, 240, 255, 255) : IM_COL32(130, 138, 158, 160));
+    const auto& palette = EditorTheme::palette();
+    ImU32 icon_color = ImGui::ColorConvertFloat4ToU32(
+        active ? palette.accent_hovered : (hovered ? palette.text : palette.text_muted)
+    );
 
     if (icon == EditorIcon::Assistant && active) {
-        icon_color = IM_COL32(145, 138, 250, 255);
+        icon_color = ImGui::ColorConvertFloat4ToU32(palette.accent_hovered);
     }
 
     if (icon == EditorIcon::Hidden && active) {

@@ -22,6 +22,9 @@ public:
     ~SpriteAnimationStudioPanel() override = default;
 
     void on_gui() override;
+    void on_context_changed(const EditorPanelContext& context) override {
+        set_command_history(context.command_history);
+    }
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
     void open_for_entity(EntityID entity) {

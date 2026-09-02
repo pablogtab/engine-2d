@@ -1,6 +1,9 @@
 #pragma once
 
 #include "EditorPanel.hpp"
+#include "EditorShell.hpp"
+#include "panels/EditorPanelRegistry.hpp"
+#include "session/EditorSessionController.hpp"
 #include "state/AutosaveRecovery.hpp"
 #include "state/RecentSceneList.hpp"
 #include "state/EditorPanelStateStore.hpp"
@@ -16,6 +19,7 @@
 #include <cstdint>
 #include <chrono>
 #include <future>
+#include <optional>
 
 namespace Engine {
 
@@ -25,20 +29,6 @@ class Window;
 class Scene;
 class EditorEntityStateStore;
 class PrefabStageController;
-
-struct EditorSceneSession {
-    std::shared_ptr<EditorCommandHistory> command_history;
-    std::shared_ptr<EditorEntityStateStore> entity_state_store;
-    std::shared_ptr<EditorSelection> selection;
-    std::string file_path;
-    std::string initial_snapshot_json;
-    std::string autosave_identity;
-    bool recovery_source_conflicted{false};
-    bool external_source_conflicted{false};
-    bool source_write_time_initialized{false};
-    std::filesystem::file_time_type observed_source_write_time{};
-    std::uint64_t persisted_entity_state_revision{0};
-};
 
 enum class PendingActionType {
     None,
@@ -90,10 +80,13 @@ public:
     void trim_render_resources();
 
     // Modular panel registration
-    void register_panel(std::shared_ptr<EditorPanel> panel);
+    void register_panel(EditorPanelId id, std::shared_ptr<EditorPanel> panel);
     void unregister_panel(const std::string& name);
     [[nodiscard]] std::shared_ptr<EditorPanel> get_panel(const std::string& name) const;
-    [[nodiscard]] const std::vector<std::shared_ptr<EditorPanel>>& get_panels() const { return m_panels; }
+    [[nodiscard]] std::shared_ptr<EditorPanel> get_panel(EditorPanelId id) const;
+    [[nodiscard]] const std::vector<std::shared_ptr<EditorPanel>>& get_panels() const {
+        return m_panel_registry.panels();
+    }
 
     [[nodiscard]] class ViewportPanel* get_viewport_panel() const { return m_viewport_panel; }
     void set_viewport_panel(class ViewportPanel* vp) { m_viewport_panel = vp; }
@@ -132,7 +125,14 @@ public:
 
 private:
     void render_main_menu_bar();
+    void register_editor_actions();
+    void activate_workspace(EditorWorkspaceId id);
+    void apply_pending_workspace_layout(uint32_t dockspace_id);
+    void apply_workspace_panel_visibility();
     void setup_default_dockspace_layout(uint32_t dockspace_id);
+    void reset_all_workspace_layouts();
+    [[nodiscard]] bool load_workspace_layout(EditorWorkspaceId id);
+    [[nodiscard]] std::filesystem::path workspace_layout_path(EditorWorkspaceId id) const;
     void persist_imgui_layout();
     void persist_panel_states();
     bool save_hot_exit_session();
@@ -168,8 +168,7 @@ private:
     std::shared_ptr<EditorEntityStateStore> m_entity_state_store{nullptr};
     std::shared_ptr<EditorSelection> m_selection{nullptr};
 
-    std::unordered_map<const Scene*, EditorSceneSession> m_scene_sessions;
-    std::vector<const Scene*> m_open_scene_tabs;
+    EditorSessionController m_sessions;
     RecentSceneList m_recent_scenes;
     AutosaveRecovery m_autosave_recovery;
     std::filesystem::path m_project_root{"."};
@@ -194,6 +193,7 @@ private:
     std::string m_imgui_ini_path;
     std::string m_last_saved_imgui_ini;
     EditorPanelStateStore m_panel_states;
+    EditorShell m_shell;
     std::uint64_t m_saved_panel_state_revision{0};
     std::vector<AutosaveRecord> m_pending_recoveries;
     std::vector<std::string> m_panels_to_reselect;
@@ -206,6 +206,9 @@ private:
     bool m_show_unsaved_changes_modal{false};
     bool m_show_prefab_stage_exit_modal{false};
     bool m_show_autosave_preferences{false};
+    bool m_show_reset_all_layouts_modal{false};
+    std::optional<EditorWorkspaceId> m_pending_workspace_layout;
+    bool m_pending_workspace_uses_default{false};
     bool m_recovery_scan_complete{false};
     bool m_hot_exit_restored{false};
     float m_autosave_elapsed{0.0f};
@@ -229,7 +232,7 @@ private:
     float m_redo_interval{0.45f};
     bool m_redo_is_holding{false};
 
-    std::vector<std::shared_ptr<EditorPanel>> m_panels;
+    EditorPanelRegistry m_panel_registry;
 };
 
 } // namespace Engine

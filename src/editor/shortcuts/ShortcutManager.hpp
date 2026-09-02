@@ -1,6 +1,5 @@
 #pragma once
 
-#include <imgui.h>
 #include <string>
 #include <unordered_map>
 #include <functional>
@@ -8,12 +7,26 @@
 
 namespace Engine {
 
+enum class EditorKey {
+    None,
+    A, B, C, D, E, F, G, H, I, J, K, L, M,
+    N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    Backspace,
+    Delete,
+    Escape,
+    Home,
+    Up,
+    Down,
+    F1,
+    F2
+};
+
 struct ShortcutBinding {
     std::string id;            // e.g. "editor.undo"
     std::string display_name;  // e.g. "Undo Action"
     std::string category;      // e.g. "Editing", "Camera", "General"
     
-    ImGuiKey primary_key{ImGuiKey_None};
+    EditorKey primary_key{EditorKey::None};
     bool mod_cmd{false};       // Command key on Mac (Super) / Ctrl on Win/Linux
     bool mod_ctrl{false};      // Raw Ctrl key
     bool mod_shift{false};
@@ -51,7 +64,9 @@ public:
     [[nodiscard]] std::string get_label(const std::string& action_id) const;
 
     // Rebinds an action to a new key combination
-    bool rebind(const std::string& action_id, ImGuiKey key, bool cmd, bool ctrl, bool shift, bool alt);
+    bool rebind(const std::string& action_id, EditorKey key, bool cmd, bool ctrl, bool shift, bool alt);
+
+    [[nodiscard]] EditorKey capture_pressed_key() const;
 
     // Process shortcuts and invoke callbacks
     void update(float dt, bool want_text_input);

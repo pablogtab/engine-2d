@@ -1,4 +1,5 @@
 #include "AssetBrowserPanel.hpp"
+#include "../ui/EditorUi.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../core/Log.hpp"
@@ -1665,8 +1666,11 @@ void AssetBrowserPanel::on_gui() {
         }
 
         if (entries.empty()) {
-            ImGui::Spacing();
-            ImGui::TextDisabled("No assets match the current search and filters.");
+            EditorUi::empty_state(
+                EditorIcon::Sprite,
+                "No matching assets",
+                "Change the search, collection, or filters"
+            );
         } else if (m_view_mode == AssetBrowserViewMode::Grid) {
             const float cell_size = m_thumbnail_size + m_padding;
             const float panel_width = ImGui::GetContentRegionAvail().x;

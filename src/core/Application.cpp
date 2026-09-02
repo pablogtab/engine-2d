@@ -23,6 +23,7 @@
 #include "../editor/panels/SpriteAnimationStudioPanel.hpp"
 #include "../editor/panels/ParticleEffectEditorPanel.hpp"
 #include "../editor/panels/AiAssistantPanel.hpp"
+#include "../editor/panels/UiGalleryPanel.hpp"
 #endif
 #include "../scene/Scene.hpp"
 #include "../scene/SceneSerializer.hpp"
@@ -376,6 +377,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
             .asset_database = &get_asset_database()
         }
     );
+    auto ui_gallery_panel = std::make_shared<UiGalleryPanel>();
     ai_assistant_panel->set_viewport_panel(viewport_panel);
 
     asset_browser->set_on_load_scene_callback([this](const std::string& scene_path) {
@@ -460,20 +462,21 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     viewport_panel->set_palette_panel(palette_panel.get());
     m_editor_layer->set_viewport_panel(viewport_panel.get());
     m_editor_layer->set_selection(selection);
-    m_editor_layer->register_panel(viewport_panel);
-    m_editor_layer->register_panel(hierarchy_panel);
-    m_editor_layer->register_panel(inspector_panel);
-    m_editor_layer->register_panel(console_panel);
-    m_editor_layer->register_panel(asset_browser);
-    m_editor_layer->register_panel(stats_panel);
-    m_editor_layer->register_panel(diagnostics_panel);
-    m_editor_layer->register_panel(postprocess_panel);
-    m_editor_layer->register_panel(particle_editor_panel);
-    m_editor_layer->register_panel(project_settings_panel);
-    m_editor_layer->register_panel(shortcuts_panel);
-    m_editor_layer->register_panel(palette_panel);
-    m_editor_layer->register_panel(anim_studio_panel);
-    m_editor_layer->register_panel(ai_assistant_panel);
+    m_editor_layer->register_panel(EditorPanelId::Viewport, viewport_panel);
+    m_editor_layer->register_panel(EditorPanelId::Hierarchy, hierarchy_panel);
+    m_editor_layer->register_panel(EditorPanelId::Inspector, inspector_panel);
+    m_editor_layer->register_panel(EditorPanelId::Console, console_panel);
+    m_editor_layer->register_panel(EditorPanelId::Assets, asset_browser);
+    m_editor_layer->register_panel(EditorPanelId::Metrics, stats_panel);
+    m_editor_layer->register_panel(EditorPanelId::Diagnostics, diagnostics_panel);
+    m_editor_layer->register_panel(EditorPanelId::PostProcess, postprocess_panel);
+    m_editor_layer->register_panel(EditorPanelId::Particles, particle_editor_panel);
+    m_editor_layer->register_panel(EditorPanelId::ProjectSettings, project_settings_panel);
+    m_editor_layer->register_panel(EditorPanelId::Shortcuts, shortcuts_panel);
+    m_editor_layer->register_panel(EditorPanelId::Tilemap, palette_panel);
+    m_editor_layer->register_panel(EditorPanelId::Animation, anim_studio_panel);
+    m_editor_layer->register_panel(EditorPanelId::Assistant, ai_assistant_panel);
+    m_editor_layer->register_panel(EditorPanelId::UiGallery, ui_gallery_panel);
 
         // Connect Log stream to in-game ConsolePanel
         Log::set_callback([console_panel](const LogRecord& record) {

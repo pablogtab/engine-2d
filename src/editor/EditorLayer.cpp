@@ -1,5 +1,6 @@
 #include "EditorLayer.hpp"
 #include "EditorTheme.hpp"
+#include "ui/EditorUi.hpp"
 #include "EditorSelection.hpp"
 #include "state/EditorEntityStateStore.hpp"
 #include "commands/EditorCommandHistory.hpp"
@@ -89,6 +90,109 @@ EditorLayer::~EditorLayer() {
     shutdown();
 }
 
+void EditorLayer::register_editor_actions() {
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.new_scene",
+        .label = "New Scene",
+        .category = "File",
+        .execute = [this]() {
+            request_destructive_action({
+                .type = PendingActionType::NewScene,
+                .target = "New Scene",
+                .action = [this]() { create_new_scene("New Scene"); }
+            });
+        }
+    }));
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.save_scene",
+        .label = "Save Scene",
+        .category = "File",
+        .execute = [this]() { static_cast<void>(save_active_scene()); },
+        .enabled = [this]() {
+            return m_scene_manager && m_scene_manager->get_active_scene();
+        }
+    }));
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.save_all",
+        .label = "Save All Scenes",
+        .category = "File",
+        .shortcut_id = "editor.save_all_scenes",
+        .execute = [this]() { static_cast<void>(save_all_scenes()); },
+        .enabled = [this]() { return m_scene_manager && !m_scene_manager->get_scenes().empty(); }
+    }));
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.undo",
+        .label = "Undo",
+        .category = "Edit",
+        .execute = [this]() {
+            if (m_command_history) m_command_history->undo();
+            update_window_title();
+        },
+        .enabled = [this]() { return m_command_history && m_command_history->can_undo(); }
+    }));
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.redo",
+        .label = "Redo",
+        .category = "Edit",
+        .execute = [this]() {
+            if (m_command_history) m_command_history->redo();
+            update_window_title();
+        },
+        .enabled = [this]() { return m_command_history && m_command_history->can_redo(); }
+    }));
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.reset_layout",
+        .label = "Reset Current Workspace Layout",
+        .category = "Window",
+        .execute = [this]() {
+            m_pending_workspace_layout = m_shell.workspaces().active();
+            m_pending_workspace_uses_default = true;
+        }
+    }));
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.reset_all_layouts",
+        .label = "Reset All Workspace Layouts",
+        .category = "Window",
+        .execute = [this]() { m_show_reset_all_layouts_modal = true; }
+    }));
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.open_project_settings",
+        .label = "Open Project Settings",
+        .category = "Window",
+        .execute = [this]() {
+            if (const auto panel = get_panel(EditorPanelId::ProjectSettings)) panel->is_open = true;
+        }
+    }));
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.open_shortcuts",
+        .label = "Open Shortcuts",
+        .category = "Window",
+        .execute = [this]() {
+            if (const auto panel = get_panel(EditorPanelId::Shortcuts)) panel->is_open = true;
+        }
+    }));
+    static_cast<void>(m_shell.actions().register_action({
+        .id = "editor.open_ui_gallery",
+        .label = "Open UI Gallery",
+        .category = "Development",
+        .execute = [this]() {
+            if (const auto panel = get_panel(EditorPanelId::UiGallery)) panel->is_open = true;
+        }
+    }));
+    for (const auto& descriptor : m_shell.workspaces().descriptors()) {
+        const EditorWorkspaceId id = descriptor.id;
+        const std::string action_id = std::string("workspace.") + descriptor.key;
+        const std::string label = std::string("Switch to ") + descriptor.label + " Workspace";
+        static_cast<void>(m_shell.actions().register_action({
+            .id = action_id,
+            .label = label,
+            .category = "Workspace",
+            .execute = [this, id]() { activate_workspace(id); },
+            .checked = [this, id]() { return m_shell.workspaces().active() == id; }
+        }));
+    }
+}
+
 void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::filesystem::path& project_root) {
     if (m_initialized) return;
 
@@ -101,14 +205,22 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     m_panel_state_path = m_project_root / "Library/Editor/PanelStates.json";
     m_hot_exit_session_path = m_project_root / "Library/Editor/SessionState.json";
     static_cast<void>(m_panel_states.load(m_panel_state_path.string()));
+    m_shell.initialize(m_project_root / "Library/Editor/WorkspaceState.json");
     m_saved_panel_state_revision = m_panel_states.revision();
-    const std::filesystem::path editor_layout_path = m_project_root / "Library/Editor/imgui.ini";
+    const std::filesystem::path layout_directory = m_project_root / "Library/Editor/Layouts";
+    const std::filesystem::path editor_layout_path =
+        workspace_layout_path(m_shell.workspaces().active());
+    const std::filesystem::path legacy_project_layout =
+        m_project_root / "Library/Editor/imgui.ini";
     std::error_code layout_error;
-    std::filesystem::create_directories(editor_layout_path.parent_path(), layout_error);
+    std::filesystem::create_directories(layout_directory, layout_error);
     if (!layout_error && !std::filesystem::exists(editor_layout_path)) {
-        // Preserve the layout used by older builds that wrote imgui.ini next
-        // to the executable/current working directory.
-        const std::filesystem::path legacy_layout = std::filesystem::current_path() / "imgui.ini";
+        // Preserve the active layout from older builds while moving to one
+        // independent ini file per workspace.
+        std::filesystem::path legacy_layout = legacy_project_layout;
+        if (!std::filesystem::exists(legacy_layout)) {
+            legacy_layout = std::filesystem::current_path() / "imgui.ini";
+        }
         if (std::filesystem::exists(legacy_layout)) {
             std::filesystem::copy_file(
                 legacy_layout,
@@ -138,114 +250,94 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     // Own persistence explicitly. dev.sh may terminate the process before
     // Dear ImGui's delayed ini timer or normal shutdown gets a chance to run.
     io.IniFilename = nullptr;
-    if (std::filesystem::exists(editor_layout_path) &&
-        std::filesystem::file_size(editor_layout_path, layout_error) > 0 && !layout_error) {
-        m_last_saved_imgui_ini = FileSystem::read_text(m_imgui_ini_path);
-        if (!m_last_saved_imgui_ini.empty()) {
-            ImGui::LoadIniSettingsFromMemory(
-                m_last_saved_imgui_ini.data(),
-                m_last_saved_imgui_ini.size()
-            );
-            ENGINE_LOG_INFO("[EDITOR] Loaded project layout from '{}'.", m_imgui_ini_path);
-        }
-    }
+    static_cast<void>(load_workspace_layout(m_shell.workspaces().active()));
+    // 2. Setup the editor type system before merging icon glyphs into the
+    // active atlas. The scale remains logical; platform backends handle the
+    // framebuffer density separately.
+    static_cast<void>(EditorTheme::initialize_fonts());
     static_cast<void>(initialize_editor_icons());
-
-    // 2. Setup Dear ImGui Modern Theme
     EditorTheme::apply_dark_theme();
 
     // 3. Setup Platform/Renderer backends
     ImGui_ImplSDL3_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer3_Init(renderer);
 
-    // 4. Register Default Actions in ShortcutManager
+    // 4. Register editor actions once; menus, shortcuts and the command
+    // palette invoke the same operations.
+    register_editor_actions();
+
+    // 5. Register default bindings in the backend-facing shortcut manager.
     auto& sm = ShortcutManager::get();
     sm.register_shortcut({
         .id = "editor.undo",
         .display_name = "Undo Action",
         .category = "Editing",
-        .primary_key = ImGuiKey_Z,
+        .primary_key = EditorKey::Z,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = false,
         .mod_alt = false,
         .enable_repeat = true,
-        .callback = [this]() {
-            if (m_command_history) {
-                m_command_history->undo();
-                update_window_title();
-            }
-        }
+        .callback = [this]() { static_cast<void>(m_shell.actions().execute("editor.undo")); }
     });
 
     sm.register_shortcut({
         .id = "editor.redo",
         .display_name = "Redo Action",
         .category = "Editing",
-        .primary_key = ImGuiKey_Z,
+        .primary_key = EditorKey::Z,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = true,
         .mod_alt = false,
         .enable_repeat = true,
-        .callback = [this]() {
-            if (m_command_history) {
-                m_command_history->redo();
-                update_window_title();
-            }
-        }
+        .callback = [this]() { static_cast<void>(m_shell.actions().execute("editor.redo")); }
     });
 
     sm.register_shortcut({
         .id = "editor.save_scene",
         .display_name = "Save Scene",
         .category = "File",
-        .primary_key = ImGuiKey_S,
+        .primary_key = EditorKey::S,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = false,
         .mod_alt = false,
         .enable_repeat = false,
-        .callback = [this]() { save_active_scene(); }
+        .callback = [this]() { static_cast<void>(m_shell.actions().execute("editor.save_scene")); }
     });
 
     sm.register_shortcut({
         .id = "editor.save_all_scenes",
         .display_name = "Save All Scenes",
         .category = "File",
-        .primary_key = ImGuiKey_S,
+        .primary_key = EditorKey::S,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = true,
         .mod_alt = false,
         .enable_repeat = false,
-        .callback = [this]() { save_all_scenes(); }
+        .callback = [this]() { static_cast<void>(m_shell.actions().execute("editor.save_all")); }
     });
 
     sm.register_shortcut({
         .id = "editor.new_scene",
         .display_name = "New Scene",
         .category = "File",
-        .primary_key = ImGuiKey_N,
+        .primary_key = EditorKey::N,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = false,
         .mod_alt = false,
         .enable_repeat = false,
-        .callback = [this]() {
-            request_destructive_action({
-                .type = PendingActionType::NewScene,
-                .target = "New Scene",
-                .action = [this]() { create_new_scene("New Scene"); }
-            });
-        }
+        .callback = [this]() { static_cast<void>(m_shell.actions().execute("editor.new_scene")); }
     });
 
     sm.register_shortcut({
         .id = "editor.duplicate",
         .display_name = "Duplicate Entities",
         .category = "Editing",
-        .primary_key = ImGuiKey_D,
+        .primary_key = EditorKey::D,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = false,
@@ -258,7 +350,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
         .id = "editor.delete",
         .display_name = "Delete Selected Entities",
         .category = "Editing",
-        .primary_key = ImGuiKey_Backspace,
+        .primary_key = EditorKey::Backspace,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = false,
@@ -271,7 +363,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
         .id = "editor.group_selection",
         .display_name = "Group Selection",
         .category = "Hierarchy",
-        .primary_key = ImGuiKey_G,
+        .primary_key = EditorKey::G,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = false,
@@ -289,10 +381,23 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     });
 
     sm.register_shortcut({
+        .id = "editor.command_palette",
+        .display_name = "Open Command Palette",
+        .category = "General",
+        .primary_key = EditorKey::P,
+        .mod_cmd = true,
+        .mod_ctrl = false,
+        .mod_shift = true,
+        .mod_alt = false,
+        .enable_repeat = false,
+        .callback = [this]() { m_shell.request_command_palette(); }
+    });
+
+    sm.register_shortcut({
         .id = "editor.ungroup_selection",
         .display_name = "Ungroup Selection",
         .category = "Hierarchy",
-        .primary_key = ImGuiKey_G,
+        .primary_key = EditorKey::G,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = true,
@@ -313,7 +418,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
         .id = "editor.focus_camera",
         .display_name = "Frame Selection",
         .category = "Camera",
-        .primary_key = ImGuiKey_F,
+        .primary_key = EditorKey::F,
         .mod_cmd = false,
         .mod_ctrl = false,
         .mod_shift = false,
@@ -326,7 +431,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
         .id = "editor.frame_all",
         .display_name = "Frame All Visible Entities",
         .category = "Camera",
-        .primary_key = ImGuiKey_F,
+        .primary_key = EditorKey::F,
         .mod_cmd = false,
         .mod_ctrl = false,
         .mod_shift = true,
@@ -339,7 +444,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
         .id = "editor.reset_view",
         .display_name = "Reset Viewport Camera",
         .category = "Camera",
-        .primary_key = ImGuiKey_Home,
+        .primary_key = EditorKey::Home,
         .mod_cmd = false,
         .mod_ctrl = false,
         .mod_shift = false,
@@ -352,7 +457,7 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
         .id = "editor.ai_attach_selection",
         .display_name = "Attach Selection to AI Assistant",
         .category = "AI Assistant",
-        .primary_key = ImGuiKey_L,
+        .primary_key = EditorKey::L,
         .mod_cmd = true,
         .mod_ctrl = false,
         .mod_shift = false,
@@ -494,7 +599,7 @@ void EditorLayer::save_entity_state_preferences() {
         root["scenes"] = nlohmann::json::object();
     }
 
-    for (const auto& [scene, session] : m_scene_sessions) {
+    for (const auto& [scene, session] : m_sessions.sessions()) {
         if (!scene || !session.entity_state_store || session.autosave_identity.empty()) continue;
         nlohmann::json entries = nlohmann::json::array();
         const EntityManager& em = scene->get_entity_manager();
@@ -525,7 +630,7 @@ void EditorLayer::save_entity_state_preferences() {
         ENGINE_LOG_ERROR("[EDITOR] Failed saving entity-state preferences");
         return;
     }
-    for (auto& [_, session] : m_scene_sessions) {
+    for (auto& [_, session] : m_sessions.sessions()) {
         if (session.entity_state_store) {
             session.persisted_entity_state_revision =
                 session.entity_state_store->persistence_revision();
@@ -576,8 +681,9 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
         return fallback_session;
     }
 
-    auto it = m_scene_sessions.find(scene);
-    if (it == m_scene_sessions.end()) {
+    if (EditorSceneSession* existing = m_sessions.find(scene)) return *existing;
+
+    EditorSceneSession& created = m_sessions.ensure(scene, [this, scene, &default_name]() {
         EditorSceneSession session;
         session.command_history = std::make_shared<EditorCommandHistory>();
         session.command_history->reset_clean_baseline(0);
@@ -601,13 +707,13 @@ EditorSceneSession& EditorLayer::get_or_create_session(const Scene* scene, const
             ? normalized_scene_identity(session.file_path)
             : "untitled:" + scene_name + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(scene));
 
-        it = m_scene_sessions.emplace(scene, std::move(session)).first;
-        refresh_scene_source_stamp(it->second);
-        load_entity_state_preferences(scene, it->second);
-        it->second.persisted_entity_state_revision =
-            it->second.entity_state_store->persistence_revision();
-    }
-    return it->second;
+        return session;
+    });
+    refresh_scene_source_stamp(created);
+    load_entity_state_preferences(scene, created);
+    created.persisted_entity_state_revision =
+        created.entity_state_store->persistence_revision();
+    return created;
 }
 
 void EditorLayer::bind_scene_path(const Scene* scene, const std::string& path) {
@@ -625,36 +731,12 @@ void EditorLayer::bind_scene_path(const Scene* scene, const std::string& path) {
 }
 
 void EditorLayer::update_panel_sessions(std::shared_ptr<EditorCommandHistory> ch, std::shared_ptr<EditorEntityStateStore> store, std::shared_ptr<EditorSelection> sel) {
-    if (m_viewport_panel) {
-        m_viewport_panel->set_command_history(ch);
-        m_viewport_panel->set_entity_state_store(store);
-        if (sel) m_viewport_panel->set_selection(sel);
-    }
-    for (auto& panel : m_panels) {
-        if (!panel) continue;
-        if (auto p = std::dynamic_pointer_cast<SceneHierarchyPanel>(panel)) {
-            p->set_command_history(ch);
-            p->set_entity_state_store(store);
-            if (sel) p->set_selection(sel);
-        } else if (auto p = std::dynamic_pointer_cast<InspectorPanel>(panel)) {
-            p->set_command_history(ch);
-            p->set_entity_state_store(store);
-            if (sel) p->set_selection(sel);
-        } else if (auto p = std::dynamic_pointer_cast<SceneDiagnosticsPanel>(panel)) {
-            p->set_command_history(ch);
-            if (sel) p->set_selection(sel);
-        } else if (auto p = std::dynamic_pointer_cast<SpriteAnimationStudioPanel>(panel)) {
-            p->set_command_history(ch);
-        } else if (auto p = std::dynamic_pointer_cast<PostProcessTunerPanel>(panel)) {
-            p->set_command_history(ch);
-        } else if (auto p = std::dynamic_pointer_cast<ParticleEffectEditorPanel>(panel)) {
-            p->set_command_history(ch);
-        } else if (auto p = std::dynamic_pointer_cast<AiAssistantPanel>(panel)) {
-            p->set_command_history(ch);
-            p->set_entity_state_store(store);
-            if (sel) p->set_selection(sel);
-        }
-    }
+    const EditorPanelContext context{
+        .command_history = std::move(ch),
+        .entity_state_store = std::move(store),
+        .selection = sel ? std::move(sel) : m_selection
+    };
+    m_panel_registry.broadcast_context(context);
 }
 
 void EditorLayer::update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch) {
@@ -664,22 +746,8 @@ void EditorLayer::update_panel_command_histories(std::shared_ptr<EditorCommandHi
 void EditorLayer::cleanup_stale_sessions() {
     if (!m_scene_manager) return;
     const auto& scenes = m_scene_manager->get_scenes();
-    for (auto it = m_scene_sessions.begin(); it != m_scene_sessions.end(); ) {
-        bool found = false;
-        for (const auto& scene : scenes) {
-            if (scene.get() == it->first) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            it = m_scene_sessions.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    std::erase_if(m_open_scene_tabs, [&scenes](const Scene* scene) {
-        return std::none_of(scenes.begin(), scenes.end(), [scene](const std::shared_ptr<Scene>& candidate) {
+    m_sessions.prune([&scenes](const Scene* scene) {
+        return std::any_of(scenes.begin(), scenes.end(), [scene](const std::shared_ptr<Scene>& candidate) {
             return candidate.get() == scene;
         });
     });
@@ -709,7 +777,7 @@ void EditorLayer::sync_active_scene_session() {
     if (!active_scene) return;
 
     cleanup_stale_sessions();
-    if (m_open_scene_tabs.empty()) open_scene_tab(active_scene);
+    if (m_sessions.tabs_empty()) open_scene_tab(active_scene);
 
     if (active_scene != m_last_active_scene || m_command_history == nullptr || m_entity_state_store == nullptr) {
         m_last_active_scene = active_scene;
@@ -842,31 +910,174 @@ void EditorLayer::begin_frame() {
     ShortcutManager::get().update(dt, want_text_input());
 }
 
+std::filesystem::path EditorLayer::workspace_layout_path(EditorWorkspaceId id) const {
+    const auto& descriptors = m_shell.workspaces().descriptors();
+    const auto descriptor = std::find_if(
+        descriptors.begin(), descriptors.end(),
+        [id](const EditorWorkspaceDescriptor& candidate) { return candidate.id == id; }
+    );
+    const char* key = descriptor == descriptors.end() ? "2d" : descriptor->key;
+    return m_project_root / "Library/Editor/Layouts" / (std::string(key) + ".ini");
+}
+
+bool EditorLayer::load_workspace_layout(EditorWorkspaceId id) {
+    const std::filesystem::path path = workspace_layout_path(id);
+    m_imgui_ini_path = path.string();
+    m_last_saved_imgui_ini.clear();
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error) ||
+        std::filesystem::file_size(path, error) == 0 || error) {
+        return false;
+    }
+    const std::string layout = FileSystem::read_text(path.string());
+    if (layout.empty()) return false;
+    ImGui::LoadIniSettingsFromMemory(layout.data(), layout.size());
+    m_last_saved_imgui_ini = layout;
+    ENGINE_LOG_INFO(
+        "[EDITOR UI] Loaded '{}' workspace layout from '{}'.",
+        m_shell.workspaces().active_descriptor().label,
+        path.string()
+    );
+    return true;
+}
+
+void EditorLayer::apply_workspace_panel_visibility() {
+    for (const auto& panel : m_panel_registry.panels()) {
+        if (!panel || panel->get_id() == EditorPanelId::ProjectSettings ||
+            panel->get_id() == EditorPanelId::Shortcuts ||
+            panel->get_id() == EditorPanelId::UiGallery) {
+            continue;
+        }
+        panel->is_open = m_shell.workspaces().contains(panel->get_id());
+    }
+}
+
 void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
+    apply_workspace_panel_visibility();
     ImGui::DockBuilderRemoveNode(dockspace_id);
     ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
 
     ImGuiID dock_main_id = dockspace_id;
-    ImGuiID dock_left_id = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Left, 0.22f, nullptr, &dock_main_id);
-    ImGuiID dock_right_id = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Right, 0.28f, nullptr, &dock_main_id);
-    ImGuiID dock_down_id = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Down, 0.28f, nullptr, &dock_main_id);
-
-    ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
-    ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left_id);
-    ImGui::DockBuilderDockWindow("Engine & Metrics", dock_right_id);
-    ImGui::DockBuilderDockWindow("Entity Inspector", dock_right_id);
-    ImGui::DockBuilderDockWindow("Scene Diagnostics", dock_right_id);
-    ImGui::DockBuilderDockWindow("AI Assistant", dock_right_id);
-    ImGui::DockBuilderDockWindow("Asset Browser", dock_down_id);
-    ImGui::DockBuilderDockWindow("Console & Logs", dock_down_id);
+    switch (m_shell.workspaces().active()) {
+        case EditorWorkspaceId::TwoD: {
+            // Calibrated from the approved authoring layout: a compact scene
+            // tree, a wide property column, and enough vertical room for the
+            // asset workflow without taking focus away from the viewport.
+            const ImGuiID dock_left = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Left, 0.18f, nullptr, &dock_main_id
+            );
+            const ImGuiID dock_right = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Right, 0.39f, nullptr, &dock_main_id
+            );
+            const ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Down, 0.30f, nullptr, &dock_main_id
+            );
+            ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left);
+            ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
+            ImGui::DockBuilderDockWindow("Entity Inspector", dock_right);
+            ImGui::DockBuilderDockWindow("AI Assistant", dock_right);
+            ImGui::DockBuilderDockWindow("Console & Logs", dock_bottom);
+            ImGui::DockBuilderDockWindow("Asset Browser", dock_bottom);
+            break;
+        }
+        case EditorWorkspaceId::Animation:
+        {
+            // The animation workspace is intentionally focused: assets stay in
+            // a narrow browser while the studio uses the full working area.
+            const ImGuiID dock_left = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Left, 0.21f, nullptr, &dock_main_id
+            );
+            ImGui::DockBuilderDockWindow("Asset Browser", dock_left);
+            ImGui::DockBuilderDockWindow("Animation Studio", dock_main_id);
+            break;
+        }
+        case EditorWorkspaceId::Tilemap:
+        {
+            const ImGuiID dock_left = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Left, 0.18f, nullptr, &dock_main_id
+            );
+            const ImGuiID dock_right = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Right, 0.24f, nullptr, &dock_main_id
+            );
+            const ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Down, 0.31f, nullptr, &dock_main_id
+            );
+            ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left);
+            ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
+            ImGui::DockBuilderDockWindow("Entity Inspector", dock_right);
+            ImGui::DockBuilderDockWindow("Tilemap Palette", dock_bottom);
+            ImGui::DockBuilderDockWindow("Asset Browser", dock_bottom);
+            break;
+        }
+        case EditorWorkspaceId::Vfx:
+        {
+            const ImGuiID dock_right = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Right, 0.29f, nullptr, &dock_main_id
+            );
+            ImGuiID dock_right_top = dock_right;
+            const ImGuiID dock_right_bottom = ImGui::DockBuilderSplitNode(
+                dock_right_top, ImGuiDir_Down, 0.48f, nullptr, &dock_right_top
+            );
+            const ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Down, 0.28f, nullptr, &dock_main_id
+            );
+            ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
+            ImGui::DockBuilderDockWindow("Entity Inspector", dock_right_top);
+            ImGui::DockBuilderDockWindow("Post-Processing Tuner", dock_right_bottom);
+            ImGui::DockBuilderDockWindow("Particle Effect Editor", dock_bottom);
+            ImGui::DockBuilderDockWindow("Asset Browser", dock_bottom);
+            break;
+        }
+        case EditorWorkspaceId::Debug:
+        {
+            const ImGuiID dock_right = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Right, 0.30f, nullptr, &dock_main_id
+            );
+            ImGuiID dock_right_top = dock_right;
+            const ImGuiID dock_right_bottom = ImGui::DockBuilderSplitNode(
+                dock_right_top, ImGuiDir_Down, 0.50f, nullptr, &dock_right_top
+            );
+            const ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(
+                dock_main_id, ImGuiDir_Down, 0.34f, nullptr, &dock_main_id
+            );
+            ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
+            ImGui::DockBuilderDockWindow("Console & Logs", dock_bottom);
+            ImGui::DockBuilderDockWindow("Engine & Metrics", dock_right_top);
+            ImGui::DockBuilderDockWindow("Scene Diagnostics", dock_right_bottom);
+            break;
+        }
+        case EditorWorkspaceId::Count:
+            break;
+    }
 
     ImGui::DockBuilderFinish(dockspace_id);
+    m_last_saved_imgui_ini.clear();
+}
 
+void EditorLayer::reset_all_workspace_layouts() {
+    persist_imgui_layout();
+    std::error_code error;
+    for (const auto& descriptor : m_shell.workspaces().descriptors()) {
+        const std::filesystem::path path = workspace_layout_path(descriptor.id);
+        error.clear();
+        static_cast<void>(std::filesystem::remove(path, error));
+        if (error) {
+            ENGINE_LOG_WARN(
+                "[EDITOR UI] Could not remove '{}' workspace layout '{}': {}",
+                descriptor.label, path.string(), error.message()
+            );
+        }
+    }
+    m_imgui_ini_path = workspace_layout_path(m_shell.workspaces().active()).string();
+    m_pending_workspace_layout = m_shell.workspaces().active();
+    m_pending_workspace_uses_default = true;
+    ENGINE_LOG_INFO("[EDITOR UI] Restored all workspace layouts to defaults.");
 }
 
 void EditorLayer::persist_imgui_layout() {
-    if (m_imgui_ini_path.empty() || ImGui::GetCurrentContext() == nullptr) return;
+    if (m_pending_workspace_layout || m_imgui_ini_path.empty() ||
+        ImGui::GetCurrentContext() == nullptr) return;
 
     std::size_t size = 0;
     const char* data = ImGui::SaveIniSettingsToMemory(&size);
@@ -885,8 +1096,10 @@ void EditorLayer::persist_imgui_layout() {
 }
 
 void EditorLayer::persist_panel_states() {
-    for (const auto& panel : m_panels) {
-        if (panel) m_panel_states.set_open(panel->get_name(), panel->is_open);
+    for (const auto& panel : m_panel_registry.panels()) {
+        if (panel) {
+            m_panel_states.set_open(editor_panel_id_key(panel->get_id()), panel->is_open);
+        }
     }
     if (m_panel_states.revision() == m_saved_panel_state_revision) return;
     if (m_panel_states.save(m_panel_state_path.string())) {
@@ -938,7 +1151,7 @@ bool EditorLayer::save_hot_exit_session() {
 
     nlohmann::json selected_panels = nlohmann::json::array();
     if (ImGui::GetCurrentContext()) {
-        for (const auto& panel : m_panels) {
+        for (const auto& panel : m_panel_registry.panels()) {
             if (!panel || !panel->is_open) continue;
             ImGuiWindow* window = ImGui::FindWindowByName(panel->get_name().c_str());
             if (window && window->DockNode &&
@@ -1023,8 +1236,8 @@ void EditorLayer::restore_hot_exit_session() {
 
             for (const auto& candidate : m_scene_manager->get_scenes()) {
                 if (!candidate) continue;
-                const auto session_it = m_scene_sessions.find(candidate.get());
-                if (session_it != m_scene_sessions.end() &&
+                const auto session_it = m_sessions.sessions().find(candidate.get());
+                if (session_it != m_sessions.sessions().end() &&
                     session_it->second.autosave_identity == identity) {
                     target = candidate.get();
                     break;
@@ -1034,8 +1247,8 @@ void EditorLayer::restore_hot_exit_session() {
                 load_scene(source_path);
                 for (const auto& candidate : m_scene_manager->get_scenes()) {
                     if (!candidate) continue;
-                    const auto session_it = m_scene_sessions.find(candidate.get());
-                    if (session_it != m_scene_sessions.end() &&
+                    const auto session_it = m_sessions.sessions().find(candidate.get());
+                    if (session_it != m_sessions.sessions().end() &&
                         session_it->second.autosave_identity == normalized_scene_identity(source_path)) {
                         target = candidate.get();
                         break;
@@ -1086,7 +1299,7 @@ void EditorLayer::restore_hot_exit_session() {
             if (entry.value("open", false)) open_identities.push_back(identity);
         }
 
-        m_open_scene_tabs.clear();
+        m_sessions.clear_tabs();
         for (const std::string& identity : open_identities) {
             const auto restored = restored_scenes.find(identity);
             if (restored != restored_scenes.end()) open_scene_tab(restored->second);
@@ -1335,18 +1548,16 @@ bool EditorLayer::save_all_scenes() {
 }
 
 bool EditorLayer::is_scene_dirty(const Scene* scene) const {
-    const auto session = m_scene_sessions.find(scene);
-    return session != m_scene_sessions.end() && session->second.command_history &&
-        session->second.command_history->is_dirty();
+    const EditorSceneSession* session = m_sessions.find(scene);
+    return session && session->command_history && session->command_history->is_dirty();
 }
 
 bool EditorLayer::is_scene_tab_open(const Scene* scene) const {
-    return std::find(m_open_scene_tabs.begin(), m_open_scene_tabs.end(), scene) != m_open_scene_tabs.end();
+    return m_sessions.is_tab_open(scene);
 }
 
 void EditorLayer::open_scene_tab(const Scene* scene) {
-    if (!scene || is_scene_tab_open(scene)) return;
-    m_open_scene_tabs.push_back(scene);
+    m_sessions.open_tab(scene);
 }
 
 void EditorLayer::activate_scene(std::size_t index) {
@@ -1360,12 +1571,12 @@ void EditorLayer::activate_scene(std::size_t index) {
 
 void EditorLayer::close_scene_tab(std::size_t index) {
     if (!m_scene_manager || !m_scene_manager->is_editing() ||
-        index >= m_scene_manager->get_scene_count() || m_open_scene_tabs.size() <= 1) return;
+        index >= m_scene_manager->get_scene_count() || m_sessions.tab_count() <= 1) return;
     const auto& scenes = m_scene_manager->get_scenes();
     const Scene* closing = scenes[index].get();
     if (!closing || !is_scene_tab_open(closing)) return;
 
-    std::erase(m_open_scene_tabs, closing);
+    m_sessions.close_tab(closing);
     if (m_scene_manager->get_active_index() == static_cast<int>(index)) {
         const auto replacement = std::find_if(
             scenes.begin(), scenes.end(), [this](const std::shared_ptr<Scene>& scene) {
@@ -1385,8 +1596,8 @@ bool EditorLayer::has_loaded_scene_path(const std::string& path, std::size_t& in
     const auto& scenes = m_scene_manager->get_scenes();
     for (std::size_t scene_index = 0; scene_index < scenes.size(); ++scene_index) {
         if (!scenes[scene_index]) continue;
-        const auto session = m_scene_sessions.find(scenes[scene_index].get());
-        if (session == m_scene_sessions.end() || session->second.file_path.empty()) continue;
+        const auto session = m_sessions.sessions().find(scenes[scene_index].get());
+        if (session == m_sessions.sessions().end() || session->second.file_path.empty()) continue;
         const std::string loaded_path = std::filesystem::path(session->second.file_path).lexically_normal().generic_string();
         if (loaded_path == normalized) {
             index = scene_index;
@@ -1476,6 +1687,21 @@ void EditorLayer::render_dockspace() {
     // 1. Render Top Main Menu Bar
     render_main_menu_bar();
 
+    // Reserve the remaining top and bottom chrome before positioning the dock
+    // host so panels never render underneath workspace or status controls.
+    Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
+    const EditorShellState shell_state{
+        .scene_name = active_scene ? active_scene->get_name() : std::string{},
+        .scene_dirty = active_scene && is_scene_dirty(active_scene),
+        .playing = m_scene_manager && !m_scene_manager->is_editing(),
+        .selection_count = m_selection ? m_selection->get_selected().size() : 0
+    };
+    m_shell.render_workspace_bar(
+        shell_state,
+        [this](EditorWorkspaceId id) { activate_workspace(id); }
+    );
+    m_shell.render_status_bar(shell_state);
+
     // 2. Setup Fullscreen Central DockSpace
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -1498,6 +1724,10 @@ void EditorLayer::render_dockspace() {
     ImGui::PopStyleVar(3);
 
     ImGuiID dockspace_id = ImGui::GetID("Engine2DDockSpace");
+    // Workspace changes are queued by the top bar and applied only after the
+    // dock host is active, but before DockSpace() submits its node. This keeps
+    // the ID stack valid and rebuilds docking before any panel is rendered.
+    apply_pending_workspace_layout(dockspace_id);
     if (!m_dockspace_initialized) {
         m_dockspace_initialized = true;
         // ImGui loads the project ini during the first NewFrame. Only build
@@ -1509,6 +1739,40 @@ void EditorLayer::render_dockspace() {
     ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
     ImGui::End();
+
+    m_shell.render_command_palette();
+
+    if (m_show_reset_all_layouts_modal) {
+        m_show_reset_all_layouts_modal = false;
+        ImGui::OpenPopup("Reset All Workspace Layouts?");
+    }
+    ImGui::SetNextWindowSize(ImVec2(440.0f, 0.0f), ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal(
+            "Reset All Workspace Layouts?", nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        ImGui::TextWrapped(
+            "This restores the default docking and visible panels for 2D, "
+            "Animation, Tilemap, VFX, and Debug. Scenes, assets, editor "
+            "preferences, and shortcuts are not changed."
+        );
+        ImGui::Spacing();
+        if (ImGui::Button("Cancel", ImVec2(120.0f, 0.0f))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        const auto& palette = EditorTheme::palette();
+        ImGui::PushStyleColor(ImGuiCol_Button, palette.error);
+        ImGui::PushStyleColor(
+            ImGuiCol_ButtonHovered,
+            ImVec4(palette.error.x, palette.error.y, palette.error.z, 0.85f)
+        );
+        if (ImGui::Button("Reset All", ImVec2(120.0f, 0.0f))) {
+            reset_all_workspace_layouts();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::PopStyleColor(2);
+        ImGui::EndPopup();
+    }
 
     // Modal popup: Save Scene As
     if (m_show_save_as_popup) {
@@ -1622,20 +1886,16 @@ void EditorLayer::render_main_menu_bar() {
             ImGui::Separator();
             std::string new_lbl = ShortcutManager::get().get_label("editor.new_scene");
             if (ImGui::MenuItem("New Scene", new_lbl.empty() ? nullptr : new_lbl.c_str())) {
-                request_destructive_action({
-                    .type = PendingActionType::NewScene,
-                    .target = "New Scene",
-                    .action = [this]() { create_new_scene("New Scene"); }
-                });
+                static_cast<void>(m_shell.actions().execute("editor.new_scene"));
             }
 
             std::string save_lbl = ShortcutManager::get().get_label("editor.save_scene");
             if (ImGui::MenuItem("Save Scene", save_lbl.empty() ? nullptr : save_lbl.c_str())) {
-                save_active_scene();
+                static_cast<void>(m_shell.actions().execute("editor.save_scene"));
             }
             std::string save_all_lbl = ShortcutManager::get().get_label("editor.save_all_scenes");
             if (ImGui::MenuItem("Save All", save_all_lbl.empty() ? nullptr : save_all_lbl.c_str())) {
-                save_all_scenes();
+                static_cast<void>(m_shell.actions().execute("editor.save_all"));
             }
             if (ImGui::MenuItem("Save Scene As...")) {
                 m_show_save_as_popup = true;
@@ -1676,10 +1936,7 @@ void EditorLayer::render_main_menu_bar() {
             }
             std::string undo_lbl = ShortcutManager::get().get_label("editor.undo");
             if (ImGui::MenuItem(undo_str.c_str(), undo_lbl.c_str(), false, can_u)) {
-                if (m_command_history) {
-                    m_command_history->undo();
-                    update_window_title();
-                }
+                static_cast<void>(m_shell.actions().execute("editor.undo"));
             }
 
             bool can_r = m_command_history && m_command_history->can_redo();
@@ -1689,10 +1946,7 @@ void EditorLayer::render_main_menu_bar() {
             }
             std::string redo_lbl = ShortcutManager::get().get_label("editor.redo");
             if (ImGui::MenuItem(redo_str.c_str(), redo_lbl.c_str(), false, can_r)) {
-                if (m_command_history) {
-                    m_command_history->redo();
-                    update_window_title();
-                }
+                static_cast<void>(m_shell.actions().execute("editor.redo"));
             }
 
             ImGui::Separator();
@@ -1709,18 +1963,18 @@ void EditorLayer::render_main_menu_bar() {
 
             ImGui::Separator();
             if (ImGui::MenuItem("Project Settings...")) {
-                auto panel = get_panel("Project Settings");
-                if (panel) panel->is_open = true;
+                static_cast<void>(m_shell.actions().execute("editor.open_project_settings"));
             }
             if (ImGui::MenuItem("Shortcuts & Keybindings...")) {
-                auto panel = get_panel("Shortcuts & Keybindings");
-                if (panel) panel->is_open = true;
+                static_cast<void>(m_shell.actions().execute("editor.open_shortcuts"));
             }
 
             ImGui::Separator();
-            if (ImGui::MenuItem("Reset Layout")) {
-                ImGuiID dockspace_id = ImGui::GetID("Engine2DDockSpace");
-                setup_default_dockspace_layout(dockspace_id);
+            if (ImGui::MenuItem("Reset Current Workspace Layout")) {
+                static_cast<void>(m_shell.actions().execute("editor.reset_layout"));
+            }
+            if (ImGui::MenuItem("Reset All Workspace Layouts...")) {
+                static_cast<void>(m_shell.actions().execute("editor.reset_all_layouts"));
             }
             ImGui::EndMenu();
         }
@@ -1729,7 +1983,7 @@ void EditorLayer::render_main_menu_bar() {
             Scene* active_scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
             bool has_scene = (active_scene != nullptr);
 
-            if (ImGui::MenuItem("🗺️ 2D Tilemap", nullptr, false, has_scene)) {
+            if (ImGui::MenuItem("2D Tilemap", nullptr, false, has_scene)) {
                 if (active_scene) {
                     EntityManager& em = active_scene->get_entity_manager();
                     EntitySnapshot snapshot;
@@ -1743,7 +1997,7 @@ void EditorLayer::render_main_menu_bar() {
                 }
             }
 
-            if (ImGui::MenuItem("🟦 2D Sprite Entity", nullptr, false, has_scene)) {
+            if (ImGui::MenuItem("2D Sprite Entity", nullptr, false, has_scene)) {
                 if (active_scene) {
                     EntityManager& em = active_scene->get_entity_manager();
                     EntitySnapshot snapshot;
@@ -1757,7 +2011,7 @@ void EditorLayer::render_main_menu_bar() {
                 }
             }
 
-            if (ImGui::MenuItem("🎥 Camera 2D", nullptr, false, has_scene)) {
+            if (ImGui::MenuItem("Camera 2D", nullptr, false, has_scene)) {
                 if (active_scene) {
                     EntityManager& em = active_scene->get_entity_manager();
                     EntitySnapshot snapshot;
@@ -1773,7 +2027,7 @@ void EditorLayer::render_main_menu_bar() {
                 }
             }
 
-            if (ImGui::MenuItem("⭕ Empty Entity", nullptr, false, has_scene)) {
+            if (ImGui::MenuItem("Empty Entity", nullptr, false, has_scene)) {
                 if (active_scene) {
                     EntityManager& em = active_scene->get_entity_manager();
                     EntitySnapshot snapshot;
@@ -1789,7 +2043,7 @@ void EditorLayer::render_main_menu_bar() {
             ImGui::Separator();
 
             bool has_selection = has_scene && (m_selection && !m_selection->empty());
-            if (ImGui::MenuItem("📁 Group Selection", "Cmd+G", false, has_selection)) {
+            if (ImGui::MenuItem("Group Selection", "Cmd+G", false, has_selection)) {
                 if (active_scene && m_selection && !m_selection->empty()) {
                     EntityManager& em = active_scene->get_entity_manager();
                     std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
@@ -1811,7 +2065,7 @@ void EditorLayer::render_main_menu_bar() {
                 }
             }
 
-            if (ImGui::MenuItem("📂 Ungroup", "Cmd+Shift+G", false, has_group_selected)) {
+            if (ImGui::MenuItem("Ungroup", "Cmd+Shift+G", false, has_group_selected)) {
                 if (active_scene && m_selection && !m_selection->empty()) {
                     EntityManager& em = active_scene->get_entity_manager();
                     std::vector<EntityID> selected_vec(m_selection->get_selected().begin(), m_selection->get_selected().end());
@@ -1825,19 +2079,19 @@ void EditorLayer::render_main_menu_bar() {
             ImGui::EndMenu();
         }
 
-        if (ImGui::BeginMenu("🎮 Demos")) {
+        if (ImGui::BeginMenu("Scenes")) {
             if (m_scene_manager) {
                 const auto& scenes = m_scene_manager->get_scenes();
                 int active_idx = m_scene_manager->get_active_index();
 
-                if (ImGui::MenuItem("🔄 Next Demo Scene", "TAB")) {
+                if (ImGui::MenuItem("Next Scene", "TAB")) {
                     const int active_index = m_scene_manager->get_active_index();
                     const std::size_t next_index = static_cast<std::size_t>(
                         (active_index + 1 + static_cast<int>(scenes.size())) % static_cast<int>(scenes.size())
                     );
                     activate_scene(next_index);
                 }
-                if (ImGui::MenuItem("⏮️ Previous Demo Scene", "Shift+TAB")) {
+                if (ImGui::MenuItem("Previous Scene", "Shift+TAB")) {
                     const int active_index = m_scene_manager->get_active_index();
                     const std::size_t previous_index = static_cast<std::size_t>(
                         (active_index - 1 + static_cast<int>(scenes.size())) % static_cast<int>(scenes.size())
@@ -1851,15 +2105,15 @@ void EditorLayer::render_main_menu_bar() {
                     bool is_selected = (active_idx == static_cast<int>(i));
                     std::string label;
                     if (scenes[i]->get_name() == "PlatformerDemo") {
-                        label = "1. 🎮 Platformer Level (Authoring Scene)";
+                        label = "1. Platformer Level (Authoring Scene)";
                     } else if (scenes[i]->get_name() == "2D Platformer & Collision Layer Matrix") {
-                        label = "2. 🏃 2D Platformer & Collision Layers (C++ Sandbox)";
+                        label = "2. 2D Platformer & Collision Layers (C++ Sandbox)";
                     } else if (scenes[i]->get_name() == "2D Animated Sprites & Asset Loader") {
-                        label = "3. 🧙 Top-Down Animated Sprites";
+                        label = "3. Top-Down Animated Sprites";
                     } else if (scenes[i]->get_name() == "2.5D Depth & Parallax Test") {
-                        label = "4. 🌌 2.5D Depth & Parallax Test";
+                        label = "4. 2.5D Depth & Parallax Test";
                     } else if (scenes[i]->get_name() == "GPU/CPU Stress Test") {
-                        label = "5. ⚡ GPU/CPU Stress Test (3,000 Sprites)";
+                        label = "5. GPU/CPU Stress Test (3,000 Sprites)";
                     } else {
                         label = std::to_string(i + 1) + ". " + scenes[i]->get_name();
                     }
@@ -1873,7 +2127,7 @@ void EditorLayer::render_main_menu_bar() {
         }
 
         if (ImGui::BeginMenu("Panels")) {
-            for (auto& panel : m_panels) {
+            for (auto& panel : m_panel_registry.panels()) {
                 if (panel) {
                     ImGui::MenuItem(panel->get_name().c_str(), nullptr, &panel->is_open);
                 }
@@ -1886,8 +2140,8 @@ void EditorLayer::render_main_menu_bar() {
                 bool stale_bake = false;
                 for (const auto& scene : m_scene_manager ? m_scene_manager->get_scenes() : std::vector<std::shared_ptr<Scene>>{}) {
                     if (!scene) continue;
-                    const auto session = m_scene_sessions.find(scene.get());
-                    if (session == m_scene_sessions.end() || session->second.file_path.empty()) continue;
+                    const auto session = m_sessions.sessions().find(scene.get());
+                    if (session == m_sessions.sessions().end() || session->second.file_path.empty()) continue;
                     const auto bake = LightingBakeService::status(m_project_root, session->second.file_path);
                     if (bake.has_bake_volume && !bake.current) {
                         stale_bake = true;
@@ -1898,8 +2152,8 @@ void EditorLayer::render_main_menu_bar() {
             }
             if (ImGui::MenuItem("Bake Lighting for Active Scene")) {
                 Scene* const scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
-                const auto session = scene ? m_scene_sessions.find(scene) : m_scene_sessions.end();
-                if (!scene || session == m_scene_sessions.end() || session->second.file_path.empty()) {
+                const auto session = scene ? m_sessions.sessions().find(scene) : m_sessions.sessions().end();
+                if (!scene || session == m_sessions.sessions().end() || session->second.file_path.empty()) {
                     ENGINE_LOG_WARN("[LIGHTING BAKE] Save the active scene before baking.");
                 } else {
                     schedule_lighting_bake(session->second.file_path, std::chrono::milliseconds(0));
@@ -1938,8 +2192,7 @@ void EditorLayer::render_main_menu_bar() {
             get_panel("AI Assistant")
         );
         constexpr float AI_BUTTON_WIDTH = 24.0f;
-        constexpr float FPS_STATUS_WIDTH = 170.0f;
-        float right_pos = ImGui::GetWindowWidth() - FPS_STATUS_WIDTH - AI_BUTTON_WIDTH - 8.0f;
+        float right_pos = ImGui::GetWindowWidth() - AI_BUTTON_WIDTH - 8.0f;
         if (right_pos > ImGui::GetCursorPosX()) {
             ImGui::SetCursorPosX(right_pos);
             ImGui::BeginDisabled(!ai_assistant);
@@ -1954,11 +2207,31 @@ void EditorLayer::render_main_menu_bar() {
                 ai_assistant->request_focus();
             }
             ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::TextDisabled("FPS: %.1f (%.2f ms)", ImGui::GetIO().Framerate, 1000.0f / ImGui::GetIO().Framerate);
         }
 
         ImGui::EndMainMenuBar();
+    }
+}
+
+void EditorLayer::activate_workspace(EditorWorkspaceId id) {
+    persist_imgui_layout();
+    if (!m_shell.activate_workspace(id)) return;
+    apply_workspace_panel_visibility();
+    m_pending_workspace_layout = id;
+    m_pending_workspace_uses_default = false;
+}
+
+void EditorLayer::apply_pending_workspace_layout(uint32_t dockspace_id) {
+    if (!m_pending_workspace_layout) return;
+    const EditorWorkspaceId id = *m_pending_workspace_layout;
+    const bool use_default = m_pending_workspace_uses_default;
+    m_pending_workspace_layout.reset();
+    m_pending_workspace_uses_default = false;
+    ImGui::DockBuilderRemoveNode(dockspace_id);
+    if (use_default || !load_workspace_layout(id) ||
+        ImGui::DockBuilderGetNode(dockspace_id) == nullptr) {
+        m_imgui_ini_path = workspace_layout_path(id).string();
+        setup_default_dockspace_layout(dockspace_id);
     }
 }
 
@@ -1974,7 +2247,7 @@ void EditorLayer::render_panels(float delta_time) {
     render_recovery_modal();
     render_external_scene_change_modal();
 
-    for (auto& panel : m_panels) {
+    for (auto& panel : m_panel_registry.panels()) {
         if (panel && panel->is_open) {
             panel->on_update(delta_time);
             panel->on_gui();
@@ -1990,7 +2263,7 @@ void EditorLayer::render_panels(float delta_time) {
     }
 
     const bool entity_state_changed = std::any_of(
-        m_scene_sessions.begin(), m_scene_sessions.end(), [](const auto& entry) {
+        m_sessions.sessions().begin(), m_sessions.sessions().end(), [](const auto& entry) {
             const EditorSceneSession& session = entry.second;
             return session.entity_state_store &&
                 session.entity_state_store->persistence_revision() !=
@@ -2064,8 +2337,8 @@ void EditorLayer::update_external_scene_changes(float delta_time) {
 
     for (const auto& scene : m_scene_manager->get_scenes()) {
         if (!scene) continue;
-        auto session_it = m_scene_sessions.find(scene.get());
-        if (session_it == m_scene_sessions.end()) continue;
+        auto session_it = m_sessions.sessions().find(scene.get());
+        if (session_it == m_sessions.sessions().end()) continue;
         EditorSceneSession& session = session_it->second;
         if (session.file_path.empty()) continue;
 
@@ -2107,9 +2380,9 @@ void EditorLayer::render_external_scene_change_modal() {
     ImGui::Spacing();
 
     if (ImGui::Button("Reload from disk", ImVec2(150.0f, 0.0f))) {
-        auto session_it = m_scene_sessions.find(conflicted_scene);
+        auto session_it = m_sessions.sessions().find(conflicted_scene);
         bool reloaded = false;
-        if (session_it != m_scene_sessions.end()) {
+        if (session_it != m_sessions.sessions().end()) {
             reloaded = reload_scene_from_disk(
                 const_cast<Scene*>(conflicted_scene), session_it->second, "conflict resolved");
         }
@@ -2228,17 +2501,13 @@ void EditorLayer::end_frame(SDL_Renderer* renderer) {
 
 void EditorLayer::invalidate_render_resources() {
     if (!m_initialized) return;
-    for (const auto& panel : m_panels) {
-        if (panel) panel->on_render_resources_invalidated();
-    }
+    m_panel_registry.invalidate_render_resources();
     ImGui_ImplSDLRenderer3_DestroyDeviceObjects();
 }
 
 void EditorLayer::trim_render_resources() {
     if (!m_initialized) return;
-    for (const auto& panel : m_panels) {
-        if (panel) panel->on_render_resources_invalidated();
-    }
+    m_panel_registry.invalidate_render_resources();
 }
 
 void EditorLayer::restore_render_resources() {
@@ -2246,30 +2515,29 @@ void EditorLayer::restore_render_resources() {
     ImGui_ImplSDLRenderer3_CreateDeviceObjects();
 }
 
-void EditorLayer::register_panel(std::shared_ptr<EditorPanel> panel) {
+void EditorLayer::register_panel(EditorPanelId id, std::shared_ptr<EditorPanel> panel) {
     if (!panel) return;
-    panel->is_open = m_panel_states.is_open(panel->get_name(), panel->is_open);
-    m_panels.push_back(panel);
+    panel->is_open = m_panel_states.is_open(editor_panel_id_key(id), panel->is_open);
+    if (!m_panel_registry.add(
+            id, panel, {m_command_history, m_entity_state_store, m_selection})) {
+        ENGINE_LOG_WARN("[EDITOR] Ignored duplicate or invalid panel: '{}'", panel->get_name());
+        return;
+    }
     ENGINE_LOG_INFO("[EDITOR] Registered panel: '{}'", panel->get_name());
 }
 
 void EditorLayer::unregister_panel(const std::string& name) {
-    for (auto it = m_panels.begin(); it != m_panels.end(); ++it) {
-        if (*it && (*it)->get_name() == name) {
-            ENGINE_LOG_INFO("[EDITOR] Unregistered panel: '{}'", name);
-            m_panels.erase(it);
-            return;
-        }
+    if (m_panel_registry.remove(name)) {
+        ENGINE_LOG_INFO("[EDITOR] Unregistered panel: '{}'", name);
     }
 }
 
 std::shared_ptr<EditorPanel> EditorLayer::get_panel(const std::string& name) const {
-    for (const auto& panel : m_panels) {
-        if (panel && panel->get_name() == name) {
-            return panel;
-        }
-    }
-    return nullptr;
+    return m_panel_registry.find(name);
+}
+
+std::shared_ptr<EditorPanel> EditorLayer::get_panel(EditorPanelId id) const {
+    return m_panel_registry.find(id);
 }
 
 PrefabStageController* EditorLayer::get_prefab_stage() const {

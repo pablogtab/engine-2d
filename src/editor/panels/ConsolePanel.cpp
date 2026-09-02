@@ -1,4 +1,5 @@
 #include "ConsolePanel.hpp"
+#include "../ui/EditorUi.hpp"
 #include "../../core/Time.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -63,6 +64,7 @@ void ConsolePanel::on_gui() {
         &is_open,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
     )) {
+        EditorUi::area_heading(EditorIcon::History, "Console", "Runtime and editor messages");
         // --- 1. Top Controls Bar ---
         if (ImGui::Button("Clear")) {
             clear();

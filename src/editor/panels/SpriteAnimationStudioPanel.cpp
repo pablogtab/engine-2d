@@ -79,8 +79,7 @@ void SpriteAnimationStudioPanel::on_gui() {
     if (!is_open) return;
 
     ImGui::SetNextWindowSize(ImVec2(960, 620), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("🎬 Sprite Animation Studio###SpriteAnimationStudio", &is_open, ImGuiWindowFlags_MenuBar)) {
-
+    if (ImGui::Begin("Animation Studio###SpriteAnimationStudio", &is_open, ImGuiWindowFlags_MenuBar)) {
         if (!m_scene_manager) {
             ImGui::TextDisabled("No active SceneManager.");
             ImGui::End();

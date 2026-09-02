@@ -1,4 +1,5 @@
 #include "TilemapPalettePanel.hpp"
+#include "../ui/EditorUi.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../core/Log.hpp"
 #include "../../scene/SceneManager.hpp"
@@ -90,24 +91,31 @@ uint16_t TilemapPalettePanel::get_random_tile_id() const {
 }
 
 void TilemapPalettePanel::on_gui() {
-    if (!is_open || !has_selected_tilemap()) return;
+    if (!is_open) return;
 
     ImGui::SetNextWindowSize(ImVec2(380, 560), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
-        // --- Header Status Bar ---
-        ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "🗺️ TILEMAP PALETTE STUDIO");
-        ImGui::Separator();
+        EditorUi::area_heading(EditorIcon::Grid, "Tilemap Palette", "Paint and selection tools");
+        if (!has_selected_tilemap()) {
+            EditorUi::empty_state(
+                EditorIcon::Grid,
+                "No tilemap selected",
+                "Select an entity with a Tilemap component"
+            );
+            ImGui::End();
+            return;
+        }
 
         // Mode Toggle Button (Pill design)
         if (m_is_painting_active) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.60f, 0.35f, 0.90f));
-            if (ImGui::Button("🟢 PAINT MODE ACTIVE (Click to Pause)", ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
+            if (ImGui::Button("PAINT MODE ACTIVE - CLICK TO PAUSE", ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
                 m_is_painting_active = false;
             }
             ImGui::PopStyleColor();
         } else {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.35f, 0.40f, 0.90f));
-            if (ImGui::Button("⚪ SELECTION MODE (Click to Paint)", ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
+            if (ImGui::Button("SELECTION MODE - CLICK TO PAINT", ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
                 m_is_painting_active = true;
             }
             ImGui::PopStyleColor();

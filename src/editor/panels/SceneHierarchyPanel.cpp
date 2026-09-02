@@ -7,6 +7,7 @@
 #include "../state/EditorEntityStateStore.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../tools/EditorIcons.hpp"
+#include "../ui/EditorUi.hpp"
 #include "../tools/EditorTransformUtils.hpp"
 #include "../inspector/EditorComponentRegistry.hpp"
 #include "../../scene/SceneManager.hpp"
@@ -118,17 +119,14 @@ void SceneHierarchyPanel::on_gui() {
             return;
         }
 
-        // --- Active Scene Header ---
         const bool is_dirty = m_command_history && m_command_history->is_dirty();
-        std::string dirty_indicator = is_dirty ? " *" : "";
-        ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "ACTIVE SCENE: %s%s", active_scene->get_name().c_str(), dirty_indicator.c_str());
-        if (is_dirty) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.2f, 1.0f), "(Unsaved Changes)");
-        }
-        ImGui::Separator();
+        const std::string scene_title = active_scene->get_name() + (is_dirty ? " *" : "");
+        EditorUi::area_heading(
+            EditorIcon::Component,
+            scene_title.c_str(),
+            is_dirty ? "Active scene - unsaved changes" : "Active scene"
+        );
 
-        // --- Search Filter with Clear Button ---
         float avail_w = ImGui::GetContentRegionAvail().x;
         bool has_filter = m_search_filter[0] != '\0';
         if (has_filter) {
@@ -136,7 +134,12 @@ void SceneHierarchyPanel::on_gui() {
         } else {
             ImGui::SetNextItemWidth(avail_w);
         }
-        ImGui::InputTextWithHint("##search", "Search name or :type (e.g. :sprite, :col, :locked)...", m_search_filter, sizeof(m_search_filter));
+        EditorUi::search_field(
+            "##search",
+            "Search entities or use :sprite, :collider, :locked...",
+            m_search_filter,
+            sizeof(m_search_filter)
+        );
         if (has_filter) {
             ImGui::SameLine();
             if (ImGui::Button("X##clear_search", ImVec2(22.0f, 0.0f))) {
@@ -154,8 +157,7 @@ void SceneHierarchyPanel::on_gui() {
         const auto& living_entities = em.get_living_entities();
 
         if (runtime_mode) {
-            ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f),
-                "RUNTIME - values are temporary; structure is locked");
+            EditorUi::badge("RUNTIME - STRUCTURE LOCKED", EditorUi::BadgeTone::Warning);
         }
 
         if (m_selection && m_selection->count() > 1) {
@@ -166,7 +168,7 @@ void SceneHierarchyPanel::on_gui() {
         ImGui::Separator();
 
         // --- Entity Tree List ---
-        ImGui::BeginChild("EntityTreeScroll", ImVec2(0, 0), true);
+        ImGui::BeginChild("EntityTreeScroll", ImVec2(0, 0), false);
 
         std::string filter_str = m_search_filter;
         std::transform(filter_str.begin(), filter_str.end(), filter_str.begin(), ::tolower);
