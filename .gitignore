@@ -22,4 +22,4 @@ editors/vscode/enginescript-vscode-*.vsix
 # OS specific files
 .DS_Store
 Thumbs.db
-imgui.ini
+.ini
