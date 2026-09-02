@@ -243,18 +243,23 @@ void SceneManager::start_scripts(Scene& scene) {
         }
         const std::string json = PrefabSerializer::read_json_from_file(asset->source_path);
         if (json.empty()) return 0;
-        TransformComponent transform;
-        transform.position = {position.x, position.y, 0.0f};
         EntityManager& entities = scene.get_entity_manager();
         ComponentSerializationContext context{
             .renderer = m_renderer,
             .asset_manager = &AssetManager::get(),
             .asset_database = const_cast<AssetDatabase*>(&database)
         };
-        const auto result = EntitySubtreeArchive::instantiate_from_json(entities, json, transform, 0, context);
+        const auto result = EntitySubtreeArchive::instantiate_from_json(entities, json, std::nullopt, 0, context);
         if (!result.success) {
             ENGINE_LOG_ERROR("[PREFAB] Script instantiation failed: {}", result.error_message);
             return 0;
+        }
+        // Script prefab APIs receive a position, not a complete transform.
+        // Preserve the root scale and rotation authored in the prefab.
+        if (entities.has_component<TransformComponent>(result.root_entity)) {
+            TransformComponent& root_transform = entities.get_component<TransformComponent>(result.root_entity);
+            root_transform.position = {position.x, position.y, 0.0f};
+            TransformSystem::update(entities);
         }
         entities.add_component<PrefabLinkComponent>(
             result.root_entity, PrefabLinkComponent{asset->source_path, result.base_prefab_path}

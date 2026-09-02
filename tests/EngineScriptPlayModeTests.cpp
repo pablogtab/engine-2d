@@ -1205,7 +1205,10 @@ export class EnemyMover extends Behaviour {
 
     EntityManager prefab_source;
     const EntityID prefab_root = prefab_source.create_entity();
-    prefab_source.add_component<TransformComponent>(prefab_root, TransformComponent{});
+    TransformComponent prefab_transform;
+    prefab_transform.scale = {0.55f, 0.55f};
+    prefab_transform.rotation = 12.0f;
+    prefab_source.add_component<TransformComponent>(prefab_root, prefab_transform);
     prefab_source.add_component<GameplayTagsComponent>(prefab_root, GameplayTagsComponent{{"enemy.basic"}});
     RigidBodyComponent prefab_body;
     prefab_body.body_type = BodyType::Kinematic;
@@ -1252,13 +1255,14 @@ export class EnemyMover extends Behaviour {
     ScriptRuntimeServices services;
     services.instantiate_prefab = [&](AssetHandle handle, const glm::vec2& position) {
         assert(handle == prefab_record->handle);
-        TransformComponent transform;
-        transform.position = {position.x, position.y, 0.0f};
         const SubtreeInstantiationResult result = EntitySubtreeArchive::instantiate_from_json(
-            entity_manager, prefab_json, transform, 0, serialization_context
+            entity_manager, prefab_json, std::nullopt, 0, serialization_context
         );
         assert(result.success);
         enemy = result.root_entity;
+        TransformComponent& spawned_transform = entity_manager.get_component<TransformComponent>(enemy);
+        spawned_transform.position = {position.x, position.y, 0.0f};
+        TransformSystem::update(entity_manager);
         PhysicsSystem::rebuild_body_hierarchy(entity_manager, enemy);
         for (const EntityID created : result.created_entities) runtime.queue_entity_start(created);
         return enemy;
@@ -1269,6 +1273,10 @@ export class EnemyMover extends Behaviour {
     runtime.update(0.016f);
     assert(enemy != 0);
     assert(runtime.instance_count() == 2);
+    const TransformComponent& spawned_transform = entity_manager.get_component<TransformComponent>(enemy);
+    assert(std::abs(spawned_transform.scale.x - 0.55f) < 0.001f);
+    assert(std::abs(spawned_transform.scale.y - 0.55f) < 0.001f);
+    assert(std::abs(spawned_transform.rotation - 12.0f) < 0.001f);
     assert(std::abs(entity_manager.get_component<RigidBodyComponent>(enemy).velocity.x - 123.0f) < 0.001f);
     runtime.update(0.016f);
 
