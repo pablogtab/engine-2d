@@ -10,6 +10,7 @@
 #include <tuple>
 #include <string>
 #include <stdexcept>
+#include <cstdint>
 
 #include <optional>
 
@@ -67,6 +68,9 @@ public:
 
     // Check if an entity ID is active
     bool is_alive(EntityID entity) const;
+
+    // Distinguishes separate lifetimes when a numeric entity ID is recycled.
+    [[nodiscard]] std::uint64_t entity_generation(EntityID entity) const;
 
     // Parent-Child Hierarchy Management
     [[nodiscard]] HierarchyOperationResult set_parent(EntityID child, EntityID parent, std::optional<size_t> target_index = std::nullopt);
@@ -237,6 +241,7 @@ private:
 
     EntityID m_next_entity_id{1};
     std::vector<EntityID> m_free_entities;
+    std::unordered_map<EntityID, std::uint64_t> m_entity_generations;
     std::vector<EntityID> m_living_entities;
     std::vector<EntityID> m_root_entities;
     std::unordered_map<EntityID, ComponentMask> m_entity_masks;

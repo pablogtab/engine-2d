@@ -45,7 +45,9 @@ nlohmann::json ParticleEffectAsset::to_json() const {
         {"end_color", {appearance.end_color.r, appearance.end_color.g, appearance.end_color.b, appearance.end_color.a}},
         {"start_size", appearance.start_size},
         {"end_size", appearance.end_size},
-        {"size_variation", appearance.size_variation}
+        {"size_variation", appearance.size_variation},
+        {"start_stretch", appearance.start_stretch},
+        {"end_stretch", appearance.end_stretch}
     };
 
     json["motion"] = {
@@ -56,7 +58,9 @@ nlohmann::json ParticleEffectAsset::to_json() const {
         {"initial_rotation", motion.initial_rotation},
         {"rotation_variation", motion.rotation_variation},
         {"rotation_speed", motion.rotation_speed},
-        {"rotation_speed_variation", motion.rotation_speed_variation}
+        {"rotation_speed_variation", motion.rotation_speed_variation},
+        {"align_to_velocity", motion.align_to_velocity},
+        {"velocity_alignment_offset", motion.velocity_alignment_offset}
     };
 
     json["lifetime"] = {
@@ -72,6 +76,7 @@ nlohmann::json ParticleEffectAsset::to_json() const {
 
     json["emission"] = {
         {"continuous_rate", emission.continuous_rate},
+        {"distance_rate", emission.distance_rate},
         {"burst_count", emission.burst_count},
         {"duration", emission.duration},
         {"start_delay", emission.start_delay},
@@ -145,6 +150,8 @@ std::optional<ParticleEffectAsset> ParticleEffectAsset::from_json(const nlohmann
         asset.appearance.start_size = app.value("start_size", 10.0f);
         asset.appearance.end_size = app.value("end_size", 2.0f);
         asset.appearance.size_variation = app.value("size_variation", 0.0f);
+        asset.appearance.start_stretch = app.value("start_stretch", 1.0f);
+        asset.appearance.end_stretch = app.value("end_stretch", 1.0f);
     }
 
     if (json.contains("motion") && json.at("motion").is_object()) {
@@ -165,6 +172,8 @@ std::optional<ParticleEffectAsset> ParticleEffectAsset::from_json(const nlohmann
         asset.motion.rotation_variation = mot.value("rotation_variation", 0.0f);
         asset.motion.rotation_speed = mot.value("rotation_speed", 0.0f);
         asset.motion.rotation_speed_variation = mot.value("rotation_speed_variation", 0.0f);
+        asset.motion.align_to_velocity = mot.value("align_to_velocity", false);
+        asset.motion.velocity_alignment_offset = mot.value("velocity_alignment_offset", 0.0f);
     }
 
     if (json.contains("lifetime") && json.at("lifetime").is_object()) {
@@ -183,6 +192,7 @@ std::optional<ParticleEffectAsset> ParticleEffectAsset::from_json(const nlohmann
     if (json.contains("emission") && json.at("emission").is_object()) {
         const auto& emi = json.at("emission");
         asset.emission.continuous_rate = emi.value("continuous_rate", 20.0f);
+        asset.emission.distance_rate = emi.value("distance_rate", 0.0f);
         asset.emission.burst_count = emi.value("burst_count", 10);
         asset.emission.duration = emi.value("duration", 0.0f);
         asset.emission.start_delay = emi.value("start_delay", 0.0f);
@@ -222,9 +232,10 @@ bool ParticleEffectAsset::validate(std::string* error) const {
         return false;
     }
     if (!finite(appearance.start_size) || !finite(appearance.end_size) ||
-        !finite(appearance.size_variation) || appearance.start_size < 0.0f ||
+        !finite(appearance.size_variation) || !finite(appearance.start_stretch) ||
+        !finite(appearance.end_stretch) || appearance.start_size < 0.0f ||
         appearance.end_size < 0.0f || appearance.size_variation < 0.0f) {
-        set_error(error, "Particle sizes and size variation must be finite and non-negative");
+        set_error(error, "Particle sizes, size variation and stretch must be finite and non-negative");
         return false;
     }
     if (!finite(lifetime.duration) || !finite(lifetime.variation) ||
@@ -236,8 +247,9 @@ bool ParticleEffectAsset::validate(std::string* error) const {
         set_error(error, "Particle bounciness must be between 0 and 1");
         return false;
     }
-    if (!finite(emission.continuous_rate) || !finite(emission.duration) ||
+    if (!finite(emission.continuous_rate) || !finite(emission.distance_rate) || !finite(emission.duration) ||
         !finite(emission.start_delay) || emission.continuous_rate < 0.0f ||
+        emission.distance_rate < 0.0f ||
         emission.burst_count < 0 || emission.duration < 0.0f || emission.start_delay < 0.0f) {
         set_error(error, "Particle emission values must be finite and non-negative");
         return false;
@@ -257,6 +269,7 @@ bool ParticleEffectAsset::validate(std::string* error) const {
     }
     if (!finite(motion.initial_rotation) || !finite(motion.rotation_variation) ||
         !finite(motion.rotation_speed) || !finite(motion.rotation_speed_variation) ||
+        !finite(motion.velocity_alignment_offset) ||
         motion.velocity_variation.x < 0.0f || motion.velocity_variation.y < 0.0f ||
         motion.rotation_variation < 0.0f || motion.rotation_speed_variation < 0.0f) {
         set_error(error, "Particle variation values must be non-negative");

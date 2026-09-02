@@ -567,6 +567,9 @@ void SceneManager::run_simulation_tick(float delta_time) {
                 m_frame_profiler.increment("particles", particles.system().get_active_count());
                 m_frame_profiler.increment("particle_emitters", particles.active_emitter_count());
                 m_frame_profiler.increment("particles_dropped", particles.dropped_this_frame());
+                const auto& trails = execution_context(*active).runtime.trails();
+                m_frame_profiler.increment("trails", trails.active_trail_count());
+                m_frame_profiler.increment("trail_points", trails.total_point_count());
             }
         }
         {

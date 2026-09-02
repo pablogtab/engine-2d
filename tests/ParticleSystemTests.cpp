@@ -42,6 +42,8 @@ int main() {
         authored.appearance.start_size = 12.0f;
         authored.appearance.end_size = 2.0f;
         authored.appearance.size_variation = 3.0f;
+        authored.appearance.start_stretch = 3.5f;
+        authored.appearance.end_stretch = 1.25f;
         authored.motion.initial_velocity = {50.0f, -120.0f};
         authored.motion.velocity_variation = {10.0f, 20.0f};
         authored.motion.acceleration = {0.0f, 50.0f};
@@ -50,12 +52,15 @@ int main() {
         authored.motion.rotation_variation = 15.0f;
         authored.motion.rotation_speed = 90.0f;
         authored.motion.rotation_speed_variation = 30.0f;
+        authored.motion.align_to_velocity = true;
+        authored.motion.velocity_alignment_offset = 12.0f;
         authored.lifetime.duration = 1.5f;
         authored.lifetime.variation = 0.3f;
         authored.collision.enabled = true;
         authored.collision.mask_bits = 0x0003;
         authored.collision.bounciness = 0.6f;
         authored.emission.continuous_rate = 25.0f;
+        authored.emission.distance_rate = 0.08f;
         authored.emission.burst_count = 15;
         authored.emission.duration = 2.0f;
         authored.emission.start_delay = 0.1f;
@@ -69,6 +74,7 @@ int main() {
         assert(json["version"] == 1);
         assert(json["appearance"]["start_color"][0] == 255);
         assert(json["appearance"]["start_size"] == 12.0f);
+        assert(json["appearance"]["start_stretch"] == 3.5f);
         assert(json["collision"]["enabled"] == true);
         assert(json["emission"]["burst_count"] == 15);
 
@@ -79,11 +85,14 @@ int main() {
         assert(parsed->texture_handle.value == 12345);
         assert(parsed->appearance.start_color.g == 200);
         assert(parsed->appearance.end_size == 2.0f);
+        assert(parsed->appearance.end_stretch == 1.25f);
         assert(parsed->motion.initial_velocity.y == -120.0f);
+        assert(parsed->motion.align_to_velocity);
         assert(parsed->lifetime.duration == 1.5f);
         assert(parsed->collision.bounciness == 0.6f);
         assert(parsed->collision.mask_bits == 0x0003);
         assert(parsed->emission.continuous_rate == 25.0f);
+        assert(parsed->emission.distance_rate == 0.08f);
 
         std::cout << "  - Test 1 passed: ParticleEffectAsset serialization & deserialization" << std::endl;
     }

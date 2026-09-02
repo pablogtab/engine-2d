@@ -22,6 +22,7 @@ void EntityManager::swap(EntityManager& other) noexcept {
     using std::swap;
     swap(m_next_entity_id, other.m_next_entity_id);
     swap(m_free_entities, other.m_free_entities);
+    swap(m_entity_generations, other.m_entity_generations);
     swap(m_living_entities, other.m_living_entities);
     swap(m_root_entities, other.m_root_entities);
     swap(m_entity_masks, other.m_entity_masks);
@@ -37,6 +38,8 @@ EntityID EntityManager::create_entity() {
         id = m_next_entity_id++;
     }
 
+    auto& generation = m_entity_generations[id];
+    if (++generation == 0) ++generation;
     m_living_entities.push_back(id);
     m_root_entities.push_back(id);
     return id;
@@ -50,6 +53,8 @@ EntityID EntityManager::create_entity_with_id(EntityID entity) {
         m_free_entities.erase(free_it);
     }
 
+    auto& generation = m_entity_generations[entity];
+    if (++generation == 0) ++generation;
     m_living_entities.push_back(entity);
     m_root_entities.push_back(entity);
     m_next_entity_id = std::max(m_next_entity_id, entity + 1);
@@ -162,6 +167,11 @@ std::vector<EntityID> EntityManager::find_all_by_tag(const std::string& tag) {
 
 bool EntityManager::is_alive(EntityID entity) const {
     return std::find(m_living_entities.begin(), m_living_entities.end(), entity) != m_living_entities.end();
+}
+
+std::uint64_t EntityManager::entity_generation(EntityID entity) const {
+    const auto found = m_entity_generations.find(entity);
+    return found == m_entity_generations.end() ? 0 : found->second;
 }
 
 bool EntityManager::would_create_hierarchy_cycle(EntityID child, EntityID parent) const {

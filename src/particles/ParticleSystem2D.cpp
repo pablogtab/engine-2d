@@ -76,6 +76,8 @@ std::size_t ParticleSystem2D::emit(const ParticleProps& props, int count) {
         p.render_layer = props.render_layer;
         p.rotation = props.rotation;
         p.rotation_speed = props.rotation_speed;
+        p.align_to_velocity = false;
+        p.velocity_alignment_offset = 0.0f;
         p.texture = tex;
         p.collide_with_world = props.collide_with_world;
         p.collision_mask = static_cast<uint16_t>(CollisionCategory::GROUND);
@@ -97,6 +99,9 @@ std::size_t ParticleSystem2D::emit(const ParticleProps& props, int count) {
         p.size_start = std::max(1.0f, props.size_start + size_var);
         p.size_end = std::max(0.0f, props.size_end + size_var * 0.5f);
         p.current_size = p.size_start;
+        p.stretch_start = std::max(props.stretch_start, 0.0f);
+        p.stretch_end = std::max(props.stretch_end, 0.0f);
+        p.current_stretch = p.stretch_start;
 
         float life_var = random_range(-props.lifetime_variation, props.lifetime_variation);
         p.lifetime = std::max(0.05f, props.lifetime + life_var);
@@ -141,6 +146,8 @@ std::size_t ParticleSystem2D::emit(
         float rot_speed_var = asset.motion.rotation_speed_variation > 0.0f
             ? random_range(-asset.motion.rotation_speed_variation, asset.motion.rotation_speed_variation) : 0.0f;
         p.rotation_speed = asset.motion.rotation_speed + rot_speed_var;
+        p.align_to_velocity = asset.motion.align_to_velocity;
+        p.velocity_alignment_offset = asset.motion.velocity_alignment_offset;
 
         p.texture = tex;
         p.collide_with_world = asset.collision.enabled;
@@ -174,6 +181,9 @@ std::size_t ParticleSystem2D::emit(
         p.size_start = std::max(0.1f, asset.appearance.start_size + size_var);
         p.size_end = std::max(0.0f, asset.appearance.end_size);
         p.current_size = p.size_start;
+        p.stretch_start = asset.appearance.start_stretch;
+        p.stretch_end = asset.appearance.end_stretch;
+        p.current_stretch = p.stretch_start;
 
         float life_var = asset.lifetime.variation > 0.0f
             ? random_range(-asset.lifetime.variation, asset.lifetime.variation) : 0.0f;
@@ -220,6 +230,7 @@ void ParticleSystem2D::update(float delta_time) {
 
         float progress = p.lifetime > 0.0f ? std::clamp(p.age / p.lifetime, 0.0f, 1.0f) : 1.0f;
         p.current_size = std::lerp(p.size_start, p.size_end, progress);
+        p.current_stretch = std::lerp(p.stretch_start, p.stretch_end, progress);
 
         p.current_color.r = static_cast<uint8_t>(std::lerp(static_cast<float>(p.color_start.r), static_cast<float>(p.color_end.r), progress));
         p.current_color.g = static_cast<uint8_t>(std::lerp(static_cast<float>(p.color_start.g), static_cast<float>(p.color_end.g), progress));
@@ -233,6 +244,10 @@ void ParticleSystem2D::render(Renderer2D& renderer, const EntityManager* entitie
         if (!p.active || p.current_size <= 0.5f || p.current_color.a == 0) continue;
         glm::vec2 render_position = p.position;
         float render_rotation = p.rotation;
+        if (p.align_to_velocity && glm::length(p.velocity) > 0.001f) {
+            render_rotation = glm::degrees(std::atan2(p.velocity.y, p.velocity.x)) +
+                p.velocity_alignment_offset;
+        }
         if (p.local_space) {
             if (!entities || !entities->is_alive(p.source_emitter) ||
                 !entities->has_component<TransformComponent>(p.source_emitter)) continue;
@@ -250,7 +265,7 @@ void ParticleSystem2D::render(Renderer2D& renderer, const EntityManager* entitie
         renderer.submit_sprite(
             p.texture,
             glm::vec3(render_position, p.z_layer),
-            glm::vec2(p.current_size),
+            glm::vec2(p.current_size * p.current_stretch, p.current_size),
             render_rotation,
             p.current_color,
             nullptr,

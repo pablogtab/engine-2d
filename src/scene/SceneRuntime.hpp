@@ -5,6 +5,7 @@
 #include "Scene.hpp"
 #include "../ui/UIInputSystem.hpp"
 #include "../particles/ParticleWorld.hpp"
+#include "../renderer/TrailSystem2D.hpp"
 #include <SDL3/SDL.h>
 #include <cstdint>
 #include <string>
@@ -41,6 +42,8 @@ public:
     [[nodiscard]] const SafeAreaInsets& ui_safe_area() const { return m_ui_safe_area; }
     [[nodiscard]] ParticleWorld& particle_world() { return m_particle_world; }
     [[nodiscard]] const ParticleWorld& particle_world() const { return m_particle_world; }
+    [[nodiscard]] TrailSystem2D& trails() { return m_trails; }
+    [[nodiscard]] const TrailSystem2D& trails() const { return m_trails; }
     bool show_world_text(RuntimeWorldText text);
     [[nodiscard]] const std::vector<RuntimeWorldText>& world_texts() const { return m_world_texts; }
 
@@ -49,6 +52,7 @@ private:
     CameraController2D m_camera_controller;
     UIInputSystem m_ui_input;
     ParticleWorld m_particle_world;
+    TrailSystem2D m_trails;
     std::vector<RuntimeWorldText> m_world_texts;
     glm::vec2 m_ui_output_size{1920.0f, 1080.0f};
     SafeAreaInsets m_ui_safe_area{};

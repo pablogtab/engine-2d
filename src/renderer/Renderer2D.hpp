@@ -81,6 +81,10 @@ struct SpriteCommand {
     SDL_BlendMode blend_mode{SDL_BLENDMODE_BLEND};
     bool baked_light_receiver{false};
     bool receives_shadows{true};
+    bool has_custom_quad{false};
+    std::array<glm::vec2, 4> custom_world_corners{};
+    std::array<glm::vec2, 4> custom_uvs{};
+    std::array<SDL_Color, 4> custom_colors{};
 };
 
 struct SpriteMaterialLight {
@@ -226,6 +230,20 @@ public:
         bool flip_y = false,
         std::shared_ptr<const Material> material = nullptr,
         bool scale_with_camera_projection = true
+    );
+    // Submits an authored world-space quad through the same sorting, material,
+    // layer-effect and post-process path as sprites. Used by TrailRenderer2D.
+    void submit_world_quad(
+        Texture* texture,
+        const std::array<glm::vec2, 4>& corners,
+        const std::array<glm::vec2, 4>& uvs,
+        const std::array<SDL_Color, 4>& colors,
+        float z_layer,
+        int16_t sorting_layer = 0,
+        int16_t order_in_layer = 0,
+        std::shared_ptr<const Material> material = nullptr,
+        RenderLayer render_layer = DEFAULT_RENDER_LAYER,
+        SDL_BlendMode blend_mode = SDL_BLENDMODE_BLEND
     );
     void submit_text(
         const Font& font,

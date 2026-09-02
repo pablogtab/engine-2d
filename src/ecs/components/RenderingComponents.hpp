@@ -200,6 +200,49 @@ enum class SpriteShadowShape {
     Texture
 };
 
+enum class TrailBlendMode {
+    Alpha,
+    Additive
+};
+
+// Authored settings for a continuous 2D motion ribbon. Runtime point history
+// lives in TrailSystem2D so scene snapshots and prefab instances remain pure.
+struct TrailRenderer2DComponent {
+    AssetHandle material_handle{};
+    std::shared_ptr<const Material> material;
+    SDL_Color head_color{110, 245, 255, 220};
+    SDL_Color tail_color{40, 110, 255, 0};
+    float lifetime{0.24f};
+    float min_vertex_distance{3.0f};
+    float head_width{10.0f};
+    float tail_width{0.0f};
+    float texture_scale{1.0f};
+    float flow_speed{0.0f};
+    std::uint16_t max_points{64};
+    std::int16_t sorting_layer{0};
+    std::int16_t order_in_layer{-1};
+    float z_layer{-0.08f};
+    RenderLayer render_layer{DEFAULT_RENDER_LAYER};
+    TrailBlendMode blend_mode{TrailBlendMode::Additive};
+    bool emitting{true};
+    bool enabled{true};
+
+    bool operator==(const TrailRenderer2DComponent& other) const {
+        return material_handle == other.material_handle &&
+            head_color.r == other.head_color.r && head_color.g == other.head_color.g &&
+            head_color.b == other.head_color.b && head_color.a == other.head_color.a &&
+            tail_color.r == other.tail_color.r && tail_color.g == other.tail_color.g &&
+            tail_color.b == other.tail_color.b && tail_color.a == other.tail_color.a &&
+            lifetime == other.lifetime && min_vertex_distance == other.min_vertex_distance &&
+            head_width == other.head_width && tail_width == other.tail_width &&
+            texture_scale == other.texture_scale && flow_speed == other.flow_speed &&
+            max_points == other.max_points && sorting_layer == other.sorting_layer &&
+            order_in_layer == other.order_in_layer && z_layer == other.z_layer &&
+            render_layer == other.render_layer &&
+            blend_mode == other.blend_mode && emitting == other.emitting && enabled == other.enabled;
+    }
+};
+
 struct SpriteShadow2DComponent {
     SpriteShadowMode mode{SpriteShadowMode::DominantLight};
     SpriteShadowShape shape{SpriteShadowShape::Ellipse};

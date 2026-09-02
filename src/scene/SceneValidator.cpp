@@ -216,6 +216,23 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
             }
         }
 
+        if (asset_database && entities.has_component<TrailRenderer2DComponent>(entity)) {
+            const auto& trail = entities.get_component<TrailRenderer2DComponent>(entity);
+            if (trail.material_handle.is_valid() &&
+                !has_ready_asset(*asset_database, trail.material_handle, AssetType::Material)) {
+                add_diagnostic(
+                    diagnostics,
+                    SceneDiagnosticSeverity::Error,
+                    SceneDiagnosticCode::MissingMaterialAsset,
+                    entity,
+                    "Trail material asset is missing or unavailable",
+                    0,
+                    {},
+                    trail.material_handle
+                );
+            }
+        }
+
         if (asset_database && entities.has_component<ScriptComponent>(entity)) {
             const auto& script = entities.get_component<ScriptComponent>(entity);
             for (const ScriptBehaviourSlot& instance : script.instances) {

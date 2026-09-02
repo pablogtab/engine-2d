@@ -98,6 +98,8 @@ void ParticleWorld::update(Scene& scene, float delta_time, const AssetDatabase& 
                             emitter.lifetime_timer = 0.0f;
                             emitter.delay_remaining = asset.emission.start_delay;
                             emitter.emission_accumulator = 0.0f;
+                            emitter.distance_emission_accumulator = 0.0f;
+                            emitter.has_previous_emitter_position = false;
                             return;
                         } else {
                             emitter.is_playing = false;
@@ -107,13 +109,13 @@ void ParticleWorld::update(Scene& scene, float delta_time, const AssetDatabase& 
                 }
 
                 const float rate = emitter.emit_rate_override.value_or(asset.emission.continuous_rate);
+                const glm::vec2 spawn_pos(transform.world_position.x, transform.world_position.y);
                 if (rate > 0.0f) {
                     emitter.emission_accumulator += delta_time * rate;
                     const int requested = static_cast<int>(emitter.emission_accumulator);
                     emitter.emission_accumulator -= static_cast<float>(requested);
                     int emit_count = clamp_emission(requested);
                     if (emit_count > 0) {
-                        const glm::vec2 spawn_pos(transform.world_position.x, transform.world_position.y);
                         m_emitted_this_frame += m_particle_system.emit(
                             asset,
                             spawn_pos,
@@ -126,6 +128,42 @@ void ParticleWorld::update(Scene& scene, float delta_time, const AssetDatabase& 
                         );
                     }
                 }
+
+                if (!emitter.has_previous_emitter_position) {
+                    emitter.previous_emitter_position = spawn_pos;
+                    emitter.has_previous_emitter_position = true;
+                }
+                const glm::vec2 movement = spawn_pos - emitter.previous_emitter_position;
+                const float travelled = glm::length(movement);
+                if (asset.emission.distance_rate > 0.0f && travelled > 0.0001f) {
+                    const float previous_fraction = emitter.distance_emission_accumulator;
+                    const float generated = previous_fraction + travelled * asset.emission.distance_rate;
+                    const int requested = static_cast<int>(generated);
+                    emitter.distance_emission_accumulator = generated - static_cast<float>(requested);
+                    const int emit_count = clamp_emission(requested);
+                    if (emit_count > 0) {
+                        const glm::vec2 direction = movement / travelled;
+                        const float spacing = 1.0f / asset.emission.distance_rate;
+                        const float first_distance = (1.0f - previous_fraction) * spacing;
+                        Texture* texture = resolve_texture(asset, database);
+                        for (int index = 0; index < emit_count; ++index) {
+                            const float along = std::min(
+                                first_distance + static_cast<float>(index) * spacing, travelled
+                            );
+                            m_emitted_this_frame += m_particle_system.emit(
+                                asset,
+                                emitter.previous_emitter_position + direction * along,
+                                transform.world_rotation,
+                                1,
+                                texture,
+                                entity,
+                                false,
+                                DEFAULT_EMITTER_LIMIT
+                            );
+                        }
+                    }
+                }
+                emitter.previous_emitter_position = spawn_pos;
         }
     });
 
@@ -242,6 +280,8 @@ bool ParticleWorld::play_entity(EntityID entity, Scene& scene, const AssetDataba
     emitter.is_playing = true;
     emitter.lifetime_timer = 0.0f;
     emitter.emission_accumulator = 0.0f;
+    emitter.distance_emission_accumulator = 0.0f;
+    emitter.has_previous_emitter_position = false;
 
     const ParticleEffectAsset* asset = load_effect(emitter.effect_handle, database);
     if (!asset) {
@@ -260,6 +300,8 @@ bool ParticleWorld::stop_entity(EntityID entity, Scene& scene, bool clear_partic
     emitter.is_playing = false;
     emitter.lifetime_timer = 0.0f;
     emitter.emission_accumulator = 0.0f;
+    emitter.distance_emission_accumulator = 0.0f;
+    emitter.has_previous_emitter_position = false;
     if (clear_particles) m_particle_system.clear_emitter(entity);
     return true;
 }

@@ -562,6 +562,56 @@ void Renderer2D::submit_screen_sprite(
     m_sprite_queue.push_back(cmd);
 }
 
+void Renderer2D::submit_world_quad(
+    Texture* texture,
+    const std::array<glm::vec2, 4>& corners,
+    const std::array<glm::vec2, 4>& uvs,
+    const std::array<SDL_Color, 4>& colors,
+    float z_layer,
+    int16_t sorting_layer,
+    int16_t order_in_layer,
+    std::shared_ptr<const Material> material,
+    RenderLayer render_layer,
+    SDL_BlendMode blend_mode
+) {
+    if (!texture) return;
+    render_layer = std::min<RenderLayer>(render_layer, 31);
+    if (m_active_camera && !m_active_camera->renders_layer(render_layer)) {
+        ++m_culled_sprites;
+        return;
+    }
+
+    glm::vec2 minimum = corners[0];
+    glm::vec2 maximum = corners[0];
+    for (const glm::vec2& corner : corners) {
+        minimum = glm::min(minimum, corner);
+        maximum = glm::max(maximum, corner);
+    }
+    const glm::vec2 center = (minimum + maximum) * 0.5f;
+    const glm::vec2 bounds = glm::max(maximum - minimum, glm::vec2(0.001f));
+    if (m_active_camera && !m_active_camera->is_visible({center.x, center.y, z_layer}, bounds)) {
+        ++m_culled_sprites;
+        return;
+    }
+
+    SpriteCommand command;
+    command.texture = texture;
+    command.position = {center.x, center.y, z_layer};
+    command.size = bounds;
+    command.sorting_layer = sorting_layer;
+    command.order_in_layer = order_in_layer;
+    command.render_layer = render_layer;
+    command.material = std::move(material);
+    command.blend_mode = blend_mode;
+    command.receives_shadows = false;
+    command.has_custom_quad = true;
+    command.custom_world_corners = corners;
+    command.custom_uvs = uvs;
+    command.custom_colors = colors;
+    command.sort_key = SpriteSortKey::world(sorting_layer, z_layer, center.y, order_in_layer);
+    m_sprite_queue.push_back(std::move(command));
+}
+
 void Renderer2D::submit_text(
     const Font& font,
     const std::string& text,
@@ -842,6 +892,37 @@ void Renderer2D::end_scene() {
 
     auto process_sprite = [this](size_t idx) {
         const auto& cmd = m_sprite_queue[idx];
+
+        if (cmd.has_custom_quad) {
+            for (std::size_t corner_index = 0; corner_index < 4; ++corner_index) {
+                glm::vec2 screen = m_active_camera->world_to_screen({
+                    cmd.custom_world_corners[corner_index].x,
+                    cmd.custom_world_corners[corner_index].y,
+                    cmd.position.z
+                });
+                screen *= m_world_raster_scale;
+                const SDL_Color source = cmd.custom_colors[corner_index];
+                const SDL_FColor color{
+                    source.r / 255.0f,
+                    source.g / 255.0f,
+                    source.b / 255.0f,
+                    source.a / 255.0f
+                };
+                m_vertex_buffer[idx * 4 + corner_index] = SDL_Vertex{
+                    {screen.x, screen.y}, color,
+                    {cmd.custom_uvs[corner_index].x, cmd.custom_uvs[corner_index].y}
+                };
+            }
+            const size_t i_idx = idx * 6;
+            const int base_v = static_cast<int>(idx * 4);
+            m_index_buffer[i_idx + 0] = base_v + 0;
+            m_index_buffer[i_idx + 1] = base_v + 1;
+            m_index_buffer[i_idx + 2] = base_v + 2;
+            m_index_buffer[i_idx + 3] = base_v + 0;
+            m_index_buffer[i_idx + 4] = base_v + 2;
+            m_index_buffer[i_idx + 5] = base_v + 3;
+            return;
+        }
 
         glm::vec2 screen_pos;
         glm::vec2 scaled_size;

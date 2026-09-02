@@ -21,10 +21,13 @@ void test_entity_reuse_and_stable_id_restoration() {
     const EntityID second = em.create_entity();
     assert(first == 1);
     assert(second == 2);
+    const std::uint64_t first_generation = em.entity_generation(first);
+    assert(first_generation != 0);
 
     em.destroy_entity(first);
     assert(!em.is_alive(first));
     assert(em.create_entity() == first);
+    assert(em.entity_generation(first) != first_generation);
 
     em.destroy_entity(second);
     assert(em.create_entity_with_id(second) == second);

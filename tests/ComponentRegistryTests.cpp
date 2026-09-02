@@ -309,7 +309,7 @@ void test_default_registry_metadata_is_stable() {
     assert(sprite);
     assert(sprite->serialized_key == "sprite");
     assert(!sprite->required);
-    assert(registry.descriptors().size() == 24);
+    assert(registry.descriptors().size() == 25);
     assert(registry.find_by_type(typeid(TagComponent)));
   assert(registry.find_by_type(typeid(GameplayTagsComponent)));
     assert(registry.find_by_type(typeid(GroupComponent)));
@@ -318,6 +318,7 @@ void test_default_registry_metadata_is_stable() {
     assert(registry.find_by_type(typeid(ShadowCaster2DComponent)));
     assert(registry.find_by_type(typeid(SpriteLighting2DComponent)));
     assert(registry.find_by_type(typeid(SpriteShadow2DComponent)));
+    assert(registry.find_by_type(typeid(TrailRenderer2DComponent)));
     assert(registry.find_by_type(typeid(LightingBakeVolume2DComponent)));
     assert(registry.find_by_type(typeid(PrefabLinkComponent)));
     assert(registry.find_by_type(typeid(CameraComponent)));
@@ -500,6 +501,14 @@ void test_builtin_components_round_trip_through_registry() {
     sprite_shadow.size = {44.0f, 16.0f};
     em.add_component<SpriteShadow2DComponent>(source, sprite_shadow);
 
+    TrailRenderer2DComponent trail;
+    trail.material_handle = AssetHandle{0x711};
+    trail.head_width = 14.0f;
+    trail.lifetime = 0.4f;
+    trail.texture_scale = 1.75f;
+    trail.flow_speed = 0.8f;
+    em.add_component<TrailRenderer2DComponent>(source, trail);
+
     LightingBakeVolume2DComponent bake_volume;
     bake_volume.size = {640.0f, 360.0f};
     bake_volume.texels_per_unit = 2.0f;
@@ -595,7 +604,7 @@ void test_builtin_components_round_trip_through_registry() {
   nlohmann::json value;
     std::string error;
     assert(default_component_registry().serialize_entity(em, source, value, {}, error));
-    for (const char* key : {"tag", "gameplay_tags", "group", "render_effect", "light_2d", "shadow_caster_2d", "sprite_lighting_2d", "sprite_shadow_2d", "lighting_bake_volume_2d",
+    for (const char* key : {"tag", "gameplay_tags", "group", "render_effect", "light_2d", "shadow_caster_2d", "sprite_lighting_2d", "sprite_shadow_2d", "trail_renderer_2d", "lighting_bake_volume_2d",
                             "camera", "canvas", "ui_layout", "ui_text", "ui_image", "ui_button",
                             "animation", "rigidbody", "collider", "tilemap", "script", "particle_emitter_2d"}) {
         assert(value.contains(key));
@@ -619,6 +628,7 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<SpriteLighting2DComponent>(target).specular_map_handle == AssetHandle{0x6113});
     assert(!em.get_component<SpriteLighting2DComponent>(target).enabled);
     assert(em.get_component<SpriteShadow2DComponent>(target) == sprite_shadow);
+    assert(em.get_component<TrailRenderer2DComponent>(target) == trail);
     assert(em.get_component<LightingBakeVolume2DComponent>(target) == bake_volume);
 
     nlohmann::json legacy_value = value;
@@ -662,6 +672,7 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<ShadowCaster2DComponent>(restored) == caster);
     assert(em.get_component<SpriteLighting2DComponent>(restored) == sprite_lighting);
     assert(em.get_component<SpriteShadow2DComponent>(restored) == sprite_shadow);
+    assert(em.get_component<TrailRenderer2DComponent>(restored) == trail);
     assert(em.get_component<LightingBakeVolume2DComponent>(restored) == bake_volume);
     assert(em.get_component<CameraComponent>(restored).projection == CameraProjectionMode::Expand);
     assert(em.get_component<ScriptComponent>(restored) == script);

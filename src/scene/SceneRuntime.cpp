@@ -22,6 +22,7 @@ void SceneRuntime::attach(Scene& scene, SDL_Renderer* renderer) {
     TransformSystem::update(scene.get_entity_manager());
     m_ui_input.reset();
     m_particle_world.clear();
+    m_trails.clear();
     m_world_texts.clear();
     m_particle_world.set_renderer(renderer);
     auto& em = scene.get_entity_manager();
@@ -40,6 +41,7 @@ void SceneRuntime::detach() {
     PhysicsSystem::clear();
     m_ui_input.reset();
     m_particle_world.clear();
+    m_trails.clear();
     m_world_texts.clear();
     m_camera_controller.reset_entity_tracking();
 }
@@ -96,6 +98,10 @@ void SceneRuntime::update(Scene& scene, float delta_time, FrameProfiler* profile
         PhysicsSystem::update(scene.get_entity_manager(), scene.get_event_dispatcher(), delta_time);
     }
     {
+        FrameProfiler::Scope transforms_scope(profiler, "transforms");
+        TransformSystem::update(scene.get_entity_manager());
+    }
+    {
         FrameProfiler::Scope animation_scope(profiler, "animation");
         SpriteAnimationSystem::update(scene.get_entity_manager(), delta_time);
     }
@@ -116,8 +122,8 @@ void SceneRuntime::update(Scene& scene, float delta_time, FrameProfiler* profile
         return text.remaining <= 0.0f;
     });
     {
-        FrameProfiler::Scope transforms_scope(profiler, "transforms");
-        TransformSystem::update(scene.get_entity_manager());
+        FrameProfiler::Scope trails_scope(profiler, "trails");
+        m_trails.update(scene.get_entity_manager(), delta_time);
     }
     {
         FrameProfiler::Scope camera_scope(profiler, "camera");

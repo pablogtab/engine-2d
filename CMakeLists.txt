@@ -75,6 +75,7 @@ set(SOURCES
     src/renderer/SpriteAnimationSystem.cpp
     src/renderer/SpriteSheet.cpp
     src/renderer/Texture.cpp
+    src/renderer/TrailSystem2D.cpp
     src/scene/Camera2D.cpp
     src/scene/CameraController2D.cpp
     src/scene/BuiltinComponentRegistrations.cpp
@@ -152,6 +153,7 @@ set(SOURCES
     src/editor/inspector/EditorComponentRegistry.cpp
     src/editor/inspector/BuiltinEditorComponentRegistrations.cpp
     src/editor/inspector/TransformInspectorDrawer.cpp
+    src/editor/inspector/TrailRendererInspectorDrawer.cpp
     src/editor/inspector/CameraInspectorDrawer.cpp
     src/editor/inspector/ParticleEmitterInspectorDrawer.cpp
     src/editor/tools/ViewportCameraController.cpp
@@ -1369,6 +1371,14 @@ target_include_directories(ParticleSystemTests PRIVATE
 )
 target_link_libraries(ParticleSystemTests PRIVATE EngineRuntime)
 add_test(NAME ParticleSystemTests COMMAND ParticleSystemTests)
+
+add_executable(TrailSystem2DTests tests/TrailSystem2DTests.cpp)
+target_include_directories(TrailSystem2DTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(TrailSystem2DTests PRIVATE EngineRuntime)
+add_test(NAME TrailSystem2DTests COMMAND TrailSystem2DTests)
 
 
 function(engine_use_runtime_for_test target)

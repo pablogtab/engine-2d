@@ -135,6 +135,9 @@ std::size_t MaterialAsset::preview_assigned(
     entities.for_each<UIImageComponent>([&](EntityID, UIImageComponent& image) {
         preview(image.material_handle, image.material);
     });
+    entities.for_each<TrailRenderer2DComponent>([&](EntityID, TrailRenderer2DComponent& trail) {
+        preview(trail.material_handle, trail.material);
+    });
     return count;
 }
 
@@ -159,6 +162,9 @@ MaterialAssetRefreshResult MaterialAsset::refresh_assigned(EntityManager& entiti
     });
     entities.for_each<UIImageComponent>([&](EntityID, UIImageComponent& image) {
         refresh(image.material_handle, image.material);
+    });
+    entities.for_each<TrailRenderer2DComponent>([&](EntityID, TrailRenderer2DComponent& trail) {
+        refresh(trail.material_handle, trail.material);
     });
     return result;
 }

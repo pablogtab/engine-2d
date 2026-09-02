@@ -27,12 +27,17 @@ struct Particle {
     float size_start{8.0f};
     float size_end{0.0f};
     float current_size{8.0f};
+    float stretch_start{1.0f};
+    float stretch_end{1.0f};
+    float current_stretch{1.0f};
 
     float lifetime{1.0f};
     float age{0.0f};
 
     float rotation{0.0f};
     float rotation_speed{0.0f};
+    bool align_to_velocity{false};
+    float velocity_alignment_offset{0.0f};
 
     bool collide_with_world{false};
     uint16_t collision_mask{static_cast<uint16_t>(CollisionCategory::GROUND)};

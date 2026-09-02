@@ -20,6 +20,8 @@ struct ParticleProps {
     float size_start{8.0f};
     float size_end{0.0f};
     float size_variation{0.0f};
+    float stretch_start{1.0f};
+    float stretch_end{1.0f};
     float lifetime{1.0f};
     float lifetime_variation{0.0f};
     float rotation{0.0f};
@@ -42,6 +44,9 @@ struct ParticleEmitter2DComponent {
     float emission_accumulator{0.0f};
     float lifetime_timer{0.0f};
     float delay_remaining{0.0f};
+    float distance_emission_accumulator{0.0f};
+    glm::vec2 previous_emitter_position{0.0f};
+    bool has_previous_emitter_position{false};
     bool is_playing{false};
 
     ParticleEmitter2DComponent() = default;

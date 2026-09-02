@@ -318,6 +318,8 @@ void ParticleEffectEditorPanel::on_gui() {
         if (ImGui::DragFloat("Start Size", &asset.appearance.start_size, 0.2f, 0.1f, 200.0f)) m_is_dirty = true;
         if (ImGui::DragFloat("End Size", &asset.appearance.end_size, 0.2f, 0.0f, 200.0f)) m_is_dirty = true;
         if (ImGui::DragFloat("Size Variation", &asset.appearance.size_variation, 0.1f, 0.0f, 100.0f)) m_is_dirty = true;
+        if (ImGui::DragFloat("Start Stretch", &asset.appearance.start_stretch, 0.05f, 0.0f, 20.0f)) m_is_dirty = true;
+        if (ImGui::DragFloat("End Stretch", &asset.appearance.end_stretch, 0.05f, 0.0f, 20.0f)) m_is_dirty = true;
     }
 
     if (ImGui::CollapsingHeader("Motion", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -349,6 +351,10 @@ void ParticleEffectEditorPanel::on_gui() {
         if (ImGui::DragFloat("Rotation Variation", &asset.motion.rotation_variation, 1.0f, 0.0f, 360.0f)) m_is_dirty = true;
         if (ImGui::DragFloat("Rotation Speed", &asset.motion.rotation_speed, 1.0f, -720.0f, 720.0f)) m_is_dirty = true;
         if (ImGui::DragFloat("Rotation Speed Variation", &asset.motion.rotation_speed_variation, 1.0f, 0.0f, 720.0f)) m_is_dirty = true;
+        if (ImGui::Checkbox("Align To Velocity", &asset.motion.align_to_velocity)) m_is_dirty = true;
+        if (asset.motion.align_to_velocity && ImGui::DragFloat(
+                "Alignment Offset", &asset.motion.velocity_alignment_offset,
+                1.0f, -360.0f, 360.0f, "%.1f deg")) m_is_dirty = true;
     }
 
     if (ImGui::CollapsingHeader("Lifetime", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -372,6 +378,7 @@ void ParticleEffectEditorPanel::on_gui() {
 
     if (ImGui::CollapsingHeader("Emission Defaults", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (ImGui::DragFloat("Continuous Rate", &asset.emission.continuous_rate, 0.5f, 0.0f, 500.0f, "%.1f /s")) m_is_dirty = true;
+        if (ImGui::DragFloat("Distance Rate", &asset.emission.distance_rate, 0.01f, 0.0f, 10.0f, "%.2f /px")) m_is_dirty = true;
         if (ImGui::DragInt("Burst Count", &asset.emission.burst_count, 1.0f, 0, 1000)) m_is_dirty = true;
         if (ImGui::DragFloat("Emission Duration", &asset.emission.duration, 0.1f, 0.0f, 60.0f, "%.1f s (0 = infinite)")) m_is_dirty = true;
         if (ImGui::DragFloat("Start Delay", &asset.emission.start_delay, 0.05f, 0.0f, 10.0f, "%.2f s")) m_is_dirty = true;

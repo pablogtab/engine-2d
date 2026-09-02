@@ -31,6 +31,26 @@ that sprite's source texture. A multi-pass fullscreen effect still belongs in
 `PostProcessPipeline`; a local multi-pass effect will eventually render the
 entity to an intermediate target before applying the same material chain.
 
+## Trail Renderer 2D
+
+`TrailRenderer2DComponent` records a bounded history of an entity's world
+position. `TrailSystem2D` joins those points into a continuous tapered ribbon
+and submits its segments as GPU quads through the normal material, sorting,
+render-layer and post-process path.
+
+The component owns only authored settings: material, colors, lifetime, sample
+distance, widths, point budget and blend mode. Point history is runtime-only,
+so prefab and scene serialization remain deterministic. Turning `emitting` off
+lets the existing ribbon fade; turning the component off removes it
+immediately. `texture_scale` repeats the procedural pattern along the ribbon
+and `flow_speed` scrolls it over time. The frame profiler reports `trails` and
+`trail_points` counters.
+
+Particle effects can complement a ribbon with `distance_rate` emission,
+`start_stretch` / `end_stretch`, and `align_to_velocity`. Distance emission is
+measured in particles per world pixel and produces world-space particles along
+the path actually travelled during the frame.
+
 ## Runtime example
 
 ```cpp

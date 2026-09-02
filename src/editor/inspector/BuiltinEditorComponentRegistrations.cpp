@@ -12,6 +12,7 @@
 #include "SpriteInspectorDrawer.hpp"
 #include "TilemapInspectorDrawer.hpp"
 #include "TransformInspectorDrawer.hpp"
+#include "TrailRendererInspectorDrawer.hpp"
 #include "UIInspectorDrawer.hpp"
 #include "../../ecs/components/ParticleComponents.hpp"
 #include "../../core/AssetManager.hpp"
@@ -144,6 +145,23 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
             const EditorInspectorContext&,
             ComponentSnapshotSet& snapshot
         ) { snapshot.set(RenderEffectComponent{}); }
+    });
+    register_or_throw(registry, {
+        .component_key = "trail_renderer_2d",
+        .drawer_key = "TrailRenderer2DHeader",
+        .display_name = "Trail Renderer 2D",
+        .category = EditorComponentCategory::Rendering,
+        .icon = EditorIcon::Zap,
+        .dependencies = {"transform"},
+        .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
+            TrailRendererInspectorDrawer::draw(em, entity, context);
+        },
+        .create_default = [](
+            EntityManager&,
+            EntityID,
+            const EditorInspectorContext&,
+            ComponentSnapshotSet& snapshot
+        ) { snapshot.set(TrailRenderer2DComponent{}); }
     });
     register_or_throw(registry, {
         .component_key = "light_2d",

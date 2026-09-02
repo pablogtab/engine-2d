@@ -24,6 +24,8 @@ struct ParticleAppearance {
     float start_size{10.0f};
     float end_size{2.0f};
     float size_variation{0.0f};
+    float start_stretch{1.0f};
+    float end_stretch{1.0f};
 
     bool operator==(const ParticleAppearance& other) const {
         return start_color.r == other.start_color.r && start_color.g == other.start_color.g &&
@@ -31,7 +33,8 @@ struct ParticleAppearance {
                end_color.r == other.end_color.r && end_color.g == other.end_color.g &&
                end_color.b == other.end_color.b && end_color.a == other.end_color.a &&
                start_size == other.start_size && end_size == other.end_size &&
-               size_variation == other.size_variation;
+               size_variation == other.size_variation &&
+               start_stretch == other.start_stretch && end_stretch == other.end_stretch;
     }
 };
 
@@ -45,6 +48,8 @@ struct ParticleMotion {
     float rotation_variation{0.0f};
     float rotation_speed{0.0f};
     float rotation_speed_variation{0.0f};
+    bool align_to_velocity{false};
+    float velocity_alignment_offset{0.0f};
 
     bool operator==(const ParticleMotion&) const = default;
 };
@@ -66,6 +71,7 @@ struct ParticleCollisionSettings {
 
 struct ParticleEmissionDefaults {
     float continuous_rate{20.0f};
+    float distance_rate{0.0f};
     int burst_count{10};
     float duration{0.0f};
     float start_delay{0.0f};

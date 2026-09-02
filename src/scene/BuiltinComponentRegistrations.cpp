@@ -11,6 +11,7 @@
 #include "../ecs/components/ScriptingComponents.hpp"
 #include "../physics/PhysicsSystem.hpp"
 #include "../renderer/SpriteAnimationSystem.hpp"
+#include "../renderer/material/MaterialAsset.hpp"
 #include "../tilemap/Tilemap.hpp"
 #include "../tilemap/TilemapColliderSystem.hpp"
 #include "../ui/UIComponentRegistrations.hpp"
@@ -615,6 +616,132 @@ void register_sprite_shadow(ComponentRegistry& registry) {
         .serialize = [](const SpriteShadow2DComponent& value, const ComponentSerializationContext&) { return Json{{"mode", value.mode == SpriteShadowMode::DominantLight ? "DominantLight" : "FixedContact"}, {"shape", value.shape == SpriteShadowShape::Texture ? "Texture" : "Ellipse"}, {"texture", value.texture_handle.to_string()}, {"offset", {value.offset.x, value.offset.y}}, {"size", {value.size.x, value.size.y}}, {"opacity", value.opacity}, {"softness", value.softness}, {"elevation", value.elevation}, {"max_projection", value.max_projection}, {"light_layers", value.light_layers}, {"sorting_offset", value.sorting_offset}, {"enabled", value.enabled}}; },
         .deserialize = [](SpriteShadow2DComponent& target, const Json& value, const ComponentSerializationContext& context, std::string& error) { try { const std::string texture_text = value.value("texture", "0000000000000000"); const auto texture = texture_text == "0000000000000000" ? std::optional<AssetHandle>{AssetHandle{}} : AssetHandle::from_string(texture_text); const auto& offset = value.at("offset"); const auto& size = value.at("size"); if (!texture || !offset.is_array() || offset.size() != 2 || !size.is_array() || size.size() != 2) { error = "Sprite Shadow 2D fields are invalid"; return false; } const auto mode = value.at("mode").get<std::string>(); const auto shape = value.at("shape").get<std::string>(); if (mode == "FixedContact") target.mode = SpriteShadowMode::FixedContact; else if (mode == "DominantLight") target.mode = SpriteShadowMode::DominantLight; else { error = "Sprite Shadow 2D mode is invalid"; return false; } if (shape == "Ellipse") target.shape = SpriteShadowShape::Ellipse; else if (shape == "Texture") target.shape = SpriteShadowShape::Texture; else { error = "Sprite Shadow 2D shape is invalid"; return false; } target.texture_handle = *texture; target.texture = nullptr; if (texture->is_valid() && context.asset_database && context.asset_manager && context.renderer) { const AssetRecord* record = context.asset_database->find(*texture); if (record && record->status == AssetStatus::Ready && record->type == AssetType::Texture) target.texture = context.asset_manager->get_texture(context.renderer, record->source_path); } target.offset = {offset[0].get<float>(), offset[1].get<float>()}; target.size = {size[0].get<float>(), size[1].get<float>()}; target.opacity = value.at("opacity").get<float>(); target.softness = value.at("softness").get<float>(); target.elevation = value.at("elevation").get<float>(); target.max_projection = value.at("max_projection").get<float>(); target.light_layers = value.at("light_layers").get<RenderLayerMask>(); target.sorting_offset = value.at("sorting_offset").get<std::int16_t>(); target.enabled = value.at("enabled").get<bool>(); } catch (const Json::exception&) { error = "Sprite Shadow 2D contains an invalid field"; return false; } return true; },
         .validate = [](const SpriteShadow2DComponent& value) -> std::optional<std::string> { if (value.size.x <= 0.0f || value.size.y <= 0.0f || value.light_layers == 0 || !std::isfinite(value.opacity) || value.opacity < 0.0f || value.opacity > 1.0f || !std::isfinite(value.softness) || value.softness < 0.0f || value.softness > 1.0f || !std::isfinite(value.elevation) || value.elevation < 0.0f || !std::isfinite(value.max_projection) || value.max_projection < 0.0f) return "Sprite Shadow 2D settings are invalid"; return std::nullopt; }
+    });
+}
+
+void register_trail_renderer(ComponentRegistry& registry) {
+    register_or_throw<TrailRenderer2DComponent>(registry, {
+        .display_name = "Trail Renderer 2D",
+        .serialized_key = "trail_renderer_2d",
+        .serialize = [](const TrailRenderer2DComponent& trail, const ComponentSerializationContext&) {
+            return Json{
+                {"material_handle", trail.material_handle.to_string()},
+                {"head_color", {trail.head_color.r, trail.head_color.g, trail.head_color.b, trail.head_color.a}},
+                {"tail_color", {trail.tail_color.r, trail.tail_color.g, trail.tail_color.b, trail.tail_color.a}},
+                {"lifetime", trail.lifetime},
+                {"min_vertex_distance", trail.min_vertex_distance},
+                {"head_width", trail.head_width},
+                {"tail_width", trail.tail_width},
+                {"texture_scale", trail.texture_scale},
+                {"flow_speed", trail.flow_speed},
+                {"max_points", trail.max_points},
+                {"sorting_layer", trail.sorting_layer},
+                {"order_in_layer", trail.order_in_layer},
+                {"z_layer", trail.z_layer},
+                {"render_layer", trail.render_layer},
+                {"blend_mode", trail.blend_mode == TrailBlendMode::Additive ? "Additive" : "Alpha"},
+                {"emitting", trail.emitting},
+                {"enabled", trail.enabled}
+            };
+        },
+        .deserialize = [](
+            TrailRenderer2DComponent& trail,
+            const Json& value,
+            const ComponentSerializationContext& context,
+            std::string& error
+        ) {
+            try {
+                if (!value.is_object()) { error = "Trail Renderer 2D must be an object"; return false; }
+                const std::string material_text = value.value("material_handle", "0000000000000000");
+                const auto material = material_text == "0000000000000000"
+                    ? std::optional<AssetHandle>{AssetHandle{}}
+                    : AssetHandle::from_string(material_text);
+                if (!material) { error = "Trail Renderer 2D material handle is invalid"; return false; }
+                const auto& head = value.at("head_color");
+                const auto& tail = value.at("tail_color");
+                if (!head.is_array() || head.size() != 4 || !tail.is_array() || tail.size() != 4) {
+                    error = "Trail Renderer 2D colors must contain four channels";
+                    return false;
+                }
+                const auto parse_channel = [](const Json& channel, std::uint8_t& output) {
+                    if (!channel.is_number_integer() && !channel.is_number_unsigned()) return false;
+                    const int value = channel.get<int>();
+                    if (value < 0 || value > 255) return false;
+                    output = static_cast<std::uint8_t>(value);
+                    return true;
+                };
+                SDL_Color head_color{};
+                SDL_Color tail_color{};
+                std::uint8_t* head_channels[] = {
+                    &head_color.r, &head_color.g, &head_color.b, &head_color.a
+                };
+                std::uint8_t* tail_channels[] = {
+                    &tail_color.r, &tail_color.g, &tail_color.b, &tail_color.a
+                };
+                for (std::size_t index = 0; index < 4; ++index) {
+                    if (!parse_channel(head[index], *head_channels[index]) ||
+                        !parse_channel(tail[index], *tail_channels[index])) {
+                        error = "Trail Renderer 2D color channels must be between 0 and 255";
+                        return false;
+                    }
+                }
+                const std::string blend = value.value("blend_mode", "Additive");
+                if (blend != "Alpha" && blend != "Additive") {
+                    error = "Trail Renderer 2D blend mode must be Alpha or Additive";
+                    return false;
+                }
+                trail.material_handle = *material;
+                trail.material = material->is_valid() && context.asset_database
+                    ? MaterialAsset::load(*material, *context.asset_database) : nullptr;
+                trail.head_color = head_color;
+                trail.tail_color = tail_color;
+                trail.lifetime = value.at("lifetime").get<float>();
+                trail.min_vertex_distance = value.at("min_vertex_distance").get<float>();
+                trail.head_width = value.at("head_width").get<float>();
+                trail.tail_width = value.at("tail_width").get<float>();
+                trail.texture_scale = value.value("texture_scale", 1.0f);
+                trail.flow_speed = value.value("flow_speed", 0.0f);
+                trail.max_points = value.at("max_points").get<std::uint16_t>();
+                trail.sorting_layer = value.value("sorting_layer", std::int16_t{0});
+                trail.order_in_layer = value.value("order_in_layer", std::int16_t{-1});
+                trail.z_layer = value.value("z_layer", -0.08f);
+                trail.render_layer = value.value("render_layer", DEFAULT_RENDER_LAYER);
+                trail.blend_mode = blend == "Additive" ? TrailBlendMode::Additive : TrailBlendMode::Alpha;
+                trail.emitting = value.value("emitting", true);
+                trail.enabled = value.value("enabled", true);
+                return true;
+            } catch (const Json::exception&) {
+                error = "Trail Renderer 2D contains an invalid field";
+                return false;
+            }
+        },
+        .finalize = [](
+            EntityManager&,
+            EntityID,
+            TrailRenderer2DComponent& trail,
+            const ComponentFinalizeContext& context,
+            std::string&
+        ) {
+            if (trail.material_handle.is_valid() && context.serialization.asset_database) {
+                trail.material = MaterialAsset::load(
+                    trail.material_handle, *context.serialization.asset_database
+                );
+            }
+            return true;
+        },
+        .validate = [](const TrailRenderer2DComponent& trail) -> std::optional<std::string> {
+            if (!std::isfinite(trail.lifetime) || trail.lifetime <= 0.0f ||
+                !std::isfinite(trail.min_vertex_distance) || trail.min_vertex_distance <= 0.0f ||
+                !std::isfinite(trail.head_width) || trail.head_width < 0.0f ||
+                !std::isfinite(trail.tail_width) || trail.tail_width < 0.0f ||
+                !std::isfinite(trail.texture_scale) || trail.texture_scale <= 0.0f ||
+                !std::isfinite(trail.flow_speed) ||
+                !std::isfinite(trail.z_layer) ||
+                trail.max_points < 2 || trail.max_points > 2048 || trail.render_layer > 31) {
+                return "Trail Renderer 2D settings are invalid";
+            }
+            return std::nullopt;
+        }
     });
 }
 
@@ -1306,6 +1433,7 @@ void register_additional_builtin_components(ComponentRegistry& registry) {
     register_shadow_caster(registry);
     register_sprite_lighting(registry);
     register_sprite_shadow(registry);
+    register_trail_renderer(registry);
     register_lighting_bake_volume(registry);
     register_prefab_link(registry);
     register_camera(registry);

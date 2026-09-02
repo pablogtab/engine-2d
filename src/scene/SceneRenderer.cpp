@@ -112,6 +112,7 @@ void SceneRenderer::render(
         editing ? editor_view.render_filter() : nullptr
     );
     if (!editing) {
+        runtime.trails().render(renderer);
         runtime.particle_world().render(renderer, scene.get_entity_manager());
         if (!runtime.world_texts().empty()) {
             if (!m_world_text_font) {
