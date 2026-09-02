@@ -29,6 +29,14 @@ foreach(runtime_directory Library Engine)
         file(COPY "${ENGINE_STAGE_DIR}/${runtime_directory}" DESTINATION "${ENGINE_OUTPUT_DIR}")
     endif()
 endforeach()
+# EngineScript emits C++ as an intermediate step before producing the gameplay
+# DLL. Keep the compiled module in distributions, not its generated sources.
+file(GLOB_RECURSE generated_engine_script_sources
+    "${ENGINE_OUTPUT_DIR}/Library/EngineScript/Generated/*.cpp"
+    "${ENGINE_OUTPUT_DIR}/Library/EngineScript/Generated/*.hpp")
+if(generated_engine_script_sources)
+    file(REMOVE ${generated_engine_script_sources})
+endif()
 file(COPY_FILE "${ENGINE_STAGE_DIR}/project.engine2d" "${ENGINE_OUTPUT_DIR}/project.engine2d")
 if(EXISTS "${ENGINE_STAGE_DIR}/engine_api.json")
     file(COPY_FILE "${ENGINE_STAGE_DIR}/engine_api.json" "${ENGINE_OUTPUT_DIR}/engine_api.json")

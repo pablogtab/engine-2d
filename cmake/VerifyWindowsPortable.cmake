@@ -35,6 +35,12 @@ file(GLOB engine_script_modules
 if(NOT engine_script_modules)
     message(FATAL_ERROR "Portable Windows runtime is missing its EngineScript gameplay module")
 endif()
+file(GLOB_RECURSE generated_engine_script_sources
+    "${ENGINE_OUTPUT_DIR}/Library/EngineScript/Generated/*.cpp"
+    "${ENGINE_OUTPUT_DIR}/Library/EngineScript/Generated/*.hpp")
+if(generated_engine_script_sources)
+    message(FATAL_ERROR "Portable Windows runtime includes generated EngineScript C++ sources")
+endif()
 if(EXISTS "${ENGINE_OUTPUT_DIR}/editor_assets")
     message(FATAL_ERROR "Portable Windows runtime includes editor-only assets")
 endif()
