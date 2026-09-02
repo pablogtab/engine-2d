@@ -4,6 +4,7 @@
 #include "EditorShell.hpp"
 #include "panels/EditorPanelRegistry.hpp"
 #include "session/EditorSessionController.hpp"
+#include "workspace/WorkspaceLayoutController.hpp"
 #include "state/AutosaveRecovery.hpp"
 #include "state/RecentSceneList.hpp"
 #include "state/EditorPanelStateStore.hpp"
@@ -19,7 +20,6 @@
 #include <cstdint>
 #include <chrono>
 #include <future>
-#include <optional>
 
 namespace Engine {
 
@@ -127,13 +127,7 @@ private:
     void render_main_menu_bar();
     void register_editor_actions();
     void activate_workspace(EditorWorkspaceId id);
-    void apply_pending_workspace_layout(uint32_t dockspace_id);
     void apply_workspace_panel_visibility();
-    void setup_default_dockspace_layout(uint32_t dockspace_id);
-    void reset_all_workspace_layouts();
-    [[nodiscard]] bool load_workspace_layout(EditorWorkspaceId id);
-    [[nodiscard]] std::filesystem::path workspace_layout_path(EditorWorkspaceId id) const;
-    void persist_imgui_layout();
     void persist_panel_states();
     bool save_hot_exit_session();
     void restore_hot_exit_session();
@@ -190,10 +184,9 @@ private:
     std::filesystem::path m_entity_state_preferences_path{"Library/Editor/EntityStates.json"};
     std::filesystem::path m_panel_state_path{"Library/Editor/PanelStates.json"};
     std::filesystem::path m_hot_exit_session_path{"Library/Editor/SessionState.json"};
-    std::string m_imgui_ini_path;
-    std::string m_last_saved_imgui_ini;
     EditorPanelStateStore m_panel_states;
     EditorShell m_shell;
+    WorkspaceLayoutController m_workspace_layouts;
     std::uint64_t m_saved_panel_state_revision{0};
     std::vector<AutosaveRecord> m_pending_recoveries;
     std::vector<std::string> m_panels_to_reselect;
@@ -201,14 +194,11 @@ private:
 
     bool m_initialized{false};
     bool m_visible{true}; // Enabled by default in editor builds
-    bool m_dockspace_initialized{false};
     bool m_show_save_as_popup{false};
     bool m_show_unsaved_changes_modal{false};
     bool m_show_prefab_stage_exit_modal{false};
     bool m_show_autosave_preferences{false};
     bool m_show_reset_all_layouts_modal{false};
-    std::optional<EditorWorkspaceId> m_pending_workspace_layout;
-    bool m_pending_workspace_uses_default{false};
     bool m_recovery_scan_complete{false};
     bool m_hot_exit_restored{false};
     float m_autosave_elapsed{0.0f};

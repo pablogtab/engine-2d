@@ -109,6 +109,7 @@ set(SOURCES
     src/editor/app/EditorActionRegistry.cpp
     src/editor/ui/EditorUi.cpp
     src/editor/workspace/WorkspaceManager.cpp
+    src/editor/workspace/WorkspaceLayoutController.cpp
     src/editor/ProjectHub.cpp
     src/editor/EditorLayer.cpp
     src/editor/panels/ViewportPanel.cpp
@@ -949,6 +950,25 @@ target_include_directories(WorkspaceManagerTests PRIVATE
 target_link_libraries(WorkspaceManagerTests PRIVATE SDL3::SDL3)
 add_test(NAME WorkspaceManagerTests COMMAND WorkspaceManagerTests)
 
+add_executable(WorkspaceLayoutControllerTests
+    tests/WorkspaceLayoutControllerTests.cpp
+    src/core/FileSystem.cpp
+    src/core/Log.cpp
+    src/editor/workspace/WorkspaceManager.cpp
+    src/editor/workspace/WorkspaceLayoutController.cpp
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
+)
+target_include_directories(WorkspaceLayoutControllerTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+)
+target_link_libraries(WorkspaceLayoutControllerTests PRIVATE SDL3::SDL3)
+add_test(NAME WorkspaceLayoutControllerTests COMMAND WorkspaceLayoutControllerTests)
+
 add_executable(RecentSceneListTests
     tests/RecentSceneListTests.cpp
     src/core/Log.cpp
@@ -1473,6 +1493,7 @@ foreach(runtime_test
     EditorPanelRegistryTests
     EditorSessionControllerTests
     WorkspaceManagerTests
+    WorkspaceLayoutControllerTests
     RecentSceneListTests
     EditorAiConversationStoreTests
     HierarchyCommandTests

@@ -1,4 +1,5 @@
 #include "SceneHierarchyPanel.hpp"
+#include "../EditorTheme.hpp"
 #include "../stage/PrefabStageController.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
@@ -26,6 +27,7 @@
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <unordered_set>
 
@@ -42,6 +44,23 @@ bool has_canvas_ancestor(const EntityManager& em, EntityID entity) {
         current = em.get_component<HierarchyComponent>(current).parent;
     }
     return false;
+}
+
+EditorIcon hierarchy_entity_icon(const EntityManager& em, EntityID entity) {
+    if (em.has_component<CameraComponent>(entity)) return EditorIcon::Camera;
+    if (em.has_component<TilemapComponent>(entity)) return EditorIcon::Grid;
+    if (em.has_component<SpriteComponent>(entity)) return EditorIcon::Sprite;
+    if (em.has_component<AnimationComponent>(entity)) return EditorIcon::Animation;
+    if (em.has_component<ColliderComponent>(entity)) return EditorIcon::Collider;
+    if (em.has_component<RigidBodyComponent>(entity)) return EditorIcon::Physics;
+    return EditorIcon::Component;
+}
+
+std::string lowercase(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return value;
 }
 
 } // namespace
@@ -119,59 +138,53 @@ void SceneHierarchyPanel::on_gui() {
             return;
         }
 
-        const bool is_dirty = m_command_history && m_command_history->is_dirty();
-        const std::string scene_title = active_scene->get_name() + (is_dirty ? " *" : "");
-        EditorUi::area_heading(
-            EditorIcon::Component,
-            scene_title.c_str(),
-            is_dirty ? "Active scene - unsaved changes" : "Active scene"
-        );
-
-        float avail_w = ImGui::GetContentRegionAvail().x;
-        bool has_filter = m_search_filter[0] != '\0';
-        if (has_filter) {
-            ImGui::SetNextItemWidth(avail_w - 28.0f);
-        } else {
-            ImGui::SetNextItemWidth(avail_w);
-        }
-        EditorUi::search_field(
-            "##search",
-            "Search entities or use :sprite, :collider, :locked...",
-            m_search_filter,
-            sizeof(m_search_filter)
-        );
-        if (has_filter) {
-            ImGui::SameLine();
-            if (ImGui::Button("X##clear_search", ImVec2(22.0f, 0.0f))) {
-                m_search_filter[0] = '\0';
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Clear search filter");
-            }
-        }
-        ImGui::Spacing();
-
         EntityManager& em = active_scene->get_entity_manager();
         const bool runtime_mode = !m_scene_manager->is_editing();
         if (runtime_mode && m_renaming_entity != 0) finish_rename(em, false);
         const auto& living_entities = em.get_living_entities();
+        const auto& metrics = EditorTheme::metrics();
+
+        const float available_width = ImGui::GetContentRegionAvail().x;
+        const bool has_filter = m_search_filter[0] != '\0';
+        const float clear_width = has_filter ? 24.0f * metrics.scale : 0.0f;
+        EditorUi::search_field(
+            "##search",
+            "Search name or :sprite, :locked...",
+            m_search_filter,
+            sizeof(m_search_filter),
+            available_width - clear_width
+        );
+        if (has_filter) {
+            ImGui::SameLine();
+            if (editor_icon_button(
+                    "clear_hierarchy_search", EditorIcon::Clear,
+                    "Clear search", false,
+                    ImVec2(20.0f * metrics.scale, ImGui::GetFrameHeight()))) {
+                m_search_filter[0] = '\0';
+            }
+        }
+
+        const std::string filter_str = lowercase(m_search_filter);
+        const std::size_t match_count = EditorHierarchyFilter::count_matches(
+            em, filter_str, m_entity_state_store.get()
+        );
 
         if (runtime_mode) {
             EditorUi::badge("RUNTIME - STRUCTURE LOCKED", EditorUi::BadgeTone::Warning);
-        }
-
-        if (m_selection && m_selection->count() > 1) {
-            ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Selected: %zu entities", m_selection->count());
         } else {
-            ImGui::TextDisabled("Entities: %zu alive", living_entities.size());
+            const std::size_t selected_count = m_selection ? m_selection->count() : 0;
+            if (has_filter) {
+                ImGui::TextDisabled("%zu matches  |  %zu entities", match_count, living_entities.size());
+            } else if (selected_count > 0) {
+                ImGui::TextDisabled("%zu selected  |  %zu entities", selected_count, living_entities.size());
+            } else {
+                ImGui::TextDisabled("%zu entities", living_entities.size());
+            }
         }
         ImGui::Separator();
 
         // --- Entity Tree List ---
         ImGui::BeginChild("EntityTreeScroll", ImVec2(0, 0), false);
-
-        std::string filter_str = m_search_filter;
-        std::transform(filter_str.begin(), filter_str.end(), filter_str.begin(), ::tolower);
 
         ImGuiIO& io = ImGui::GetIO();
         bool is_multi_key = io.KeyCtrl || io.KeyShift;
@@ -179,55 +192,29 @@ void SceneHierarchyPanel::on_gui() {
         const ImVec2 hierarchy_spacing = ImGui::GetStyle().ItemSpacing;
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(hierarchy_spacing.x, 0.0f));
 
-        // Iterate through root-level entities in authored visual order
-        for (EntityID id : em.get_root_entities()) {
-            if (!em.is_alive(id)) continue;
-            draw_entity_node(em, id, filter_str, is_multi_key);
+        if (match_count == 0) {
+            EditorUi::empty_state(
+                EditorIcon::Component,
+                living_entities.empty() ? "No entities yet" : "No matching entities",
+                living_entities.empty()
+                    ? "Use + to create the first entity"
+                    : "Change the search or type filter"
+            );
+            handle_root_drop_target(em, runtime_mode);
+        } else {
+            // Iterate through root-level entities in authored visual order.
+            for (EntityID id : em.get_root_entities()) {
+                if (!em.is_alive(id)) continue;
+                draw_entity_node(em, id, filter_str, is_multi_key);
+            }
         }
         ImGui::PopStyleVar();
 
-        // Empty space at bottom of tree to allow dropping to unparent (make root entity)
-        ImVec2 avail = ImGui::GetContentRegionAvail();
-        if (avail.y > 10.0f) {
-            ImGui::Dummy(avail);
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
-                if (runtime_mode) {
-                    m_scene_manager->clear_runtime_selection();
-                } else if (m_selection) {
-                    m_selection->clear();
-                }
-            }
-            if (!runtime_mode && ImGui::BeginDragDropTarget()) {
-                const ImGuiPayload* multi_payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_MULTI_DRAG");
-                const ImGuiPayload* single_payload = multi_payload ? nullptr : ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG");
-                std::vector<EntityID> dropped_entities;
-                if (multi_payload) {
-                    const size_t count = multi_payload->DataSize / sizeof(EntityID);
-                    const EntityID* data = (const EntityID*)multi_payload->Data;
-                    dropped_entities.assign(data, data + count);
-                } else if (single_payload) {
-                    dropped_entities.push_back(*(const EntityID*)single_payload->Data);
-                }
-
-                if (const ImGuiPayload* asset_payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET")) {
-                    const char* path_str = static_cast<const char*>(asset_payload->Data);
-                    if (path_str) {
-                        create_asset_helper(em, 0, path_str);
-                    }
-                }
-
-                if (!dropped_entities.empty()) {
-                    if (m_command_history) {
-                        m_command_history->execute_command(
-                            std::make_unique<ReparentEntitiesCommand>(&em, dropped_entities, 0, m_selection, "", m_entity_state_store.get())
-                        );
-                    } else {
-                        ReparentEntitiesCommand cmd(&em, dropped_entities, 0, m_selection, "", m_entity_state_store.get());
-                        cmd.execute();
-                    }
-                }
-                ImGui::EndDragDropTarget();
-            }
+        // Empty space remains a root drop target and clears selection.
+        const ImVec2 available_tree = ImGui::GetContentRegionAvail();
+        if (match_count > 0 && available_tree.y > 10.0f) {
+            ImGui::Dummy(available_tree);
+            handle_root_drop_target(em, runtime_mode);
         }
 
         // Right-click on empty area in tree window
@@ -314,6 +301,130 @@ bool SceneHierarchyPanel::is_descendant(EntityManager& em, EntityID potential_de
     return false;
 }
 
+bool SceneHierarchyPanel::can_reparent_preview(
+    EntityManager& em,
+    const std::vector<EntityID>& entities,
+    EntityID new_parent,
+    std::string& reason
+) const {
+    if (entities.empty()) {
+        reason = "No entities to move";
+        return false;
+    }
+    if (new_parent != 0) {
+        if (!em.is_alive(new_parent) || !em.has_component<TransformComponent>(new_parent)) {
+            reason = "Target cannot contain entities";
+            return false;
+        }
+        if (m_entity_state_store && m_entity_state_store->is_locked(new_parent)) {
+            reason = "Target entity is locked";
+            return false;
+        }
+    }
+    if (m_prefab_stage && m_prefab_stage->is_active() && new_parent == 0) {
+        reason = "Prefab Stage entities must remain under the prefab root";
+        return false;
+    }
+
+    for (EntityID entity : entities) {
+        if (!em.is_alive(entity) || !em.has_component<TransformComponent>(entity)) {
+            reason = "Entity cannot be moved";
+            return false;
+        }
+        if (m_entity_state_store && m_entity_state_store->is_locked(entity)) {
+            reason = "A selected entity is locked";
+            return false;
+        }
+        if (m_prefab_stage && m_prefab_stage->is_root_entity(entity)) {
+            reason = "The prefab root cannot be moved";
+            return false;
+        }
+        if (new_parent == entity || is_descendant(em, new_parent, entity)) {
+            reason = "Cannot parent an entity to itself or its descendant";
+            return false;
+        }
+        if (em.has_component<HierarchyComponent>(entity)) {
+            const EntityID old_parent = em.get_component<HierarchyComponent>(entity).parent;
+            if (old_parent != 0 && m_entity_state_store &&
+                m_entity_state_store->is_locked(old_parent)) {
+                reason = "The current parent is locked";
+                return false;
+            }
+        }
+    }
+    reason.clear();
+    return true;
+}
+
+void SceneHierarchyPanel::handle_root_drop_target(EntityManager& em, bool runtime_mode) {
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+        if (runtime_mode) {
+            m_scene_manager->clear_runtime_selection();
+        } else if (m_selection) {
+            m_selection->clear();
+        }
+    }
+    if (runtime_mode || !ImGui::BeginDragDropTarget()) return;
+
+    const ImGuiPayload* preview = ImGui::GetDragDropPayload();
+    std::vector<EntityID> preview_entities;
+    const bool entity_payload = preview &&
+        (preview->IsDataType("ENTITY_HIERARCHY_MULTI_DRAG") ||
+         preview->IsDataType("ENTITY_HIERARCHY_DRAG"));
+    if (entity_payload) {
+        const std::size_t count = preview->DataSize / sizeof(EntityID);
+        const EntityID* data = static_cast<const EntityID*>(preview->Data);
+        preview_entities.assign(data, data + count);
+    }
+    std::string rejection_reason;
+    const bool accepts_entities = entity_payload &&
+        can_reparent_preview(em, preview_entities, 0, rejection_reason);
+    const bool accepts_asset = preview && preview->IsDataType("CONTENT_BROWSER_ASSET");
+    const bool valid = accepts_asset || accepts_entities;
+    const ImVec4 feedback = valid ? EditorTheme::palette().success : EditorTheme::palette().error;
+    ImGui::GetWindowDrawList()->AddRect(
+        ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+        ImGui::ColorConvertFloat4ToU32(feedback), 2.0f, 0, 2.0f
+    );
+    if (!valid && ImGui::IsItemHovered() && !rejection_reason.empty()) {
+        ImGui::SetTooltip("%s", rejection_reason.c_str());
+    }
+
+    constexpr ImGuiDragDropFlags flags = ImGuiDragDropFlags_AcceptNoDrawDefaultRect;
+    const ImGuiPayload* multi_payload =
+        ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_MULTI_DRAG", flags);
+    const ImGuiPayload* single_payload = multi_payload ? nullptr :
+        ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG", flags);
+    std::vector<EntityID> dropped_entities;
+    if (multi_payload) {
+        const std::size_t count = multi_payload->DataSize / sizeof(EntityID);
+        const EntityID* data = static_cast<const EntityID*>(multi_payload->Data);
+        dropped_entities.assign(data, data + count);
+    } else if (single_payload) {
+        dropped_entities.push_back(*static_cast<const EntityID*>(single_payload->Data));
+    }
+
+    if (const ImGuiPayload* asset_payload =
+            ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET", flags)) {
+        const char* path = static_cast<const char*>(asset_payload->Data);
+        if (path) create_asset_helper(em, 0, path);
+    }
+    if (!dropped_entities.empty() &&
+        can_reparent_preview(em, dropped_entities, 0, rejection_reason)) {
+        if (m_command_history) {
+            m_command_history->execute_command(std::make_unique<ReparentEntitiesCommand>(
+                &em, dropped_entities, 0, m_selection, "", m_entity_state_store.get()
+            ));
+        } else {
+            ReparentEntitiesCommand command(
+                &em, dropped_entities, 0, m_selection, "", m_entity_state_store.get()
+            );
+            static_cast<void>(command.execute());
+        }
+    }
+    ImGui::EndDragDropTarget();
+}
+
 void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const std::string& filter_str, bool is_multi_key) {
     if (!em.is_alive(id)) return;
     if (!matches_filter_recursive(em, id, filter_str)) return;
@@ -372,34 +483,43 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
     if (is_prefab_instance) {
         is_variant = em.get_component<PrefabLinkComponent>(id).is_variant();
     }
-    const std::string display_name = is_prefab_instance
-        ? (is_variant ? "[V] " + name : "[P] " + name)
-        : name;
+    const EditorIcon row_icon = is_prefab_instance
+        ? EditorIcon::ExternalLink
+        : hierarchy_entity_icon(em, id);
+    const std::string display_name = editor_icon_label(row_icon, name.c_str());
+    const auto& palette = EditorTheme::palette();
 
     int style_color_count = 0;
     if (!is_effectively_visible) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.60f, 0.55f));
+        ImGui::PushStyleColor(
+            ImGuiCol_Text,
+            ImVec4(palette.text_muted.x, palette.text_muted.y, palette.text_muted.z, 0.55f)
+        );
         style_color_count++;
     } else if (directly_matches) {
-        // Highlight matching node in vibrant cyan
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.85f, 1.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, palette.accent_hovered);
         style_color_count++;
     } else if (is_prefab_instance) {
         if (is_variant) {
-            // Highlight variant in soft electric lavender/purple
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.55f, 1.0f, 1.0f));
         } else {
-            // Highlight prefab instance in soft electric cyan/blue
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.40f, 0.75f, 1.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, palette.accent_hovered);
         }
         style_color_count++;
     } else if (!filter_str.empty()) {
-        // Ancestor container of matching child (subtle dimming)
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.72f, 0.78f, 0.75f));
+        ImGui::PushStyleColor(
+            ImGuiCol_Text,
+            ImVec4(palette.text_muted.x, palette.text_muted.y, palette.text_muted.z, 0.75f)
+        );
         style_color_count++;
     }
 
     const bool is_renaming = !runtime_mode && m_renaming_entity == id;
+    const auto& metrics = EditorTheme::metrics();
+    ImGui::PushStyleVar(
+        ImGuiStyleVar_FramePadding,
+        ImVec2(4.0f * metrics.scale, 2.0f * metrics.scale)
+    );
     bool node_open = ImGui::TreeNodeEx(
         (void*)(uintptr_t)id,
         flags,
@@ -408,6 +528,7 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
     );
     const ImVec2 node_min = ImGui::GetItemRectMin();
     const ImVec2 node_max = ImGui::GetItemRectMax();
+    ImGui::PopStyleVar();
     if (!runtime_mode && !is_locked && ImGui::IsItemHovered() &&
         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         begin_rename(em, id);
@@ -492,105 +613,126 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             zone = DropZone::After;
         }
 
-        // Draw professional visual insertion line / box indicators
+        EntityID target_parent = id;
+        if (zone != DropZone::Inside) {
+            target_parent = em.has_component<HierarchyComponent>(id)
+                ? em.get_component<HierarchyComponent>(id).parent
+                : 0;
+        }
+
+        const ImGuiPayload* preview = ImGui::GetDragDropPayload();
+        const bool entity_payload = preview &&
+            (preview->IsDataType("ENTITY_HIERARCHY_MULTI_DRAG") ||
+             preview->IsDataType("ENTITY_HIERARCHY_DRAG"));
+        const bool asset_payload = preview && preview->IsDataType("CONTENT_BROWSER_ASSET");
+        std::vector<EntityID> preview_entities;
+        if (entity_payload) {
+            const std::size_t count = preview->DataSize / sizeof(EntityID);
+            const EntityID* data = static_cast<const EntityID*>(preview->Data);
+            preview_entities.assign(data, data + count);
+        }
+        std::string rejection_reason;
+        const bool valid_entity_drop = entity_payload && can_reparent_preview(
+            em, preview_entities, target_parent, rejection_reason
+        );
+        const bool valid_drop = asset_payload || valid_entity_drop;
+        const ImVec4 feedback = valid_drop ? palette.success : palette.error;
+        const ImU32 feedback_color = ImGui::ColorConvertFloat4ToU32(feedback);
+
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
         if (zone == DropZone::Before) {
-            draw_list->AddLine(ImVec2(item_min.x, item_min.y), ImVec2(item_max.x, item_min.y), IM_COL32(95, 145, 255, 255), 2.0f);
-            draw_list->AddCircleFilled(ImVec2(item_min.x + 3.0f, item_min.y), 3.0f, IM_COL32(95, 145, 255, 255));
+            draw_list->AddLine(
+                ImVec2(item_min.x, item_min.y), ImVec2(item_max.x, item_min.y),
+                feedback_color, 2.0f
+            );
+            draw_list->AddCircleFilled(
+                ImVec2(item_min.x + 3.0f, item_min.y), 3.0f, feedback_color
+            );
         } else if (zone == DropZone::After) {
-            draw_list->AddLine(ImVec2(item_min.x, item_max.y), ImVec2(item_max.x, item_max.y), IM_COL32(95, 145, 255, 255), 2.0f);
-            draw_list->AddCircleFilled(ImVec2(item_min.x + 3.0f, item_max.y), 3.0f, IM_COL32(95, 145, 255, 255));
+            draw_list->AddLine(
+                ImVec2(item_min.x, item_max.y), ImVec2(item_max.x, item_max.y),
+                feedback_color, 2.0f
+            );
+            draw_list->AddCircleFilled(
+                ImVec2(item_min.x + 3.0f, item_max.y), 3.0f, feedback_color
+            );
         } else {
-            draw_list->AddRect(item_min, item_max, IM_COL32(95, 145, 255, 180), 2.0f);
+            draw_list->AddRect(item_min, item_max, feedback_color, 2.0f, 0, 2.0f);
+        }
+        if (!valid_drop && ImGui::IsItemHovered() && !rejection_reason.empty()) {
+            ImGui::SetTooltip("%s", rejection_reason.c_str());
         }
 
-        const ImGuiPayload* multi_payload = ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_MULTI_DRAG");
-        const ImGuiPayload* single_payload = multi_payload ? nullptr : ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG");
+        constexpr ImGuiDragDropFlags accept_flags =
+            ImGuiDragDropFlags_AcceptNoDrawDefaultRect;
+        const ImGuiPayload* multi_payload = ImGui::AcceptDragDropPayload(
+            "ENTITY_HIERARCHY_MULTI_DRAG", accept_flags
+        );
+        const ImGuiPayload* single_payload = multi_payload ? nullptr :
+            ImGui::AcceptDragDropPayload("ENTITY_HIERARCHY_DRAG", accept_flags);
         std::vector<EntityID> dropped_entities;
         if (multi_payload) {
-            const size_t count = multi_payload->DataSize / sizeof(EntityID);
-            const EntityID* data = (const EntityID*)multi_payload->Data;
+            const std::size_t count = multi_payload->DataSize / sizeof(EntityID);
+            const EntityID* data = static_cast<const EntityID*>(multi_payload->Data);
             dropped_entities.assign(data, data + count);
         } else if (single_payload) {
-            dropped_entities.push_back(*(const EntityID*)single_payload->Data);
+            dropped_entities.push_back(*static_cast<const EntityID*>(single_payload->Data));
         }
 
-        if (const ImGuiPayload* asset_payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ASSET")) {
-            const char* path_str = static_cast<const char*>(asset_payload->Data);
+        if (const ImGuiPayload* accepted_asset = ImGui::AcceptDragDropPayload(
+                "CONTENT_BROWSER_ASSET", accept_flags)) {
+            const char* path_str = static_cast<const char*>(accepted_asset->Data);
             if (path_str) {
                 if (zone == DropZone::Inside) {
                     create_asset_helper(em, id, path_str);
                 } else {
-                    EntityID target_parent = 0;
-                    if (em.has_component<HierarchyComponent>(id)) {
-                        target_parent = em.get_component<HierarchyComponent>(id).parent;
-                    }
                     create_asset_helper(em, target_parent, path_str);
                 }
             }
         }
 
-        if (!dropped_entities.empty()) {
-            bool allows_reparent = true;
-            if (m_prefab_stage && m_prefab_stage->is_active()) {
-                for (EntityID d_id : dropped_entities) {
-                    if (m_prefab_stage->is_root_entity(d_id)) {
-                        allows_reparent = false;
-                        break;
-                    }
-                }
-            }
-
-            if (allows_reparent && zone == DropZone::Inside) {
+        if (!dropped_entities.empty() && can_reparent_preview(
+                em, dropped_entities, target_parent, rejection_reason)) {
+            if (zone == DropZone::Inside) {
                 if (m_command_history) {
-                    m_command_history->execute_command(
-                        std::make_unique<ReparentEntitiesCommand>(&em, dropped_entities, id, m_selection, "", m_entity_state_store.get())
-                    );
+                    m_command_history->execute_command(std::make_unique<ReparentEntitiesCommand>(
+                        &em, dropped_entities, id, m_selection, "", m_entity_state_store.get()
+                    ));
                 } else {
-                    ReparentEntitiesCommand cmd(&em, dropped_entities, id, m_selection, "", m_entity_state_store.get());
-                    cmd.execute();
+                    ReparentEntitiesCommand command(
+                        &em, dropped_entities, id, m_selection, "", m_entity_state_store.get()
+                    );
+                    static_cast<void>(command.execute());
                 }
-            } else if (allows_reparent) {
-                EntityID target_parent = 0;
-                if (em.has_component<HierarchyComponent>(id)) {
-                    target_parent = em.get_component<HierarchyComponent>(id).parent;
-                }
+            } else {
+                std::size_t target_index = em.get_sibling_index(id);
+                if (zone == DropZone::After) ++target_index;
 
-                // In Prefab Stage, non-root entities cannot become root-level (target_parent == 0)
-                if (m_prefab_stage && m_prefab_stage->is_active() && target_parent == 0) {
-                    allows_reparent = false;
-                }
-
-                if (allows_reparent) {
-                    size_t target_idx = em.get_sibling_index(id);
-                    if (zone == DropZone::After) {
-                        target_idx++;
-                    }
-
-                    if (dropped_entities.size() == 1 && em.has_component<HierarchyComponent>(dropped_entities[0]) &&
-                        em.get_component<HierarchyComponent>(dropped_entities[0]).parent == target_parent) {
-                        // Single sibling reorder
-                        EntityID single_id = dropped_entities[0];
-                        size_t cur_idx = em.get_sibling_index(single_id);
-                        if (cur_idx < target_idx && target_idx > 0) target_idx--;
-                        if (m_command_history) {
-                            m_command_history->execute_command(
-                                std::make_unique<ReorderEntityCommand>(&em, single_id, target_idx, m_selection, m_entity_state_store.get())
-                            );
-                        } else {
-                            static_cast<void>(em.reorder_sibling(single_id, target_idx));
-                        }
+                if (dropped_entities.size() == 1 &&
+                    em.has_component<HierarchyComponent>(dropped_entities.front()) &&
+                    em.get_component<HierarchyComponent>(dropped_entities.front()).parent ==
+                        target_parent) {
+                    const EntityID entity = dropped_entities.front();
+                    const std::size_t current_index = em.get_sibling_index(entity);
+                    if (current_index < target_index && target_index > 0) --target_index;
+                    if (m_command_history) {
+                        m_command_history->execute_command(std::make_unique<ReorderEntityCommand>(
+                            &em, entity, target_index, m_selection, m_entity_state_store.get()
+                        ));
                     } else {
-                        // Multi-entity reparenting/reordering
-                        if (m_command_history) {
-                            m_command_history->execute_command(
-                                std::make_unique<ReparentEntitiesCommand>(&em, dropped_entities, target_parent, m_selection, "", m_entity_state_store.get(), target_idx)
-                            );
-                        } else {
-                            ReparentEntitiesCommand cmd(&em, dropped_entities, target_parent, m_selection, "", m_entity_state_store.get(), target_idx);
-                            cmd.execute();
-                        }
+                        static_cast<void>(em.reorder_sibling(entity, target_index));
                     }
+                } else if (m_command_history) {
+                    m_command_history->execute_command(std::make_unique<ReparentEntitiesCommand>(
+                        &em, dropped_entities, target_parent, m_selection, "",
+                        m_entity_state_store.get(), target_index
+                    ));
+                } else {
+                    ReparentEntitiesCommand command(
+                        &em, dropped_entities, target_parent, m_selection, "",
+                        m_entity_state_store.get(), target_index
+                    );
+                    static_cast<void>(command.execute());
                 }
             }
         }
@@ -826,40 +968,48 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 
     // Editor-only authoring state controls. Runtime hierarchy is structural read-only.
     if (!runtime_mode) {
-    float right_margin = ImGui::GetWindowContentRegionMax().x - 42.0f;
-    ImGui::SameLine(std::max(right_margin, 20.0f));
+        const float right_margin = ImGui::GetWindowContentRegionMax().x - 42.0f;
+        ImGui::SameLine(std::max(right_margin, 20.0f));
 
-    // Visibility toggle: Visible (eye) vs Hidden (eye-off)
-    const EditorIcon eye_icon = is_effectively_visible ? EditorIcon::Visible : EditorIcon::Hidden;
-    const char* eye_tooltip = !is_visible
-        ? "Hidden in Scene View (Click to Show)"
-        : (is_ancestor_hidden ? "Hidden by Ancestor in Scene View (Click to Hide Self)" : "Visible in Scene View (Click to Hide)");
-    const std::string eye_id = "##eye_" + std::to_string(id);
-    if (editor_icon_button(eye_id.c_str(), eye_icon, eye_tooltip, !is_effectively_visible, ImVec2(16.0f, 16.0f))) {
-        if (m_command_history) {
-            m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
-                &em, m_entity_state_store, EditorEntityStateField::VisibleInEditor, id, !is_visible
-            ));
-        } else if (m_entity_state_store) {
-            m_entity_state_store->set_visible(id, !is_visible);
+        const EditorIcon eye_icon = is_effectively_visible
+            ? EditorIcon::Visible : EditorIcon::Hidden;
+        const char* eye_tooltip = !is_visible
+            ? "Hidden in Scene View (Click to Show)"
+            : (is_ancestor_hidden
+                ? "Hidden by Ancestor in Scene View (Click to Hide Self)"
+                : "Visible in Scene View (Click to Hide)");
+        const std::string eye_id = "##eye_" + std::to_string(id);
+        if (editor_icon_button(
+                eye_id.c_str(), eye_icon, eye_tooltip, !is_effectively_visible,
+                ImVec2(16.0f, 16.0f))) {
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
+                    &em, m_entity_state_store,
+                    EditorEntityStateField::VisibleInEditor, id, !is_visible
+                ));
+            } else if (m_entity_state_store) {
+                m_entity_state_store->set_visible(id, !is_visible);
+            }
         }
-    }
 
-    ImGui::SameLine(0.0f, 2.0f);
+        ImGui::SameLine(0.0f, 2.0f);
 
-    // Lock toggle: Lock (locked) vs Unlock (unlocked)
-    const EditorIcon lock_icon = is_locked ? EditorIcon::Lock : EditorIcon::Unlock;
-    const char* lock_tooltip = is_locked ? "Entity Locked (Click to Unlock)" : "Entity Unlocked (Click to Lock)";
-    const std::string lock_id = "##lock_" + std::to_string(id);
-    if (editor_icon_button(lock_id.c_str(), lock_icon, lock_tooltip, is_locked, ImVec2(16.0f, 16.0f))) {
-        if (m_command_history) {
-            m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
-                &em, m_entity_state_store, EditorEntityStateField::Locked, id, !is_locked
-            ));
-        } else if (m_entity_state_store) {
-            m_entity_state_store->set_locked(id, !is_locked);
+        const EditorIcon lock_icon = is_locked ? EditorIcon::Lock : EditorIcon::Unlock;
+        const char* lock_tooltip = is_locked
+            ? "Entity Locked (Click to Unlock)"
+            : "Entity Unlocked (Click to Lock)";
+        const std::string lock_id = "##lock_" + std::to_string(id);
+        if (editor_icon_button(
+                lock_id.c_str(), lock_icon, lock_tooltip, is_locked,
+                ImVec2(16.0f, 16.0f))) {
+            if (m_command_history) {
+                m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
+                    &em, m_entity_state_store, EditorEntityStateField::Locked, id, !is_locked
+                ));
+            } else if (m_entity_state_store) {
+                m_entity_state_store->set_locked(id, !is_locked);
+            }
         }
-    }
     }
 
     // Render Children recursively if tree node is expanded

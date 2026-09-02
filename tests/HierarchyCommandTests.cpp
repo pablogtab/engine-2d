@@ -1570,6 +1570,13 @@ void test_scene_hierarchy_smart_search_and_component_filters() {
     assert(matches(boss, ":hidden"));
     assert(!matches(goblin, ":hidden"));
 
+    // 4. The UI result counter reports direct matches, not ancestor containers.
+    assert(EditorHierarchyFilter::count_matches(em, "goblin", state_store.get()) == 2);
+    assert(EditorHierarchyFilter::count_matches(em, ":sprite", state_store.get()) == 1);
+    assert(EditorHierarchyFilter::count_matches(em, ":locked", state_store.get()) == 1);
+    assert(EditorHierarchyFilter::count_matches(em, "missing", state_store.get()) == 0);
+    assert(EditorHierarchyFilter::count_matches(em, "", state_store.get()) == 4);
+
     std::cout << "test_scene_hierarchy_smart_search_and_component_filters passed." << std::endl;
 }
 

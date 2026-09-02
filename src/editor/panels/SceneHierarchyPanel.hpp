@@ -5,6 +5,7 @@
 #include "../commands/EditorCommandHistory.hpp"
 #include <string>
 #include <memory>
+#include <vector>
 
 struct SDL_Renderer;
 
@@ -55,6 +56,13 @@ private:
     void begin_rename(EntityManager& em, EntityID id);
     void finish_rename(EntityManager& em, bool commit);
     void draw_entity_node(EntityManager& em, EntityID id, const std::string& filter_str, bool is_multi_key);
+    void handle_root_drop_target(EntityManager& em, bool runtime_mode);
+    [[nodiscard]] bool can_reparent_preview(
+        EntityManager& em,
+        const std::vector<EntityID>& entities,
+        EntityID new_parent,
+        std::string& reason
+    ) const;
     bool is_descendant(EntityManager& em, EntityID potential_descendant, EntityID ancestor) const;
     void render_create_menu(EntityManager& em, EntityID parent_id);
     void create_component_entity_helper(

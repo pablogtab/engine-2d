@@ -145,8 +145,7 @@ void EditorLayer::register_editor_actions() {
         .label = "Reset Current Workspace Layout",
         .category = "Window",
         .execute = [this]() {
-            m_pending_workspace_layout = m_shell.workspaces().active();
-            m_pending_workspace_uses_default = true;
+            m_workspace_layouts.request_default(m_shell.workspaces().active());
         }
     }));
     static_cast<void>(m_shell.actions().register_action({
@@ -206,32 +205,8 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     m_hot_exit_session_path = m_project_root / "Library/Editor/SessionState.json";
     static_cast<void>(m_panel_states.load(m_panel_state_path.string()));
     m_shell.initialize(m_project_root / "Library/Editor/WorkspaceState.json");
+    m_workspace_layouts.initialize(m_project_root, m_shell.workspaces());
     m_saved_panel_state_revision = m_panel_states.revision();
-    const std::filesystem::path layout_directory = m_project_root / "Library/Editor/Layouts";
-    const std::filesystem::path editor_layout_path =
-        workspace_layout_path(m_shell.workspaces().active());
-    const std::filesystem::path legacy_project_layout =
-        m_project_root / "Library/Editor/imgui.ini";
-    std::error_code layout_error;
-    std::filesystem::create_directories(layout_directory, layout_error);
-    if (!layout_error && !std::filesystem::exists(editor_layout_path)) {
-        // Preserve the active layout from older builds while moving to one
-        // independent ini file per workspace.
-        std::filesystem::path legacy_layout = legacy_project_layout;
-        if (!std::filesystem::exists(legacy_layout)) {
-            legacy_layout = std::filesystem::current_path() / "imgui.ini";
-        }
-        if (std::filesystem::exists(legacy_layout)) {
-            std::filesystem::copy_file(
-                legacy_layout,
-                editor_layout_path,
-                std::filesystem::copy_options::skip_existing,
-                layout_error
-            );
-            layout_error.clear();
-        }
-    }
-    m_imgui_ini_path = editor_layout_path.string();
     const std::string autosave_directory = (m_project_root / "Library/Autosaves").string();
     std::snprintf(m_autosave_directory, sizeof(m_autosave_directory), "%s", autosave_directory.c_str());
     m_autosave_recovery.set_directory(autosave_directory);
@@ -250,7 +225,9 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
     // Own persistence explicitly. dev.sh may terminate the process before
     // Dear ImGui's delayed ini timer or normal shutdown gets a chance to run.
     io.IniFilename = nullptr;
-    static_cast<void>(load_workspace_layout(m_shell.workspaces().active()));
+    static_cast<void>(m_workspace_layouts.load(
+        m_shell.workspaces().active(), m_shell.workspaces()
+    ));
     // 2. Setup the editor type system before merging icon glyphs into the
     // active atlas. The scale remains logical; platform backends handle the
     // framebuffer density separately.
@@ -495,7 +472,7 @@ void EditorLayer::shutdown() {
     save_hot_exit_session();
     save_entity_state_preferences();
     persist_panel_states();
-    persist_imgui_layout();
+    m_workspace_layouts.persist();
     ImGui_ImplSDLRenderer3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
@@ -910,37 +887,6 @@ void EditorLayer::begin_frame() {
     ShortcutManager::get().update(dt, want_text_input());
 }
 
-std::filesystem::path EditorLayer::workspace_layout_path(EditorWorkspaceId id) const {
-    const auto& descriptors = m_shell.workspaces().descriptors();
-    const auto descriptor = std::find_if(
-        descriptors.begin(), descriptors.end(),
-        [id](const EditorWorkspaceDescriptor& candidate) { return candidate.id == id; }
-    );
-    const char* key = descriptor == descriptors.end() ? "2d" : descriptor->key;
-    return m_project_root / "Library/Editor/Layouts" / (std::string(key) + ".ini");
-}
-
-bool EditorLayer::load_workspace_layout(EditorWorkspaceId id) {
-    const std::filesystem::path path = workspace_layout_path(id);
-    m_imgui_ini_path = path.string();
-    m_last_saved_imgui_ini.clear();
-    std::error_code error;
-    if (!std::filesystem::is_regular_file(path, error) ||
-        std::filesystem::file_size(path, error) == 0 || error) {
-        return false;
-    }
-    const std::string layout = FileSystem::read_text(path.string());
-    if (layout.empty()) return false;
-    ImGui::LoadIniSettingsFromMemory(layout.data(), layout.size());
-    m_last_saved_imgui_ini = layout;
-    ENGINE_LOG_INFO(
-        "[EDITOR UI] Loaded '{}' workspace layout from '{}'.",
-        m_shell.workspaces().active_descriptor().label,
-        path.string()
-    );
-    return true;
-}
-
 void EditorLayer::apply_workspace_panel_visibility() {
     for (const auto& panel : m_panel_registry.panels()) {
         if (!panel || panel->get_id() == EditorPanelId::ProjectSettings ||
@@ -950,149 +896,6 @@ void EditorLayer::apply_workspace_panel_visibility() {
         }
         panel->is_open = m_shell.workspaces().contains(panel->get_id());
     }
-}
-
-void EditorLayer::setup_default_dockspace_layout(uint32_t dockspace_id) {
-    apply_workspace_panel_visibility();
-    ImGui::DockBuilderRemoveNode(dockspace_id);
-    ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
-    ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
-
-    ImGuiID dock_main_id = dockspace_id;
-    switch (m_shell.workspaces().active()) {
-        case EditorWorkspaceId::TwoD: {
-            // Calibrated from the approved authoring layout: a compact scene
-            // tree, a wide property column, and enough vertical room for the
-            // asset workflow without taking focus away from the viewport.
-            const ImGuiID dock_left = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Left, 0.18f, nullptr, &dock_main_id
-            );
-            const ImGuiID dock_right = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Right, 0.39f, nullptr, &dock_main_id
-            );
-            const ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Down, 0.30f, nullptr, &dock_main_id
-            );
-            ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left);
-            ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
-            ImGui::DockBuilderDockWindow("Entity Inspector", dock_right);
-            ImGui::DockBuilderDockWindow("AI Assistant", dock_right);
-            ImGui::DockBuilderDockWindow("Console & Logs", dock_bottom);
-            ImGui::DockBuilderDockWindow("Asset Browser", dock_bottom);
-            break;
-        }
-        case EditorWorkspaceId::Animation:
-        {
-            // The animation workspace is intentionally focused: assets stay in
-            // a narrow browser while the studio uses the full working area.
-            const ImGuiID dock_left = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Left, 0.21f, nullptr, &dock_main_id
-            );
-            ImGui::DockBuilderDockWindow("Asset Browser", dock_left);
-            ImGui::DockBuilderDockWindow("Animation Studio", dock_main_id);
-            break;
-        }
-        case EditorWorkspaceId::Tilemap:
-        {
-            const ImGuiID dock_left = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Left, 0.18f, nullptr, &dock_main_id
-            );
-            const ImGuiID dock_right = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Right, 0.24f, nullptr, &dock_main_id
-            );
-            const ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Down, 0.31f, nullptr, &dock_main_id
-            );
-            ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left);
-            ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
-            ImGui::DockBuilderDockWindow("Entity Inspector", dock_right);
-            ImGui::DockBuilderDockWindow("Tilemap Palette", dock_bottom);
-            ImGui::DockBuilderDockWindow("Asset Browser", dock_bottom);
-            break;
-        }
-        case EditorWorkspaceId::Vfx:
-        {
-            const ImGuiID dock_right = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Right, 0.29f, nullptr, &dock_main_id
-            );
-            ImGuiID dock_right_top = dock_right;
-            const ImGuiID dock_right_bottom = ImGui::DockBuilderSplitNode(
-                dock_right_top, ImGuiDir_Down, 0.48f, nullptr, &dock_right_top
-            );
-            const ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Down, 0.28f, nullptr, &dock_main_id
-            );
-            ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
-            ImGui::DockBuilderDockWindow("Entity Inspector", dock_right_top);
-            ImGui::DockBuilderDockWindow("Post-Processing Tuner", dock_right_bottom);
-            ImGui::DockBuilderDockWindow("Particle Effect Editor", dock_bottom);
-            ImGui::DockBuilderDockWindow("Asset Browser", dock_bottom);
-            break;
-        }
-        case EditorWorkspaceId::Debug:
-        {
-            const ImGuiID dock_right = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Right, 0.30f, nullptr, &dock_main_id
-            );
-            ImGuiID dock_right_top = dock_right;
-            const ImGuiID dock_right_bottom = ImGui::DockBuilderSplitNode(
-                dock_right_top, ImGuiDir_Down, 0.50f, nullptr, &dock_right_top
-            );
-            const ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Down, 0.34f, nullptr, &dock_main_id
-            );
-            ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
-            ImGui::DockBuilderDockWindow("Console & Logs", dock_bottom);
-            ImGui::DockBuilderDockWindow("Engine & Metrics", dock_right_top);
-            ImGui::DockBuilderDockWindow("Scene Diagnostics", dock_right_bottom);
-            break;
-        }
-        case EditorWorkspaceId::Count:
-            break;
-    }
-
-    ImGui::DockBuilderFinish(dockspace_id);
-    m_last_saved_imgui_ini.clear();
-}
-
-void EditorLayer::reset_all_workspace_layouts() {
-    persist_imgui_layout();
-    std::error_code error;
-    for (const auto& descriptor : m_shell.workspaces().descriptors()) {
-        const std::filesystem::path path = workspace_layout_path(descriptor.id);
-        error.clear();
-        static_cast<void>(std::filesystem::remove(path, error));
-        if (error) {
-            ENGINE_LOG_WARN(
-                "[EDITOR UI] Could not remove '{}' workspace layout '{}': {}",
-                descriptor.label, path.string(), error.message()
-            );
-        }
-    }
-    m_imgui_ini_path = workspace_layout_path(m_shell.workspaces().active()).string();
-    m_pending_workspace_layout = m_shell.workspaces().active();
-    m_pending_workspace_uses_default = true;
-    ENGINE_LOG_INFO("[EDITOR UI] Restored all workspace layouts to defaults.");
-}
-
-void EditorLayer::persist_imgui_layout() {
-    if (m_pending_workspace_layout || m_imgui_ini_path.empty() ||
-        ImGui::GetCurrentContext() == nullptr) return;
-
-    std::size_t size = 0;
-    const char* data = ImGui::SaveIniSettingsToMemory(&size);
-    if (!data || size == 0) return;
-    if (m_last_saved_imgui_ini.size() == size &&
-        std::equal(data, data + size, m_last_saved_imgui_ini.begin())) {
-        return;
-    }
-
-    const std::string current(data, size);
-    if (!FileSystem::write_text_atomically(m_imgui_ini_path, current)) {
-        ENGINE_LOG_ERROR("[EDITOR] Failed persisting project layout to '{}'.", m_imgui_ini_path);
-        return;
-    }
-    m_last_saved_imgui_ini = current;
 }
 
 void EditorLayer::persist_panel_states() {
@@ -1727,14 +1530,13 @@ void EditorLayer::render_dockspace() {
     // Workspace changes are queued by the top bar and applied only after the
     // dock host is active, but before DockSpace() submits its node. This keeps
     // the ID stack valid and rebuilds docking before any panel is rendered.
-    apply_pending_workspace_layout(dockspace_id);
-    if (!m_dockspace_initialized) {
-        m_dockspace_initialized = true;
-        // ImGui loads the project ini during the first NewFrame. Only build
-        // defaults when that file did not provide this dockspace.
-        if (ImGui::DockBuilderGetNode(dockspace_id) == nullptr) {
-            setup_default_dockspace_layout(dockspace_id);
-        }
+    const WorkspaceLayoutApplyResult pending_layout =
+        m_workspace_layouts.apply_pending(dockspace_id, m_shell.workspaces());
+    const WorkspaceLayoutApplyResult initial_layout =
+        m_workspace_layouts.ensure_initialized(dockspace_id, m_shell.workspaces());
+    if (pending_layout == WorkspaceLayoutApplyResult::Defaulted ||
+        initial_layout == WorkspaceLayoutApplyResult::Defaulted) {
+        apply_workspace_panel_visibility();
     }
     ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
@@ -1767,7 +1569,7 @@ void EditorLayer::render_dockspace() {
             ImVec4(palette.error.x, palette.error.y, palette.error.z, 0.85f)
         );
         if (ImGui::Button("Reset All", ImVec2(120.0f, 0.0f))) {
-            reset_all_workspace_layouts();
+            m_workspace_layouts.reset_all(m_shell.workspaces());
             ImGui::CloseCurrentPopup();
         }
         ImGui::PopStyleColor(2);
@@ -2214,25 +2016,10 @@ void EditorLayer::render_main_menu_bar() {
 }
 
 void EditorLayer::activate_workspace(EditorWorkspaceId id) {
-    persist_imgui_layout();
+    m_workspace_layouts.persist();
     if (!m_shell.activate_workspace(id)) return;
     apply_workspace_panel_visibility();
-    m_pending_workspace_layout = id;
-    m_pending_workspace_uses_default = false;
-}
-
-void EditorLayer::apply_pending_workspace_layout(uint32_t dockspace_id) {
-    if (!m_pending_workspace_layout) return;
-    const EditorWorkspaceId id = *m_pending_workspace_layout;
-    const bool use_default = m_pending_workspace_uses_default;
-    m_pending_workspace_layout.reset();
-    m_pending_workspace_uses_default = false;
-    ImGui::DockBuilderRemoveNode(dockspace_id);
-    if (use_default || !load_workspace_layout(id) ||
-        ImGui::DockBuilderGetNode(dockspace_id) == nullptr) {
-        m_imgui_ini_path = workspace_layout_path(id).string();
-        setup_default_dockspace_layout(dockspace_id);
-    }
+    m_workspace_layouts.request(id);
 }
 
 void EditorLayer::render_panels(float delta_time) {
@@ -2495,7 +2282,7 @@ void EditorLayer::end_frame(SDL_Renderer* renderer) {
     ImGui::Render();
     // Persist only when the serialized layout changed. This is independent of
     // Dear ImGui's delayed dirty timer and therefore survives dev.sh SIGTERM.
-    persist_imgui_layout();
+    m_workspace_layouts.persist();
     ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
 }
 

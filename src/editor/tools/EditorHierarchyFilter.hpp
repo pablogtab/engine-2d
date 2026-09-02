@@ -9,6 +9,8 @@
 #include "../state/EditorEntityStateStore.hpp"
 #include <string>
 #include <algorithm>
+#include <cstddef>
+#include <cctype>
 
 namespace Engine {
 
@@ -60,7 +62,10 @@ public:
             label = em.get_component<TagComponent>(id).tag;
         }
         std::string lower_label = label;
-        std::transform(lower_label.begin(), lower_label.end(), lower_label.begin(), ::tolower);
+        std::transform(
+            lower_label.begin(), lower_label.end(), lower_label.begin(),
+            [](unsigned char character) { return static_cast<char>(std::tolower(character)); }
+        );
         return lower_label.find(filter) != std::string::npos;
     }
 
@@ -84,6 +89,22 @@ public:
             }
         }
         return false;
+    }
+
+    [[nodiscard]] static std::size_t count_matches(
+        const EntityManager& em,
+        const std::string& filter,
+        const EditorEntityStateStore* state_store = nullptr
+    ) {
+        if (filter.empty()) return em.get_living_entities().size();
+
+        std::size_t count = 0;
+        for (EntityID id : em.get_living_entities()) {
+            if (em.is_alive(id) && matches_single(em, id, filter, state_store)) {
+                ++count;
+            }
+        }
+        return count;
     }
 };
 
