@@ -1546,10 +1546,6 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
             (arguments.contains("rotation") && !finite_number(arguments.at("rotation")))) {
             return {false, {}, "Prefab transform values are invalid"};
         }
-        if (arguments.contains("scale") &&
-            (arguments.at("scale")[0].get<double>() == 0.0 || arguments.at("scale")[1].get<double>() == 0.0)) {
-            return {false, {}, "Scale cannot contain zero"};
-        }
         const std::string alias = arguments.at("alias").get<std::string>();
         if (alias_was_created(alias)) return {false, {}, "Entity alias is already used in this proposal: " + alias};
         if (!frozen_context || !frozen_context->contains("asset_index") ||
@@ -1614,12 +1610,6 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
             (arguments.contains("rotation") && !finite_number(arguments.at("rotation"))) ||
             (arguments.contains("visible") && !arguments.at("visible").is_boolean())) {
             return {false, {}, "Create entity transform values are invalid"};
-        }
-        if (arguments.contains("scale")) {
-            const auto& scale = arguments.at("scale");
-            if (scale[0].get<double>() == 0.0 || scale[1].get<double>() == 0.0) {
-                return {false, {}, "Scale cannot contain zero"};
-            }
         }
         std::unordered_set<std::string> declared_components;
         if (arguments.contains("components")) {
@@ -1703,10 +1693,6 @@ EditorAiToolResult EditorAiAuthoringRegistry::queue_action(
                 (arguments.contains("rotation") && !finite_number(arguments.at("rotation"))) ||
                 (arguments.contains("visible") && !arguments.at("visible").is_boolean())) {
                 return {false, {}, "Set transform requires at least one valid transform field"};
-            }
-            if (arguments.contains("scale") &&
-                (arguments.at("scale")[0].get<double>() == 0.0 || arguments.at("scale")[1].get<double>() == 0.0)) {
-                return {false, {}, "Scale cannot contain zero"};
             }
             summary = "Update Transform on " + target_label(*target);
         } else if (tool_name == RENAME_ENTITY_TOOL) {

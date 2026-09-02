@@ -93,9 +93,17 @@ void test_tool_validation_and_limits() {
     ).success);
     assert(!registry.queue_action(
         "propose_create_entity",
-        {{"alias", "enemy"}, {"name", "Enemy"}, {"scale", {0.0, 1.0}}},
+        {{"alias", "enemy"}, {"name", "Enemy"}, {"scale", {10'001.0, 1.0}}},
         actions
     ).success);
+
+    std::vector<EditorAiAuthoringAction> zero_scale_actions;
+    queue(registry, zero_scale_actions, "propose_create_entity", {
+        {"alias", "hidden"}, {"name", "Hidden"}, {"scale", {0.0, 0.0}}
+    });
+    queue(registry, zero_scale_actions, "propose_set_transform", {
+        {"entity_alias", "hidden"}, {"scale", {0.0, 1.0}}
+    });
 
     queue(registry, actions, "propose_create_entity", {{"alias", "enemy"}, {"name", "Enemy"}});
     assert(!registry.queue_action(
@@ -641,7 +649,7 @@ void test_asset_handles_and_prefabs_are_validated_from_frozen_context() {
     std::vector<EditorAiAuthoringAction> prefab_actions;
     const EditorAiToolResult prefab = registry.queue_action(
         "propose_instantiate_prefab",
-        {{"asset_handle", "0000000000000002"}, {"alias", "enemy_prefab"}},
+        {{"asset_handle", "0000000000000002"}, {"alias", "enemy_prefab"}, {"scale", {0.0, 0.0}}},
         prefab_actions,
         &frozen_context
     );

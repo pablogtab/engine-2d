@@ -7,6 +7,7 @@
 #include "../renderer/Texture.hpp"
 #include "../renderer/material/MaterialAsset.hpp"
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <limits>
 #include <stdexcept>
@@ -376,8 +377,10 @@ ComponentRegistry& default_component_registry() {
                 return true;
             },
             .validate = [](const TransformComponent& transform) -> std::optional<std::string> {
-                if (transform.scale.x == 0.0f || transform.scale.y == 0.0f) {
-                    return "Scale cannot contain zero";
+                // A zero scale is valid for visual hide/reveal effects. Systems that
+                // require an invertible transform guard singular scales separately.
+                if (!std::isfinite(transform.scale.x) || !std::isfinite(transform.scale.y)) {
+                    return "Scale must contain finite values";
                 }
                 return std::nullopt;
             }

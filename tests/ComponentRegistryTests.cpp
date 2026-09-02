@@ -18,6 +18,7 @@
 #include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <typeindex>
 
@@ -331,6 +332,21 @@ void test_default_registry_metadata_is_stable() {
     assert(registry.find_by_type(typeid(TilemapComponent)));
     assert(registry.find_by_type(typeid(ScriptComponent)));
     assert(registry.find_by_type(typeid(ParticleEmitter2DComponent)));
+}
+
+void test_default_transform_validation_allows_zero_scale() {
+    EntityManager em;
+    const EntityID entity = em.create_entity();
+    TransformComponent transform;
+    transform.scale = {0.0f, 0.0f};
+    em.add_component<TransformComponent>(entity, transform);
+
+    const ComponentDescriptor* descriptor = default_component_registry().find_by_key("transform");
+    assert(descriptor && descriptor->validate);
+    assert(!descriptor->validate(em, entity).has_value());
+
+    em.get_component<TransformComponent>(entity).scale.x = std::numeric_limits<float>::infinity();
+    assert(descriptor->validate(em, entity).has_value());
 }
 
 
@@ -932,6 +948,7 @@ int main() {
     test_component_migration_runs_for_every_entity();
     test_component_migration_rejects_missing_and_future_versions();
     test_default_registry_metadata_is_stable();
+    test_default_transform_validation_allows_zero_scale();
     test_registered_snapshot_capture_and_restore();
     test_registered_add_and_remove_operations_respect_metadata();
     test_registered_json_round_trip_and_validation();
