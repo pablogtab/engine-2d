@@ -2078,7 +2078,14 @@ void AssetBrowserPanel::on_gui() {
             if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
-        if (ImGui::BeginPopupModal("Edit Material", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        // Material parameters are tuned against the live scene preview. Keep the
+        // modal interaction model, but do not wash out the viewport behind it.
+        ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        const bool edit_material_open = ImGui::BeginPopupModal(
+            "Edit Material", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+        );
+        ImGui::PopStyleColor();
+        if (edit_material_open) {
             SDL_Texture* editor_preview = render_material_preview(
                 m_edit_material_handle, m_edit_material_preview_material
             );
