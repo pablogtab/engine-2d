@@ -39,6 +39,16 @@ El contrato vigente de composición, Canvas y materiales está en
   `Library/AssetIndex`; realizar una conversión única del proyecto de referencia.
 - [ ] Separar la base mutable del editor del resolver de runtime y generar un
   `RuntimeAssetManifest` inmutable durante export.
+- [ ] Incorporar un cooker de escenas y prefabs para builds distribuidos.
+  - Mantener JSON como fuente de autoría editable y generar artefactos binarios
+    versionados, deterministas y validados durante export.
+  - Resolver referencias por `AssetHandle`, eliminar metadatos exclusivos del
+    editor y rechazar estado `runtime.transient` o campos privados de ejecución.
+  - Empaquetar los artefactos cocinados con compresión, hashes de integridad y
+    compatibilidad explícita de versión; el runtime distribuido no debe depender
+    de los `.scene` y `.prefab` de autoría.
+  - Medir tamaño y tiempo de carga frente al JSON actual y cubrir arranque y
+    cambio de escena mediante smoke tests del paquete final.
 - [ ] Añadir atlas estáticos como etapa derivada para texturas importadas
   compatibles de color, normal y emisión: guardar páginas en `Library/Atlases`,
   invalidarlas por fuentes o ajustes, conservar escenas y assets de autoría, y
@@ -70,6 +80,9 @@ El contrato vigente de composición, Canvas y materiales está en
   sin validación en hardware/entorno representativo.
 - Cada cambio serializable conserva registro, round-trip, snapshot, validación
   y Undo/Redo cuando aplique.
+- Play, Pause y previews sólo modifican estado transitorio en memoria: ninguna
+  ruta de Save, autosave, hot-exit o export puede serializar ese estado en una
+  escena o prefab de autoría.
 - Cada corrección incorpora una regresión en la capa más baja posible.
 - Antes de entregar: build y suites aplicables, `e2sc --check` para cambios de
   EngineScript, y `git diff --check`.
