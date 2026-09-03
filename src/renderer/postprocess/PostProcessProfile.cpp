@@ -33,6 +33,14 @@ SDL_Color color_from_json(const json& value) {
     };
 }
 
+bool colors_equal(SDL_Color lhs, SDL_Color rhs) {
+    return lhs.r == rhs.r && lhs.g == rhs.g && lhs.b == rhs.b && lhs.a == rhs.a;
+}
+
+bool finite_in_range(float value, float minimum, float maximum) {
+    return std::isfinite(value) && value >= minimum && value <= maximum;
+}
+
 } // namespace
 
 static inline float lerp_f(float a, float b, float t) {
@@ -50,6 +58,61 @@ static inline SDL_Color lerp_col(SDL_Color a, SDL_Color b, float t) {
         lerp_u8(a.b, b.b, t),
         lerp_u8(a.a, b.a, t)
     };
+}
+
+bool PostProcessProfile::operator==(const PostProcessProfile& other) const {
+    return name == other.name &&
+        effect_reference_width == other.effect_reference_width &&
+        effect_reference_height == other.effect_reference_height &&
+        vignette_enabled == other.vignette_enabled &&
+        vignette_intensity == other.vignette_intensity &&
+        colors_equal(vignette_color, other.vignette_color) &&
+        chromatic_enabled == other.chromatic_enabled &&
+        chromatic_offset == other.chromatic_offset &&
+        bloom_enabled == other.bloom_enabled &&
+        bloom_intensity == other.bloom_intensity &&
+        bloom_radius == other.bloom_radius &&
+        blur_enabled == other.blur_enabled &&
+        blur_radius == other.blur_radius &&
+        color_grading_enabled == other.color_grading_enabled &&
+        colors_equal(color_tint, other.color_tint) &&
+        colors_equal(shadow_tint, other.shadow_tint) &&
+        film_grain_enabled == other.film_grain_enabled &&
+        film_grain_intensity == other.film_grain_intensity &&
+        crt_enabled == other.crt_enabled &&
+        crt_scanline_intensity == other.crt_scanline_intensity &&
+        crt_scanline_spacing == other.crt_scanline_spacing &&
+        crt_flicker == other.crt_flicker;
+}
+
+std::optional<std::string> PostProcessProfile::validation_error() const {
+    if (name.empty()) return "Profile name cannot be empty.";
+    if (effect_reference_width < 1 || effect_reference_width > 16384 ||
+        effect_reference_height < 1 || effect_reference_height > 16384) {
+        return "Effect reference dimensions must be between 1 and 16384 pixels.";
+    }
+    if (!finite_in_range(vignette_intensity, 0.0f, 1.0f)) {
+        return "Vignette intensity must be between 0 and 1.";
+    }
+    if (!finite_in_range(chromatic_offset, 0.0f, 15.0f)) {
+        return "Chromatic offset must be between 0 and 15 pixels.";
+    }
+    if (!finite_in_range(bloom_intensity, 0.0f, 2.0f) ||
+        !finite_in_range(bloom_radius, 1.0f, 12.0f)) {
+        return "Bloom intensity or radius is outside the supported range.";
+    }
+    if (!finite_in_range(blur_radius, 0.0f, 6.0f)) {
+        return "Blur radius must be between 0 and 6 pixels.";
+    }
+    if (!finite_in_range(film_grain_intensity, 0.0f, 1.0f)) {
+        return "Film grain intensity must be between 0 and 1.";
+    }
+    if (!finite_in_range(crt_scanline_intensity, 0.0f, 1.0f) ||
+        !finite_in_range(crt_scanline_spacing, 2.0f, 8.0f) ||
+        !finite_in_range(crt_flicker, 0.0f, 0.2f)) {
+        return "CRT parameters are outside the supported range.";
+    }
+    return std::nullopt;
 }
 
 void PostProcessProfile::apply_to_pipeline(PostProcessPipeline& pipeline) const {

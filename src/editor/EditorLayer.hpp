@@ -31,6 +31,7 @@ class EditorEntityStateStore;
 class PrefabStageController;
 class SpriteAnimationStudioPanel;
 class ParticleEffectEditorPanel;
+class PostProcessTunerPanel;
 
 enum class PendingActionType {
     None,
@@ -97,6 +98,9 @@ public:
     }
     void set_particle_editor_panel(ParticleEffectEditorPanel* panel) {
         m_particle_editor_panel = panel;
+    }
+    void set_post_process_tuner_panel(PostProcessTunerPanel* panel) {
+        m_post_process_tuner_panel = panel;
     }
     void set_scene_manager(class SceneManager* sm) { m_scene_manager = sm; }
     void set_window_wrapper(Window* window) { m_window_wrapper = window; }
@@ -168,6 +172,7 @@ private:
     class ViewportPanel* m_viewport_panel{nullptr};
     SpriteAnimationStudioPanel* m_animation_studio_panel{nullptr};
     ParticleEffectEditorPanel* m_particle_editor_panel{nullptr};
+    PostProcessTunerPanel* m_post_process_tuner_panel{nullptr};
     class SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     std::shared_ptr<EditorEntityStateStore> m_entity_state_store{nullptr};

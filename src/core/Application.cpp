@@ -469,6 +469,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_editor_layer->set_viewport_panel(viewport_panel.get());
     m_editor_layer->set_animation_studio_panel(anim_studio_panel.get());
     m_editor_layer->set_particle_editor_panel(particle_editor_panel.get());
+    m_editor_layer->set_post_process_tuner_panel(postprocess_panel.get());
     m_editor_layer->set_selection(selection);
     m_editor_layer->register_panel(EditorPanelId::Viewport, viewport_panel);
     m_editor_layer->register_panel(EditorPanelId::Hierarchy, hierarchy_panel);

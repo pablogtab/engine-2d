@@ -54,6 +54,12 @@ struct PostProcessProfile {
     float crt_scanline_spacing{4.0f};
     float crt_flicker{0.02f};
 
+    [[nodiscard]] bool operator==(const PostProcessProfile& other) const;
+    [[nodiscard]] bool operator!=(const PostProcessProfile& other) const {
+        return !(*this == other);
+    }
+    [[nodiscard]] std::optional<std::string> validation_error() const;
+
     // Apply this profile to an active pipeline.
     void apply_to_pipeline(PostProcessPipeline& pipeline) const;
 

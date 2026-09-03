@@ -284,6 +284,22 @@ void test_profile_round_trip_preserves_effect_reference_and_parameters() {
     assert(restored.shadow_tint.a == 78);
     assert(restored.crt_enabled == source.crt_enabled);
     assert(nearly_equal(restored.crt_scanline_spacing, source.crt_scanline_spacing));
+    assert(restored == source);
+    assert(!restored.validation_error());
+}
+
+void test_profile_validation_rejects_unsafe_authoring_values() {
+    Engine::PostProcessProfile profile = Engine::PostProcessProfile::PresetDefault();
+    assert(!profile.validation_error());
+
+    profile.effect_reference_width = 0;
+    assert(profile.validation_error());
+    profile = Engine::PostProcessProfile::PresetDefault();
+    profile.bloom_radius = 20.0f;
+    assert(profile.validation_error());
+    profile = Engine::PostProcessProfile::PresetDefault();
+    profile.name.clear();
+    assert(profile.validation_error());
 }
 
 void test_profile_updates_pipeline_reference_without_renderer() {
@@ -928,6 +944,7 @@ int main() {
     test_non_uniform_output_uses_area_preserving_pixel_scale();
     test_world_sort_keys_never_overlap_the_screen_space_partition();
     test_profile_round_trip_preserves_effect_reference_and_parameters();
+    test_profile_validation_rejects_unsafe_authoring_values();
     test_profile_updates_pipeline_reference_without_renderer();
     test_profile_edit_is_undoable();
     test_pipeline_processes_the_existing_camera_backdrop();
