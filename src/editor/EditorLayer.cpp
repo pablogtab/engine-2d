@@ -109,7 +109,8 @@ void EditorLayer::register_editor_actions() {
         .category = "File",
         .execute = [this]() { static_cast<void>(save_active_scene()); },
         .enabled = [this]() {
-            return m_scene_manager && m_scene_manager->get_active_scene();
+            return m_scene_manager && m_scene_manager->get_active_scene() &&
+                can_persist_authoring_scenes();
         }
     }));
     static_cast<void>(m_shell.actions().register_action({
@@ -118,7 +119,10 @@ void EditorLayer::register_editor_actions() {
         .category = "File",
         .shortcut_id = "editor.save_all_scenes",
         .execute = [this]() { static_cast<void>(save_all_scenes()); },
-        .enabled = [this]() { return m_scene_manager && !m_scene_manager->get_scenes().empty(); }
+        .enabled = [this]() {
+            return m_scene_manager && !m_scene_manager->get_scenes().empty() &&
+                can_persist_authoring_scenes();
+        }
     }));
     static_cast<void>(m_shell.actions().register_action({
         .id = "editor.undo",
@@ -469,6 +473,9 @@ void EditorLayer::init(SDL_Window* window, SDL_Renderer* renderer, const std::fi
 void EditorLayer::shutdown() {
     if (!m_initialized) return;
 
+    if (m_scene_manager && m_scene_manager->is_play_session_active()) {
+        m_scene_manager->stop_play();
+    }
     save_hot_exit_session();
     save_entity_state_preferences();
     persist_panel_states();
@@ -837,10 +844,16 @@ bool EditorLayer::request_exit() {
             .type = PendingActionType::ExitApp,
             .target = "",
             .action = [this]() {
+                if (m_scene_manager && m_scene_manager->is_play_session_active()) {
+                    m_scene_manager->stop_play();
+                }
                 save_hot_exit_session();
                 if (m_window_wrapper) m_window_wrapper->force_close();
             }
         });
+    }
+    if (m_scene_manager && m_scene_manager->is_play_session_active()) {
+        m_scene_manager->stop_play();
     }
     save_hot_exit_session();
     if (m_window_wrapper) m_window_wrapper->force_close();
@@ -910,8 +923,13 @@ void EditorLayer::persist_panel_states() {
     }
 }
 
+bool EditorLayer::can_persist_authoring_scenes() const {
+    return !m_scene_manager || !m_scene_manager->is_play_session_active();
+}
+
 bool EditorLayer::save_hot_exit_session() {
     if (!m_scene_manager) return true;
+    if (!can_persist_authoring_scenes()) return true;
 
     nlohmann::json scenes = nlohmann::json::array();
     std::string active_identity;
@@ -1181,6 +1199,10 @@ void EditorLayer::create_new_scene(const std::string& name) {
 
 bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const std::string& custom_path) {
     if (!scene) return false;
+    if (!can_persist_authoring_scenes()) {
+        ENGINE_LOG_WARN("[EDITOR] Scene saving is disabled during Play mode");
+        return false;
+    }
     if (session.recovery_source_conflicted && custom_path.empty()) {
         ENGINE_LOG_WARN("[AUTOSAVE] Recovered scene '{}' must use Save As because its source changed externally", scene->get_name());
         m_show_save_as_popup = true;
@@ -1692,14 +1714,20 @@ void EditorLayer::render_main_menu_bar() {
             }
 
             std::string save_lbl = ShortcutManager::get().get_label("editor.save_scene");
-            if (ImGui::MenuItem("Save Scene", save_lbl.empty() ? nullptr : save_lbl.c_str())) {
+            const bool can_save_scene = m_shell.actions().is_enabled("editor.save_scene");
+            if (ImGui::MenuItem(
+                    "Save Scene", save_lbl.empty() ? nullptr : save_lbl.c_str(), false, can_save_scene
+                )) {
                 static_cast<void>(m_shell.actions().execute("editor.save_scene"));
             }
             std::string save_all_lbl = ShortcutManager::get().get_label("editor.save_all_scenes");
-            if (ImGui::MenuItem("Save All", save_all_lbl.empty() ? nullptr : save_all_lbl.c_str())) {
+            const bool can_save_all = m_shell.actions().is_enabled("editor.save_all");
+            if (ImGui::MenuItem(
+                    "Save All", save_all_lbl.empty() ? nullptr : save_all_lbl.c_str(), false, can_save_all
+                )) {
                 static_cast<void>(m_shell.actions().execute("editor.save_all"));
             }
-            if (ImGui::MenuItem("Save Scene As...")) {
+            if (ImGui::MenuItem("Save Scene As...", nullptr, false, can_persist_authoring_scenes())) {
                 m_show_save_as_popup = true;
             }
             if (m_recent_scenes.remove_missing_files()) {
@@ -2191,6 +2219,7 @@ void EditorLayer::render_external_scene_change_modal() {
 
 void EditorLayer::update_autosaves(float delta_time) {
     if (!m_scene_manager || delta_time <= 0.0f) return;
+    if (!can_persist_authoring_scenes()) return;
     m_autosave_elapsed += delta_time;
     if (m_autosave_elapsed < static_cast<float>(m_autosave_interval_seconds)) return;
     m_autosave_elapsed = 0.0f;

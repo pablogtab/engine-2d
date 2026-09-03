@@ -101,7 +101,9 @@ export class SwitchScene extends Behaviour {
     SceneManager manager;
     manager.set_asset_database(&database);
     manager.add_scene(scene);
+    assert(!manager.is_play_session_active());
     manager.start_play();
+    assert(manager.is_play_session_active());
     manager.update(0.0f);
     manager.update(0.0f);
     manager.update(0.0f);
@@ -122,6 +124,7 @@ export class SwitchScene extends Behaviour {
     assert(scene->get_entity_manager().get_component<RigidBodyComponent>(entity).mass == 77.0f);
     manager.stop_play();
     assert(manager.is_editing());
+    assert(!manager.is_play_session_active());
     assert(manager.runtime_selected_entity() == 0);
     assert(!manager.get_script_runtime().is_running());
     const glm::vec3 restored = scene->get_entity_manager().get_component<TransformComponent>(entity).position;

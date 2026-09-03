@@ -68,6 +68,9 @@ public:
     [[nodiscard]] bool is_playing() const { return m_play_state == ScenePlayState::Play; }
     [[nodiscard]] bool is_paused() const { return m_play_state == ScenePlayState::Pause; }
     [[nodiscard]] bool is_editing() const { return m_play_state == ScenePlayState::Edit; }
+    [[nodiscard]] bool is_play_session_active() const {
+        return !is_editing() || m_play_load_progress.active;
+    }
     [[nodiscard]] EntityID runtime_selected_entity() const { return m_runtime_selected_entity; }
     void set_runtime_selected_entity(EntityID entity);
     void clear_runtime_selection() { m_runtime_selected_entity = 0; }

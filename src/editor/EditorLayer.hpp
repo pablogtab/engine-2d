@@ -129,6 +129,7 @@ private:
     void activate_workspace(EditorWorkspaceId id);
     void apply_workspace_panel_visibility();
     void persist_panel_states();
+    [[nodiscard]] bool can_persist_authoring_scenes() const;
     bool save_hot_exit_session();
     void restore_hot_exit_session();
     void update_panel_command_histories(std::shared_ptr<EditorCommandHistory> ch);
