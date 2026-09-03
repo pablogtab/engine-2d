@@ -20,6 +20,10 @@ ImVec4 tone_color(BadgeTone tone) {
     return palette.text_muted;
 }
 
+ImVec4 with_alpha(const ImVec4& color, float alpha) {
+    return ImVec4(color.x, color.y, color.z, alpha);
+}
+
 } // namespace
 
 void area_heading(EditorIcon icon, const char* title, const char* subtitle) {
@@ -135,6 +139,52 @@ bool toolbar_button(
         ImVec2(metrics.toolbar_height - 6.0f * metrics.scale, metrics.toolbar_height - 6.0f * metrics.scale)
     );
     ImGui::EndDisabled();
+    return enabled && pressed;
+}
+
+bool action_button(
+    const char* id,
+    EditorIcon icon,
+    const char* label,
+    ButtonTone tone,
+    bool enabled,
+    ImVec2 size
+) {
+    const auto& palette = EditorTheme::palette();
+    ImVec4 base = palette.panel_raised;
+    ImVec4 hovered = palette.header;
+    ImVec4 active = palette.selected;
+    switch (tone) {
+        case ButtonTone::Primary:
+            base = palette.accent;
+            hovered = palette.accent_hovered;
+            active = palette.accent_active;
+            break;
+        case ButtonTone::Success:
+            base = with_alpha(palette.success, 0.78f);
+            hovered = palette.success;
+            active = with_alpha(palette.success, 0.66f);
+            break;
+        case ButtonTone::Danger:
+            base = with_alpha(palette.error, 0.78f);
+            hovered = palette.error;
+            active = with_alpha(palette.error, 0.66f);
+            break;
+        case ButtonTone::Neutral:
+            break;
+    }
+
+    ImGui::PushID(id);
+    ImGui::PushStyleColor(ImGuiCol_Button, base);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hovered);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, active);
+    ImGui::PushStyleColor(ImGuiCol_Text, palette.text);
+    ImGui::BeginDisabled(!enabled);
+    const std::string button_label = editor_icon_label(icon, label) + "##action";
+    const bool pressed = ImGui::Button(button_label.c_str(), size);
+    ImGui::EndDisabled();
+    ImGui::PopStyleColor(4);
+    ImGui::PopID();
     return enabled && pressed;
 }
 

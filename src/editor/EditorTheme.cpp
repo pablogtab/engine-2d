@@ -15,6 +15,14 @@ namespace {
 EditorUiPalette g_palette{};
 EditorUiMetrics g_metrics{};
 
+// Inter contains private-use glyphs for OpenType alternates. Lucide uses the
+// same Unicode block for icons, so the text source must explicitly yield that
+// range to the icon source when both are merged into one ImGui font.
+constexpr ImWchar EDITOR_ICON_PRIVATE_USE_RANGE[] = {
+    0xE000, 0xF8FF,
+    0
+};
+
 std::filesystem::path locate_editor_font() {
     const char* base_path = SDL_GetBasePath();
     const std::array<std::filesystem::path, 3> candidates{
@@ -48,6 +56,7 @@ bool EditorTheme::initialize_fonts(float scale) {
         config.OversampleV = 2;
         config.PixelSnapH = false;
         config.SizePixels = 14.0f * safe_scale;
+        config.GlyphExcludeRanges = EDITOR_ICON_PRIVATE_USE_RANGE;
         ImFont* font = io.Fonts->AddFontFromFileTTF(
             font_path.string().c_str(), config.SizePixels, &config,
             io.Fonts->GetGlyphRangesDefault()
@@ -78,6 +87,7 @@ void EditorTheme::apply_dark_theme(float scale) {
     g_metrics.toolbar_height *= g_metrics.scale;
     g_metrics.row_height *= g_metrics.scale;
     g_metrics.icon_size *= g_metrics.scale;
+    g_metrics.icon_button_offset_y *= g_metrics.scale;
     g_metrics.small_rounding *= g_metrics.scale;
     g_metrics.panel_padding *= g_metrics.scale;
     g_metrics.compact_spacing *= g_metrics.scale;
@@ -88,7 +98,9 @@ void EditorTheme::apply_dark_theme(float scale) {
     g_palette.panel          = ImVec4(0.105f, 0.110f, 0.120f, 1.00f); // #1B1C1F
     g_palette.panel_raised   = ImVec4(0.135f, 0.140f, 0.153f, 1.00f); // #222427
     g_palette.header         = ImVec4(0.155f, 0.160f, 0.173f, 1.00f); // #28292C
-    g_palette.field          = ImVec4(0.115f, 0.120f, 0.132f, 1.00f);
+    // Fields stay close to the panel value, but remain legible as editable
+    // controls even when a dense Inspector is viewed at a glance.
+    g_palette.field          = ImVec4(0.125f, 0.130f, 0.145f, 1.00f);
     g_palette.border         = ImVec4(0.235f, 0.245f, 0.265f, 1.00f);
     g_palette.text           = ImVec4(0.875f, 0.890f, 0.910f, 1.00f);
     g_palette.text_muted     = ImVec4(0.510f, 0.535f, 0.575f, 1.00f);

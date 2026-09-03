@@ -36,10 +36,13 @@ enum class EditorIcon {
     Clear,
     Copy,
     ArrowUp,
+    ArrowLeft,
     History,
     Edit,
     Shield,
     Assistant,
+    Save,
+    StepForward,
     Count
 };
 
@@ -59,7 +62,8 @@ bool editor_icon_button(
     EditorIcon icon,
     const char* tooltip,
     bool active = false,
-    ImVec2 hit_size = ImVec2(18.0f, 18.0f)
+    ImVec2 hit_size = ImVec2(18.0f, 18.0f),
+    float icon_size = 12.0f
 );
 
 } // namespace Engine

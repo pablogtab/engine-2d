@@ -21,6 +21,7 @@
 #include "../inspector/TransformInspectorDrawer.hpp"
 #include "../inspector/CameraInspectorDrawer.hpp"
 #include "../inspector/EditorComponentRegistry.hpp"
+#include "../EditorTheme.hpp"
 #include "../../scene/SceneManager.hpp"
 #include "../../scene/Scene.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
@@ -42,6 +43,18 @@
 namespace Engine {
 
 using namespace InspectorWidgets;
+
+namespace {
+
+EditorIcon inspector_entity_icon(const EntityManager& em, EntityID entity) {
+    if (em.has_component<CameraComponent>(entity)) return EditorIcon::Camera;
+    if (em.has_component<SpriteComponent>(entity)) return EditorIcon::Sprite;
+    if (em.has_component<ColliderComponent>(entity)) return EditorIcon::Collider;
+    if (em.has_component<RigidBodyComponent>(entity)) return EditorIcon::Physics;
+    return EditorIcon::Component;
+}
+
+} // namespace
 
 InspectorPanel::InspectorPanel(
     SceneManager* scene_manager,
@@ -111,12 +124,6 @@ void InspectorPanel::on_gui() {
             ImGui::End();
             return;
         }
-
-        EditorUi::area_heading(
-            EditorIcon::Settings,
-            "Inspector",
-            active_scene->get_name().c_str()
-        );
 
         const bool runtime_mode = !m_scene_manager->is_editing();
         std::unordered_set<EntityID> runtime_selection;
@@ -190,25 +197,23 @@ void InspectorPanel::on_gui() {
 }
 
 void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<EntityID>& entities) {
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.31f, 0.27f, 0.82f, 0.90f));
-    ImGui::Button("E", ImVec2(28.0f, 28.0f));
-    ImGui::PopStyleColor();
-    ImGui::SameLine();
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%zu Entities", entities.size());
-    ImGui::TextDisabled("Multiple selection");
+    const std::string selection_summary = std::to_string(entities.size()) + " entities";
+    EditorUi::area_heading(
+        EditorIcon::Component,
+        "Multiple Selection",
+        selection_summary.c_str()
+    );
 
     const bool any_editor_locked = m_entity_state_store && std::any_of(entities.begin(), entities.end(), [&](EntityID e) {
         return m_entity_state_store->is_locked(e);
     });
     if (any_editor_locked) {
-        ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "[Locked]");
+        EditorUi::badge("CONTAINS LOCKED ENTITIES", EditorUi::BadgeTone::Warning);
+        ImGui::Spacing();
     }
 
-    if (any_editor_locked) {
-        ImGui::BeginDisabled();
-    }
+    if (any_editor_locked) ImGui::BeginDisabled();
+    EditorUi::section_heading("Selection");
 
     const ComponentTransactionContext transaction_context{
         m_command_history.get(),
@@ -223,10 +228,8 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
         }
     );
     if (all_have_transform && !any_uses_rect_transform) {
-        ImGui::SameLine();
         TransformInspectorDrawer::draw_entities_active(em, entities, transaction_context);
     }
-    ImGui::Separator();
 
     const std::uint32_t current_selection_owner = selection_transaction_owner(entities);
     if (m_multi_tag_selection_owner != current_selection_owner) {
@@ -261,8 +264,8 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
             em, entities, before_tags, "Tag.Name", "Bulk Rename Entities",
             transaction_context, [](const TagComponent& a, const TagComponent& b) { return a.tag == b.tag; }
         );
-        ImGui::Separator();
     }
+    ImGui::Spacing();
 
     std::vector<EntityID> prefab_instances;
     for (EntityID entity : entities) {
@@ -382,6 +385,8 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
         ImGui::TextDisabled("Camera 2D is shared by %zu of %zu entities.", cam_count, entities.size());
     }
 
+    if (any_editor_locked) ImGui::EndDisabled();
+
     ImGui::Spacing();
     ImGui::Separator();
 
@@ -391,27 +396,25 @@ void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<
         to_delete.push_back(entity);
     }
     const bool can_delete_any = !to_delete.empty() && !any_editor_locked;
-    if (!can_delete_any) {
-        ImGui::BeginDisabled(true);
-    }
-    const std::string delete_label = editor_icon_label(EditorIcon::Trash, "Delete Selected");
-    if (ImGui::Button(delete_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26.0f))) {
-        if (can_delete_any) {
-            if (m_command_history) {
-                m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(
-                    &em, m_selection, to_delete, m_entity_state_store.get()
-                ));
-            } else {
-                for (const EntityID entity : to_delete) em.destroy_entity(entity);
-                m_selection->clear();
-            }
+    if (EditorUi::action_button(
+            "delete_selection",
+            EditorIcon::Trash,
+            "Delete Selected",
+            EditorUi::ButtonTone::Danger,
+            can_delete_any,
+            ImVec2(ImGui::GetContentRegionAvail().x, 26.0f)
+        )) {
+        if (m_command_history) {
+            m_command_history->execute_command(std::make_unique<DeleteEntitiesCommand>(
+                &em, m_selection, to_delete, m_entity_state_store.get()
+            ));
+        } else {
+            for (const EntityID entity : to_delete) em.destroy_entity(entity);
+            m_selection->clear();
         }
     }
-    if (!can_delete_any) {
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-            ImGui::SetTooltip("Prefab root entity cannot be deleted");
-        }
+    if (!can_delete_any && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Prefab root entity cannot be deleted");
     }
 }
 
@@ -421,18 +424,43 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
     const bool is_editor_visible = !m_entity_state_store || m_entity_state_store->is_visible(entity);
     const bool is_locked = is_locked_tilemap_collider || is_editor_locked;
 
-    // --- 1. Object Header (Unity-style entity context) ---
+    // Give selection identity a clear visual anchor above the component cards.
+    const auto& palette = EditorTheme::palette();
+    const auto& metrics = EditorTheme::metrics();
+    const ImVec2 header_min = ImGui::GetCursorScreenPos();
+    const float header_width = ImGui::GetContentRegionAvail().x;
+    const float header_height = 58.0f * metrics.scale;
+    ImDrawList* header_draw_list = ImGui::GetWindowDrawList();
+    header_draw_list->AddRectFilled(
+        header_min,
+        ImVec2(header_min.x + header_width, header_min.y + header_height),
+        ImGui::ColorConvertFloat4ToU32(palette.header),
+        metrics.small_rounding
+    );
+    draw_editor_icon(
+        header_draw_list,
+        inspector_entity_icon(em, entity),
+        ImVec2(header_min.x + 18.0f * metrics.scale, header_min.y + 18.0f * metrics.scale),
+        18.0f * metrics.scale,
+        ImGui::ColorConvertFloat4ToU32(palette.text_muted)
+    );
+
+    const bool has_transform = em.has_component<TransformComponent>(entity);
+    const float identity_left = header_min.x + 36.0f * metrics.scale;
+    const float active_width = has_transform ? 70.0f * metrics.scale : 8.0f * metrics.scale;
+    const float identity_width = std::max(
+        48.0f,
+        header_width - (identity_left - header_min.x) - active_width - 8.0f * metrics.scale
+    );
+
     if (em.has_component<TagComponent>(entity)) {
         auto& tag_comp = em.get_component<TagComponent>(entity);
         char buffer[128];
         std::strncpy(buffer, tag_comp.tag.c_str(), sizeof(buffer) - 1);
         buffer[sizeof(buffer) - 1] = '\0';
 
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.31f, 0.27f, 0.82f, 0.90f));
-        ImGui::Button("E", ImVec2(28.0f, 28.0f));
-        ImGui::PopStyleColor();
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::SetCursorScreenPos(ImVec2(identity_left, header_min.y + 6.0f * metrics.scale));
+        ImGui::SetNextItemWidth(identity_width);
         const std::string tag_before = tag_comp.tag;
         begin_property_interaction("Entity.Name");
         ImGuiInputTextFlags name_flags = is_editor_locked ? ImGuiInputTextFlags_ReadOnly : 0;
@@ -445,33 +473,72 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         if (!is_editor_locked) {
             track_tag_edit(em, entity, tag_before, "Entity.Name", "Rename Entity");
         }
-        ImGui::TextDisabled("Entity #%u", entity);
-
-        if (is_editor_locked) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "[Locked]");
-        }
-        if (!is_editor_visible) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.60f, 0.80f), "[Hidden in Scene View]");
-        }
-
-        if (em.has_component<TransformComponent>(entity)) {
-            ImGui::SameLine();
-            TransformInspectorDrawer::draw_entity_active(em, entity, {
-                m_command_history.get(), &m_property_transactions
-            });
-        }
     } else {
-        ImGui::TextDisabled("Entity #%u", entity);
-        if (is_editor_locked) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.95f, 0.65f, 0.25f, 1.0f), "[Locked]");
-        }
-        if (is_editor_visible) {
-            ImGui::SameLine();
-        }
+        ImGui::SetCursorScreenPos(ImVec2(identity_left, header_min.y + 9.0f * metrics.scale));
+        ImGui::TextUnformatted("Entity");
     }
+
+    if (has_transform) {
+        ImGui::SetCursorScreenPos(ImVec2(
+            header_min.x + header_width - active_width,
+            header_min.y + 7.0f * metrics.scale
+        ));
+        ImGui::BeginDisabled(is_editor_locked);
+        TransformInspectorDrawer::draw_entity_active(em, entity, {
+            m_command_history.get(), &m_property_transactions
+        });
+        ImGui::EndDisabled();
+    }
+
+    const std::string entity_id = "ID " + std::to_string(entity);
+    const ImVec2 entity_id_size = ImGui::CalcTextSize(entity_id.c_str());
+    const ImVec2 entity_id_min(
+        identity_left,
+        header_min.y + 34.0f * metrics.scale
+    );
+    const ImVec2 entity_id_max(
+        entity_id_min.x + entity_id_size.x + 10.0f * metrics.scale,
+        entity_id_min.y + entity_id_size.y + 4.0f * metrics.scale
+    );
+    header_draw_list->AddRectFilled(
+        entity_id_min,
+        entity_id_max,
+        ImGui::ColorConvertFloat4ToU32(palette.panel_raised),
+        metrics.small_rounding
+    );
+    header_draw_list->AddRect(
+        entity_id_min,
+        entity_id_max,
+        ImGui::ColorConvertFloat4ToU32(palette.border),
+        metrics.small_rounding
+    );
+    header_draw_list->AddText(
+        ImVec2(
+            entity_id_min.x + 5.0f * metrics.scale,
+            entity_id_min.y + 2.0f * metrics.scale
+        ),
+        ImGui::ColorConvertFloat4ToU32(palette.text_muted),
+        entity_id.c_str()
+    );
+    if (is_editor_locked || !is_editor_visible) {
+        std::string entity_status;
+        if (is_editor_locked) entity_status = "Locked";
+        if (!is_editor_visible) {
+            if (!entity_status.empty()) entity_status += "  |  ";
+            entity_status += "Hidden in Scene View";
+        }
+        header_draw_list->AddText(
+            ImVec2(entity_id_max.x + 7.0f * metrics.scale, entity_id_min.y + 2.0f * metrics.scale),
+            ImGui::ColorConvertFloat4ToU32(
+                is_editor_locked ? palette.warning : palette.text_muted
+            ),
+            entity_status.c_str()
+        );
+    }
+    ImGui::SetCursorScreenPos(ImVec2(
+        header_min.x,
+        header_min.y + header_height + metrics.compact_spacing
+    ));
 
     // Existing prefab instances keep their prefab-specific controls here.
     // Creating a new prefab is an entity action owned by Scene Hierarchy.
@@ -752,17 +819,15 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
     // --- Bottom Add Component Popup ---
     ImGui::Spacing();
-    if (is_editor_locked) {
-        ImGui::BeginDisabled();
-    }
-    const std::string add_component_label = editor_icon_label(EditorIcon::Plus, "Add Component...");
-    if (ImGui::Button(add_component_label.c_str(), ImVec2(ImGui::GetContentRegionAvail().x, 26))) {
-        if (!is_editor_locked) {
-            ImGui::OpenPopup("AddComponentPopup");
-        }
-    }
-    if (is_editor_locked) {
-        ImGui::EndDisabled();
+    if (EditorUi::action_button(
+            "add_component",
+            EditorIcon::Plus,
+            "Add Component...",
+            EditorUi::ButtonTone::Primary,
+            !is_editor_locked,
+            ImVec2(ImGui::GetContentRegionAvail().x, 26.0f)
+        )) {
+        ImGui::OpenPopup("AddComponentPopup");
     }
 
     if (ImGui::BeginPopup("AddComponentPopup")) {
@@ -772,6 +837,7 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             EditorComponentCategory::Physics,
             EditorComponentCategory::Animation,
             EditorComponentCategory::World,
+            EditorComponentCategory::Scripting,
             EditorComponentCategory::UI
         };
         bool has_previous_category = false;
@@ -780,7 +846,8 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
             for (const EditorComponentDescriptor& descriptor : editor_registry.descriptors()) {
                 if (!descriptor.addable || descriptor.category != category) continue;
                 const ComponentDescriptor* runtime_descriptor = runtime_registry.find_by_key(descriptor.component_key);
-                if (!runtime_descriptor || runtime_descriptor->has(em, entity)) continue;
+                if (!runtime_descriptor ||
+                    (runtime_descriptor->has(em, entity) && !descriptor.repeatable)) continue;
                 if (!category_started) {
                     if (has_previous_category) ImGui::Separator();
                     ImGui::TextDisabled("%s", editor_component_category_label(category));
@@ -796,17 +863,20 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
                 if (ImGui::MenuItem(label.c_str(), nullptr, false, enabled)) {
                     ComponentSnapshotSet before;
                     ComponentSnapshotSet after;
+                    const bool component_already_present = runtime_descriptor->has(em, entity);
                     runtime_descriptor->capture(em, entity, before);
                     descriptor.create_default(em, entity, inspector_context, after);
                     const std::vector<std::string> before_order = m_entity_state_store
                         ? m_entity_state_store->resolve_component_order(entity, present_components)
                         : present_components;
                     std::vector<std::string> after_order = before_order;
-                    after_order.erase(
-                        std::remove(after_order.begin(), after_order.end(), descriptor.component_key),
-                        after_order.end()
-                    );
-                    after_order.push_back(descriptor.component_key);
+                    if (!component_already_present) {
+                        after_order.erase(
+                            std::remove(after_order.begin(), after_order.end(), descriptor.component_key),
+                            after_order.end()
+                        );
+                        after_order.push_back(descriptor.component_key);
+                    }
                     m_command_history->execute_command(std::make_unique<SetRegisteredComponentCommand>(
                         &runtime_registry,
                         &em,
@@ -833,11 +903,10 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 void InspectorPanel::draw_scene_settings(Scene& active_scene) {
     ImGui::PushID("SceneSettings");
 
-    ImGui::TextColored(ImVec4(0.49f, 0.46f, 0.95f, 1.0f), "SCENE SETTINGS");
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%s)", active_scene.get_name().c_str());
-    ImGui::Separator();
-    ImGui::Spacing();
+    EditorUi::area_heading(
+        EditorIcon::Settings,
+        "Scene Settings"
+    );
 
     // Physics Section
     if (ImGui::CollapsingHeader("Physics", ImGuiTreeNodeFlags_DefaultOpen)) {

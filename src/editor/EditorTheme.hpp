@@ -30,6 +30,7 @@ struct EditorUiMetrics {
     float toolbar_height{30.0f};
     float row_height{24.0f};
     float icon_size{14.0f};
+    float icon_button_offset_y{1.0f};
     float small_rounding{3.0f};
     float panel_padding{8.0f};
     float compact_spacing{4.0f};

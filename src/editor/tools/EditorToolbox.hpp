@@ -8,7 +8,7 @@ namespace Engine {
 // interaction only inside their row and never overlap a panel's content.
 class EditorToolbox {
 public:
-    bool begin(const char* id, float height = 22.0f);
+    bool begin(const char* id, float height = 0.0f);
     void end();
     [[nodiscard]] bool is_hovered() const { return m_hovered; }
 

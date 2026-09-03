@@ -1,5 +1,6 @@
 #include "ViewportPanel.hpp"
 #include "../EditorTheme.hpp"
+#include "../ui/EditorUi.hpp"
 #include "../stage/PrefabStageController.hpp"
 #include "TilemapPalettePanel.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
@@ -729,19 +730,26 @@ void ViewportPanel::render_transform_toolbar() {
         return;
     }
 
-    ImGui::SetCursorPosX(18.0f);
-    if (editor_icon_button("move", EditorIcon::Move, "Move (W)", m_gizmo.get_tool() == TransformTool::Move)) {
+    if (EditorUi::toolbar_button(
+            "move", EditorIcon::Move, "Move (W)",
+            m_gizmo.get_tool() == TransformTool::Move)) {
         m_gizmo.set_tool(TransformTool::Move);
     }
     ImGui::SameLine(0.0f, 1.0f);
-    if (editor_icon_button("rotate", EditorIcon::Rotate, "Rotate (R)", m_gizmo.get_tool() == TransformTool::Rotate)) {
+    if (EditorUi::toolbar_button(
+            "rotate", EditorIcon::Rotate, "Rotate (R)",
+            m_gizmo.get_tool() == TransformTool::Rotate)) {
         m_gizmo.set_tool(TransformTool::Rotate);
     }
     ImGui::SameLine(0.0f, 1.0f);
-    if (editor_icon_button("scale", EditorIcon::Scale, "Scale (S)", m_gizmo.get_tool() == TransformTool::Scale)) {
+    if (EditorUi::toolbar_button(
+            "scale", EditorIcon::Scale, "Scale (S)",
+            m_gizmo.get_tool() == TransformTool::Scale)) {
         m_gizmo.set_tool(TransformTool::Scale);
     }
-    ImGui::SameLine(0.0f, 5.0f);
+    ImGui::SameLine(0.0f, 6.0f);
+    ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 1.0f);
+    ImGui::SameLine(0.0f, 6.0f);
 
     const bool multiple_selection = m_selection && m_selection->get_selected().size() > 1;
     if (multiple_selection) m_gizmo.set_space(GizmoSpace::World);
@@ -750,17 +758,24 @@ void ViewportPanel::render_transform_toolbar() {
         ? "Space: World (multiple selections use World)"
         : (space == GizmoSpace::World ? "Space: World (click for Local)" : "Space: Local (click for World)");
     const EditorIcon space_icon = space == GizmoSpace::World ? EditorIcon::World : EditorIcon::Local;
-    if (editor_icon_button("space", space_icon, space_tooltip, true) && !multiple_selection) {
+    if (EditorUi::toolbar_button(
+            "space", space_icon, space_tooltip, true, !multiple_selection) &&
+        !multiple_selection) {
         m_gizmo.set_space(space == GizmoSpace::Local ? GizmoSpace::World : GizmoSpace::Local);
     }
-    ImGui::SameLine(0.0f, 1.0f);
+    ImGui::SameLine(0.0f, 6.0f);
+    ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical, 1.0f);
+    ImGui::SameLine(0.0f, 6.0f);
 
     auto& snap = m_gizmo.snap_settings();
-    if (editor_icon_button("grid", EditorIcon::Grid, "Grid settings (G toggles visibility)", m_grid_settings.visible)) {
+    if (EditorUi::toolbar_button(
+            "grid", EditorIcon::Grid, "Grid settings (G toggles visibility)",
+            m_grid_settings.visible)) {
         ImGui::OpenPopup("Viewport Grid Settings");
     }
     ImGui::SameLine(0.0f, 1.0f);
-    if (editor_icon_button("snap", EditorIcon::Snap, "Snap (Shift temporarily inverts it)", snap.enabled)) {
+    if (EditorUi::toolbar_button(
+            "snap", EditorIcon::Snap, "Snap (Shift temporarily inverts it)", snap.enabled)) {
         snap.enabled = !snap.enabled;
     }
     ImGui::SameLine(0.0f, 1.0f);
@@ -770,7 +785,7 @@ void ViewportPanel::render_transform_toolbar() {
         : physics_overlay_mode == PhysicsOverlayMode::All
             ? "Physics overlay: all (click to hide)"
             : "Physics overlay: hidden (click for selected)";
-    if (editor_icon_button(
+    if (EditorUi::toolbar_button(
             "colliders",
             EditorIcon::Collider,
             physics_overlay_tooltip,
@@ -810,7 +825,8 @@ void ViewportPanel::render_transform_toolbar() {
         ImGui::EndPopup();
     }
     ImGui::SameLine(0.0f, 1.0f);
-    if (editor_icon_button("settings", EditorIcon::Settings, "Configure snap increments")) {
+    if (EditorUi::toolbar_button(
+            "settings", EditorIcon::Settings, "Configure snap increments")) {
         ImGui::OpenPopup("Transform Snap Settings");
     }
 
@@ -837,6 +853,210 @@ void ViewportPanel::render_transform_toolbar() {
     }
 
     m_transform_toolbox.end();
+}
+
+void ViewportPanel::render_scene_tabs(ScenePlayState play_state) {
+    if (!m_scene_manager || m_scene_manager->get_scene_count() == 0) return;
+
+    const auto& scenes = m_scene_manager->get_scenes();
+    const bool can_activate = play_state == ScenePlayState::Edit;
+    const std::size_t open_scene_count = static_cast<std::size_t>(std::count_if(
+        scenes.begin(), scenes.end(), [this](const std::shared_ptr<Scene>& scene) {
+            return scene && (!m_is_scene_tab_open || m_is_scene_tab_open(scene.get()));
+        }
+    ));
+
+    std::optional<std::size_t> close_requested;
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 5.0f));
+    if (ImGui::BeginTabBar(
+            "##scene_tabs",
+            ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_FittingPolicyScroll)) {
+        for (std::size_t index = 0; index < scenes.size(); ++index) {
+            if (!scenes[index]) continue;
+            if (m_is_scene_tab_open && !m_is_scene_tab_open(scenes[index].get())) continue;
+
+            const bool is_active = m_scene_manager->get_active_index() == static_cast<int>(index);
+            const bool dirty = m_is_scene_dirty && m_is_scene_dirty(scenes[index].get());
+            const bool can_close = can_activate && open_scene_count > 1;
+            bool tab_open = true;
+            ImGuiTabItemFlags flags = dirty ? ImGuiTabItemFlags_UnsavedDocument
+                                            : ImGuiTabItemFlags_None;
+            if (is_active) flags |= ImGuiTabItemFlags_SetSelected;
+            const std::string label = scenes[index]->get_name() +
+                "##scene_tab_" + std::to_string(index);
+
+            ImGui::BeginDisabled(!can_activate);
+            const bool selected = ImGui::BeginTabItem(
+                label.c_str(), can_close ? &tab_open : nullptr, flags
+            );
+            if (selected) {
+                if (!is_active && can_activate && m_on_activate_scene) {
+                    m_on_activate_scene(index);
+                }
+                ImGui::EndTabItem();
+            }
+            ImGui::EndDisabled();
+            if (!tab_open && can_close) close_requested = index;
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::PopStyleVar();
+
+    if (close_requested && m_on_close_scene) m_on_close_scene(*close_requested);
+}
+
+void ViewportPanel::render_prefab_stage_header() {
+    if (!m_prefab_stage || !m_prefab_stage->is_active()) return;
+
+    const auto& metrics = EditorTheme::metrics();
+    const bool dirty = m_prefab_stage->is_dirty();
+    if (!ImGui::BeginTable(
+            "##prefab_stage_header", 2,
+            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoPadOuterX)) {
+        return;
+    }
+    ImGui::TableSetupColumn("Context", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 190.0f * metrics.scale);
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    if (EditorUi::action_button(
+            "prefab_back", EditorIcon::ArrowLeft, "Scene",
+            EditorUi::ButtonTone::Neutral, true,
+            ImVec2(0.0f, metrics.toolbar_height - 4.0f * metrics.scale))) {
+        if (m_on_close_prefab_stage) m_on_close_prefab_stage();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Return to authoring scene");
+    ImGui::SameLine();
+    EditorUi::badge("PREFAB", EditorUi::BadgeTone::Accent);
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(
+        dirty ? EditorTheme::palette().warning : EditorTheme::palette().text,
+        "%s.prefab", m_prefab_stage->get_prefab_name().c_str()
+    );
+
+    ImGui::TableSetColumnIndex(1);
+    if (dirty) {
+        EditorUi::badge("UNSAVED", EditorUi::BadgeTone::Warning);
+        ImGui::SameLine();
+    }
+    if (EditorUi::action_button(
+            "save_prefab", EditorIcon::Save, "Save",
+            EditorUi::ButtonTone::Primary, true,
+            ImVec2(0.0f, metrics.toolbar_height - 4.0f * metrics.scale))) {
+        if (m_on_save_prefab) m_on_save_prefab();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save prefab asset to disk (Cmd+S)");
+    ImGui::EndTable();
+}
+
+void ViewportPanel::render_transport_toolbar(ScenePlayState play_state) {
+    const auto& metrics = EditorTheme::metrics();
+    const auto& palette = EditorTheme::palette();
+    ImGui::PushStyleVar(
+        ImGuiStyleVar_WindowPadding,
+        ImVec2(6.0f * metrics.scale, 3.0f * metrics.scale)
+    );
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, palette.panel);
+    const bool visible = ImGui::BeginChild(
+        "Viewport Transport", ImVec2(0.0f, metrics.toolbar_height), false,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+    );
+    if (visible && ImGui::BeginTable(
+            "##viewport_transport", 2,
+            ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoPadOuterX)) {
+        ImGui::TableSetupColumn("Controls", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed, 260.0f * metrics.scale);
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+
+        const ImVec2 button_size(0.0f, metrics.toolbar_height - 6.0f * metrics.scale);
+        if (play_state == ScenePlayState::Edit) {
+            if (EditorUi::action_button(
+                    "play", EditorIcon::Play, "Play",
+                    EditorUi::ButtonTone::Success, true, button_size)) {
+                if (m_scene_manager) m_scene_manager->start_play();
+            }
+        } else {
+            if (EditorUi::action_button(
+                    "stop", EditorIcon::Stop, "Stop",
+                    EditorUi::ButtonTone::Danger, true, button_size)) {
+                if (m_scene_manager) m_scene_manager->stop_play();
+            }
+            ImGui::SameLine();
+            if (play_state == ScenePlayState::Play) {
+                if (EditorUi::action_button(
+                        "pause", EditorIcon::Pause, "Pause",
+                        EditorUi::ButtonTone::Neutral, true, button_size)) {
+                    if (m_scene_manager) m_scene_manager->pause_play();
+                }
+            } else {
+                if (EditorUi::action_button(
+                        "resume", EditorIcon::Play, "Resume",
+                        EditorUi::ButtonTone::Success, true, button_size)) {
+                    if (m_scene_manager) m_scene_manager->resume_play();
+                }
+                ImGui::SameLine();
+                if (EditorUi::action_button(
+                        "step", EditorIcon::StepForward, "Step",
+                        EditorUi::ButtonTone::Neutral, true, button_size)) {
+                    if (m_scene_manager) m_scene_manager->step_play();
+                }
+            }
+
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(78.0f * metrics.scale);
+            float time_scale = m_scene_manager
+                ? m_scene_manager->play_time_scale() : Time::get_time_scale();
+            if (ImGui::DragFloat(
+                    "##time_scale", &time_scale, 0.05f, 0.0f, 2.0f, "%.2fx")) {
+                if (m_scene_manager) m_scene_manager->set_play_time_scale(time_scale);
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Simulation time scale");
+        }
+
+        ImGui::TableSetColumnIndex(1);
+        char status[160];
+        if (play_state != ScenePlayState::Edit && m_engine_renderer) {
+            const RenderFrameMetrics& frame = m_engine_renderer->get_frame_metrics();
+            std::snprintf(
+                status, sizeof(status), "%s  |  %.0f FPS  |  %s%.0f%%  |  %dx%d",
+                play_state == ScenePlayState::Play ? "PLAY" : "PAUSED",
+                ImGui::GetIO().Framerate,
+                frame.dynamic_resolution ? "DYN " : "",
+                frame.render_scale * 100.0f,
+                frame.internal_width,
+                frame.internal_height
+            );
+        } else {
+            std::snprintf(status, sizeof(status), "EDIT  |  %.0f FPS", ImGui::GetIO().Framerate);
+        }
+        const float status_width = ImGui::CalcTextSize(status).x;
+        ImGui::SetCursorPosX(std::max(
+            ImGui::GetCursorPosX(), ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - status_width
+        ));
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", status);
+        if (ImGui::IsItemHovered() && play_state != ScenePlayState::Edit && m_engine_renderer) {
+            const RenderFrameMetrics& frame = m_engine_renderer->get_frame_metrics();
+            ImGui::SetTooltip(
+                frame.dynamic_resolution
+                    ? "World pipeline: %dx%d\nNative Canvas/output: %dx%d\nRender scale: %.0f%%\nMeasured: %.1f FPS\nDynamic target: %.0f FPS"
+                    : "World pipeline: %dx%d\nNative Canvas/output: %dx%d\nRender scale: %.0f%%",
+                frame.internal_width,
+                frame.internal_height,
+                frame.output_width,
+                frame.output_height,
+                frame.render_scale * 100.0f,
+                frame.measured_fps,
+                frame.target_fps
+            );
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
 }
 
 void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entity) {
@@ -1085,200 +1305,12 @@ void ViewportPanel::on_gui() {
         const bool in_prefab_stage = m_prefab_stage && m_prefab_stage->is_active();
         ScenePlayState play_state = get_play_state();
 
-        if (!in_prefab_stage && m_scene_manager && m_scene_manager->get_scene_count() > 0) {
-            ImGui::SetCursorPosX(12.0f);
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextDisabled("Scenes");
-            ImGui::SameLine();
-            const auto& scenes = m_scene_manager->get_scenes();
-            const bool can_activate = play_state == ScenePlayState::Edit;
-            const std::size_t open_scene_count = static_cast<std::size_t>(std::count_if(
-                scenes.begin(), scenes.end(), [this](const std::shared_ptr<Scene>& scene) {
-                    return scene && (!m_is_scene_tab_open || m_is_scene_tab_open(scene.get()));
-                }
-            ));
-            std::optional<std::size_t> close_requested;
-            for (std::size_t index = 0; index < scenes.size(); ++index) {
-                if (!scenes[index]) continue;
-                if (m_is_scene_tab_open && !m_is_scene_tab_open(scenes[index].get())) continue;
-
-                const bool is_active = m_scene_manager->get_active_index() == static_cast<int>(index);
-                const bool dirty = m_is_scene_dirty && m_is_scene_dirty(scenes[index].get());
-                std::string label = scenes[index]->get_name();
-                if (dirty) label += " *";
-                label += "##scene_tab_" + std::to_string(index);
-
-                if (!can_activate) ImGui::BeginDisabled();
-                if (is_active) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::palette().selected);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::palette().accent);
-                }
-                if (ImGui::Button(label.c_str(), ImVec2(0.0f, 24.0f)) && !is_active && m_on_activate_scene) {
-                    m_on_activate_scene(index);
-                }
-                if (is_active) ImGui::PopStyleColor(2);
-                ImGui::SameLine(0.0f, 2.0f);
-                const bool can_close = can_activate && open_scene_count > 1;
-                if (!can_close) ImGui::BeginDisabled();
-                const std::string close_label = "x##close_scene_tab_" + std::to_string(index);
-                if (ImGui::SmallButton(close_label.c_str()) && can_close) close_requested = index;
-                if (!can_close) ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip(can_close ? "Close scene tab" : "Keep at least one scene open");
-                }
-                if (!can_activate) ImGui::EndDisabled();
-                if (index + 1 < scenes.size()) ImGui::SameLine();
-            }
-            if (close_requested && m_on_close_scene) m_on_close_scene(*close_requested);
-            ImGui::Separator();
-            ImGui::Spacing();
-        } else {
-            ImGui::SetCursorPos(ImVec2(10.0f, 32.0f));
-        }
-
         if (in_prefab_stage) {
-            // === PREFAB STAGE TOOLBAR ===
-            // Back button
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.22f, 0.28f, 0.9f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.32f, 0.32f, 0.42f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.18f, 0.18f, 0.24f, 1.0f));
-            if (ImGui::Button("< Scene", ImVec2(75, 24))) {
-                if (m_on_close_prefab_stage) m_on_close_prefab_stage();
-            }
-            ImGui::PopStyleColor(3);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Return to authoring scene");
-
-            ImGui::SameLine(0.0f, 8.0f);
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 1.0f), "/");
-            ImGui::SameLine(0.0f, 8.0f);
-
-            // Purple stage badge
-            const bool dirty = m_prefab_stage->is_dirty();
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.42f, 0.18f, 0.72f, 0.95f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.52f, 0.25f, 0.82f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.38f, 0.14f, 0.65f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.90f, 1.0f, 1.0f));
-            ImGui::Button(" PREFAB ", ImVec2(0, 24));
-            ImGui::PopStyleColor(4);
-
-            ImGui::SameLine(0.0f, 8.0f);
-            std::string name_label = m_prefab_stage->get_prefab_name() + ".prefab";
-            if (dirty) name_label += " *";
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(
-                dirty ? ImVec4(1.0f, 0.85f, 0.3f, 1.0f) : ImVec4(0.90f, 0.90f, 0.98f, 1.0f),
-                "%s", name_label.c_str()
-            );
-
-            // Save button
-            ImGui::SameLine(0.0f, 12.0f);
-            float save_btn_w = 110.0f;
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                dirty ? ImVec4(0.20f, 0.55f, 0.30f, 0.95f) : ImVec4(0.18f, 0.35f, 0.22f, 0.6f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.70f, 0.38f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.16f, 0.48f, 0.26f, 1.0f));
-            if (ImGui::Button("Save Prefab", ImVec2(save_btn_w, 24))) {
-                if (m_on_save_prefab) m_on_save_prefab();
-            }
-            ImGui::PopStyleColor(3);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save prefab asset to disk (Cmd+S)");
-
-            ImGui::SameLine();
-            ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 250.0f);
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(ImVec4(0.65f, 0.55f, 0.85f, 1.0f), "Mode: PREFAB | FPS: %.0f", ImGui::GetIO().Framerate);
+            render_prefab_stage_header();
         } else {
-            // === NORMAL SCENE TRANSPORT CONTROLS ===
-            if (play_state == ScenePlayState::Edit) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.18f, 0.65f, 0.38f, 0.85f));
-                if (ImGui::Button(" > Play ", ImVec2(75, 24))) {
-                    if (m_scene_manager) m_scene_manager->start_play();
-                }
-                ImGui::PopStyleColor();
-            } else {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.25f, 0.25f, 0.85f));
-                if (ImGui::Button(" [] Stop ", ImVec2(75, 24))) {
-                    if (m_scene_manager) m_scene_manager->stop_play();
-                }
-                ImGui::PopStyleColor();
-
-                ImGui::SameLine();
-                if (play_state == ScenePlayState::Play) {
-                    if (ImGui::Button(" || Pause ", ImVec2(75, 24))) {
-                        if (m_scene_manager) m_scene_manager->pause_play();
-                    }
-                } else {
-                    if (ImGui::Button(" > Resume ", ImVec2(75, 24))) {
-                        if (m_scene_manager) m_scene_manager->resume_play();
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button(" >| Step ", ImVec2(75, 24))) {
-                        if (m_scene_manager) m_scene_manager->step_play();
-                    }
-                }
-
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(80.0f);
-                float ts = m_scene_manager ? m_scene_manager->play_time_scale() : Time::get_time_scale();
-                if (ImGui::DragFloat("##TimeScale", &ts, 0.05f, 0.0f, 2.0f, "%.2fx")) {
-                    if (m_scene_manager) m_scene_manager->set_play_time_scale(ts);
-                }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Simulation Timescale (0.1x - 5.0x)");
-                }
-            }
-
-            ImGui::SameLine();
-            char status[160];
-            if (play_state != ScenePlayState::Edit && m_engine_renderer) {
-                const RenderFrameMetrics& metrics = m_engine_renderer->get_frame_metrics();
-                std::snprintf(
-                    status,
-                    sizeof(status),
-                    "%s | %.0f FPS | %s%.0f%% | %dx%d",
-                    play_state == ScenePlayState::Play ? "PLAY" : "PAUSED",
-                    ImGui::GetIO().Framerate,
-                    metrics.dynamic_resolution ? "DYN " : "",
-                    metrics.render_scale * 100.0f,
-                    metrics.internal_width,
-                    metrics.internal_height
-                );
-            } else {
-                std::snprintf(status, sizeof(status), "EDIT | %.0f FPS", ImGui::GetIO().Framerate);
-            }
-            const float status_width = ImGui::CalcTextSize(status).x;
-            ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - status_width - 18.0f));
-            ImGui::TextColored(ImVec4(0.55f, 0.60f, 0.70f, 1.0f), "%s", status);
-            if (ImGui::IsItemHovered() && play_state != ScenePlayState::Edit && m_engine_renderer) {
-                const RenderFrameMetrics& metrics = m_engine_renderer->get_frame_metrics();
-                if (metrics.dynamic_resolution) {
-                    ImGui::SetTooltip(
-                        "World pipeline: %dx%d\nNative Canvas/output: %dx%d\nRender scale: %.0f%%\nMeasured: %.1f FPS\nDynamic target: %.0f FPS",
-                        metrics.internal_width,
-                        metrics.internal_height,
-                        metrics.output_width,
-                        metrics.output_height,
-                        metrics.render_scale * 100.0f,
-                        metrics.measured_fps,
-                        metrics.target_fps
-                    );
-                } else {
-                    ImGui::SetTooltip(
-                        "World pipeline: %dx%d\nNative Canvas/output: %dx%d\nRender scale: %.0f%%",
-                        metrics.internal_width,
-                        metrics.internal_height,
-                        metrics.output_width,
-                        metrics.output_height,
-                        metrics.render_scale * 100.0f
-                    );
-                }
-            }
+            render_scene_tabs(play_state);
+            render_transport_toolbar(play_state);
         }
-
-
-
-        ImGui::Spacing();
         render_transform_toolbar();
         if (play_state != ScenePlayState::Edit) render_device_preview_toolbar();
 

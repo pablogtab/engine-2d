@@ -231,6 +231,15 @@ void test_editor_component_availability_reports_dependencies_and_conflicts() {
     assert(!availability.available);
     assert(availability.reason == "Entity already has this component");
 
+    EditorComponentRegistry repeatable;
+    auto repeatable_sprite = editor_registration("sprite", "RepeatableSpriteDrawer");
+    repeatable_sprite.repeatable = true;
+    assert(repeatable.register_component(std::move(repeatable_sprite), &error));
+    availability = repeatable.availability(
+        repeatable.descriptors().front(), runtime, em, entity
+    );
+    assert(availability.available);
+
     EditorComponentRegistry conflicting;
     assert(conflicting.register_component(editor_registration(
         "sprite", "ConflictingSpriteDrawer", {}, {"transform"}

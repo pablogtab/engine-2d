@@ -3,6 +3,7 @@
 
 #include "../../core/Log.hpp"
 #include <SDL3/SDL_filesystem.h>
+#include <algorithm>
 #include <array>
 #include <filesystem>
 
@@ -48,10 +49,13 @@ constexpr std::array<IconGlyph, static_cast<std::size_t>(EditorIcon::Count)> ICO
     {0xE1B2, "\xee\x86\xb2"}, // x
     {0xE09E, "\xee\x82\x9e"}, // copy
     {0xE04A, "\xee\x81\x8a"}, // arrow-up
+    {0xE048, "\xee\x81\x88"}, // arrow-left
     {0xE1F5, "\xee\x87\xb5"}, // history
     {0xE172, "\xee\x85\xb2"}, // square-pen
     {0xE158, "\xee\x85\x98"}, // shield
-    {0xE1BB, "\xee\x86\xbb"}  // bot
+    {0xE1BB, "\xee\x86\xbb"}, // bot
+    {0xE14D, "\xee\x85\x8d"}, // save
+    {0xE3EA, "\xee\x8f\xaa"}  // step-forward
 }};
 
 const IconGlyph& icon_glyph(EditorIcon icon) {
@@ -103,16 +107,17 @@ bool initialize_editor_icons() {
     // Rasterize only registered glyphs into ImGui's atlas. The vendored font
     // and codepoint catalog remain complete, so extending EditorIcon is cheap.
     static constexpr ImWchar icon_ranges[] = {
-        0xE04A, 0xE04A, 0xE061, 0xE061, 0xE064, 0xE064, 0xE09E, 0xE09E,
+        0xE048, 0xE04A, 0xE061, 0xE061, 0xE064, 0xE064, 0xE09E, 0xE09E,
         0xE0B6, 0xE0BB, 0xE0D0, 0xE0D0, 0xE0E9, 0xE0E9,
         0xE0F6, 0xE0F6,
         0xE10B, 0xE10C, 0xE121, 0xE121, 0xE12E, 0xE12E,
-        0xE13C, 0xE13D, 0xE149, 0xE149, 0xE158, 0xE158,
+        0xE13C, 0xE13D, 0xE149, 0xE14D, 0xE158, 0xE158,
         0xE167, 0xE167, 0xE172, 0xE172,
         0xE18E, 0xE18E, 0xE1B2, 0xE1B4, 0xE1BB, 0xE1BB, 0xE1DD, 0xE1DD,
         0xE1F3, 0xE1F5,
         0xE245, 0xE245, 0xE2AD, 0xE2AD, 0xE2B5, 0xE2B5,
         0xE2D0, 0xE2D0, 0xE2EC, 0xE2EC, 0xE2FE, 0xE2FE,
+        0xE3EA, 0xE3EA,
         0
     };
     g_editor_icons_loaded = io.Fonts->AddFontFromFileTTF(
@@ -150,7 +155,26 @@ void draw_editor_icon(ImDrawList* draw_list, EditorIcon icon, ImVec2 center, flo
     font->RenderChar(draw_list, size, origin, color, codepoint);
 }
 
-bool editor_icon_button(const char* id, EditorIcon icon, const char* tooltip, bool active, ImVec2 hit_size) {
+bool editor_icon_button(
+    const char* id,
+    EditorIcon icon,
+    const char* tooltip,
+    bool active,
+    ImVec2 hit_size,
+    float icon_size
+) {
+    const auto& palette = EditorTheme::palette();
+    icon_size = std::clamp(
+        icon_size * EditorTheme::metrics().scale,
+        1.0f,
+        std::max(1.0f, std::min(hit_size.x, hit_size.y) - 2.0f)
+    );
+
+    ImVec4 icon_color = active ? palette.accent_hovered : palette.text_muted;
+    if (icon == EditorIcon::Hidden && active) {
+        icon_color = ImVec4(0.88f, 0.51f, 0.24f, 0.94f);
+    }
+
     ImGui::PushID(id);
     const bool pressed = ImGui::InvisibleButton("##button", hit_size);
     const bool hovered = ImGui::IsItemHovered();
@@ -158,31 +182,28 @@ bool editor_icon_button(const char* id, EditorIcon icon, const char* tooltip, bo
     const ImVec2 maximum = ImGui::GetItemRectMax();
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-    if (hovered) {
-        draw_list->AddRectFilled(minimum, maximum, IM_COL32(255, 255, 255, 28), 3.0f);
-    } else if (active) {
-        draw_list->AddRectFilled(minimum, maximum, IM_COL32(255, 255, 255, 14), 3.0f);
+    if (hovered || active) {
+        const int alpha = hovered ? 28 : 14;
+        draw_list->AddRectFilled(
+            minimum, maximum, IM_COL32(255, 255, 255, alpha),
+            EditorTheme::metrics().small_rounding
+        );
     }
 
-    const auto& palette = EditorTheme::palette();
-    ImU32 icon_color = ImGui::ColorConvertFloat4ToU32(
-        active ? palette.accent_hovered : (hovered ? palette.text : palette.text_muted)
+    // Center using the actual rendered contour rather than the font advance.
+    // Lucide sits optically high inside compact controls, so all icon buttons
+    // share one theme-level baseline correction.
+    ImVec2 icon_center(
+        (minimum.x + maximum.x) * 0.5f,
+        (minimum.y + maximum.y) * 0.5f +
+            EditorTheme::metrics().icon_button_offset_y
     );
-
-    if (icon == EditorIcon::Assistant && active) {
-        icon_color = ImGui::ColorConvertFloat4ToU32(palette.accent_hovered);
-    }
-
-    if (icon == EditorIcon::Hidden && active) {
-        icon_color = IM_COL32(225, 130, 60, 240);
-    }
-
     draw_editor_icon(
         draw_list,
         icon,
-        ImVec2((minimum.x + maximum.x) * 0.5f, (minimum.y + maximum.y) * 0.5f),
-        12.0f,
-        icon_color
+        icon_center,
+        icon_size,
+        ImGui::ColorConvertFloat4ToU32(icon_color)
     );
 
     if (hovered && tooltip) ImGui::SetTooltip("%s", tooltip);

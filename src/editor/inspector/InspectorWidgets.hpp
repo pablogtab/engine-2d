@@ -27,6 +27,7 @@ struct ComponentHeaderResult {
     bool remove_requested{false};
     bool revert_override_requested{false};
     bool apply_override_requested{false};
+    bool enabled_changed{false};
 };
 
 void begin_property_interaction(const char* label);
@@ -50,7 +51,8 @@ void set_component_header_state_context(EditorEntityStateStore* store, EntityID 
     bool default_open = true,
     EditorIcon icon = EditorIcon::Component,
     bool has_override = false,
-    const char* reorder_payload = nullptr
+    const char* reorder_payload = nullptr,
+    bool* enabled = nullptr
 );
 
 // Resolves presentation through the editor-only component registry.

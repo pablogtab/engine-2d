@@ -104,7 +104,9 @@ EditorComponentAvailability EditorComponentRegistry::availability(
     const ComponentDescriptor* runtime = runtime_registry.find_by_key(descriptor.component_key);
     if (!runtime) return {false, "Runtime component is not registered"};
     if (!descriptor.addable) return {false, "Component cannot be added manually"};
-    if (runtime->has(em, entity)) return {false, "Entity already has this component"};
+    if (runtime->has(em, entity) && !descriptor.repeatable) {
+        return {false, "Entity already has this component"};
+    }
 
     for (const std::string& dependency : descriptor.dependencies) {
         const ComponentDescriptor* required = runtime_registry.find_by_key(dependency);

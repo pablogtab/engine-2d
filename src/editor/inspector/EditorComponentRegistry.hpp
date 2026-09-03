@@ -55,6 +55,9 @@ struct EditorComponentDescriptor {
     EditorIcon icon{EditorIcon::Component};
     bool show_in_inspector{true};
     bool addable{true};
+    // The ECS still stores one container component, but the editor may append
+    // multiple authored instances through it (for example Script behaviours).
+    bool repeatable{false};
     std::vector<std::string> dependencies;
     std::vector<std::string> incompatible_components;
     std::function<void(EntityManager&, EntityID, const EditorInspectorContext&)> draw;

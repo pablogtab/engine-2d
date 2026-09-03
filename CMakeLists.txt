@@ -969,6 +969,26 @@ target_include_directories(WorkspaceLayoutControllerTests PRIVATE
 target_link_libraries(WorkspaceLayoutControllerTests PRIVATE SDL3::SDL3)
 add_test(NAME WorkspaceLayoutControllerTests COMMAND WorkspaceLayoutControllerTests)
 
+add_executable(EditorIconsTests
+    tests/EditorIconsTests.cpp
+    src/editor/EditorTheme.cpp
+    src/editor/tools/EditorIcons.cpp
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
+)
+target_include_directories(EditorIconsTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+)
+target_link_libraries(EditorIconsTests PRIVATE SDL3::SDL3)
+add_test(NAME EditorIconsTests COMMAND EditorIconsTests)
+set_tests_properties(EditorIconsTests PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 add_executable(RecentSceneListTests
     tests/RecentSceneListTests.cpp
     src/core/Log.cpp
@@ -1494,6 +1514,7 @@ foreach(runtime_test
     EditorSessionControllerTests
     WorkspaceManagerTests
     WorkspaceLayoutControllerTests
+    EditorIconsTests
     RecentSceneListTests
     EditorAiConversationStoreTests
     HierarchyCommandTests

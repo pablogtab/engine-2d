@@ -968,8 +968,16 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
 
     // Editor-only authoring state controls. Runtime hierarchy is structural read-only.
     if (!runtime_mode) {
-        const float right_margin = ImGui::GetWindowContentRegionMax().x - 42.0f;
-        ImGui::SameLine(std::max(right_margin, 20.0f));
+        const ImVec2 cursor_after_controls = ImGui::GetCursorScreenPos();
+        const float row_height = std::max(node_max.y - node_min.y, 1.0f);
+        const float button_size = std::clamp(row_height - 2.0f, 15.0f, 18.0f);
+        const float icon_size = std::min(14.0f, button_size - 2.0f);
+        const float button_gap = 3.0f;
+        const float content_right = ImGui::GetWindowPos().x +
+            ImGui::GetWindowContentRegionMax().x - 2.0f;
+        const float controls_y = (node_min.y + node_max.y - button_size) * 0.5f;
+        const float lock_x = content_right - button_size;
+        const float eye_x = lock_x - button_gap - button_size;
 
         const EditorIcon eye_icon = is_effectively_visible
             ? EditorIcon::Visible : EditorIcon::Hidden;
@@ -979,9 +987,10 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
                 ? "Hidden by Ancestor in Scene View (Click to Hide Self)"
                 : "Visible in Scene View (Click to Hide)");
         const std::string eye_id = "##eye_" + std::to_string(id);
+        ImGui::SetCursorScreenPos(ImVec2(eye_x, controls_y));
         if (editor_icon_button(
                 eye_id.c_str(), eye_icon, eye_tooltip, !is_effectively_visible,
-                ImVec2(16.0f, 16.0f))) {
+                ImVec2(button_size, button_size), icon_size)) {
             if (m_command_history) {
                 m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
                     &em, m_entity_state_store,
@@ -992,16 +1001,15 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
             }
         }
 
-        ImGui::SameLine(0.0f, 2.0f);
-
         const EditorIcon lock_icon = is_locked ? EditorIcon::Lock : EditorIcon::Unlock;
         const char* lock_tooltip = is_locked
             ? "Entity Locked (Click to Unlock)"
             : "Entity Unlocked (Click to Lock)";
         const std::string lock_id = "##lock_" + std::to_string(id);
+        ImGui::SetCursorScreenPos(ImVec2(lock_x, controls_y));
         if (editor_icon_button(
                 lock_id.c_str(), lock_icon, lock_tooltip, is_locked,
-                ImVec2(16.0f, 16.0f))) {
+                ImVec2(button_size, button_size), icon_size)) {
             if (m_command_history) {
                 m_command_history->execute_command(std::make_unique<SetEditorEntityStateCommand>(
                     &em, m_entity_state_store, EditorEntityStateField::Locked, id, !is_locked
@@ -1010,6 +1018,7 @@ void SceneHierarchyPanel::draw_entity_node(EntityManager& em, EntityID id, const
                 m_entity_state_store->set_locked(id, !is_locked);
             }
         }
+        ImGui::SetCursorScreenPos(cursor_after_controls);
     }
 
     // Render Children recursively if tree node is expanded

@@ -2,9 +2,11 @@
 #include "EditorComponentRegistry.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../tools/EditorIcons.hpp"
+#include "../EditorTheme.hpp"
 #include "../../ecs/EntityManager.hpp"
 #include "../../ecs/components/CoreComponents.hpp"
 #include <imgui_internal.h>
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -13,6 +15,7 @@ namespace Engine::InspectorWidgets {
 namespace {
 
 constexpr float PROPERTY_LABEL_WIDTH = 104.0f;
+constexpr float INLINE_PROPERTY_MIN_WIDTH = 280.0f;
 constexpr float PROPERTY_GAP = 6.0f;
 constexpr float RESET_BUTTON_WIDTH = 28.0f;
 PropertyInteraction g_property_interaction;
@@ -80,19 +83,35 @@ ComponentHeaderResult component_header(
     bool default_open,
     EditorIcon icon,
     bool has_override,
-    const char* reorder_payload
+    const char* reorder_payload,
+    bool* enabled
 ) {
     ImGui::PushID(id);
-    const ImVec2 header_position = ImGui::GetCursorScreenPos();
+    const auto& palette = EditorTheme::palette();
+    const auto& metrics = EditorTheme::metrics();
+    const bool has_menu_actions = removable || has_override;
+    const bool has_actions = has_menu_actions || enabled;
     const ImGuiTreeNodeFlags flags = (default_open ? ImGuiTreeNodeFlags_DefaultOpen : 0) |
-        (removable ? ImGuiTreeNodeFlags_AllowOverlap : 0);
+        (has_actions ? ImGuiTreeNodeFlags_AllowOverlap : 0);
     const std::string header_label = editor_icon_label(icon, label);
+    ImGui::PushStyleColor(ImGuiCol_Header, palette.header);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, palette.selected);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, palette.accent_active);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(
+        7.0f * metrics.scale,
+        5.0f * metrics.scale
+    ));
     const bool open = ImGui::CollapsingHeader(header_label.c_str(), flags);
     const bool toggled_open = ImGui::IsItemToggledOpen();
+    const ImVec2 header_min = ImGui::GetItemRectMin();
+    const ImVec2 header_max = ImGui::GetItemRectMax();
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
     const ImVec2 content_position = ImGui::GetCursorScreenPos();
     bool remove_requested = false;
     bool revert_override_requested = false;
     bool apply_override_requested = false;
+    bool enabled_changed = false;
 
     if (reorder_payload) {
         ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.10f, 0.11f, 0.15f, 0.98f));
@@ -118,12 +137,19 @@ ComponentHeaderResult component_header(
     // Draw subtle vertical gutter indicator bar on the left margin when overridden
     if (has_override) {
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        const float bar_height = ImGui::GetFrameHeight();
         draw_list->AddRectFilled(
-            header_position,
-            ImVec2(header_position.x + 3.5f, header_position.y + bar_height),
-            IM_COL32(95, 185, 255, 255),
-            1.5f
+            header_min,
+            ImVec2(header_min.x + 3.0f * metrics.scale, header_max.y),
+            ImGui::ColorConvertFloat4ToU32(palette.accent_hovered),
+            metrics.small_rounding
+        );
+        const float indicator_offset = has_menu_actions
+            ? (enabled ? 49.0f : 27.0f) * metrics.scale
+            : 15.0f * metrics.scale;
+        draw_list->AddCircleFilled(
+            ImVec2(header_max.x - indicator_offset, (header_min.y + header_max.y) * 0.5f),
+            2.5f * metrics.scale,
+            ImGui::ColorConvertFloat4ToU32(palette.accent_hovered)
         );
     }
 
@@ -145,13 +171,29 @@ ComponentHeaderResult component_header(
         ImGui::EndPopup();
     }
 
-    if (removable) {
-        const ImGuiStyle& style = ImGui::GetStyle();
-        constexpr float button_size = 18.0f;
-        const float content_right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+    if (enabled) {
+        const float checkbox_size = 18.0f * metrics.scale;
+        const float menu_reserve = has_menu_actions ? 25.0f * metrics.scale : 3.0f * metrics.scale;
         ImGui::SetCursorScreenPos(ImVec2(
-            content_right - button_size - style.FramePadding.x,
-            header_position.y
+            header_max.x - menu_reserve - checkbox_size,
+            (header_min.y + header_max.y - checkbox_size) * 0.5f
+        ));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f));
+        enabled_changed = ImGui::Checkbox("##ComponentEnabled", enabled);
+        ImGui::PopStyleVar();
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", *enabled ? "Disable component" : "Enable component");
+        }
+    }
+
+    if (has_menu_actions) {
+        const float button_size = std::min(
+            20.0f * metrics.scale,
+            std::max(16.0f * metrics.scale, header_max.y - header_min.y - 2.0f * metrics.scale)
+        );
+        ImGui::SetCursorScreenPos(ImVec2(
+            header_max.x - button_size - 3.0f * metrics.scale,
+            (header_min.y + header_max.y - button_size) * 0.5f
         ));
         if (editor_icon_button(
             "ComponentOptionsButton",
@@ -173,15 +215,26 @@ ComponentHeaderResult component_header(
                 }
                 ImGui::Separator();
             }
-            const std::string remove_label = editor_icon_label(EditorIcon::Trash, "Remove Component");
-            remove_requested = ImGui::MenuItem(remove_label.c_str());
+            if (removable) {
+                const std::string remove_label = editor_icon_label(EditorIcon::Trash, "Remove Component");
+                remove_requested = ImGui::MenuItem(remove_label.c_str());
+            }
             ImGui::EndPopup();
         }
         ImGui::SetCursorScreenPos(content_position);
     }
 
+    if (has_actions) ImGui::SetCursorScreenPos(content_position);
+
     ImGui::PopID();
-    return {open, toggled_open, remove_requested, revert_override_requested, apply_override_requested};
+    return {
+        open,
+        toggled_open,
+        remove_requested,
+        revert_override_requested,
+        apply_override_requested,
+        enabled_changed
+    };
 }
 
 ComponentHeaderResult registered_component_header(
@@ -230,12 +283,13 @@ ComponentHeaderResult registered_component_header(
 
 
 void begin_property_row(const char* label, bool reserve_reset) {
+    const bool stack_controls = ImGui::GetContentRegionAvail().x < INLINE_PROPERTY_MIN_WIDTH;
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label);
 
-    ImGui::SameLine(PROPERTY_LABEL_WIDTH);
+    if (!stack_controls) ImGui::SameLine(PROPERTY_LABEL_WIDTH);
     const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset_space);
+    ImGui::SetNextItemWidth(std::max(1.0f, ImGui::GetContentRegionAvail().x - reset_space));
 }
 
 bool property_float(const char* label, float* value, float speed, float min, float max, const char* format, bool mixed) {
@@ -255,7 +309,9 @@ bool property_axis_float(const char* label, const char* axis, float* value, floa
     ImGui::TextDisabled("%s", axis);
     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
     const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset_space - 11.0f);
+    ImGui::SetNextItemWidth(std::max(
+        1.0f, ImGui::GetContentRegionAvail().x - reset_space - 11.0f
+    ));
     const bool changed = ImGui::DragFloat("##value", value, speed, min, max, mixed ? "---" : format);
     capture_property_interaction();
     ImGui::PopID();
@@ -301,7 +357,12 @@ bool property_vec2(
     begin_property_interaction(label);
     ImGui::PushID(label);
     const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-    const float width = (ImGui::GetContentRegionAvail().x - (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) - spacing * 3.0f - 24.0f) * 0.5f;
+    const float width = std::max(
+        24.0f,
+        (ImGui::GetContentRegionAvail().x -
+         (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) -
+         spacing * 3.0f - 24.0f) * 0.5f
+    );
     ImGui::TextDisabled("X");
     ImGui::SameLine(0.0f, spacing);
     ImGui::SetNextItemWidth(width);
@@ -324,7 +385,12 @@ bool property_vec3(const char* label, float values[3], float speed, float min, f
     begin_property_interaction(label);
     ImGui::PushID(label);
     const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-    const float width = (ImGui::GetContentRegionAvail().x - (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) - spacing * 5.0f - 36.0f) / 3.0f;
+    const float width = std::max(
+        24.0f,
+        (ImGui::GetContentRegionAvail().x -
+         (reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f) -
+         spacing * 5.0f - 36.0f) / 3.0f
+    );
     ImGui::TextDisabled("X");
     ImGui::SameLine(0.0f, spacing);
     ImGui::SetNextItemWidth(width);
@@ -369,7 +435,10 @@ bool property_vec4(
     ImGui::PushID(label);
     const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
     const float reset_space = reserve_reset ? RESET_BUTTON_WIDTH + PROPERTY_GAP : 0.0f;
-    const float width = (ImGui::GetContentRegionAvail().x - reset_space - spacing * 7.0f - 48.0f) * 0.25f;
+    const float width = std::max(
+        24.0f,
+        (ImGui::GetContentRegionAvail().x - reset_space - spacing * 7.0f - 48.0f) * 0.25f
+    );
 
     const char* default_labels[4] = {"X", "Y", "Z", "W"};
     const char* const* axis_labels = labels ? labels : default_labels;
@@ -420,7 +489,7 @@ bool property_enum(const char* label, int* current_index, const char* const item
     begin_property_row(label);
     begin_property_interaction(label);
     ImGui::PushID(label);
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 11.0f);
+    ImGui::SetNextItemWidth(std::max(1.0f, ImGui::GetContentRegionAvail().x - 11.0f));
     const char* preview = (mixed || *current_index < 0 || *current_index >= count) ? "---" : items[*current_index];
     bool changed = false;
     if (ImGui::BeginCombo("##value", preview)) {
@@ -452,7 +521,7 @@ bool property_entity_picker(
     begin_property_row(label);
     begin_property_interaction(label);
     ImGui::PushID(label);
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 11.0f);
+    ImGui::SetNextItemWidth(std::max(1.0f, ImGui::GetContentRegionAvail().x - 11.0f));
 
     const auto with_type = [reference_type](std::string value) {
         return reference_type && reference_type[0] != '\0'
@@ -499,7 +568,7 @@ bool property_text(const char* label, char* buffer, size_t buffer_size, bool mix
     begin_property_row(label);
     begin_property_interaction(label);
     ImGui::PushID(label);
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 11.0f);
+    ImGui::SetNextItemWidth(std::max(1.0f, ImGui::GetContentRegionAvail().x - 11.0f));
     bool changed = false;
     if (mixed) {
         char temp_buf[256] = "";

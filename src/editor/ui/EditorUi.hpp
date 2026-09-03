@@ -14,6 +14,13 @@ enum class BadgeTone {
     Error
 };
 
+enum class ButtonTone {
+    Neutral,
+    Primary,
+    Success,
+    Danger
+};
+
 void area_heading(EditorIcon icon, const char* title, const char* subtitle = nullptr);
 void section_heading(const char* label, const char* trailing = nullptr);
 void badge(const char* label, BadgeTone tone = BadgeTone::Neutral);
@@ -25,6 +32,15 @@ bool toolbar_button(
     const char* tooltip,
     bool active = false,
     bool enabled = true
+);
+
+bool action_button(
+    const char* id,
+    EditorIcon icon,
+    const char* label,
+    ButtonTone tone = ButtonTone::Neutral,
+    bool enabled = true,
+    ImVec2 size = ImVec2(0.0f, 0.0f)
 );
 
 bool search_field(

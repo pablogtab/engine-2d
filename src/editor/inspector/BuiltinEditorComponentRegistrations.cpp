@@ -358,16 +358,25 @@ void register_builtin_editor_components(EditorComponentRegistry& registry) {
         .display_name = "Script",
         .category = EditorComponentCategory::Scripting,
         .icon = EditorIcon::Edit,
+        .repeatable = true,
         .dependencies = {"transform"},
         .draw = [](EntityManager& em, EntityID entity, const EditorInspectorContext& context) {
             ScriptInspectorDrawer::draw(em, entity, context);
         },
         .create_default = [](
-            EntityManager&,
-            EntityID,
+            EntityManager& em,
+            EntityID entity,
             const EditorInspectorContext&,
             ComponentSnapshotSet& snapshot
-        ) { snapshot.set(ScriptComponent{}); }
+        ) {
+            if (em.has_component<ScriptComponent>(entity)) {
+                ScriptComponent scripts = em.get_component<ScriptComponent>(entity);
+                scripts.instances.emplace_back();
+                snapshot.set(std::move(scripts));
+            } else {
+                snapshot.set(ScriptComponent{});
+            }
+        }
     });
     register_or_throw(registry, {
         .component_key = "canvas",

@@ -208,6 +208,9 @@ private:
     void render_rename_entity_popup(EntityManager& em);
     void render_transform_toolbar();
     void render_device_preview_toolbar();
+    void render_scene_tabs(ScenePlayState play_state);
+    void render_prefab_stage_header();
+    void render_transport_toolbar(ScenePlayState play_state);
     bool ensure_render_target();
     void configure_scene_view();
     [[nodiscard]] bool has_device_preview() const;

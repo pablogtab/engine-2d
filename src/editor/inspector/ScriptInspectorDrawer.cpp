@@ -218,31 +218,76 @@ void ScriptInspectorDrawer::draw(
     const EditorInspectorContext& context
 ) {
     if (!entity_manager.has_component<ScriptComponent>(entity)) return;
-    const auto header = InspectorWidgets::registered_component_header("script");
-    if (header.remove_requested && context.command_history) {
-        context.command_history->execute_command(std::make_unique<SetComponentCommand<ScriptComponent>>(
-            &entity_manager,
-            entity,
-            entity_manager.get_component<ScriptComponent>(entity),
-            std::nullopt,
-            "Remove Script"
-        ));
-        return;
-    }
-    if (!header.open) return;
 
     ImGui::PushID("ScriptComponentDrawer");
     ScriptComponent& component = entity_manager.get_component<ScriptComponent>(entity);
     for (std::size_t index = 0; index < component.instances.size(); ++index) {
         ScriptBehaviourSlot& instance = component.instances[index];
         ImGui::PushID(static_cast<int>(instance.id));
-        ImGui::Separator();
         const AssetRecord* record = instance.script_handle.is_valid()
             ? AssetDatabase::get().find(instance.script_handle) : nullptr;
-        const std::string component_name = record
+        std::string component_name = record
             ? std::filesystem::path(record->source_path).stem().string() : "Unassigned Behaviour";
-        ImGui::Text("%s%s", component_name.c_str(),
-            instance.runtime_only ? " (Runtime)" : "");
+        if (instance.runtime_only) component_name += " (Runtime)";
+
+        const ScriptComponent header_before = component;
+        const auto header = InspectorWidgets::component_header(
+            component_name.c_str(),
+            "ScriptBehaviourHeader",
+            true,
+            true,
+            EditorIcon::Edit,
+            false,
+            "script",
+            &instance.enabled
+        );
+        if (header.enabled_changed) {
+            const std::string property = "Script." + std::to_string(instance.id) + ".Enabled";
+            track_edit(
+                entity_manager,
+                entity,
+                header_before,
+                property.c_str(),
+                "Toggle Script Behaviour",
+                context,
+                true
+            );
+        }
+        if (header.remove_requested) {
+            const ScriptComponent before = component;
+            if (component.instances.size() == 1) {
+                if (context.command_history) {
+                    context.command_history->execute_command(std::make_unique<SetComponentCommand<ScriptComponent>>(
+                        &entity_manager,
+                        entity,
+                        before,
+                        std::nullopt,
+                        "Remove Script Behaviour"
+                    ));
+                } else {
+                    entity_manager.remove_component<ScriptComponent>(entity);
+                }
+                ImGui::PopID();
+                ImGui::PopID();
+                return;
+            }
+            component.instances.erase(component.instances.begin() + static_cast<std::ptrdiff_t>(index));
+            track_edit(
+                entity_manager,
+                entity,
+                before,
+                "Script.Remove",
+                "Remove Script Behaviour",
+                context,
+                true
+            );
+            ImGui::PopID();
+            break;
+        }
+        if (!header.open) {
+            ImGui::PopID();
+            continue;
+        }
 
         if (index > 0 && ImGui::SmallButton("Up")) {
             const ScriptComponent before = component;
@@ -273,19 +318,6 @@ void ScriptInspectorDrawer::draw(
                 break;
             }
         }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Remove")) {
-            const ScriptComponent before = component;
-            component.instances.erase(component.instances.begin() + static_cast<std::ptrdiff_t>(index));
-            track_edit(entity_manager, entity, before, "Script.Remove", "Remove Script Behaviour", context, true);
-            ImGui::PopID();
-            break;
-        }
-
-        const ScriptComponent enabled_before = component;
-        InspectorWidgets::property_bool("Enabled", &instance.enabled);
-        track_edit(entity_manager, entity, enabled_before, "Script.Enabled", "Toggle Script Behaviour", context);
-
         if (!instance.runtime_only) {
             const ScriptComponent asset_before = component;
             InspectorWidgets::begin_property_interaction("Script.Asset");
@@ -390,12 +422,6 @@ void ScriptInspectorDrawer::draw(
         ImGui::PopID();
     }
 
-    ImGui::Separator();
-    if (ImGui::Button("Add Behaviour")) {
-        const ScriptComponent before = component;
-        component.instances.emplace_back();
-        track_edit(entity_manager, entity, before, "Script.Add", "Add Script Behaviour", context, true);
-    }
     if (context.script_runtime) {
         if (const ScriptExecutionStatus* status = context.script_runtime->status(entity);
             status && status->state == ScriptExecutionState::Error) {
