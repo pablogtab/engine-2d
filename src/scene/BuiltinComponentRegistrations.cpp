@@ -1038,7 +1038,7 @@ void register_rigidbody(ComponentRegistry& registry) {
         },
         .after_remove = [](EntityManager& em, EntityID entity) { PhysicsSystem::rebuild_body(em, entity); },
         .validate = [](const RigidBodyComponent& body) -> std::optional<std::string> {
-            if (body.body_type == BodyType::Dynamic && body.mass <= 0.0f) return "Dynamic body mass must be positive";
+            if (body.mass < 0.0f) return "RigidBody mass cannot be negative";
             if (body.friction < 0.0f || body.restitution < 0.0f) return "Physics coefficients cannot be negative";
             return std::nullopt;
         }

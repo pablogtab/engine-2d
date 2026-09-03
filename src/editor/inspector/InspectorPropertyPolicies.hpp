@@ -72,7 +72,7 @@ inline constexpr auto OutlineThickness = bounded_float(0.1f, 0.0f, 64.0f, "%.1f 
 } // namespace Sprite
 
 namespace RigidBody {
-inline constexpr auto Mass = bounded_float(0.1f, 0.01f, 1000.0f);
+inline constexpr auto Mass = bounded_float(0.1f, 0.0f, 1000.0f);
 inline constexpr auto GravityScale = bounded_float(0.1f, -10.0f, 10.0f);
 inline constexpr auto Friction = bounded_float(0.01f, 0.0f, 1.0f);
 inline constexpr auto Restitution = bounded_float(0.01f, 0.0f, 1.0f);

@@ -359,6 +359,21 @@ void test_default_transform_validation_allows_zero_scale() {
     assert(descriptor->validate(em, entity).has_value());
 }
 
+void test_rigidbody_validation_allows_zero_mass() {
+    EntityManager em;
+    const EntityID entity = em.create_entity();
+    RigidBodyComponent body = RigidBodyComponent::Dynamic();
+    body.mass = 0.0f;
+    em.add_component<RigidBodyComponent>(entity, body);
+
+    const ComponentDescriptor* descriptor = default_component_registry().find_by_key("rigidbody");
+    assert(descriptor && descriptor->validate);
+    assert(!descriptor->validate(em, entity).has_value());
+
+    em.get_component<RigidBodyComponent>(entity).mass = -0.01f;
+    assert(descriptor->validate(em, entity).has_value());
+}
+
 
 void test_registered_snapshot_capture_and_restore() {
     EntityManager em;
@@ -439,7 +454,7 @@ void test_registered_json_round_trip_and_validation() {
     assert(em.get_component<SpriteComponent>(target).outline_thickness == 3.5f);
     assert(em.get_component<SpriteComponent>(target).render_layer == 4);
 
-    em.get_component<TransformComponent>(target).scale.x = 0.0f;
+    em.get_component<TransformComponent>(target).scale.x = std::numeric_limits<float>::infinity();
     const auto issues = default_component_registry().validate_entity(em, target);
     assert(issues.size() == 1);
     assert(issues.front().component_key == "transform");
@@ -969,6 +984,7 @@ int main() {
     test_component_migration_rejects_missing_and_future_versions();
     test_default_registry_metadata_is_stable();
     test_default_transform_validation_allows_zero_scale();
+    test_rigidbody_validation_allows_zero_mass();
     test_registered_snapshot_capture_and_restore();
     test_registered_add_and_remove_operations_respect_metadata();
     test_registered_json_round_trip_and_validation();

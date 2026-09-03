@@ -231,6 +231,24 @@ void test_serialization_is_deterministic_and_excludes_runtime_state() {
     assert(!em.has_component<AnimationPlaybackStateComponent>(entity));
 }
 
+void test_dynamic_rigidbody_with_zero_mass_loads() {
+    TestScene scene;
+    EntityManager& em = scene.get_entity_manager();
+    const EntityID entity = em.create_entity();
+    em.add_component<TransformComponent>(entity, TransformComponent{});
+    em.add_component<TagComponent>(entity, TagComponent{"Zero Mass Dynamic"});
+
+    RigidBodyComponent body = RigidBodyComponent::Dynamic();
+    body.mass = 0.0f;
+    em.add_component<RigidBodyComponent>(entity, body);
+    em.add_component<ColliderComponent>(entity, ColliderComponent::Circle(7.0f, {}, true));
+
+    SceneSerializer serializer(&scene);
+    const std::string snapshot = serializer.serialize_to_string();
+    assert(serializer.deserialize_from_string(snapshot));
+    assert(em.get_component<RigidBodyComponent>(entity).mass == 0.0f);
+}
+
 void test_failed_load_is_transactional() {
     TestScene scene;
     const EntityID preserved = add_preserved_entity(scene);
@@ -562,6 +580,7 @@ int main() {
     test_all_project_scenes_match_the_registered_schema();
   test_gameplay_tags_round_trip_deterministically();
   test_serialization_is_deterministic_and_excludes_runtime_state();
+    test_dynamic_rigidbody_with_zero_mass_loads();
     test_failed_load_is_transactional();
     test_future_scene_version_is_rejected_transactionally();
     test_v1_scene_migrates_to_current_schema();
