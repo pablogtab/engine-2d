@@ -2654,7 +2654,7 @@ void AiAssistantPanel::on_gui() {
         return;
     }
 
-    EditorUi::area_heading(EditorIcon::Assistant, "AI Assistant", "Project-aware editor tools");
+    EditorUi::area_heading(EditorIcon::Assistant, "AI Assistant");
 
     const bool codex_available = m_codex_provider && m_codex_provider->is_available() &&
         !m_codex_executable.empty();

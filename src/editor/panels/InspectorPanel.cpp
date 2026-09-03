@@ -197,12 +197,7 @@ void InspectorPanel::on_gui() {
 }
 
 void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<EntityID>& entities) {
-    const std::string selection_summary = std::to_string(entities.size()) + " entities";
-    EditorUi::area_heading(
-        EditorIcon::Component,
-        "Multiple Selection",
-        selection_summary.c_str()
-    );
+    EditorUi::area_heading(EditorIcon::Component, "Multiple Selection");
 
     const bool any_editor_locked = m_entity_state_store && std::any_of(entities.begin(), entities.end(), [&](EntityID e) {
         return m_entity_state_store->is_locked(e);

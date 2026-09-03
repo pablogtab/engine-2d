@@ -21,7 +21,7 @@ enum class ButtonTone {
     Danger
 };
 
-void area_heading(EditorIcon icon, const char* title, const char* subtitle = nullptr);
+void area_heading(EditorIcon icon, const char* title);
 void section_heading(const char* label, const char* trailing = nullptr);
 void badge(const char* label, BadgeTone tone = BadgeTone::Neutral);
 void empty_state(EditorIcon icon, const char* title, const char* detail = nullptr);

@@ -26,12 +26,11 @@ ImVec4 with_alpha(const ImVec4& color, float alpha) {
 
 } // namespace
 
-void area_heading(EditorIcon icon, const char* title, const char* subtitle) {
+void area_heading(EditorIcon icon, const char* title) {
     const auto& metrics = EditorTheme::metrics();
     const auto& palette = EditorTheme::palette();
     const ImVec2 start = ImGui::GetCursorScreenPos();
-    const float height = subtitle ? metrics.area_header_height + 8.0f * metrics.scale
-                                  : metrics.area_header_height;
+    const float height = metrics.area_header_height;
     const float width = ImGui::GetContentRegionAvail().x;
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     draw_list->AddRectFilled(
@@ -43,19 +42,16 @@ void area_heading(EditorIcon icon, const char* title, const char* subtitle) {
 
     const ImVec2 icon_center(
         start.x + 13.0f * metrics.scale,
-        start.y + (subtitle ? 15.0f : height * 0.5f)
+        start.y + height * 0.5f
     );
     draw_editor_icon(
         draw_list, icon, icon_center, metrics.icon_size,
         ImGui::ColorConvertFloat4ToU32(palette.text_muted)
     );
 
-    ImGui::SetCursorScreenPos(ImVec2(start.x + 26.0f * metrics.scale, start.y + 5.0f * metrics.scale));
+    const float text_y = start.y + (height - ImGui::GetTextLineHeight()) * 0.5f;
+    ImGui::SetCursorScreenPos(ImVec2(start.x + 26.0f * metrics.scale, text_y));
     ImGui::TextUnformatted(title);
-    if (subtitle) {
-        ImGui::SetCursorScreenPos(ImVec2(start.x + 26.0f * metrics.scale, start.y + 20.0f * metrics.scale));
-        ImGui::TextDisabled("%s", subtitle);
-    }
     ImGui::SetCursorScreenPos(ImVec2(start.x, start.y + height + metrics.compact_spacing));
 }
 

@@ -1,6 +1,10 @@
 #pragma once
 
 #include "../EditorPanel.hpp"
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
 
 namespace Engine {
 
@@ -16,17 +20,31 @@ public:
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
 private:
+    struct StressResultRow {
+        std::string name;
+        std::size_t entities{0};
+        std::size_t sprites{0};
+        std::size_t draw_calls{0};
+        std::size_t max_draw_calls{0};
+        std::size_t allocations{0};
+        std::size_t max_allocations{0};
+        double cpu_milliseconds{0.0};
+        bool passed{false};
+        std::string detail;
+    };
+
     std::string m_name{"Engine & Metrics"};
     float m_frametime_history[60]{};
     int m_history_offset{0};
     float m_accumulated_time{0.0f};
     FrameProfiler* m_profiler{nullptr};
     int m_history_window{120};
-    int m_selected_frame{-1};
+    std::uint64_t m_selected_frame_index{0};
     bool m_follow_latest_frame{true};
     std::string m_project_root;
     std::string m_export_feedback;
     std::string m_stress_feedback;
+    std::vector<StressResultRow> m_stress_results;
 };
 
 } // namespace Engine

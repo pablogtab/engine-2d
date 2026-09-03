@@ -80,7 +80,7 @@ void PostProcessTunerPanel::on_gui() {
         return;
     }
 
-    EditorUi::area_heading(EditorIcon::Material, "Post Processing", "Active camera profile");
+        EditorUi::area_heading(EditorIcon::Material, "Post Processing");
 
     Scene* scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
     PostProcessPipeline* pipeline = m_scene_manager ? m_scene_manager->get_post_process_pipeline() : nullptr;

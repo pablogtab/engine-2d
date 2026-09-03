@@ -124,11 +124,7 @@ void EditorShell::render_command_palette() {
         return;
     }
 
-    EditorUi::area_heading(
-        EditorIcon::Zap,
-        "Command Palette",
-        "Run any editor action - Cmd+Shift+P"
-    );
+    EditorUi::area_heading(EditorIcon::Zap, "Command Palette");
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     EditorUi::search_field(
         "##command_palette_query", "Type an action name...",

@@ -163,7 +163,7 @@ void ParticleEffectEditorPanel::on_gui() {
         return;
     }
 
-    EditorUi::area_heading(EditorIcon::Zap, "Particle Editor", "Author and preview particle assets");
+    EditorUi::area_heading(EditorIcon::Zap, "Particle Editor");
 
     AssetDatabase& db = AssetDatabase::get();
 
