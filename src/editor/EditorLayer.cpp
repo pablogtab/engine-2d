@@ -51,6 +51,14 @@ namespace {
 constexpr int MIN_AUTOSAVE_INTERVAL_SECONDS = 15;
 constexpr int MAX_AUTOSAVE_INTERVAL_SECONDS = 3600;
 
+std::string workspace_panel_state_key(
+    const WorkspaceManager& workspaces,
+    EditorPanelId panel
+) {
+    return std::string("workspace.") + workspaces.active_descriptor().key + "." +
+        editor_panel_id_key(panel);
+}
+
 std::string normalized_scene_identity(const std::string& path) {
     if (path.empty()) return {};
     std::error_code error;
@@ -922,14 +930,20 @@ void EditorLayer::begin_frame() {
     ShortcutManager::get().update(dt, want_text_input());
 }
 
-void EditorLayer::apply_workspace_panel_visibility() {
+void EditorLayer::apply_workspace_panel_visibility(bool restore_saved) {
     for (const auto& panel : m_panel_registry.panels()) {
         if (!panel || panel->get_id() == EditorPanelId::ProjectSettings ||
             panel->get_id() == EditorPanelId::Shortcuts ||
             panel->get_id() == EditorPanelId::UiGallery) {
             continue;
         }
-        panel->is_open = m_shell.workspaces().contains(panel->get_id());
+        const bool default_open = m_shell.workspaces().contains(panel->get_id());
+        panel->is_open = restore_saved
+            ? m_panel_states.is_open(
+                workspace_panel_state_key(m_shell.workspaces(), panel->get_id()),
+                default_open
+            )
+            : default_open;
     }
 }
 
@@ -937,7 +951,10 @@ void EditorLayer::persist_panel_states() {
     for (const auto& panel : m_panel_registry.panels()) {
         if (panel && panel->get_id() != EditorPanelId::ProjectSettings &&
             panel->get_id() != EditorPanelId::Shortcuts) {
-            m_panel_states.set_open(editor_panel_id_key(panel->get_id()), panel->is_open);
+            m_panel_states.set_open(
+                workspace_panel_state_key(m_shell.workspaces(), panel->get_id()),
+                panel->is_open
+            );
         }
     }
     if (m_panel_states.revision() == m_saved_panel_state_revision) return;
@@ -1581,7 +1598,7 @@ void EditorLayer::render_dockspace() {
         m_workspace_layouts.ensure_initialized(dockspace_id, m_shell.workspaces());
     if (pending_layout == WorkspaceLayoutApplyResult::Defaulted ||
         initial_layout == WorkspaceLayoutApplyResult::Defaulted) {
-        apply_workspace_panel_visibility();
+        apply_workspace_panel_visibility(false);
     }
     ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
@@ -2069,6 +2086,7 @@ void EditorLayer::render_main_menu_bar() {
 
 void EditorLayer::activate_workspace(EditorWorkspaceId id) {
     m_workspace_layouts.persist();
+    persist_panel_states();
     if (!m_shell.activate_workspace(id)) return;
     apply_workspace_panel_visibility();
     m_workspace_layouts.request(id);
@@ -2360,7 +2378,12 @@ void EditorLayer::register_panel(EditorPanelId id, std::shared_ptr<EditorPanel> 
     if (id == EditorPanelId::ProjectSettings || id == EditorPanelId::Shortcuts) {
         panel->is_open = false;
     } else {
-        panel->is_open = m_panel_states.is_open(editor_panel_id_key(id), panel->is_open);
+        const bool legacy_open = m_panel_states.is_open(
+            editor_panel_id_key(id), panel->is_open
+        );
+        panel->is_open = m_panel_states.is_open(
+            workspace_panel_state_key(m_shell.workspaces(), id), legacy_open
+        );
     }
     if (!m_panel_registry.add(
             id, panel, {m_command_history, m_entity_state_store, m_selection})) {

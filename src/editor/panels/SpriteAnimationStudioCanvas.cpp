@@ -436,9 +436,9 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(
         ImGui::SameLine();
         has_selection = active_clip && m_selected_custom_frame >= 0 &&
             m_selected_custom_frame < static_cast<int>(active_clip->custom_frames.size());
-        if (EditorUi::action_button(
-                "freeform_delete", EditorIcon::Trash, "Delete Slice",
-                EditorUi::ButtonTone::Danger, has_selection)) {
+        if (EditorUi::toolbar_button(
+                "freeform_delete", EditorIcon::Trash, "Delete selected slice",
+                false, has_selection)) {
             const AnimationComponent before = animation;
             active_clip->custom_frames.erase(
                 active_clip->custom_frames.begin() + m_selected_custom_frame
@@ -457,10 +457,9 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(
                     static_cast<int>(active_clip->custom_frames.size());
         }
         ImGui::SameLine();
-        const float slice_badge_x = ImGui::GetCursorPosX();
         const std::string slice_label = has_selection
             ? "#" + std::to_string(m_selected_custom_frame)
-            : "NO SLICE";
+            : "NONE";
         EditorUi::badge(
             slice_label.c_str(),
             has_selection ? EditorUi::BadgeTone::Accent : EditorUi::BadgeTone::Neutral
@@ -478,20 +477,17 @@ void SpriteAnimationStudioPanel::render_spritesheet_canvas(
             selected ? &selected->h : &placeholder
         };
         for (int field = 0; field < 4; ++field) {
-            if (field == 0) {
-                ImGui::SameLine(slice_badge_x + 74.0f * metrics.scale);
-            } else {
-                ImGui::SameLine();
-            }
+            ImGui::SameLine();
             ImGui::TextDisabled("%s", labels[field]);
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(58.0f * metrics.scale);
+            ImGui::SetNextItemWidth(44.0f * metrics.scale);
             ImGui::BeginDisabled(!has_selection);
             const AnimationComponent before = animation;
             ImGui::PushID(field);
-            const bool bounds_changed = ImGui::DragFloat(
-                    "##freeform_value", values[field], 1.0f, 0.0f, 0.0f,
-                    has_selection ? "%.0f" : "--");
+            const bool bounds_changed = ImGui::InputFloat(
+                "##freeform_value", values[field], 0.0f, 0.0f,
+                has_selection ? "%.0f" : "--"
+            );
             if (bounds_changed) {
                 clamp_frame(
                     *selected,

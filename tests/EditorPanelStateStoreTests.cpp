@@ -25,12 +25,16 @@ int main() {
     defaults.set_open("Engine & Metrics", true);
     assert(defaults.revision() == initial_revision + 1);
     defaults.set_open("AI Assistant", false);
+    defaults.set_open("workspace.animation.hierarchy", true);
+    defaults.set_open("workspace.debug.hierarchy", false);
     assert(defaults.save(state_path.string()));
 
     EditorPanelStateStore restored;
     assert(restored.load(state_path.string()));
     assert(restored.is_open("Engine & Metrics", false));
     assert(!restored.is_open("AI Assistant", true));
+    assert(restored.is_open("workspace.animation.hierarchy", false));
+    assert(!restored.is_open("workspace.debug.hierarchy", true));
     assert(restored.is_open("New Panel", true));
 
     {

@@ -131,7 +131,7 @@ private:
     void render_main_menu_bar();
     void register_editor_actions();
     void activate_workspace(EditorWorkspaceId id);
-    void apply_workspace_panel_visibility();
+    void apply_workspace_panel_visibility(bool restore_saved = true);
     void persist_panel_states();
     [[nodiscard]] bool can_persist_authoring_scenes() const;
     bool save_hot_exit_session();
