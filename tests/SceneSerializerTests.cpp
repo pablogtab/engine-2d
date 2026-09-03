@@ -572,7 +572,9 @@ void test_invalid_json_or_entity_after_settings_leaves_scene_and_settings_intact
 
 int main() {
     std::filesystem::current_path(ENGINE_SOURCE_DIR);
-    [[maybe_unused]] const AssetScanResult assets = AssetDatabase::get().scan("assets");
+    AssetDatabase& asset_database = AssetDatabase::get();
+    asset_database.set_read_only(true);
+    [[maybe_unused]] const AssetScanResult assets = asset_database.scan("assets");
     test_round_trip_restores_destroyed_child_hierarchy();
     test_render_layer_effect_assignments_round_trip();
     test_forward_parent_reference_is_order_independent();

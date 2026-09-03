@@ -397,12 +397,15 @@ presentacion anterior.
 
 Duracion estimada: 2 a 4 semanas.
 
-- Sprite Animation Studio.
-- Tilemap Palette.
-- Particle Effect Editor.
-- Post Process Tuner.
-- Project Hub.
-- Modales de recuperacion, conflictos y guardado.
+- Sprite Animation Studio. `COMPLETADO`.
+- Tilemap Palette. `APLAZADO`: conservar la implementacion actual por ahora.
+- Particle Effect Editor. `COMPLETADO`.
+- Post Process Tuner. `COMPLETADO`.
+- Project Hub. `APLAZADO`: ya es funcional; modernizar su experiencia visual en
+  una iteracion posterior.
+- Modales de recuperacion, conflictos y guardado. `COMPLETADO`: presentacion
+  comun, navegacion segura por teclado, Save As sin sobrescritura implicita y
+  errores recuperables que conservan el autosave.
 
 Cada editor usara la misma anatomia:
 

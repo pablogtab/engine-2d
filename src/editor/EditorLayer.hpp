@@ -156,7 +156,10 @@ private:
     void schedule_lighting_bake(const std::filesystem::path& scene_path, std::chrono::milliseconds delay);
     void update_lighting_bakes();
     void render_recovery_modal();
-    void recover_autosave(const AutosaveRecord& record);
+    [[nodiscard]] bool recover_autosave(const AutosaveRecord& record);
+    void request_save_scene_as(Scene* scene, bool continue_pending_action = false);
+    void complete_pending_action();
+    void cancel_pending_action();
     void load_autosave_preferences();
     void save_autosave_preferences() const;
     void load_entity_state_preferences(const Scene* scene, EditorSceneSession& session) const;
@@ -224,8 +227,15 @@ private:
     char m_autosave_directory[1024]{"Library/Autosaves"};
     PendingDestructiveAction m_pending_action;
     const Scene* m_external_conflict_scene{nullptr};
+    Scene* m_save_as_scene{nullptr};
     std::function<void()> m_project_hub_request_callback;
     char m_save_as_buf[128]{"NewLevel.scene"};
+    bool m_continue_pending_action_after_save_as{false};
+    std::string m_save_as_error;
+    std::string m_unsaved_changes_error;
+    std::string m_external_conflict_error;
+    std::string m_recovery_error;
+    std::string m_prefab_stage_error;
 
     std::unique_ptr<class PrefabStageController> m_prefab_stage;
 

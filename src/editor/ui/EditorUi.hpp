@@ -50,4 +50,13 @@ bool search_field(
     float width = -1.0f
 );
 
+// Shared presentation for blocking editor workflows. Call set_next_modal_width()
+// before BeginPopupModal(), then compose the body with the helpers below.
+void set_next_modal_width(float width = 520.0f);
+void modal_status(const char* label, BadgeTone tone);
+void modal_lead(const char* message, const char* detail = nullptr);
+void modal_resource(const char* label, const char* value, const char* detail = nullptr);
+void modal_callout(const char* message, BadgeTone tone = BadgeTone::Neutral);
+void modal_footer(float actions_width);
+
 } // namespace Engine::EditorUi

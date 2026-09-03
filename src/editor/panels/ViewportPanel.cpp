@@ -870,7 +870,7 @@ void ViewportPanel::render_scene_tabs(ScenePlayState play_state) {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 5.0f));
     if (ImGui::BeginTabBar(
             "##scene_tabs",
-            ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_FittingPolicyScroll)) {
+            ImGuiTabBarFlags_FittingPolicyScroll)) {
         for (std::size_t index = 0; index < scenes.size(); ++index) {
             if (!scenes[index]) continue;
             if (m_is_scene_tab_open && !m_is_scene_tab_open(scenes[index].get())) continue;
@@ -889,12 +889,14 @@ void ViewportPanel::render_scene_tabs(ScenePlayState play_state) {
             const bool selected = ImGui::BeginTabItem(
                 label.c_str(), can_close ? &tab_open : nullptr, flags
             );
-            if (selected) {
-                if (!is_active && can_activate && m_on_activate_scene) {
-                    m_on_activate_scene(index);
-                }
-                ImGui::EndTabItem();
+            const bool requested_activation = ImGui::IsItemClicked(ImGuiMouseButton_Left) ||
+                (ImGui::IsItemFocused() &&
+                 (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                  ImGui::IsKeyPressed(ImGuiKey_Space, false)));
+            if (!is_active && can_activate && requested_activation && m_on_activate_scene) {
+                m_on_activate_scene(index);
             }
+            if (selected) ImGui::EndTabItem();
             ImGui::EndDisabled();
             if (!tab_open && can_close) close_requested = index;
         }

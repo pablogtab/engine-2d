@@ -184,6 +184,7 @@ set(SOURCES
     src/editor/state/EditorPanelStateStore.cpp
     src/editor/state/AutosaveRecovery.cpp
     src/editor/state/RecentSceneList.cpp
+    src/editor/state/SceneSaveAsTarget.cpp
     src/editor/session/EditorSessionController.cpp
     src/editor/commands/EditorCommandHistory.cpp
     src/editor/commands/EditorCommandGroup.cpp
@@ -635,6 +636,15 @@ target_include_directories(AutosaveRecoveryTests PRIVATE
 )
 target_link_libraries(AutosaveRecoveryTests PRIVATE SDL3::SDL3)
 add_test(NAME AutosaveRecoveryTests COMMAND AutosaveRecoveryTests)
+
+add_executable(SceneSaveAsTargetTests
+    tests/SceneSaveAsTargetTests.cpp
+    src/editor/state/SceneSaveAsTarget.cpp
+)
+target_include_directories(SceneSaveAsTargetTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+add_test(NAME SceneSaveAsTargetTests COMMAND SceneSaveAsTargetTests)
 
 add_executable(DisplayPersistenceTests
     tests/DisplayPersistenceTests.cpp

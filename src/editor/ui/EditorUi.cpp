@@ -166,4 +166,94 @@ bool search_field(
     return ImGui::InputTextWithHint(id, hint, buffer, buffer_size);
 }
 
+void set_next_modal_width(float width) {
+    const float scaled_width = width * EditorTheme::metrics().scale;
+    const float available = ImGui::GetMainViewport()->WorkSize.x - 32.0f;
+    ImGui::SetNextWindowSize(
+        ImVec2(std::min(scaled_width, available), 0.0f), ImGuiCond_Appearing
+    );
+}
+
+void modal_status(const char* label, BadgeTone tone) {
+    badge(label, tone);
+    ImGui::Spacing();
+}
+
+void modal_lead(const char* message, const char* detail) {
+    const auto& palette = EditorTheme::palette();
+    ImGui::PushStyleColor(ImGuiCol_Text, palette.text);
+    ImGui::TextWrapped("%s", message);
+    ImGui::PopStyleColor();
+    if (detail && detail[0] != '\0') {
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Text, palette.text_muted);
+        ImGui::TextWrapped("%s", detail);
+        ImGui::PopStyleColor();
+    }
+    ImGui::Spacing();
+}
+
+void modal_resource(const char* label, const char* value, const char* detail) {
+    const auto& palette = EditorTheme::palette();
+    const auto& metrics = EditorTheme::metrics();
+    const float height = (detail && detail[0] != '\0' ? 66.0f : 48.0f) * metrics.scale;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, palette.panel_raised);
+    ImGui::PushStyleColor(ImGuiCol_Border, palette.border);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, metrics.small_rounding);
+    ImGui::PushStyleVar(
+        ImGuiStyleVar_WindowPadding,
+        ImVec2(10.0f * metrics.scale, 7.0f * metrics.scale)
+    );
+    ImGui::BeginChild(
+        "##modal_resource", ImVec2(0.0f, height), true,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+    );
+    ImGui::TextDisabled("%s", label);
+    ImGui::TextUnformatted(value);
+    if (detail && detail[0] != '\0') ImGui::TextDisabled("%s", detail);
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+    ImGui::Spacing();
+}
+
+void modal_callout(const char* message, BadgeTone tone) {
+    const auto& palette = EditorTheme::palette();
+    const auto& metrics = EditorTheme::metrics();
+    const ImVec4 color = tone_color(tone);
+    const float padding = 10.0f * metrics.scale;
+    const float wrap_width = std::max(80.0f, ImGui::GetContentRegionAvail().x - padding * 2.0f);
+    const ImVec2 text_size = ImGui::CalcTextSize(message, nullptr, false, wrap_width);
+    const float height = text_size.y + padding * 2.0f;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, with_alpha(color, 0.10f));
+    ImGui::PushStyleColor(ImGuiCol_Border, with_alpha(color, 0.42f));
+    ImGui::PushStyleColor(
+        ImGuiCol_Text,
+        tone == BadgeTone::Neutral ? palette.text_muted : palette.text
+    );
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, metrics.small_rounding);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding));
+    ImGui::PushID(message);
+    ImGui::BeginChild(
+        "##modal_callout", ImVec2(0.0f, height), true,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+    );
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + wrap_width);
+    ImGui::TextUnformatted(message);
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
+    ImGui::PopID();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(3);
+    ImGui::Spacing();
+}
+
+void modal_footer(float actions_width) {
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    const float right_aligned = ImGui::GetWindowContentRegionMax().x - actions_width;
+    if (right_aligned > ImGui::GetCursorPosX()) ImGui::SetCursorPosX(right_aligned);
+}
+
 } // namespace Engine::EditorUi

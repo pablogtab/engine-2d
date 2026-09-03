@@ -3,6 +3,7 @@
 #include "ui/EditorUi.hpp"
 #include "EditorSelection.hpp"
 #include "state/EditorEntityStateStore.hpp"
+#include "state/SceneSaveAsTarget.hpp"
 #include "commands/EditorCommandHistory.hpp"
 #include "commands/EntityCommands.hpp"
 #include "commands/HierarchyCommands.hpp"
@@ -1281,11 +1282,12 @@ bool EditorLayer::save_scene(Scene* scene, EditorSceneSession& session, const st
     }
     if (session.recovery_source_conflicted && custom_path.empty()) {
         ENGINE_LOG_WARN("[AUTOSAVE] Recovered scene '{}' must use Save As because its source changed externally", scene->get_name());
-        m_show_save_as_popup = true;
+        request_save_scene_as(scene, m_continue_pending_action_after_save_as);
         return false;
     }
     if (session.external_source_conflicted && custom_path.empty()) {
         m_external_conflict_scene = scene;
+        m_external_conflict_error.clear();
         ENGINE_LOG_WARN("[EDITOR] Scene '{}' changed on disk; reload it or use Save As before saving",
                         scene->get_name());
         return false;
@@ -1412,6 +1414,42 @@ bool EditorLayer::save_active_scene(const std::string& custom_path) {
     const bool saved = save_scene(active_scene, session, custom_path);
     update_window_title();
     return saved;
+}
+
+void EditorLayer::request_save_scene_as(Scene* scene, bool continue_pending_action) {
+    if (!scene && m_scene_manager) {
+        scene = m_scene_manager->is_transient_scene_active()
+            ? (m_scene_manager->get_scene_count() > 0
+                ? m_scene_manager->get_scenes()[m_scene_manager->get_active_index()].get()
+                : nullptr)
+            : m_scene_manager->get_active_scene();
+    }
+    if (!scene) {
+        ENGINE_LOG_WARN("[EDITOR] No active scene to save as.");
+        return;
+    }
+
+    std::string filename = scene->get_name() + ".scene";
+    const auto session_it = m_sessions.sessions().find(scene);
+    if (session_it != m_sessions.sessions().end() && !session_it->second.file_path.empty()) {
+        filename = std::filesystem::path(session_it->second.file_path).filename().string();
+    }
+    std::snprintf(m_save_as_buf, sizeof(m_save_as_buf), "%s", filename.c_str());
+    m_save_as_scene = scene;
+    m_continue_pending_action_after_save_as = continue_pending_action;
+    m_save_as_error.clear();
+    m_show_save_as_popup = true;
+}
+
+void EditorLayer::complete_pending_action() {
+    auto action = std::move(m_pending_action.action);
+    m_pending_action = {};
+    if (action) action();
+}
+
+void EditorLayer::cancel_pending_action() {
+    m_pending_action = {};
+    m_continue_pending_action_after_save_as = false;
 }
 
 bool EditorLayer::save_all_scenes() {
@@ -1674,29 +1712,83 @@ void EditorLayer::render_dockspace() {
         ImGui::EndPopup();
     }
 
-    // Modal popup: Save Scene As
     if (m_show_save_as_popup) {
         ImGui::OpenPopup("Save Scene As");
         m_show_save_as_popup = false;
     }
 
-    if (ImGui::BeginPopupModal("Save Scene As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Enter Scene Filename (saved in Assets/Scenes/):");
+    EditorUi::set_next_modal_width();
+    if (ImGui::BeginPopupModal(
+            "Save Scene As", nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        Scene* target_scene = m_save_as_scene;
+        const std::string scene_name = target_scene ? target_scene->get_name() : "Current Scene";
+        EditorUi::modal_status("SAVE AS", EditorUi::BadgeTone::Accent);
+        EditorUi::modal_lead(
+            ("Save '" + scene_name + "' as a separate scene file.").c_str(),
+            "The original file is never overwritten by this action."
+        );
+        EditorUi::modal_resource(
+            "DESTINATION", scenes_directory().string().c_str(), "Project scene folder"
+        );
+        ImGui::TextUnformatted("File name");
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
         ImGui::InputText("##saveasname", m_save_as_buf, sizeof(m_save_as_buf));
-        ImGui::Spacing();
 
-        if (ImGui::Button("Save", ImVec2(120, 0))) {
-            std::string fname = m_save_as_buf;
-            if (!fname.empty()) {
-                if (fname.find(".scene") == std::string::npos) fname += ".scene";
-                std::filesystem::create_directories(scenes_directory());
-                save_active_scene((scenes_directory() / fname).string());
-            }
-            ImGui::CloseCurrentPopup();
+        const SceneSaveAsTarget save_target = resolve_scene_save_as_target(
+            scenes_directory(), m_save_as_buf
+        );
+        if (save_target.issue == SceneSaveAsIssue::InvalidName) {
+            EditorUi::modal_callout(
+                "Use a portable file name without folder separators or reserved characters.",
+                EditorUi::BadgeTone::Warning
+            );
+        } else if (save_target.issue == SceneSaveAsIssue::DestinationExists) {
+            EditorUi::modal_callout(
+                "A scene with this file name already exists. Choose a new name to avoid overwriting it.",
+                EditorUi::BadgeTone::Warning
+            );
         }
+        if (!m_save_as_error.empty()) {
+            EditorUi::modal_callout(m_save_as_error.c_str(), EditorUi::BadgeTone::Error);
+        }
+
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        EditorUi::modal_footer(120.0f + 130.0f + spacing);
+        const bool cancel_save_as = EditorUi::action_button(
+            "cancel_save_as", EditorIcon::Clear, "Cancel",
+            EditorUi::ButtonTone::Neutral, true, ImVec2(120.0f, 0.0f)
+        ) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+        if (EditorUi::action_button(
+                "confirm_save_as", EditorIcon::Save, "Save",
+                EditorUi::ButtonTone::Primary, save_target.can_save(),
+                ImVec2(130.0f, 0.0f))) {
+            std::filesystem::create_directories(scenes_directory());
+            const bool saved = target_scene
+                ? save_scene(
+                    target_scene, get_or_create_session(target_scene),
+                    save_target.path.string())
+                : false;
+            if (saved) {
+                const bool continue_action = m_continue_pending_action_after_save_as;
+                m_continue_pending_action_after_save_as = false;
+                m_save_as_scene = nullptr;
+                m_save_as_error.clear();
+                ImGui::CloseCurrentPopup();
+                if (continue_action) complete_pending_action();
+            } else {
+                m_save_as_error = "The scene could not be saved. Check the file name and editor logs.";
+            }
+        }
+        if (cancel_save_as) {
+            const bool return_to_unsaved = m_continue_pending_action_after_save_as;
+            m_continue_pending_action_after_save_as = false;
+            m_save_as_scene = nullptr;
+            m_save_as_error.clear();
             ImGui::CloseCurrentPopup();
+            if (return_to_unsaved) m_show_unsaved_changes_modal = true;
         }
         ImGui::EndPopup();
     }
@@ -1729,46 +1821,69 @@ void EditorLayer::render_dockspace() {
         ImGui::EndPopup();
     }
 
-    // Modal popup: Unsaved Changes Confirmation
     if (m_show_unsaved_changes_modal) {
         ImGui::OpenPopup("Unsaved Changes");
         m_show_unsaved_changes_modal = false;
+        m_unsaved_changes_error.clear();
     }
 
-    if (ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    EditorUi::set_next_modal_width();
+    if (ImGui::BeginPopupModal(
+            "Unsaved Changes", nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
         std::string scene_name = (m_scene_manager && m_scene_manager->get_active_scene())
             ? m_scene_manager->get_active_scene()->get_name() : "Current Scene";
-
-        ImGui::Text("You have unsaved changes in '%s'.", scene_name.c_str());
-        ImGui::Text("Do you want to save before proceeding?");
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        if (ImGui::Button("Save & Continue", ImVec2(130, 0))) {
-            if (save_active_scene()) {
-                ImGui::CloseCurrentPopup();
-                if (m_pending_action.action) {
-                    auto act = std::move(m_pending_action.action);
-                    m_pending_action = {};
-                    act();
-                }
-            }
+        EditorUi::modal_status("UNSAVED", EditorUi::BadgeTone::Warning);
+        EditorUi::modal_lead(
+            "This scene contains changes that have not been saved.",
+            "Save them before continuing, or discard them permanently."
+        );
+        const std::string pending_target = m_pending_action.target.empty()
+            ? "Close the current workflow" : m_pending_action.target;
+        EditorUi::modal_resource(
+            "SCENE", scene_name.c_str(), ("Next: " + pending_target).c_str()
+        );
+        if (!m_unsaved_changes_error.empty()) {
+            EditorUi::modal_callout(
+                m_unsaved_changes_error.c_str(), EditorUi::BadgeTone::Error
+            );
         }
+
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        EditorUi::modal_footer(110.0f + 150.0f + 170.0f + spacing * 2.0f);
+        const bool cancel_unsaved = EditorUi::action_button(
+            "cancel_unsaved_scene", EditorIcon::Clear, "Cancel",
+            EditorUi::ButtonTone::Neutral, true, ImVec2(110.0f, 0.0f)
+        ) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
         ImGui::SameLine();
-        if (ImGui::Button("Discard Changes", ImVec2(130, 0))) {
+        if (EditorUi::action_button(
+                "discard_unsaved_scene", EditorIcon::Trash, "Discard",
+                EditorUi::ButtonTone::Danger, true, ImVec2(150.0f, 0.0f))) {
             if (discard_active_scene_changes()) {
                 ImGui::CloseCurrentPopup();
-                if (m_pending_action.action) {
-                    auto act = std::move(m_pending_action.action);
-                    m_pending_action = {};
-                    act();
-                }
+                complete_pending_action();
+            } else {
+                m_unsaved_changes_error = "The scene could not be restored to its saved state.";
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(100, 0))) {
-            m_pending_action = {};
+        if (EditorUi::action_button(
+                "save_unsaved_scene", EditorIcon::Save, "Save & Continue",
+                EditorUi::ButtonTone::Primary, true, ImVec2(170.0f, 0.0f))) {
+            m_continue_pending_action_after_save_as = true;
+            if (save_active_scene()) {
+                m_continue_pending_action_after_save_as = false;
+                ImGui::CloseCurrentPopup();
+                complete_pending_action();
+            } else if (m_show_save_as_popup || m_external_conflict_scene) {
+                ImGui::CloseCurrentPopup();
+            } else {
+                m_continue_pending_action_after_save_as = false;
+                m_unsaved_changes_error = "The scene could not be saved. Review the editor logs and try again.";
+            }
+        }
+        if (cancel_unsaved) {
+            cancel_pending_action();
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -1804,7 +1919,7 @@ void EditorLayer::render_main_menu_bar() {
                 static_cast<void>(m_shell.actions().execute("editor.save_all"));
             }
             if (ImGui::MenuItem("Save Scene As...", nullptr, false, can_persist_authoring_scenes())) {
-                m_show_save_as_popup = true;
+                request_save_scene_as(nullptr);
             }
             if (m_recent_scenes.remove_missing_files()) {
                 static_cast<void>(m_recent_scenes.save(m_recent_scenes_path.string()));
@@ -2215,6 +2330,7 @@ bool EditorLayer::reload_scene_from_disk(
     if (session.command_history) session.command_history->reset_clean_baseline(0);
     session.initial_snapshot_json.clear();
     session.external_source_conflicted = false;
+    static_cast<void>(m_autosave_recovery.remove(session.autosave_identity));
     refresh_scene_source_stamp(session);
     schedule_lighting_bake(session.file_path, std::chrono::milliseconds(500));
     update_window_title();
@@ -2249,6 +2365,7 @@ void EditorLayer::update_external_scene_changes(float delta_time) {
         if (session.command_history && session.command_history->is_dirty()) {
             session.external_source_conflicted = true;
             m_external_conflict_scene = scene.get();
+            m_external_conflict_error.clear();
             ENGINE_LOG_WARN(
                 "[EDITOR] Scene '{}' changed on disk while local edits are unsaved; save is blocked",
                 scene->get_name());
@@ -2262,17 +2379,46 @@ void EditorLayer::render_external_scene_change_modal() {
     if (m_external_conflict_scene) {
         ImGui::OpenPopup("Scene changed on disk");
     }
+    EditorUi::set_next_modal_width(560.0f);
     if (!ImGui::BeginPopupModal(
-            "Scene changed on disk", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+            "Scene changed on disk", nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) return;
 
     const Scene* conflicted_scene = m_external_conflict_scene;
-    ImGui::TextWrapped(
-        "This scene changed on disk while it has unsaved editor changes. "
-        "Saving over the external version is blocked.");
-    if (conflicted_scene) ImGui::Text("Scene: %s", conflicted_scene->get_name().c_str());
-    ImGui::Spacing();
+    EditorUi::modal_status("SOURCE CONFLICT", EditorUi::BadgeTone::Error);
+    EditorUi::modal_lead(
+        "The scene changed on disk while this editor contains unsaved changes.",
+        "Engine2D blocked the normal save so neither version is overwritten accidentally."
+    );
+    std::string source_path;
+    if (conflicted_scene) {
+        const auto session_it = m_sessions.sessions().find(conflicted_scene);
+        if (session_it != m_sessions.sessions().end()) source_path = session_it->second.file_path;
+        EditorUi::modal_resource(
+            "SCENE", conflicted_scene->get_name().c_str(), source_path.c_str()
+        );
+    }
+    EditorUi::modal_callout(
+        "Reload discards the local edits. Save As preserves them in a new scene file.",
+        EditorUi::BadgeTone::Warning
+    );
+    if (!m_external_conflict_error.empty()) {
+        EditorUi::modal_callout(
+            m_external_conflict_error.c_str(), EditorUi::BadgeTone::Error
+        );
+    }
 
-    if (ImGui::Button("Reload from disk", ImVec2(150.0f, 0.0f))) {
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    EditorUi::modal_footer(130.0f + 155.0f + 125.0f + spacing * 2.0f);
+    const bool keep_editing = EditorUi::action_button(
+        "keep_editing_conflict", EditorIcon::Clear, "Keep Editing",
+        EditorUi::ButtonTone::Neutral, true, ImVec2(130.0f, 0.0f)
+    ) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    ImGui::SameLine();
+    if (EditorUi::action_button(
+            "reload_conflicted_scene", EditorIcon::Refresh, "Reload from Disk",
+            EditorUi::ButtonTone::Danger, conflicted_scene != nullptr,
+            ImVec2(155.0f, 0.0f))) {
         auto session_it = m_sessions.sessions().find(conflicted_scene);
         bool reloaded = false;
         if (session_it != m_sessions.sessions().end()) {
@@ -2281,16 +2427,32 @@ void EditorLayer::render_external_scene_change_modal() {
         }
         if (reloaded) {
             m_external_conflict_scene = nullptr;
+            m_external_conflict_error.clear();
             ImGui::CloseCurrentPopup();
+            if (m_continue_pending_action_after_save_as) {
+                m_continue_pending_action_after_save_as = false;
+                complete_pending_action();
+            }
+        } else {
+            m_external_conflict_error = "The scene could not be reloaded. Local edits remain in memory.";
         }
     }
     ImGui::SameLine();
-    if (ImGui::Button("Keep editing", ImVec2(120.0f, 0.0f))) {
+    if (EditorUi::action_button(
+            "save_conflicted_scene_as", EditorIcon::Save, "Save As",
+            EditorUi::ButtonTone::Primary, conflicted_scene != nullptr,
+            ImVec2(125.0f, 0.0f))) {
+        Scene* save_as_scene = const_cast<Scene*>(conflicted_scene);
         m_external_conflict_scene = nullptr;
+        m_external_conflict_error.clear();
         ImGui::CloseCurrentPopup();
+        request_save_scene_as(save_as_scene, m_continue_pending_action_after_save_as);
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Your local edits stay in memory; use Save As to preserve them separately.");
+    if (keep_editing) {
+        m_external_conflict_scene = nullptr;
+        m_external_conflict_error.clear();
+        if (m_continue_pending_action_after_save_as) cancel_pending_action();
+        ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
 }
@@ -2322,34 +2484,84 @@ void EditorLayer::render_recovery_modal() {
     if (m_pending_recoveries.empty()) return;
 
     ImGui::OpenPopup("Recover Autosaved Scene");
-    if (!ImGui::BeginPopupModal("Recover Autosaved Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    EditorUi::set_next_modal_width(560.0f);
+    if (!ImGui::BeginPopupModal(
+            "Recover Autosaved Scene", nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) return;
 
     const AutosaveRecord& record = m_pending_recoveries.front();
-    ImGui::Text("An autosaved scene was found for '%s'.", record.scene_name.c_str());
+    const std::string recovery_status = "RECOVERY 1 OF " +
+        std::to_string(m_pending_recoveries.size());
+    EditorUi::modal_status(recovery_status.c_str(), EditorUi::BadgeTone::Success);
+    EditorUi::modal_lead(
+        "Engine2D found editor changes that were not saved normally.",
+        "Recover opens them as a dirty scene. Nothing is written until you save explicitly."
+    );
+    EditorUi::modal_resource(
+        "SCENE", record.scene_name.c_str(),
+        record.source_path.empty() ? "No original scene file" : record.source_path.c_str()
+    );
     if (record.source_conflicted) {
-        ImGui::TextWrapped("The source scene changed outside the editor. Recovery will require Save As, so it cannot overwrite that file.");
+        EditorUi::modal_callout(
+            "The original scene changed outside the editor. Recovery is safe, but this version must use Save As.",
+            EditorUi::BadgeTone::Warning
+        );
     } else if (!record.source_path.empty()) {
-        ImGui::TextWrapped("Recover the unsaved changes over: %s", record.source_path.c_str());
+        EditorUi::modal_callout(
+            "The recovered scene remains unsaved until you choose Save or Discard.",
+            EditorUi::BadgeTone::Neutral
+        );
     } else {
-        ImGui::TextWrapped("Recover the unsaved changes as a new scene.");
+        EditorUi::modal_callout(
+            "This recovery has no original file and will require a new scene name.",
+            EditorUi::BadgeTone::Warning
+        );
     }
-    ImGui::Spacing();
-    if (ImGui::Button("Recover", ImVec2(120, 0))) {
-        recover_autosave(record);
-        m_pending_recoveries.erase(m_pending_recoveries.begin());
+    if (!m_recovery_error.empty()) {
+        EditorUi::modal_callout(m_recovery_error.c_str(), EditorUi::BadgeTone::Error);
+    }
+
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    EditorUi::modal_footer(110.0f + 155.0f + 125.0f + spacing * 2.0f);
+    if (EditorUi::action_button(
+            "defer_recovery", EditorIcon::History, "Not Now",
+            EditorUi::ButtonTone::Neutral, true, ImVec2(110.0f, 0.0f)) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        m_pending_recoveries.clear();
+        m_recovery_error.clear();
         ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Discard Autosave", ImVec2(140, 0))) {
-        static_cast<void>(m_autosave_recovery.remove(record.identity));
-        m_pending_recoveries.erase(m_pending_recoveries.begin());
-        ImGui::CloseCurrentPopup();
+    if (EditorUi::action_button(
+            "discard_recovery", EditorIcon::Trash, "Discard Autosave",
+            EditorUi::ButtonTone::Danger, true, ImVec2(155.0f, 0.0f))) {
+        if (m_autosave_recovery.remove(record.identity)) {
+            m_pending_recoveries.erase(m_pending_recoveries.begin());
+            m_recovery_error.clear();
+            ImGui::CloseCurrentPopup();
+        } else {
+            m_recovery_error = "The autosave could not be removed. It remains available for recovery.";
+        }
+    }
+    ImGui::SameLine();
+    if (EditorUi::action_button(
+            "recover_scene", EditorIcon::Refresh, "Recover",
+            EditorUi::ButtonTone::Primary, true, ImVec2(125.0f, 0.0f))) {
+        if (recover_autosave(record)) {
+            m_pending_recoveries.erase(m_pending_recoveries.begin());
+            m_recovery_error.clear();
+            ImGui::CloseCurrentPopup();
+        } else {
+            m_recovery_error = "The autosave could not be opened. It has not been deleted.";
+        }
     }
     ImGui::EndPopup();
 }
 
-void EditorLayer::recover_autosave(const AutosaveRecord& record) {
-    if (!m_scene_manager) return;
+bool EditorLayer::recover_autosave(const AutosaveRecord& record) {
+    if (!m_scene_manager) return false;
 
     auto recovered_scene = std::make_shared<Scene>(record.scene_name);
     auto recovered_editor_state = std::make_shared<EditorEntityStateStore>();
@@ -2357,7 +2569,7 @@ void EditorLayer::recover_autosave(const AutosaveRecord& record) {
     SceneSerializer serializer(recovered_scene.get(), m_renderer, nullptr, &editor_metadata);
     if (!serializer.deserialize_from_string(record.snapshot_json)) {
         ENGINE_LOG_ERROR("[AUTOSAVE] Failed recovering scene '{}'", record.scene_name);
-        return;
+        return false;
     }
     apply_scene_editor_metadata(editor_metadata, recovered_editor_state.get());
 
@@ -2381,6 +2593,7 @@ void EditorLayer::recover_autosave(const AutosaveRecord& record) {
     });
     if (recovered != scenes.end()) activate_scene(static_cast<std::size_t>(std::distance(scenes.begin(), recovered)));
     ENGINE_LOG_INFO("[AUTOSAVE] Recovered scene '{}'", record.scene_name);
+    return true;
 }
 
 void EditorLayer::end_frame(SDL_Renderer* renderer) {
@@ -2474,43 +2687,62 @@ void EditorLayer::render_prefab_stage_modals() {
     if (m_show_prefab_stage_exit_modal) {
         ImGui::OpenPopup("Unsaved Prefab Changes");
         m_show_prefab_stage_exit_modal = false;
+        m_prefab_stage_error.clear();
     }
 
-    if (ImGui::BeginPopupModal("Unsaved Prefab Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Prefab '%s' has unsaved changes.", m_prefab_stage->get_prefab_name().c_str());
-        ImGui::Text("Do you want to save before leaving the Prefab Stage?");
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
+    EditorUi::set_next_modal_width();
+    if (ImGui::BeginPopupModal(
+            "Unsaved Prefab Changes", nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        EditorUi::modal_status("UNSAVED PREFAB", EditorUi::BadgeTone::Warning);
+        EditorUi::modal_lead(
+            "This Prefab Stage contains changes that have not been saved.",
+            "Save them before leaving, or discard them permanently."
+        );
+        const std::string pending_target = m_pending_action.target.empty()
+            ? "Leave Prefab Stage" : m_pending_action.target;
+        EditorUi::modal_resource(
+            "PREFAB", m_prefab_stage->get_prefab_name().c_str(),
+            ("Next: " + pending_target).c_str()
+        );
+        if (!m_prefab_stage_error.empty()) {
+            EditorUi::modal_callout(
+                m_prefab_stage_error.c_str(), EditorUi::BadgeTone::Error
+            );
+        }
 
-        if (ImGui::Button("Save & Continue", ImVec2(140, 0))) {
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        EditorUi::modal_footer(110.0f + 150.0f + 170.0f + spacing * 2.0f);
+        const bool cancel_prefab = EditorUi::action_button(
+            "cancel_unsaved_prefab", EditorIcon::Clear, "Cancel",
+            EditorUi::ButtonTone::Neutral, true, ImVec2(110.0f, 0.0f)
+        ) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+        ImGui::SameLine();
+        if (EditorUi::action_button(
+                "discard_unsaved_prefab", EditorIcon::Trash, "Discard",
+                EditorUi::ButtonTone::Danger, true, ImVec2(150.0f, 0.0f))) {
+            m_prefab_stage->close_discard();
+            m_last_active_scene = nullptr;
+            sync_active_scene_session();
+            ImGui::CloseCurrentPopup();
+            complete_pending_action();
+        }
+        ImGui::SameLine();
+        if (EditorUi::action_button(
+                "save_unsaved_prefab", EditorIcon::Save, "Save & Continue",
+                EditorUi::ButtonTone::Primary, true, ImVec2(170.0f, 0.0f))) {
             if (m_prefab_stage->save()) {
                 m_prefab_stage->close_discard();
                 m_last_active_scene = nullptr;
                 sync_active_scene_session();
                 ImGui::CloseCurrentPopup();
-                if (m_pending_action.action) {
-                    auto act = std::move(m_pending_action.action);
-                    m_pending_action = {};
-                    act();
-                }
+                complete_pending_action();
+            } else {
+                m_prefab_stage_error = "The prefab could not be saved. The stage remains open.";
             }
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Discard Changes", ImVec2(140, 0))) {
-            m_prefab_stage->close_discard();
-            m_last_active_scene = nullptr;
-            sync_active_scene_session();
-            ImGui::CloseCurrentPopup();
-            if (m_pending_action.action) {
-                auto act = std::move(m_pending_action.action);
-                m_pending_action = {};
-                act();
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(100, 0))) {
-            m_pending_action = {};
+        if (cancel_prefab) {
+            cancel_pending_action();
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
