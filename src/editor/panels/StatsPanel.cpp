@@ -128,8 +128,6 @@ void StatsPanel::on_gui() {
         return;
     }
 
-    EditorUi::area_heading(EditorIcon::Zap, "Engine & Metrics");
-
     const ImGuiIO& io = ImGui::GetIO();
     const float framerate = io.Framerate > 0.0f ? io.Framerate : 0.0f;
     const float frame_milliseconds = framerate > 0.0f ? 1000.0f / framerate : 0.0f;

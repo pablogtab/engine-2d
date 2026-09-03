@@ -1,5 +1,4 @@
 #include "ShortcutsPreferencesPanel.hpp"
-#include "../ui/EditorUi.hpp"
 #include <imgui.h>
 #include <algorithm>
 
@@ -10,8 +9,6 @@ void ShortcutsPreferencesPanel::on_gui() {
 
     ImGui::SetNextWindowSize(ImVec2(520, 440), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
-        EditorUi::area_heading(EditorIcon::Settings, "Shortcuts");
-
         // Search Filter
         ImGui::InputTextWithHint("##search_shortcuts", "Filter actions (e.g. Undo, Save)...", m_search_filter, sizeof(m_search_filter));
         ImGui::SameLine();

@@ -197,8 +197,6 @@ void InspectorPanel::on_gui() {
 }
 
 void InspectorPanel::draw_multi_components(EntityManager& em, const std::vector<EntityID>& entities) {
-    EditorUi::area_heading(EditorIcon::Component, "Multiple Selection");
-
     const bool any_editor_locked = m_entity_state_store && std::any_of(entities.begin(), entities.end(), [&](EntityID e) {
         return m_entity_state_store->is_locked(e);
     });
@@ -897,11 +895,6 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
 
 void InspectorPanel::draw_scene_settings(Scene& active_scene) {
     ImGui::PushID("SceneSettings");
-
-    EditorUi::area_heading(
-        EditorIcon::Settings,
-        "Scene Settings"
-    );
 
     // Physics Section
     if (ImGui::CollapsingHeader("Physics", ImGuiTreeNodeFlags_DefaultOpen)) {

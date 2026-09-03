@@ -16,8 +16,6 @@ void UiGalleryPanel::on_gui() {
         return;
     }
 
-    EditorUi::area_heading(EditorIcon::Material, "Engine2D UI Kit");
-
     EditorUi::section_heading("STATUS");
     EditorUi::badge("NEUTRAL");
     ImGui::SameLine();

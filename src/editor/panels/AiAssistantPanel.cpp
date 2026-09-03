@@ -16,7 +16,6 @@
 #include "ViewportPanel.hpp"
 #include "../state/EditorEntityStateStore.hpp"
 #include "../tools/EditorIcons.hpp"
-#include "../ui/EditorUi.hpp"
 
 #include <imgui.h>
 #include <SDL3/SDL_clipboard.h>
@@ -2653,8 +2652,6 @@ void AiAssistantPanel::on_gui() {
         ImGui::End();
         return;
     }
-
-    EditorUi::area_heading(EditorIcon::Assistant, "AI Assistant");
 
     const bool codex_available = m_codex_provider && m_codex_provider->is_available() &&
         !m_codex_executable.empty();

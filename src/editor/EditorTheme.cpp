@@ -83,7 +83,6 @@ void EditorTheme::apply_dark_theme(float scale) {
     g_metrics.scale = bounded_scale(scale);
     g_metrics.menu_height *= g_metrics.scale;
     g_metrics.status_height *= g_metrics.scale;
-    g_metrics.area_header_height *= g_metrics.scale;
     g_metrics.toolbar_height *= g_metrics.scale;
     g_metrics.row_height *= g_metrics.scale;
     g_metrics.icon_size *= g_metrics.scale;

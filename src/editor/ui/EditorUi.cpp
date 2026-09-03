@@ -26,35 +26,6 @@ ImVec4 with_alpha(const ImVec4& color, float alpha) {
 
 } // namespace
 
-void area_heading(EditorIcon icon, const char* title) {
-    const auto& metrics = EditorTheme::metrics();
-    const auto& palette = EditorTheme::palette();
-    const ImVec2 start = ImGui::GetCursorScreenPos();
-    const float height = metrics.area_header_height;
-    const float width = ImGui::GetContentRegionAvail().x;
-    ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    draw_list->AddRectFilled(
-        start,
-        ImVec2(start.x + width, start.y + height),
-        ImGui::ColorConvertFloat4ToU32(palette.header),
-        metrics.small_rounding
-    );
-
-    const ImVec2 icon_center(
-        start.x + 13.0f * metrics.scale,
-        start.y + height * 0.5f
-    );
-    draw_editor_icon(
-        draw_list, icon, icon_center, metrics.icon_size,
-        ImGui::ColorConvertFloat4ToU32(palette.text_muted)
-    );
-
-    const float text_y = start.y + (height - ImGui::GetTextLineHeight()) * 0.5f;
-    ImGui::SetCursorScreenPos(ImVec2(start.x + 26.0f * metrics.scale, text_y));
-    ImGui::TextUnformatted(title);
-    ImGui::SetCursorScreenPos(ImVec2(start.x, start.y + height + metrics.compact_spacing));
-}
-
 void section_heading(const char* label, const char* trailing) {
     const auto& palette = EditorTheme::palette();
     ImGui::PushStyleColor(ImGuiCol_Text, palette.text_muted);

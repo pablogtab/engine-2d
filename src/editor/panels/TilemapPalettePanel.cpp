@@ -95,7 +95,6 @@ void TilemapPalettePanel::on_gui() {
 
     ImGui::SetNextWindowSize(ImVec2(380, 560), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(m_name.c_str(), &is_open)) {
-        EditorUi::area_heading(EditorIcon::Grid, "Tilemap Palette");
         if (!has_selected_tilemap()) {
             EditorUi::empty_state(
                 EditorIcon::Grid,

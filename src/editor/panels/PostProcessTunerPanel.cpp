@@ -1,5 +1,4 @@
 #include "PostProcessTunerPanel.hpp"
-#include "../ui/EditorUi.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/PostProcessProfileCommands.hpp"
 #include "../../core/AssetDatabase.hpp"
@@ -79,8 +78,6 @@ void PostProcessTunerPanel::on_gui() {
         ImGui::End();
         return;
     }
-
-        EditorUi::area_heading(EditorIcon::Material, "Post Processing");
 
     Scene* scene = m_scene_manager ? m_scene_manager->get_active_scene() : nullptr;
     PostProcessPipeline* pipeline = m_scene_manager ? m_scene_manager->get_post_process_pipeline() : nullptr;

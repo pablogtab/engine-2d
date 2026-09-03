@@ -26,7 +26,6 @@ struct EditorUiMetrics {
     float scale{1.0f};
     float menu_height{24.0f};
     float status_height{24.0f};
-    float area_header_height{28.0f};
     float toolbar_height{30.0f};
     float row_height{24.0f};
     float icon_size{14.0f};
