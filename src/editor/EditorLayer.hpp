@@ -29,6 +29,7 @@ class Window;
 class Scene;
 class EditorEntityStateStore;
 class PrefabStageController;
+class SpriteAnimationStudioPanel;
 
 enum class PendingActionType {
     None,
@@ -90,6 +91,9 @@ public:
 
     [[nodiscard]] class ViewportPanel* get_viewport_panel() const { return m_viewport_panel; }
     void set_viewport_panel(class ViewportPanel* vp) { m_viewport_panel = vp; }
+    void set_animation_studio_panel(SpriteAnimationStudioPanel* panel) {
+        m_animation_studio_panel = panel;
+    }
     void set_scene_manager(class SceneManager* sm) { m_scene_manager = sm; }
     void set_window_wrapper(Window* window) { m_window_wrapper = window; }
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
@@ -158,6 +162,7 @@ private:
     SDL_Renderer* m_renderer{nullptr};
     Window* m_window_wrapper{nullptr};
     class ViewportPanel* m_viewport_panel{nullptr};
+    SpriteAnimationStudioPanel* m_animation_studio_panel{nullptr};
     class SceneManager* m_scene_manager{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     std::shared_ptr<EditorEntityStateStore> m_entity_state_store{nullptr};

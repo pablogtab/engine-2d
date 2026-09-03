@@ -35,6 +35,8 @@ enum class EditorIcon {
     Material,
     Clear,
     Copy,
+    Paste,
+    Crosshair,
     ArrowUp,
     ArrowLeft,
     History,
@@ -49,6 +51,8 @@ enum class EditorIcon {
     List,
     Details,
     Refresh,
+    Undo,
+    Redo,
     Count
 };
 

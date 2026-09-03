@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,8 @@ struct AnimationClip {
     int frame_count{1};
     float fps{10.0f};
     bool loop{true};
+    bool ping_pong{false};
+    bool reverse{false};
     std::vector<SDL_FRect> custom_frames;
 
     AnimationClip() = default;
@@ -27,9 +30,47 @@ struct AnimationClip {
         return custom_frames.empty() ? frame_count : static_cast<int>(custom_frames.size());
     }
 
+    [[nodiscard]] int first_relative_frame() const {
+        return reverse ? std::max(0, get_total_frames() - 1) : 0;
+    }
+
+    [[nodiscard]] int initial_direction() const { return reverse ? -1 : 1; }
+
+    // Advances a relative frame cursor and returns true when a non-looping
+    // clip reached its terminal frame.
+    bool advance(int& relative_frame, int& direction) const {
+        const int total_frames = get_total_frames();
+        if (total_frames <= 0) return true;
+
+        relative_frame += direction;
+        if (ping_pong && total_frames > 1) {
+            if (relative_frame >= total_frames) {
+                direction = -1;
+                relative_frame = total_frames - 2;
+            } else if (relative_frame < 0) {
+                if (loop) {
+                    direction = 1;
+                    relative_frame = 1;
+                } else {
+                    relative_frame = 0;
+                    return true;
+                }
+            }
+        } else if (relative_frame >= total_frames || relative_frame < 0) {
+            if (loop) {
+                relative_frame = direction > 0 ? 0 : total_frames - 1;
+            } else {
+                relative_frame = direction > 0 ? total_frames - 1 : 0;
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool operator==(const AnimationClip& other) const {
         if (name != other.name || start_frame != other.start_frame ||
             frame_count != other.frame_count || fps != other.fps || loop != other.loop ||
+            ping_pong != other.ping_pong || reverse != other.reverse ||
             custom_frames.size() != other.custom_frames.size()) return false;
         for (std::size_t index = 0; index < custom_frames.size(); ++index) {
             const auto& lhs = custom_frames[index];
@@ -111,6 +152,7 @@ struct AnimationPlaybackStateComponent {
     bool is_playing{false};
     bool is_finished{false};
     bool initialized{false};
+    int playback_direction{1};
 };
 
 } // namespace Engine

@@ -113,6 +113,51 @@ void test_grid_spacing_margins_and_looping() {
     assert(sprite.src_rect.h == 20.0f);
 }
 
+void test_ping_pong_playback_bounces_at_both_ends() {
+    EntityManager em;
+    AnimationComponent animation;
+    animation.columns = 4;
+    animation.play_on_start = true;
+    animation.add_clip("PingPong", 0, 3, 10.0f, true);
+    animation.clips.front().ping_pong = true;
+    const EntityID entity = create_animated_entity(em, animation);
+
+    SpriteAnimationSystem::update(em, 0.11f);
+    auto* state = SpriteAnimationSystem::get_playback_state(em, entity);
+    assert(state && state->current_frame == 1);
+    SpriteAnimationSystem::update(em, 0.11f);
+    assert(state->current_frame == 2);
+    SpriteAnimationSystem::update(em, 0.11f);
+    assert(state->current_frame == 1);
+    assert(state->playback_direction == -1);
+    SpriteAnimationSystem::update(em, 0.11f);
+    assert(state->current_frame == 0);
+    SpriteAnimationSystem::update(em, 0.11f);
+    assert(state->current_frame == 1);
+    assert(state->playback_direction == 1);
+}
+
+void test_reverse_playback_starts_at_the_end() {
+    EntityManager em;
+    AnimationComponent animation;
+    animation.columns = 4;
+    animation.play_on_start = true;
+    animation.add_clip("Reverse", 0, 3, 10.0f, true);
+    animation.clips.front().reverse = true;
+    const EntityID entity = create_animated_entity(em, animation);
+
+    SpriteAnimationSystem::update(em, 0.0f);
+    auto* state = SpriteAnimationSystem::get_playback_state(em, entity);
+    assert(state && state->current_frame == 2);
+    assert(state->playback_direction == -1);
+    SpriteAnimationSystem::update(em, 0.11f);
+    assert(state->current_frame == 1);
+    SpriteAnimationSystem::update(em, 0.11f);
+    assert(state->current_frame == 0);
+    SpriteAnimationSystem::update(em, 0.11f);
+    assert(state->current_frame == 2);
+}
+
 } // namespace
 
 int main() {
@@ -120,6 +165,8 @@ int main() {
     test_play_clip_and_non_loop_completion();
     test_custom_frames_and_reset();
     test_grid_spacing_margins_and_looping();
+    test_ping_pong_playback_bounces_at_both_ends();
+    test_reverse_playback_starts_at_the_end();
     std::cout << "AnimationSystemTests passed\n";
     return 0;
 }

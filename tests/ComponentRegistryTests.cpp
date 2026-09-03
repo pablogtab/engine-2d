@@ -599,6 +599,8 @@ void test_builtin_components_round_trip_through_registry() {
     animation.rows = 2;
     animation.default_clip_index = 0;
     animation.add_clip("Run", 2, 6, 12.0f, true);
+    animation.clips.front().ping_pong = true;
+    animation.clips.front().reverse = true;
     em.add_component<AnimationComponent>(source, animation);
 
     RigidBodyComponent body = RigidBodyComponent::Dynamic(0.75f, 0.1f, 0.6f, false);
@@ -658,11 +660,15 @@ void test_builtin_components_round_trip_through_registry() {
     nlohmann::json legacy_value = value;
     legacy_value["sprite_lighting_2d"].erase("specular_map");
     legacy_value["sprite_lighting_2d"].erase("enabled");
+    legacy_value["animation"]["clips"][0].erase("ping_pong");
+    legacy_value["animation"]["clips"][0].erase("reverse");
     const EntityID legacy_target = em.create_entity();
     assert(default_component_registry().deserialize_entity(em, legacy_target, legacy_value, {}, error));
     const auto& legacy_lighting = em.get_component<SpriteLighting2DComponent>(legacy_target);
     assert(!legacy_lighting.specular_map_handle.is_valid());
     assert(legacy_lighting.enabled);
+    assert(!em.get_component<AnimationComponent>(legacy_target).clips.front().ping_pong);
+    assert(!em.get_component<AnimationComponent>(legacy_target).clips.front().reverse);
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<CameraComponent>(target).clear_color.r == 12);
     assert(em.get_component<CameraComponent>(target).clear_color.a == 78);
@@ -672,6 +678,8 @@ void test_builtin_components_round_trip_through_registry() {
     assert(em.get_component<UIImageComponent>(target) == ui_image);
     assert(em.get_component<UIButtonComponent>(target) == ui_button);
     assert(em.get_component<AnimationComponent>(target).clips.front().name == "Run");
+    assert(em.get_component<AnimationComponent>(target).clips.front().ping_pong);
+    assert(em.get_component<AnimationComponent>(target).clips.front().reverse);
     assert(em.get_component<RigidBodyComponent>(target).mass == 3.0f);
     assert(em.get_component<ColliderComponent>(target).shapes.front().radius == 14.0f);
     assert(em.get_component<TilemapComponent>(target).get_tile(-2, 5) == 7);

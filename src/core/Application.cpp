@@ -461,6 +461,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
 
     viewport_panel->set_palette_panel(palette_panel.get());
     m_editor_layer->set_viewport_panel(viewport_panel.get());
+    m_editor_layer->set_animation_studio_panel(anim_studio_panel.get());
     m_editor_layer->set_selection(selection);
     m_editor_layer->register_panel(EditorPanelId::Viewport, viewport_panel);
     m_editor_layer->register_panel(EditorPanelId::Hierarchy, hierarchy_panel);

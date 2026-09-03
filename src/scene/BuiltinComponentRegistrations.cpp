@@ -928,7 +928,8 @@ void register_animation(ComponentRegistry& registry) {
             for (const auto& clip : animation.clips) {
                 Json value{
                     {"name", clip.name}, {"start_frame", clip.start_frame},
-                    {"frame_count", clip.frame_count}, {"fps", clip.fps}, {"loop", clip.loop}
+                    {"frame_count", clip.frame_count}, {"fps", clip.fps}, {"loop", clip.loop},
+                    {"ping_pong", clip.ping_pong}, {"reverse", clip.reverse}
                 };
                 if (!clip.custom_frames.empty()) {
                     value["custom_frames"] = Json::array();
@@ -972,6 +973,8 @@ void register_animation(ComponentRegistry& registry) {
                     clip_value.at("fps").get<float>(),
                     clip_value.at("loop").get<bool>()
                 );
+                clip.ping_pong = clip_value.value("ping_pong", false);
+                clip.reverse = clip_value.value("reverse", false);
                 if (clip_value.contains("custom_frames")) {
                     for (const auto& frame : clip_value.at("custom_frames")) {
                         clip.custom_frames.push_back({

@@ -22,7 +22,11 @@ AnimationPlaybackStateComponent& ensure_playback_state(
             std::max(0, static_cast<int>(animation.clips.size()) - 1)
         );
         if (const auto* clip = animation.get_clip(state.active_clip_index)) {
-            state.current_frame = clip->custom_frames.empty() ? clip->start_frame : 0;
+            const int relative_frame = clip->first_relative_frame();
+            state.current_frame = clip->custom_frames.empty()
+                ? clip->start_frame + relative_frame
+                : relative_frame;
+            state.playback_direction = clip->initial_direction();
         }
         state.is_playing = animation.play_on_start;
         state.is_finished = false;
@@ -49,16 +53,9 @@ void SpriteAnimationSystem::update(EntityManager& em, float delta_time) {
             while (state.timer >= frame_duration && state.is_playing) {
                 state.timer -= frame_duration;
                 int rel_frame = clip->custom_frames.empty() ? (state.current_frame - clip->start_frame) : state.current_frame;
-                rel_frame++;
-
-                if (rel_frame >= total_frames) {
-                    if (clip->loop) {
-                        rel_frame = 0;
-                    } else {
-                        rel_frame = total_frames - 1;
-                        state.is_playing = false;
-                        state.is_finished = true;
-                    }
+                if (clip->advance(rel_frame, state.playback_direction)) {
+                    state.is_playing = false;
+                    state.is_finished = true;
                 }
                 state.current_frame = clip->custom_frames.empty() ? (clip->start_frame + rel_frame) : rel_frame;
             }
@@ -83,9 +80,12 @@ bool SpriteAnimationSystem::play_clip(
         auto& state = ensure_playback_state(em, entity, animation);
         if (restart || state.active_clip_index != static_cast<int>(index)) {
             state.active_clip_index = static_cast<int>(index);
-            state.current_frame = animation.clips[index].custom_frames.empty()
-                ? animation.clips[index].start_frame
-                : 0;
+            const AnimationClip& clip = animation.clips[index];
+            const int relative_frame = clip.first_relative_frame();
+            state.current_frame = clip.custom_frames.empty()
+                ? clip.start_frame + relative_frame
+                : relative_frame;
+            state.playback_direction = clip.initial_direction();
             state.timer = 0.0f;
             state.is_finished = false;
         }

@@ -48,6 +48,8 @@ constexpr std::array<IconGlyph, static_cast<std::size_t>(EditorIcon::Count)> ICO
     {0xE1DD, "\xee\x87\x9d"}, // palette
     {0xE1B2, "\xee\x86\xb2"}, // x
     {0xE09E, "\xee\x82\x9e"}, // copy
+    {0xE3E8, "\xee\x8f\xa8"}, // clipboard-paste
+    {0xE0AC, "\xee\x82\xac"}, // crosshair
     {0xE04A, "\xee\x81\x8a"}, // arrow-up
     {0xE048, "\xee\x81\x88"}, // arrow-left
     {0xE1F5, "\xee\x87\xb5"}, // history
@@ -61,7 +63,9 @@ constexpr std::array<IconGlyph, static_cast<std::size_t>(EditorIcon::Count)> ICO
     {0xE176, "\xee\x85\xb6"}, // star
     {0xE106, "\xee\x84\x86"}, // list
     {0xE1D9, "\xee\x87\x99"}, // layout-list
-    {0xE144, "\xee\x85\x84"}  // refresh-ccw
+    {0xE144, "\xee\x85\x84"}, // refresh-ccw
+    {0xE2A1, "\xee\x8a\xa1"}, // undo-2
+    {0xE2A0, "\xee\x8a\xa0"}  // redo-2
 }};
 
 const IconGlyph& icon_glyph(EditorIcon icon) {
@@ -114,6 +118,7 @@ bool initialize_editor_icons() {
     // and codepoint catalog remain complete, so extending EditorIcon is cheap.
     static constexpr ImWchar icon_ranges[] = {
         0xE048, 0xE04A, 0xE061, 0xE061, 0xE064, 0xE064, 0xE09E, 0xE09E,
+        0xE0AC, 0xE0AC,
         0xE0B6, 0xE0BB, 0xE0C0, 0xE0C0, 0xE0D0, 0xE0D0,
         0xE0D7, 0xE0D7, 0xE0E9, 0xE0E9,
         0xE0F6, 0xE0F6,
@@ -122,9 +127,9 @@ bool initialize_editor_icons() {
         0xE167, 0xE167, 0xE172, 0xE172, 0xE176, 0xE176,
         0xE18E, 0xE18E, 0xE1B2, 0xE1B4, 0xE1BB, 0xE1BB, 0xE1D9, 0xE1DD,
         0xE1F3, 0xE1F5,
-        0xE245, 0xE245, 0xE2AD, 0xE2AD, 0xE2B5, 0xE2B5,
+        0xE245, 0xE245, 0xE2A0, 0xE2A1, 0xE2AD, 0xE2AD, 0xE2B5, 0xE2B5,
         0xE2D0, 0xE2D0, 0xE2EC, 0xE2EC, 0xE2FE, 0xE2FE,
-        0xE3EA, 0xE3EA,
+        0xE3E8, 0xE3EA,
         0
     };
     g_editor_icons_loaded = io.Fonts->AddFontFromFileTTF(

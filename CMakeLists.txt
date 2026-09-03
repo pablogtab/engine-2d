@@ -126,6 +126,8 @@ set(SOURCES
     src/editor/panels/ShortcutsPreferencesPanel.cpp
     src/editor/panels/TilemapPalettePanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
+    src/editor/panels/SpriteAnimationStudioSidebar.cpp
+    src/editor/panels/SpriteAnimationStudioCanvas.cpp
     src/editor/panels/AiAssistantPanel.cpp
     src/editor/panels/UiGalleryPanel.cpp
     src/editor/panels/EditorAiAttachmentView.cpp
