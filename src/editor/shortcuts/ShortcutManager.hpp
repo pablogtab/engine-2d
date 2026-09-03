@@ -62,9 +62,35 @@ public:
 
     // Formats shortcut for UI menus (e.g. "Cmd+Z" or "Ctrl+Z")
     [[nodiscard]] std::string get_label(const std::string& action_id) const;
+    [[nodiscard]] std::string format_label(
+        EditorKey key,
+        bool cmd,
+        bool ctrl,
+        bool shift,
+        bool alt
+    ) const;
 
     // Rebinds an action to a new key combination
-    bool rebind(const std::string& action_id, EditorKey key, bool cmd, bool ctrl, bool shift, bool alt);
+    bool rebind(
+        const std::string& action_id,
+        EditorKey key,
+        bool cmd,
+        bool ctrl,
+        bool shift,
+        bool alt,
+        bool replace_conflicts = false
+    );
+
+    [[nodiscard]] std::vector<std::string> conflicts_for(
+        const std::string& action_id,
+        EditorKey key,
+        bool cmd,
+        bool ctrl,
+        bool shift,
+        bool alt
+    ) const;
+    [[nodiscard]] bool is_default(const std::string& action_id) const;
+    bool reset_to_default(const std::string& action_id);
 
     [[nodiscard]] EditorKey capture_pressed_key() const;
 

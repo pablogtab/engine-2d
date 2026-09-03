@@ -65,12 +65,39 @@ const char* key_label(EditorKey key) {
 }
 
 bool modifiers_match(const ShortcutBinding& binding, const ImGuiIO& io) {
-    const bool has_command = io.KeySuper || io.KeyCtrl;
-    if (binding.mod_cmd && !has_command) return false;
-    if (binding.mod_ctrl && !io.KeyCtrl) return false;
+#ifdef __APPLE__
+    if (binding.mod_cmd != io.KeySuper) return false;
+    if (binding.mod_ctrl != io.KeyCtrl) return false;
+#else
+    if ((binding.mod_cmd || binding.mod_ctrl) != io.KeyCtrl) return false;
+#endif
     if (binding.mod_shift != io.KeyShift) return false;
     if (binding.mod_alt != io.KeyAlt) return false;
     return true;
+}
+
+bool chord_matches(
+    const ShortcutBinding& binding,
+    EditorKey key,
+    bool command,
+    bool control,
+    bool shift,
+    bool alt
+) {
+    return key != EditorKey::None &&
+        binding.primary_key == key &&
+        binding.mod_cmd == command &&
+        binding.mod_ctrl == control &&
+        binding.mod_shift == shift &&
+        binding.mod_alt == alt;
+}
+
+void copy_chord(ShortcutBinding& destination, const ShortcutBinding& source) {
+    destination.primary_key = source.primary_key;
+    destination.mod_cmd = source.mod_cmd;
+    destination.mod_ctrl = source.mod_ctrl;
+    destination.mod_shift = source.mod_shift;
+    destination.mod_alt = source.mod_alt;
 }
 
 } // namespace
@@ -104,18 +131,30 @@ std::string ShortcutManager::get_label(const std::string& action_id) const {
     if (found == m_shortcuts.end() || found->second.primary_key == EditorKey::None) return {};
 
     const ShortcutBinding& binding = found->second;
+    return format_label(
+        binding.primary_key, binding.mod_cmd, binding.mod_ctrl,
+        binding.mod_shift, binding.mod_alt
+    );
+}
+
+std::string ShortcutManager::format_label(
+    EditorKey key,
+    bool command,
+    bool control,
+    bool shift,
+    bool alt
+) const {
+    if (key == EditorKey::None) return {};
     std::string result;
-    if (binding.mod_cmd) {
 #ifdef __APPLE__
-        result += "Cmd+";
+    if (command) result += "Cmd+";
+    if (control) result += "Ctrl+";
 #else
-        result += "Ctrl+";
+    if (command || control) result += "Ctrl+";
 #endif
-    }
-    if (binding.mod_ctrl && !binding.mod_cmd) result += "Ctrl+";
-    if (binding.mod_shift) result += "Shift+";
-    if (binding.mod_alt) result += "Alt+";
-    result += key_label(binding.primary_key);
+    if (shift) result += "Shift+";
+    if (alt) result += "Alt+";
+    result += key_label(key);
     return result;
 }
 
@@ -125,10 +164,25 @@ bool ShortcutManager::rebind(
     bool command,
     bool control,
     bool shift,
-    bool alt
+    bool alt,
+    bool replace_conflicts
 ) {
     const auto found = m_shortcuts.find(action_id);
     if (found == m_shortcuts.end()) return false;
+
+    if (replace_conflicts && key != EditorKey::None) {
+        for (auto& [other_id, other] : m_shortcuts) {
+            if (other_id == action_id ||
+                !chord_matches(other, key, command, control, shift, alt)) {
+                continue;
+            }
+            other.primary_key = EditorKey::None;
+            other.mod_cmd = false;
+            other.mod_ctrl = false;
+            other.mod_shift = false;
+            other.mod_alt = false;
+        }
+    }
 
     ShortcutBinding& binding = found->second;
     binding.primary_key = key;
@@ -137,6 +191,52 @@ bool ShortcutManager::rebind(
     binding.mod_shift = shift;
     binding.mod_alt = alt;
     ENGINE_LOG_INFO("[SHORTCUTS] Rebound action '{}' to '{}'.", action_id, get_label(action_id));
+    save_to_file();
+    return true;
+}
+
+std::vector<std::string> ShortcutManager::conflicts_for(
+    const std::string& action_id,
+    EditorKey key,
+    bool command,
+    bool control,
+    bool shift,
+    bool alt
+) const {
+    std::vector<std::string> conflicts;
+    if (key == EditorKey::None) return conflicts;
+    for (const auto& [other_id, binding] : m_shortcuts) {
+        if (other_id != action_id &&
+            chord_matches(binding, key, command, control, shift, alt)) {
+            conflicts.push_back(other_id);
+        }
+    }
+    std::sort(conflicts.begin(), conflicts.end());
+    return conflicts;
+}
+
+bool ShortcutManager::is_default(const std::string& action_id) const {
+    const auto current = m_shortcuts.find(action_id);
+    const auto default_binding = m_default_shortcuts.find(action_id);
+    if (current == m_shortcuts.end() || default_binding == m_default_shortcuts.end()) {
+        return false;
+    }
+    const ShortcutBinding& left = current->second;
+    const ShortcutBinding& right = default_binding->second;
+    return left.primary_key == right.primary_key &&
+        left.mod_cmd == right.mod_cmd &&
+        left.mod_ctrl == right.mod_ctrl &&
+        left.mod_shift == right.mod_shift &&
+        left.mod_alt == right.mod_alt;
+}
+
+bool ShortcutManager::reset_to_default(const std::string& action_id) {
+    const auto current = m_shortcuts.find(action_id);
+    const auto default_binding = m_default_shortcuts.find(action_id);
+    if (current == m_shortcuts.end() || default_binding == m_default_shortcuts.end()) {
+        return false;
+    }
+    copy_chord(current->second, default_binding->second);
     save_to_file();
     return true;
 }
@@ -246,11 +346,7 @@ void ShortcutManager::reset_to_defaults() {
     for (const auto& [id, default_binding] : m_default_shortcuts) {
         const auto found = m_shortcuts.find(id);
         if (found == m_shortcuts.end()) continue;
-        found->second.primary_key = default_binding.primary_key;
-        found->second.mod_cmd = default_binding.mod_cmd;
-        found->second.mod_ctrl = default_binding.mod_ctrl;
-        found->second.mod_shift = default_binding.mod_shift;
-        found->second.mod_alt = default_binding.mod_alt;
+        copy_chord(found->second, default_binding);
     }
     save_to_file();
 }

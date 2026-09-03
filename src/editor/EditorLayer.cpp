@@ -913,7 +913,8 @@ void EditorLayer::apply_workspace_panel_visibility() {
 
 void EditorLayer::persist_panel_states() {
     for (const auto& panel : m_panel_registry.panels()) {
-        if (panel && panel->get_id() != EditorPanelId::ProjectSettings) {
+        if (panel && panel->get_id() != EditorPanelId::ProjectSettings &&
+            panel->get_id() != EditorPanelId::Shortcuts) {
             m_panel_states.set_open(editor_panel_id_key(panel->get_id()), panel->is_open);
         }
     }
@@ -1958,7 +1959,8 @@ void EditorLayer::render_main_menu_bar() {
 
         if (ImGui::BeginMenu("Panels")) {
             for (auto& panel : m_panel_registry.panels()) {
-                if (panel && panel->get_id() != EditorPanelId::ProjectSettings) {
+                if (panel && panel->get_id() != EditorPanelId::ProjectSettings &&
+                    panel->get_id() != EditorPanelId::Shortcuts) {
                     ImGui::MenuItem(panel->get_name().c_str(), nullptr, &panel->is_open);
                 }
             }
@@ -2333,7 +2335,7 @@ void EditorLayer::restore_render_resources() {
 
 void EditorLayer::register_panel(EditorPanelId id, std::shared_ptr<EditorPanel> panel) {
     if (!panel) return;
-    if (id == EditorPanelId::ProjectSettings) {
+    if (id == EditorPanelId::ProjectSettings || id == EditorPanelId::Shortcuts) {
         panel->is_open = false;
     } else {
         panel->is_open = m_panel_states.is_open(editor_panel_id_key(id), panel->is_open);

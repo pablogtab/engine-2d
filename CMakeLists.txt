@@ -919,6 +919,23 @@ target_include_directories(EditorActionRegistryTests PRIVATE
 )
 add_test(NAME EditorActionRegistryTests COMMAND EditorActionRegistryTests)
 
+add_executable(ShortcutManagerTests
+    tests/ShortcutManagerTests.cpp
+    src/core/Log.cpp
+    src/editor/shortcuts/ShortcutManager.cpp
+    vendor/imgui/imgui.cpp
+    vendor/imgui/imgui_draw.cpp
+    vendor/imgui/imgui_tables.cpp
+    vendor/imgui/imgui_widgets.cpp
+)
+target_include_directories(ShortcutManagerTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui
+)
+target_link_libraries(ShortcutManagerTests PRIVATE SDL3::SDL3)
+add_test(NAME ShortcutManagerTests COMMAND ShortcutManagerTests)
+
 add_executable(EditorPanelRegistryTests
     tests/EditorPanelRegistryTests.cpp
     src/editor/panels/EditorPanelRegistry.cpp
@@ -1510,6 +1527,7 @@ foreach(runtime_test
     EditorEntityStateStoreTests
     EditorPanelStateStoreTests
     EditorActionRegistryTests
+    ShortcutManagerTests
     EditorPanelRegistryTests
     EditorSessionControllerTests
     WorkspaceManagerTests
