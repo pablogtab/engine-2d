@@ -900,7 +900,7 @@ void EditorLayer::apply_workspace_panel_visibility() {
 
 void EditorLayer::persist_panel_states() {
     for (const auto& panel : m_panel_registry.panels()) {
-        if (panel) {
+        if (panel && panel->get_id() != EditorPanelId::ProjectSettings) {
             m_panel_states.set_open(editor_panel_id_key(panel->get_id()), panel->is_open);
         }
     }
@@ -1930,7 +1930,7 @@ void EditorLayer::render_main_menu_bar() {
 
         if (ImGui::BeginMenu("Panels")) {
             for (auto& panel : m_panel_registry.panels()) {
-                if (panel) {
+                if (panel && panel->get_id() != EditorPanelId::ProjectSettings) {
                     ImGui::MenuItem(panel->get_name().c_str(), nullptr, &panel->is_open);
                 }
             }
@@ -2304,7 +2304,11 @@ void EditorLayer::restore_render_resources() {
 
 void EditorLayer::register_panel(EditorPanelId id, std::shared_ptr<EditorPanel> panel) {
     if (!panel) return;
-    panel->is_open = m_panel_states.is_open(editor_panel_id_key(id), panel->is_open);
+    if (id == EditorPanelId::ProjectSettings) {
+        panel->is_open = false;
+    } else {
+        panel->is_open = m_panel_states.is_open(editor_panel_id_key(id), panel->is_open);
+    }
     if (!m_panel_registry.add(
             id, panel, {m_command_history, m_entity_state_store, m_selection})) {
         ENGINE_LOG_WARN("[EDITOR] Ignored duplicate or invalid panel: '{}'", panel->get_name());

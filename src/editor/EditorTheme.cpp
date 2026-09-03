@@ -145,6 +145,7 @@ void EditorTheme::apply_dark_theme(float scale) {
     colors[ImGuiCol_WindowBg]             = g_palette.panel;
     colors[ImGuiCol_ChildBg]              = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     colors[ImGuiCol_PopupBg]              = g_palette.panel_raised;
+    colors[ImGuiCol_ModalWindowDimBg]     = ImVec4(0.0f, 0.0f, 0.0f, 0.62f);
     colors[ImGuiCol_Border]               = g_palette.border;
     colors[ImGuiCol_BorderShadow]         = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
