@@ -16,6 +16,8 @@
 #include "../physics/PhysicsSystem.hpp"
 #include "../enginescript/module/GameModule.hpp"
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <fstream>
 
 namespace Engine {
@@ -171,8 +173,10 @@ void SceneManager::start_play() {
     m_requested_runtime_scene_path.clear();
     m_game_session.reset();
     clear_runtime_selection();
+    m_play_startup_started_at = std::chrono::steady_clock::now();
+    m_play_startup_script_count = 0;
     m_play_startup_phase = PlayStartupPhase::Snapshot;
-    m_play_load_progress = {true, 0.05f, "Capturing scene state", "Saving the authoring snapshot"};
+    m_play_load_progress = {true, 0.0f, "Capturing scene state", "Step 1 of 4: preserving authoring state"};
 }
 
 void SceneManager::advance_play_startup() {
@@ -182,12 +186,28 @@ void SceneManager::advance_play_startup() {
         m_play_load_progress = {};
         return;
     }
+    const auto finish_startup = [this](const ScriptRuntimeStartResult& scripts) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - m_play_startup_started_at
+        ).count();
+        ENGINE_LOG_INFO(
+            "[SCENE PLAY] Ready in {} ms: {} scripts running, {} failed; native module {}",
+            elapsed,
+            scripts.started,
+            scripts.failed,
+            scripts.native_cache_hit ? "cache hit" : "rebuilt"
+        );
+        m_play_startup_phase = PlayStartupPhase::None;
+        m_play_load_progress = {};
+    };
     switch (m_play_startup_phase) {
         case PlayStartupPhase::Snapshot: {
             SceneSerializer serializer(active_scene, m_renderer);
             m_snapshot_json = serializer.serialize_to_string();
             m_play_startup_phase = PlayStartupPhase::PrepareRuntime;
-            m_play_load_progress = {true, 0.35f, "Preparing runtime scene", "Attaching physics and game viewport"};
+            m_play_load_progress = {
+                true, 0.25f, "Preparing runtime scene", "Step 2 of 4: attaching physics and game viewport"
+            };
             break;
         }
         case PlayStartupPhase::PrepareRuntime: {
@@ -197,33 +217,70 @@ void SceneManager::advance_play_startup() {
             configure_scene_view(*active_scene, RenderViewKind::Game, m_game_view);
             m_play_state = ScenePlayState::Edit;
             m_play_startup_phase = PlayStartupPhase::StartScripts;
-            std::size_t script_count = 0;
+            m_play_startup_script_count = 0;
             const AssetDatabase& database = m_asset_database ? *m_asset_database : AssetDatabase::get();
             for (const AssetRecord& record : database.records()) {
-                if (record.type == AssetType::Script && record.status == AssetStatus::Ready) ++script_count;
+                if (record.type == AssetType::Script && record.status == AssetStatus::Ready) {
+                    ++m_play_startup_script_count;
+                }
             }
             m_play_load_progress = {
                 true,
-                0.70f,
-                "Compiling gameplay scripts",
-                std::to_string(script_count) + " script" + (script_count == 1 ? "" : "s") + " into native module"
+                0.50f,
+                "Checking gameplay scripts",
+                "Step 3 of 4: hashing " + std::to_string(m_play_startup_script_count) +
+                    " script" + (m_play_startup_script_count == 1 ? "" : "s")
             };
             break;
         }
-        case PlayStartupPhase::StartScripts:
+        case PlayStartupPhase::StartScripts: {
             m_play_state = ScenePlayState::Play;
             set_play_time_scale(m_play_time_scale);
-            start_scripts(*active_scene);
-            m_play_startup_phase = PlayStartupPhase::None;
-            m_play_load_progress = {};
+            const ScriptRuntimeStartResult scripts = start_scripts(*active_scene, true);
+            if (scripts.pending) {
+                m_play_startup_phase = PlayStartupPhase::AwaitScripts;
+                m_play_load_progress = {
+                    true, 0.75f, "Checking native module cache",
+                    "Step 4 of 4: comparing the EngineScript source hash", true
+                };
+            } else {
+                finish_startup(scripts);
+            }
             break;
+        }
+        case PlayStartupPhase::AwaitScripts: {
+            char detail[192];
+            const float elapsed = m_script_runtime.startup_elapsed_seconds();
+            const ScriptNativeBuildPhase phase = m_script_runtime.native_build_phase();
+            if (phase == ScriptNativeBuildPhase::GeneratingSources) {
+                m_play_load_progress.label = "Generating gameplay module";
+                std::snprintf(
+                    detail, sizeof(detail), "Step 4 of 4: cache miss, generating C++ sources (%.1f s)", elapsed
+                );
+            } else if (phase == ScriptNativeBuildPhase::CompilingNative) {
+                m_play_load_progress.label = "Compiling native gameplay module";
+                std::snprintf(
+                    detail, sizeof(detail), "Step 4 of 4: scripts changed or first build (%.1f s)", elapsed
+                );
+            } else {
+                m_play_load_progress.label = "Checking native module cache";
+                std::snprintf(
+                    detail, sizeof(detail), "Step 4 of 4: comparing source hash (%.1f s)", elapsed
+                );
+            }
+            m_play_load_progress.detail = detail;
+            const ScriptRuntimeStartResult scripts = m_script_runtime.poll_start();
+            if (!scripts.pending) finish_startup(scripts);
+            break;
+        }
         case PlayStartupPhase::None:
             break;
     }
 }
 
-void SceneManager::start_scripts(Scene& scene) {
+ScriptRuntimeStartResult SceneManager::start_scripts(Scene& scene, bool allow_async) {
     ScriptRuntimeServices services = m_script_services;
+    services.async_native_build = services.async_native_build && allow_async;
     services.request_scene_load = [this](const std::string& path, std::string& error) {
         return request_runtime_scene_load(path, error);
     };
@@ -371,11 +428,14 @@ void SceneManager::start_scripts(Scene& scene) {
         &scene.get_event_dispatcher(),
         std::move(services)
     );
-    ENGINE_LOG_INFO(
-        "[SCENE PLAY] Started Play simulation: {} scripts running, {} failed",
-        scripts.started,
-        scripts.failed
-    );
+    if (!scripts.pending) {
+        ENGINE_LOG_INFO(
+            "[SCENE PLAY] Started Play simulation: {} scripts running, {} failed",
+            scripts.started,
+            scripts.failed
+        );
+    }
+    return scripts;
 }
 
 bool SceneManager::request_runtime_scene_load(const std::string& path, std::string& error) {
@@ -420,7 +480,7 @@ void SceneManager::activate_pending_runtime_scene() {
     clear_runtime_selection();
     attach_scene(*m_runtime_scene);
     configure_scene_view(*m_runtime_scene, RenderViewKind::Game, m_game_view);
-    start_scripts(*m_runtime_scene);
+    static_cast<void>(start_scripts(*m_runtime_scene));
     m_game_session.complete_loaded();
     m_runtime_scene->get_event_dispatcher().queue(GameSessionEvent{"SceneLoaded", m_game_session.path()});
     ENGINE_LOG_INFO("[SCENE PLAY] Loaded runtime scene '{}'.", m_runtime_scene->get_name());

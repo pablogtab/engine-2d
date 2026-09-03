@@ -6,6 +6,7 @@
 #include "../scripting/ScriptRuntime.hpp"
 #include "../debug/FrameProfiler.hpp"
 #include <vector>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <functional>
@@ -29,6 +30,7 @@ struct SceneLoadProgress {
     float value{0.0f};
     std::string label;
     std::string detail;
+    bool indeterminate{false};
 };
 
 class SceneManager {
@@ -134,7 +136,7 @@ private:
     [[nodiscard]] SceneExecutionContext& execution_context(Scene& scene);
     [[nodiscard]] const SceneExecutionContext* find_execution_context(const Scene& scene) const;
     void discard_execution_context(const Scene* scene);
-    void start_scripts(Scene& scene);
+    [[nodiscard]] ScriptRuntimeStartResult start_scripts(Scene& scene, bool allow_async = false);
     void advance_play_startup();
     [[nodiscard]] bool request_runtime_scene_load(const std::string& path, std::string& error);
     void advance_runtime_scene_load();
@@ -159,9 +161,11 @@ private:
     std::function<void()> m_on_authoring_state_invalidated;
     ScriptRuntime m_script_runtime;
     std::unordered_map<const Scene*, std::unique_ptr<SceneExecutionContext>> m_execution_contexts;
-    enum class PlayStartupPhase { None, Snapshot, PrepareRuntime, StartScripts };
+    enum class PlayStartupPhase { None, Snapshot, PrepareRuntime, StartScripts, AwaitScripts };
     PlayStartupPhase m_play_startup_phase{PlayStartupPhase::None};
     SceneLoadProgress m_play_load_progress;
+    std::chrono::steady_clock::time_point m_play_startup_started_at;
+    std::size_t m_play_startup_script_count{0};
     float m_play_time_scale{1.0f};
     FrameProfiler m_frame_profiler;
     EntityID m_runtime_selected_entity{0};

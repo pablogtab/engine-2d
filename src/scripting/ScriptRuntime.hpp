@@ -54,6 +54,7 @@ struct ScriptDisplayRequest {
 
 struct ScriptRuntimeServices {
     bool hot_reload_enabled{false};
+    bool async_native_build{false};
     std::function<bool(const std::string&, float, float, std::string&)> play_sound;
     std::function<bool(const std::string&, float, bool, std::string&)> play_music;
     std::function<void()> stop_music;
@@ -108,11 +109,20 @@ struct ScriptInspectionResult {
 struct ScriptRuntimeStartResult {
     std::size_t started{0};
     std::size_t failed{0};
+    bool pending{false};
+    bool native_cache_hit{false};
 };
 
 struct ScriptHotReloadResult {
     std::size_t reloaded{0};
     std::size_t failed{0};
+};
+
+enum class ScriptNativeBuildPhase {
+    None,
+    CheckingCache,
+    GeneratingSources,
+    CompilingNative
 };
 
 class ScriptRuntime {
@@ -131,6 +141,10 @@ public:
         EventDispatcher* event_dispatcher = nullptr,
         ScriptRuntimeServices services = {}
     );
+    [[nodiscard]] ScriptRuntimeStartResult poll_start();
+    [[nodiscard]] bool is_starting() const;
+    [[nodiscard]] float startup_elapsed_seconds() const;
+    [[nodiscard]] ScriptNativeBuildPhase native_build_phase() const;
     bool prepare_entity(EntityID entity);
     bool activate_entity(EntityID entity);
     // Activates scripts after the current update pass, avoiding mutation while iterating them.
@@ -194,6 +208,11 @@ private:
     void subscribe_to_events();
     void unsubscribe_from_events();
     void set_error(EntityID entity, std::string message, std::string source_path = {}, uint32_t line = 0, uint32_t column = 0);
+    [[nodiscard]] ScriptRuntimeStartResult finish_start(
+        std::shared_ptr<EngineScript::GameModule> module,
+        std::string native_build_error,
+        bool native_cache_hit
+    );
     bool instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error, bool start_lifecycle = true);
     void discard_entity_instances(EntityID entity);
     void flush_pending_component_removals();
@@ -208,6 +227,8 @@ private:
     std::unique_ptr<EngineScript::AsyncScheduler> m_native_async_scheduler;
     std::unique_ptr<EngineScript::TypedEventBus> m_typed_event_bus;
     std::shared_ptr<EngineScript::GameModule> m_native_module;
+    struct PendingNativeBuild;
+    std::unique_ptr<PendingNativeBuild> m_pending_native_build;
     std::unordered_map<EntityID, ScriptExecutionStatus> m_statuses;
     std::unordered_map<AssetHandle, std::optional<std::uint64_t>> m_source_signatures;
     std::unordered_map<AssetHandle, std::string> m_reload_errors;

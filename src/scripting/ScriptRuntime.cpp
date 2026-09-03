@@ -27,11 +27,13 @@
 #include "../enginescript/runtime/Collections.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <future>
 #include <limits>
 #include <optional>
 #include <unordered_map>
@@ -42,6 +44,12 @@
 #include <nlohmann/json.hpp>
 
 namespace Engine {
+
+struct ScriptRuntime::PendingNativeBuild {
+    std::future<EngineScript::NativeModuleBuildResult> future;
+    std::shared_ptr<std::atomic<ScriptNativeBuildPhase>> phase;
+    std::chrono::steady_clock::time_point started_at;
+};
 
 struct ScriptRuntimeBinding {
     ScriptRuntime* runtime{nullptr};
@@ -1970,6 +1978,7 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     m_native_async_scheduler = std::move(other.m_native_async_scheduler);
     m_typed_event_bus = std::move(other.m_typed_event_bus);
     m_native_module = std::move(other.m_native_module);
+    m_pending_native_build = std::move(other.m_pending_native_build);
     m_statuses = std::move(other.m_statuses);
     m_source_signatures = std::move(other.m_source_signatures);
     m_reload_errors = std::move(other.m_reload_errors);
@@ -1987,6 +1996,7 @@ ScriptRuntime& ScriptRuntime::operator=(ScriptRuntime&& other) noexcept {
     other.m_native_async_scheduler.reset();
     other.m_typed_event_bus.reset();
     other.m_native_module.reset();
+    other.m_pending_native_build.reset();
     other.m_statuses.clear();
     other.m_source_signatures.clear();
     other.m_reload_errors.clear();
@@ -2073,18 +2083,72 @@ ScriptRuntimeStartResult ScriptRuntime::start(
 
     std::shared_ptr<EngineScript::GameModule> generated_native_module;
     std::string native_build_error;
+    bool native_cache_hit = false;
     if (!m_services.native_module_path.empty()) {
         std::unique_ptr<EngineScript::GameModule> loaded = EngineScript::GameModule::load_dynamic_library(
             m_services.native_module_path,
             &native_build_error
         );
         if (loaded) generated_native_module = std::shared_ptr<EngineScript::GameModule>(std::move(loaded));
+    } else if (m_services.async_native_build) {
+        const std::string project_root = asset_database.project_root().string();
+        const std::uint32_t build_number = m_next_native_build_number++;
+        const EngineScript::NativeModuleBuildResult prepared =
+            EngineScript::NativeModuleBuilder::build(
+                *m_native_workspace,
+                project_root,
+                build_number,
+                EngineScript::NativeModuleBuildMode::PrepareDynamicLibrary
+            );
+        if (!prepared.success) {
+            native_build_error = prepared.error;
+        } else if (prepared.cache_hit) {
+            native_cache_hit = true;
+            std::unique_ptr<EngineScript::GameModule> loaded =
+                EngineScript::GameModule::load_dynamic_library(
+                    prepared.library_path, &native_build_error
+                );
+            if (loaded) {
+                generated_native_module = std::shared_ptr<EngineScript::GameModule>(std::move(loaded));
+            }
+        } else {
+            auto pending = std::make_unique<PendingNativeBuild>();
+            pending->phase = std::make_shared<std::atomic<ScriptNativeBuildPhase>>(
+                ScriptNativeBuildPhase::CompilingNative
+            );
+            pending->started_at = std::chrono::steady_clock::now();
+            const auto phase = pending->phase;
+            const std::string source_hash = prepared.source_hash;
+            pending->future = std::async(
+                std::launch::async,
+                [project_root, build_number, source_hash, phase]() {
+                    return EngineScript::NativeModuleBuilder::compile_prepared(
+                        project_root,
+                        build_number,
+                        source_hash,
+                        [phase](EngineScript::NativeModuleBuildPhase build_phase) {
+                            ScriptNativeBuildPhase runtime_phase = ScriptNativeBuildPhase::CheckingCache;
+                            if (build_phase == EngineScript::NativeModuleBuildPhase::GeneratingSources) {
+                                runtime_phase = ScriptNativeBuildPhase::GeneratingSources;
+                            } else if (build_phase == EngineScript::NativeModuleBuildPhase::CompilingNative) {
+                                runtime_phase = ScriptNativeBuildPhase::CompilingNative;
+                            }
+                            phase->store(runtime_phase, std::memory_order_relaxed);
+                        }
+                    );
+                }
+            );
+            m_pending_native_build = std::move(pending);
+            result.pending = true;
+            return result;
+        }
     } else {
         const EngineScript::NativeModuleBuildResult native_build = EngineScript::NativeModuleBuilder::build(
             *m_native_workspace,
             asset_database.project_root().string(),
             m_next_native_build_number++
         );
+        native_cache_hit = native_build.cache_hit;
         if (native_build.success) {
             std::unique_ptr<EngineScript::GameModule> loaded = EngineScript::GameModule::load_dynamic_library(
                 native_build.library_path,
@@ -2095,11 +2159,68 @@ ScriptRuntimeStartResult ScriptRuntime::start(
             native_build_error = native_build.error;
         }
     }
-    if (!generated_native_module) {
+    return finish_start(
+        std::move(generated_native_module), std::move(native_build_error), native_cache_hit
+    );
+}
+
+ScriptRuntimeStartResult ScriptRuntime::poll_start() {
+    if (!m_pending_native_build) return {};
+    if (m_pending_native_build->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        ScriptRuntimeStartResult result;
+        result.pending = true;
+        return result;
+    }
+
+    EngineScript::NativeModuleBuildResult native_build;
+    try {
+        native_build = m_pending_native_build->future.get();
+    } catch (const std::exception& exception) {
+        native_build.error = std::string("EngineScript native build worker failed: ") + exception.what();
+    } catch (...) {
+        native_build.error = "EngineScript native build worker failed";
+    }
+    m_pending_native_build.reset();
+    std::shared_ptr<EngineScript::GameModule> module;
+    std::string error = native_build.error;
+    if (native_build.success) {
+        std::unique_ptr<EngineScript::GameModule> loaded =
+            EngineScript::GameModule::load_dynamic_library(native_build.library_path, &error);
+        if (loaded) module = std::shared_ptr<EngineScript::GameModule>(std::move(loaded));
+    }
+    return finish_start(std::move(module), std::move(error), native_build.cache_hit);
+}
+
+bool ScriptRuntime::is_starting() const {
+    return m_pending_native_build != nullptr;
+}
+
+float ScriptRuntime::startup_elapsed_seconds() const {
+    if (!m_pending_native_build) return 0.0f;
+    return std::chrono::duration<float>(
+        std::chrono::steady_clock::now() - m_pending_native_build->started_at
+    ).count();
+}
+
+ScriptNativeBuildPhase ScriptRuntime::native_build_phase() const {
+    return m_pending_native_build && m_pending_native_build->phase
+        ? m_pending_native_build->phase->load(std::memory_order_relaxed)
+        : ScriptNativeBuildPhase::None;
+}
+
+ScriptRuntimeStartResult ScriptRuntime::finish_start(
+    std::shared_ptr<EngineScript::GameModule> module,
+    std::string native_build_error,
+    bool native_cache_hit
+) {
+    ScriptRuntimeStartResult result;
+    result.native_cache_hit = native_cache_hit;
+    if (!module) {
         const std::string error = native_build_error.empty()
             ? "EngineScript native module could not be loaded"
             : native_build_error;
-        entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
+        if (!m_entity_manager) return result;
+        m_entity_manager->for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& component) {
             for (const ScriptBehaviourSlot& instance : component.instances) {
                 if (!instance.enabled) continue;
                 ++result.failed;
@@ -2109,14 +2230,15 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         return result;
     }
 
-    m_native_module = std::move(generated_native_module);
+    m_native_module = std::move(module);
 
-    entity_manager.for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& scripts) {
+    if (!m_entity_manager) return result;
+    m_entity_manager->for_each<ScriptComponent>([&](EntityID entity, const ScriptComponent& scripts) {
         std::vector<ScriptSlotID> ordered_slots;
         ordered_slots.reserve(scripts.instances.size());
         for (const ScriptBehaviourSlot& slot : scripts.instances) ordered_slots.push_back(slot.id);
         for (const ScriptSlotID slot_id : ordered_slots) {
-            ScriptBehaviourSlot* slot = find_script_slot(entity_manager, entity, slot_id);
+            ScriptBehaviourSlot* slot = find_script_slot(*m_entity_manager, entity, slot_id);
             if (!slot || !slot->enabled) continue;
             std::string error;
             if (instantiate_slot(entity, *slot, error)) ++result.started;
@@ -2572,6 +2694,7 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
     const AssetDatabase* asset_database = m_asset_database;
     EventDispatcher* event_dispatcher = m_event_dispatcher;
     ScriptRuntimeServices services = m_services;
+    services.async_native_build = false;
     const ScriptRuntimeStartResult restarted = start(
         *entity_manager,
         *asset_database,
@@ -2662,6 +2785,9 @@ void ScriptRuntime::update(float delta_time) {
 }
 
 void ScriptRuntime::shutdown() {
+    // Native compilation owns an isolated source snapshot. Waiting here is only
+    // needed when startup is cancelled or the application exits mid-build.
+    m_pending_native_build.reset();
     unsubscribe_from_events();
     for (auto& inst : m_instances) {
         if (inst.behaviour) {

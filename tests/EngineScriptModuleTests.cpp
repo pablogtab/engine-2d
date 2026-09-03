@@ -141,8 +141,26 @@ export class Probe extends Behaviour {
     assert(std::get<double>(speed) == 42.5);
     behaviour.reset();
     module.reset();
+    const NativeModuleBuildResult cached = NativeModuleBuilder::build(workspace, root.string(), 12);
+    assert(cached.success);
+    assert(cached.cache_hit);
+    assert(cached.source_hash == build.source_hash);
+    assert(cached.library_path == build.library_path);
+    workspace.update_source_file("Assets/Scripts/Probe.e2s", R"(
+import { identity } from "./Utils";
+@behaviour
+export class Probe extends Behaviour {
+    @expose speed: Float = identity<Float>(41.0);
+    override update(deltaTime: Float): Void { speed = speed + deltaTime; }
+}
+)");
+    const NativeModuleBuildResult rebuilt = NativeModuleBuilder::build(workspace, root.string(), 13);
+    assert(rebuilt.success);
+    assert(!rebuilt.cache_hit);
+    assert(rebuilt.source_hash != build.source_hash);
+    assert(rebuilt.library_path != build.library_path);
     const NativeModuleBuildResult static_sources = NativeModuleBuilder::build(
-        workspace, root.string(), 12, NativeModuleBuildMode::StaticSources
+        workspace, root.string(), 14, NativeModuleBuildMode::StaticSources
     );
     assert(static_sources.success);
     assert(fs::exists(fs::path(static_sources.output_directory) / "GameModule.generated.cpp"));

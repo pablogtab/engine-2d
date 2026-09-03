@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <thread>
 
 namespace {
 
@@ -51,6 +52,16 @@ void write_file(const std::filesystem::path& path, const std::string& source) {
     std::filesystem::create_directories(path.parent_path());
     std::ofstream stream(path);
     stream << source;
+}
+
+void finish_play_startup(Engine::SceneManager& manager) {
+    for (int attempt = 0; attempt < 20000 && manager.play_load_progress().active; ++attempt) {
+        manager.update(0.0f);
+        if (manager.play_load_progress().active) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    assert(!manager.play_load_progress().active);
 }
 
 } // namespace
@@ -100,13 +111,14 @@ export class SwitchScene extends Behaviour {
 
     SceneManager manager;
     manager.set_asset_database(&database);
+    ScriptRuntimeServices services;
+    services.async_native_build = true;
+    manager.set_script_runtime_services(std::move(services));
     manager.add_scene(scene);
     assert(!manager.is_play_session_active());
     manager.start_play();
     assert(manager.is_play_session_active());
-    manager.update(0.0f);
-    manager.update(0.0f);
-    manager.update(0.0f);
+    finish_play_startup(manager);
     assert(manager.is_playing());
     assert(manager.get_script_runtime().instance_count() == 1);
     manager.update(0.5f);
@@ -154,9 +166,7 @@ export class SwitchScene extends Behaviour {
     });
     switching_manager.add_scene(switching_scene);
     switching_manager.start_play();
-    switching_manager.update(0.0f);
-    switching_manager.update(0.0f);
-    switching_manager.update(0.0f);
+    finish_play_startup(switching_manager);
     assert(switching_manager.game_session().state() == GameSession::TransitionState::Requested);
     assert(switching_manager.is_runtime_scene_loading());
     switching_manager.update(0.0f);
@@ -191,9 +201,7 @@ export class SwitchScene extends Behaviour {
     int invalidation_calls = 0;
     history_manager.set_on_authoring_state_invalidated([&]() { ++invalidation_calls; });
     history_manager.start_play();
-    history_manager.update(0.0f);
-    history_manager.update(0.0f);
-    history_manager.update(0.0f);
+    finish_play_startup(history_manager);
     history_manager.update(1.0f);
     assert(history_entities.get_component<TransformComponent>(history_entity).position.x == 25.0f);
     history_manager.stop_play();

@@ -973,7 +973,13 @@ void ViewportPanel::render_transport_toolbar(ScenePlayState play_state) {
         ImGui::TableSetColumnIndex(0);
 
         const ImVec2 button_size(0.0f, metrics.toolbar_height - 6.0f * metrics.scale);
-        if (play_state == ScenePlayState::Edit) {
+        const bool play_starting = m_scene_manager && m_scene_manager->play_load_progress().active;
+        if (play_starting) {
+            static_cast<void>(EditorUi::action_button(
+                "play_starting", EditorIcon::Play, "Starting...",
+                EditorUi::ButtonTone::Success, false, button_size
+            ));
+        } else if (play_state == ScenePlayState::Edit) {
             if (EditorUi::action_button(
                     "play", EditorIcon::Play, "Play",
                     EditorUi::ButtonTone::Success, true, button_size)) {
@@ -1019,7 +1025,9 @@ void ViewportPanel::render_transport_toolbar(ScenePlayState play_state) {
 
         ImGui::TableSetColumnIndex(1);
         char status[160];
-        if (play_state != ScenePlayState::Edit && m_engine_renderer) {
+        if (play_starting) {
+            std::snprintf(status, sizeof(status), "STARTING  |  %.0f FPS", ImGui::GetIO().Framerate);
+        } else if (play_state != ScenePlayState::Edit && m_engine_renderer) {
             const RenderFrameMetrics& frame = m_engine_renderer->get_frame_metrics();
             std::snprintf(
                 status, sizeof(status), "%s  |  %.0f FPS  |  %s%.0f%%  |  %dx%d",
@@ -1443,19 +1451,38 @@ void ViewportPanel::on_gui() {
                 const ImVec2 panel_max(img_min.x + img_size.x * 0.78f, img_min.y + img_size.y * 0.61f);
                 draw_list->AddRectFilled(panel_min, panel_max, IM_COL32(18, 21, 30, 238), 8.0f);
                 draw_list->AddText(ImVec2(panel_min.x + 18.0f, panel_min.y + 16.0f), IM_COL32(232, 235, 245, 255), progress.label.c_str());
-                char percentage[16];
-                std::snprintf(percentage, sizeof(percentage), "%d%%", static_cast<int>(progress.value * 100.0f));
-                draw_list->AddText(ImVec2(panel_max.x - 52.0f, panel_min.y + 16.0f), IM_COL32(170, 176, 196, 255), percentage);
+                if (!progress.indeterminate) {
+                    char percentage[16];
+                    std::snprintf(percentage, sizeof(percentage), "%d%%", static_cast<int>(progress.value * 100.0f));
+                    draw_list->AddText(
+                        ImVec2(panel_max.x - 52.0f, panel_min.y + 16.0f),
+                        IM_COL32(170, 176, 196, 255), percentage
+                    );
+                }
                 draw_list->AddText(ImVec2(panel_min.x + 18.0f, panel_min.y + 38.0f), IM_COL32(158, 165, 184, 255), progress.detail.c_str());
                 const ImVec2 bar_min(panel_min.x + 18.0f, panel_min.y + 66.0f);
                 const ImVec2 bar_max(panel_max.x - 18.0f, panel_min.y + 80.0f);
                 draw_list->AddRectFilled(bar_min, bar_max, IM_COL32(55, 60, 76, 255), 4.0f);
-                draw_list->AddRectFilled(
-                    bar_min,
-                    ImVec2(bar_min.x + (bar_max.x - bar_min.x) * progress.value, bar_max.y),
-                    IM_COL32(95, 76, 210, 255),
-                    4.0f
-                );
+                if (progress.indeterminate) {
+                    const float width = bar_max.x - bar_min.x;
+                    const float segment = width * 0.24f;
+                    const float travel = width + segment;
+                    const float phase = std::fmod(static_cast<float>(ImGui::GetTime()) * 0.65f, 1.0f);
+                    const float start = bar_min.x - segment + travel * phase;
+                    draw_list->PushClipRect(bar_min, bar_max, true);
+                    draw_list->AddRectFilled(
+                        ImVec2(start, bar_min.y), ImVec2(start + segment, bar_max.y),
+                        IM_COL32(95, 76, 210, 255), 4.0f
+                    );
+                    draw_list->PopClipRect();
+                } else {
+                    draw_list->AddRectFilled(
+                        bar_min,
+                        ImVec2(bar_min.x + (bar_max.x - bar_min.x) * progress.value, bar_max.y),
+                        IM_COL32(95, 76, 210, 255),
+                        4.0f
+                    );
+                }
             }
             ImGuiIO& io = ImGui::GetIO();
             ImVec2 mouse_pos = io.MousePos;
