@@ -3,7 +3,9 @@
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <nlohmann/json.hpp>
 
 using namespace Engine;
 
@@ -31,6 +33,31 @@ int main() {
     });
 
 #ifdef __APPLE__
+    std::filesystem::create_directories(directory);
+    {
+        std::ofstream legacy(preferences);
+        legacy << R"({
+            "version": 2,
+            "shortcuts": {
+                "test.first": {
+                    "key": 1,
+                    "cmd": false,
+                    "ctrl": true,
+                    "shift": false,
+                    "alt": false
+                }
+            }
+        })";
+    }
+    manager.load_from_file(preferences.string());
+    const ShortcutBinding& migrated = manager.get_shortcuts().at("test.first");
+    assert(migrated.mod_cmd);
+    assert(!migrated.mod_ctrl);
+    {
+        std::ifstream migrated_file(preferences);
+        const nlohmann::json migrated_json = nlohmann::json::parse(migrated_file);
+        assert(migrated_json.at("version") == 3);
+    }
     assert(manager.format_label(
         EditorKey::A, true, true, true, true
     ) == "Cmd+Ctrl+Shift+Alt+A");

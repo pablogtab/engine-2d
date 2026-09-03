@@ -303,8 +303,12 @@ void ShortcutsPreferencesPanel::on_gui() {
                     const EditorKey key = manager.capture_pressed_key();
                     if (key != EditorKey::None) {
 #ifdef __APPLE__
-                        const bool command = io.KeySuper;
-                        const bool control = io.KeyCtrl;
+                        const bool command = io.ConfigMacOSXBehaviors
+                            ? io.KeyCtrl
+                            : io.KeySuper;
+                        const bool control = io.ConfigMacOSXBehaviors
+                            ? io.KeySuper
+                            : io.KeyCtrl;
 #else
                         const bool command = io.KeyCtrl;
                         const bool control = false;

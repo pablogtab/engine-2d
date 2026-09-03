@@ -16,7 +16,7 @@ namespace Engine {
 
 namespace {
 
-constexpr int SHORTCUT_STATE_VERSION = 2;
+constexpr int SHORTCUT_STATE_VERSION = 3;
 
 struct KeyMapping {
     EditorKey editor;
@@ -66,8 +66,13 @@ const char* key_label(EditorKey key) {
 
 bool modifiers_match(const ShortcutBinding& binding, const ImGuiIO& io) {
 #ifdef __APPLE__
-    if (binding.mod_cmd != io.KeySuper) return false;
-    if (binding.mod_ctrl != io.KeyCtrl) return false;
+    // ImGui swaps the logical Ctrl/Super states when macOS behaviors are
+    // enabled. Translate them back to the physical modifiers exposed by the
+    // editor contract.
+    const bool command_down = io.ConfigMacOSXBehaviors ? io.KeyCtrl : io.KeySuper;
+    const bool control_down = io.ConfigMacOSXBehaviors ? io.KeySuper : io.KeyCtrl;
+    if (binding.mod_cmd != command_down) return false;
+    if (binding.mod_ctrl != control_down) return false;
 #else
     if ((binding.mod_cmd || binding.mod_ctrl) != io.KeyCtrl) return false;
 #endif
@@ -317,7 +322,12 @@ void ShortcutManager::load_from_file(const std::string& filepath) {
         std::ifstream file(filepath);
         if (!file.is_open()) return;
         const json root = json::parse(file, nullptr, false);
-        if (root.is_discarded() || root.value("version", 0) != SHORTCUT_STATE_VERSION ||
+        if (root.is_discarded()) {
+            ENGINE_LOG_WARN("[SHORTCUTS] Ignoring invalid shortcuts config '{}'.", filepath);
+            return;
+        }
+        const int version = root.value("version", 0);
+        if ((version != 2 && version != SHORTCUT_STATE_VERSION) ||
             !root.contains("shortcuts") || !root["shortcuts"].is_object()) {
             ENGINE_LOG_WARN("[SHORTCUTS] Ignoring incompatible shortcuts config '{}'.", filepath);
             return;
@@ -335,8 +345,20 @@ void ShortcutManager::load_from_file(const std::string& filepath) {
             binding.mod_ctrl = item.value("ctrl", binding.mod_ctrl);
             binding.mod_shift = item.value("shift", binding.mod_shift);
             binding.mod_alt = item.value("alt", binding.mod_alt);
+#ifdef __APPLE__
+            // Version 2 briefly captured physical Cmd as logical Ctrl because
+            // ImGui's macOS modifier swap was not normalized by the panel.
+            if (version == 2 && !binding.mod_cmd && binding.mod_ctrl) {
+                binding.mod_cmd = true;
+                binding.mod_ctrl = false;
+            }
+#endif
         }
         ENGINE_LOG_INFO("[SHORTCUTS] Loaded user keybindings from '{}'.", filepath);
+        if (version == 2) {
+            save_to_file();
+            ENGINE_LOG_INFO("[SHORTCUTS] Migrated keybindings to version {}.", SHORTCUT_STATE_VERSION);
+        }
     } catch (const std::exception& error) {
         ENGINE_LOG_WARN("[SHORTCUTS] Could not parse shortcuts config: {}", error.what());
     }
