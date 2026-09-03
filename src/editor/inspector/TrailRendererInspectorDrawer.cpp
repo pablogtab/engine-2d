@@ -6,6 +6,8 @@
 #include "../commands/EntityCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/PrefabCommands.hpp"
+#include "../panels/TrailPreviewPanel.hpp"
+#include "../ui/EditorUi.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
 #include "../../scene/PrefabOverrides.hpp"
@@ -136,6 +138,11 @@ void TrailRendererInspectorDrawer::draw(
         Policies::bounded_float(0.05f, 0.05f, 32.0f, "%.2f"));
     InspectorWidgets::property_float("Flow Speed", &trail.flow_speed,
         Policies::bounded_float(0.05f, -20.0f, 20.0f, "%.2f"));
+    int smoothing = trail.smoothing;
+    if (InspectorWidgets::property_int("Smoothing", &smoothing,
+            Policies::bounded_int(1.0f, 0, 4))) {
+        trail.smoothing = static_cast<std::uint8_t>(smoothing);
+    }
     int max_points = trail.max_points;
     if (InspectorWidgets::property_int("Max Points", &max_points,
             Policies::bounded_int(1.0f, 2, 2048))) {
@@ -170,6 +177,13 @@ void TrailRendererInspectorDrawer::draw(
     track(entities, entity, flags_before, "Trail.Flags", "Edit Trail State", transaction,
           emitting_changed || enabled_changed);
     ImGui::TextDisabled("Emitting off lets the existing trail fade naturally.");
+    if (context.trail_preview && EditorUi::action_button(
+            "trail_open_preview", EditorIcon::Play, "Open Preview",
+            context.trail_preview->targets(&entities, entity)
+                ? EditorUi::ButtonTone::Primary
+                : EditorUi::ButtonTone::Neutral)) {
+        context.trail_preview->open_for_entity(&entities, entity);
+    }
     ImGui::PopID();
 }
 

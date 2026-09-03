@@ -531,6 +531,7 @@ void test_builtin_components_round_trip_through_registry() {
     trail.lifetime = 0.4f;
     trail.texture_scale = 1.75f;
     trail.flow_speed = 0.8f;
+    trail.smoothing = 3;
     em.add_component<TrailRenderer2DComponent>(source, trail);
 
     LightingBakeVolume2DComponent bake_volume;
@@ -662,6 +663,7 @@ void test_builtin_components_round_trip_through_registry() {
     legacy_value["sprite_lighting_2d"].erase("enabled");
     legacy_value["animation"]["clips"][0].erase("ping_pong");
     legacy_value["animation"]["clips"][0].erase("reverse");
+    legacy_value["trail_renderer_2d"].erase("smoothing");
     const EntityID legacy_target = em.create_entity();
     assert(default_component_registry().deserialize_entity(em, legacy_target, legacy_value, {}, error));
     const auto& legacy_lighting = em.get_component<SpriteLighting2DComponent>(legacy_target);
@@ -669,6 +671,7 @@ void test_builtin_components_round_trip_through_registry() {
     assert(legacy_lighting.enabled);
     assert(!em.get_component<AnimationComponent>(legacy_target).clips.front().ping_pong);
     assert(!em.get_component<AnimationComponent>(legacy_target).clips.front().reverse);
+    assert(em.get_component<TrailRenderer2DComponent>(legacy_target).smoothing == 2);
     assert(em.get_component<CameraComponent>(target).zoom == 2.5f);
     assert(em.get_component<CameraComponent>(target).clear_color.r == 12);
     assert(em.get_component<CameraComponent>(target).clear_color.a == 78);

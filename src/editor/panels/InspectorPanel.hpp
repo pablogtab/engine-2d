@@ -42,6 +42,7 @@ public:
     void set_entity_state_store(std::shared_ptr<class EditorEntityStateStore> store) { m_entity_state_store = store; }
     [[nodiscard]] std::shared_ptr<class EditorEntityStateStore> get_entity_state_store() const { return m_entity_state_store; }
     void set_animation_studio(class SpriteAnimationStudioPanel* studio) { m_anim_studio = studio; }
+    void set_trail_preview(class TrailPreviewPanel* preview) { m_trail_preview = preview; }
     void set_prefab_stage(class PrefabStageController* stage) { m_prefab_stage = stage; }
     [[nodiscard]] class PrefabStageController* get_prefab_stage() const { return m_prefab_stage; }
     void set_on_open_prefab_callback(std::function<void(const std::string&)> cb) { m_on_open_prefab = std::move(cb); }
@@ -72,6 +73,7 @@ private:
     SDL_Renderer* m_renderer{nullptr};
     AssetManager* m_asset_manager{nullptr};
     class SpriteAnimationStudioPanel* m_anim_studio{nullptr};
+    class TrailPreviewPanel* m_trail_preview{nullptr};
     class PrefabStageController* m_prefab_stage{nullptr};
     std::function<void(const std::string&)> m_on_open_prefab;
     std::function<AssetHandle()> m_create_material;

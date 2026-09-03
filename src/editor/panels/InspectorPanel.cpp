@@ -719,6 +719,7 @@ void InspectorPanel::draw_components(EntityManager& em, EntityID entity) {
         m_command_history.get(),
         &m_property_transactions,
         m_anim_studio,
+        m_trail_preview,
         is_locked,
         m_create_material,
         m_duplicate_material,

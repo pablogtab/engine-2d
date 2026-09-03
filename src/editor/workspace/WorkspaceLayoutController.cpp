@@ -252,6 +252,7 @@ void WorkspaceLayoutController::build_default(
                 dock_main_id, ImGuiDir_Down, 0.28f, nullptr, &dock_main_id
             );
             ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
+            ImGui::DockBuilderDockWindow("Trail Preview", dock_main_id);
             ImGui::DockBuilderDockWindow("Entity Inspector", dock_right_top);
             ImGui::DockBuilderDockWindow("Post-Processing Tuner", dock_right_bottom);
             ImGui::DockBuilderDockWindow("Particle Effect Editor", dock_bottom);

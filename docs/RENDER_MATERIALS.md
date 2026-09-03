@@ -42,7 +42,9 @@ The component owns only authored settings: material, colors, lifetime, sample
 distance, widths, point budget and blend mode. Point history is runtime-only,
 so prefab and scene serialization remain deterministic. Turning `emitting` off
 lets the existing ribbon fade; turning the component off removes it
-immediately. `texture_scale` repeats the procedural pattern along the ribbon
+immediately. `smoothing` adds Catmull-Rom subdivisions only while building the
+render geometry; it never changes the authored point history. `texture_scale`
+repeats the procedural pattern along the ribbon
 and `flow_speed` scrolls it over time. The frame profiler reports `trails` and
 `trail_points` counters.
 

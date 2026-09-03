@@ -35,7 +35,8 @@ WorkspaceManager::WorkspaceManager()
         }},
         {EditorWorkspaceId::Vfx, "vfx", "VFX", {
             EditorPanelId::Viewport, EditorPanelId::Inspector,
-            EditorPanelId::Particles, EditorPanelId::PostProcess,
+            EditorPanelId::Particles, EditorPanelId::TrailPreview,
+            EditorPanelId::PostProcess,
             EditorPanelId::Assets
         }},
         {EditorWorkspaceId::Debug, "debug", "Debug", {

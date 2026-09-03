@@ -45,6 +45,8 @@ private:
     };
 
     std::unordered_map<EntityID, State> m_states;
+    std::vector<glm::vec2> m_render_positions;
+    std::vector<float> m_render_ages;
     std::vector<glm::vec2> m_directions;
     std::vector<float> m_lengths;
     std::vector<glm::vec2> m_offsets;

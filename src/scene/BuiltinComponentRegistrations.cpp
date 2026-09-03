@@ -634,6 +634,7 @@ void register_trail_renderer(ComponentRegistry& registry) {
                 {"tail_width", trail.tail_width},
                 {"texture_scale", trail.texture_scale},
                 {"flow_speed", trail.flow_speed},
+                {"smoothing", trail.smoothing},
                 {"max_points", trail.max_points},
                 {"sorting_layer", trail.sorting_layer},
                 {"order_in_layer", trail.order_in_layer},
@@ -701,6 +702,12 @@ void register_trail_renderer(ComponentRegistry& registry) {
                 trail.tail_width = value.at("tail_width").get<float>();
                 trail.texture_scale = value.value("texture_scale", 1.0f);
                 trail.flow_speed = value.value("flow_speed", 0.0f);
+                const int smoothing = value.value("smoothing", 2);
+                if (smoothing < 0 || smoothing > 4) {
+                    error = "Trail Renderer 2D smoothing must be between 0 and 4";
+                    return false;
+                }
+                trail.smoothing = static_cast<std::uint8_t>(smoothing);
                 trail.max_points = value.at("max_points").get<std::uint16_t>();
                 trail.sorting_layer = value.value("sorting_layer", std::int16_t{0});
                 trail.order_in_layer = value.value("order_in_layer", std::int16_t{-1});
@@ -737,7 +744,8 @@ void register_trail_renderer(ComponentRegistry& registry) {
                 !std::isfinite(trail.texture_scale) || trail.texture_scale <= 0.0f ||
                 !std::isfinite(trail.flow_speed) ||
                 !std::isfinite(trail.z_layer) ||
-                trail.max_points < 2 || trail.max_points > 2048 || trail.render_layer > 31) {
+                trail.smoothing > 4 || trail.max_points < 2 ||
+                trail.max_points > 2048 || trail.render_layer > 31) {
                 return "Trail Renderer 2D settings are invalid";
             }
             return std::nullopt;

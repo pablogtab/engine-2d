@@ -19,6 +19,7 @@ class AssetManager;
 class EditorCommandHistory;
 class EditorPropertyTransaction;
 class SpriteAnimationStudioPanel;
+class TrailPreviewPanel;
 class ScriptRuntime;
 class SceneManager;
 
@@ -38,6 +39,7 @@ struct EditorInspectorContext {
     EditorCommandHistory* command_history{nullptr};
     EditorPropertyTransaction* transactions{nullptr};
     SpriteAnimationStudioPanel* animation_studio{nullptr};
+    TrailPreviewPanel* trail_preview{nullptr};
     bool locked{false};
     std::function<AssetHandle()> create_material;
     std::function<AssetHandle(AssetHandle)> duplicate_material;

@@ -218,6 +218,7 @@ struct TrailRenderer2DComponent {
     float tail_width{0.0f};
     float texture_scale{1.0f};
     float flow_speed{0.0f};
+    std::uint8_t smoothing{2};
     std::uint16_t max_points{64};
     std::int16_t sorting_layer{0};
     std::int16_t order_in_layer{-1};
@@ -236,7 +237,8 @@ struct TrailRenderer2DComponent {
             lifetime == other.lifetime && min_vertex_distance == other.min_vertex_distance &&
             head_width == other.head_width && tail_width == other.tail_width &&
             texture_scale == other.texture_scale && flow_speed == other.flow_speed &&
-            max_points == other.max_points && sorting_layer == other.sorting_layer &&
+            smoothing == other.smoothing && max_points == other.max_points &&
+            sorting_layer == other.sorting_layer &&
             order_in_layer == other.order_in_layer && z_layer == other.z_layer &&
             render_layer == other.render_layer &&
             blend_mode == other.blend_mode && emitting == other.emitting && enabled == other.enabled;

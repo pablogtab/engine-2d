@@ -142,6 +142,11 @@ void EditorLayer::register_editor_actions() {
                 m_animation_studio_panel->undo_from_editor_action();
                 return;
             }
+            if (m_particle_editor_panel &&
+                m_particle_editor_panel->owns_draft_history_focus()) {
+                m_particle_editor_panel->undo_from_editor_action();
+                return;
+            }
             if (m_command_history) m_command_history->undo();
             update_window_title();
         },
@@ -149,6 +154,10 @@ void EditorLayer::register_editor_actions() {
             if (m_animation_studio_panel &&
                 m_animation_studio_panel->owns_draft_history_focus()) {
                 return m_animation_studio_panel->can_undo_draft();
+            }
+            if (m_particle_editor_panel &&
+                m_particle_editor_panel->owns_draft_history_focus()) {
+                return m_particle_editor_panel->can_undo_draft();
             }
             return m_command_history && m_command_history->can_undo();
         }
@@ -163,6 +172,11 @@ void EditorLayer::register_editor_actions() {
                 m_animation_studio_panel->redo_from_editor_action();
                 return;
             }
+            if (m_particle_editor_panel &&
+                m_particle_editor_panel->owns_draft_history_focus()) {
+                m_particle_editor_panel->redo_from_editor_action();
+                return;
+            }
             if (m_command_history) m_command_history->redo();
             update_window_title();
         },
@@ -170,6 +184,10 @@ void EditorLayer::register_editor_actions() {
             if (m_animation_studio_panel &&
                 m_animation_studio_panel->owns_draft_history_focus()) {
                 return m_animation_studio_panel->can_redo_draft();
+            }
+            if (m_particle_editor_panel &&
+                m_particle_editor_panel->owns_draft_history_focus()) {
+                return m_particle_editor_panel->can_redo_draft();
             }
             return m_command_history && m_command_history->can_redo();
         }

@@ -26,6 +26,7 @@ enum class EditorPanelId {
     Diagnostics,
     PostProcess,
     Particles,
+    TrailPreview,
     ProjectSettings,
     Shortcuts,
     Tilemap,
@@ -45,6 +46,7 @@ enum class EditorPanelId {
         case EditorPanelId::Diagnostics: return "diagnostics";
         case EditorPanelId::PostProcess: return "post_process";
         case EditorPanelId::Particles: return "particles";
+        case EditorPanelId::TrailPreview: return "trail_preview";
         case EditorPanelId::ProjectSettings: return "project_settings";
         case EditorPanelId::Shortcuts: return "shortcuts";
         case EditorPanelId::Tilemap: return "tilemap";

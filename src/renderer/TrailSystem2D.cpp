@@ -23,6 +23,7 @@ struct TrailSystem2D::State::Style {
     float tail_width{0.0f};
     float texture_scale{1.0f};
     float flow_speed{0.0f};
+    std::uint8_t smoothing{2};
     std::uint16_t max_points{64};
     std::int16_t sorting_layer{0};
     std::int16_t order_in_layer{-1};
@@ -48,6 +49,23 @@ SDL_Color lerp_color(SDL_Color from, SDL_Color to, float amount) {
 
 glm::vec2 perpendicular(glm::vec2 direction) {
     return {-direction.y, direction.x};
+}
+
+glm::vec2 catmull_rom(
+    const glm::vec2& p0,
+    const glm::vec2& p1,
+    const glm::vec2& p2,
+    const glm::vec2& p3,
+    float amount
+) {
+    const float amount_squared = amount * amount;
+    const float amount_cubed = amount_squared * amount;
+    return 0.5f * (
+        2.0f * p1 +
+        (-p0 + p2) * amount +
+        (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * amount_squared +
+        (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * amount_cubed
+    );
 }
 
 } // namespace
@@ -95,6 +113,7 @@ void TrailSystem2D::update(EntityManager& entities, float delta_time) {
             component.tail_width,
             component.texture_scale,
             component.flow_speed,
+            component.smoothing,
             component.max_points,
             component.sorting_layer,
             component.order_in_layer,
@@ -149,13 +168,53 @@ void TrailSystem2D::render(Renderer2D& renderer) {
         static_cast<void>(entity);
         if (!state.style || state.points.size() < 2) continue;
         const State::Style& style = *state.style;
-        const std::size_t count = state.points.size();
+        const std::size_t source_count = state.points.size();
+
+        m_render_positions.clear();
+        m_render_ages.clear();
+        if (style.smoothing == 0 || source_count < 3) {
+            m_render_positions.reserve(source_count);
+            m_render_ages.reserve(source_count);
+            for (const Point& point : state.points) {
+                m_render_positions.push_back(point.position);
+                m_render_ages.push_back(point.age);
+            }
+        } else {
+            const std::size_t subdivisions =
+                static_cast<std::size_t>(style.smoothing) + 1;
+            m_render_positions.reserve((source_count - 1) * subdivisions + 1);
+            m_render_ages.reserve((source_count - 1) * subdivisions + 1);
+            m_render_positions.push_back(state.points.front().position);
+            m_render_ages.push_back(state.points.front().age);
+            for (std::size_t index = 0; index + 1 < source_count; ++index) {
+                const glm::vec2& p0 = state.points[index == 0 ? 0 : index - 1].position;
+                const glm::vec2& p1 = state.points[index].position;
+                const glm::vec2& p2 = state.points[index + 1].position;
+                const glm::vec2& p3 = state.points[
+                    std::min(index + 2, source_count - 1)
+                ].position;
+                for (std::size_t step = 1; step <= subdivisions; ++step) {
+                    const float amount = static_cast<float>(step) /
+                        static_cast<float>(subdivisions);
+                    m_render_positions.push_back(catmull_rom(
+                        p0, p1, p2, p3, amount
+                    ));
+                    m_render_ages.push_back(std::lerp(
+                        state.points[index].age,
+                        state.points[index + 1].age,
+                        amount
+                    ));
+                }
+            }
+        }
+        const std::size_t count = m_render_positions.size();
 
         m_directions.resize(count - 1);
         m_lengths.assign(count - 1, 0.0f);
         float total_length = 0.0f;
         for (std::size_t index = 0; index + 1 < count; ++index) {
-            const glm::vec2 delta = state.points[index + 1].position - state.points[index].position;
+            const glm::vec2 delta =
+                m_render_positions[index + 1] - m_render_positions[index];
             m_lengths[index] = glm::length(delta);
             m_directions[index] = m_lengths[index] > epsilon
                 ? delta / m_lengths[index] : glm::vec2(1.0f, 0.0f);
@@ -171,7 +230,7 @@ void TrailSystem2D::render(Renderer2D& renderer) {
             if (index > 0) walked += m_lengths[index - 1];
             m_u_coordinates[index] = walked / total_length;
             const float freshness = std::clamp(
-                1.0f - state.points[index].age / style.lifetime, 0.0f, 1.0f
+                1.0f - m_render_ages[index] / style.lifetime, 0.0f, 1.0f
             );
             const float half_width = std::lerp(style.tail_width, style.head_width, freshness) * 0.5f;
             m_colors[index] = lerp_color(style.tail_color, style.head_color, freshness);
@@ -203,10 +262,10 @@ void TrailSystem2D::render(Renderer2D& renderer) {
         for (std::size_t index = 0; index + 1 < count; ++index) {
             if (m_lengths[index] <= epsilon) continue;
             const std::array<glm::vec2, 4> corners{
-                state.points[index].position + m_offsets[index],
-                state.points[index + 1].position + m_offsets[index + 1],
-                state.points[index + 1].position - m_offsets[index + 1],
-                state.points[index].position - m_offsets[index]
+                m_render_positions[index] + m_offsets[index],
+                m_render_positions[index + 1] + m_offsets[index + 1],
+                m_render_positions[index + 1] - m_offsets[index + 1],
+                m_render_positions[index] - m_offsets[index]
             };
             const std::array<glm::vec2, 4> uvs{
                 glm::vec2{m_u_coordinates[index] * style.texture_scale - uv_offset, 0.0f},
