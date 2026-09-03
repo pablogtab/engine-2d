@@ -1,10 +1,85 @@
 #include "ConsolePanel.hpp"
-#include "../ui/EditorUi.hpp"
 #include "../../core/Time.hpp"
 #include <imgui.h>
 #include <algorithm>
 
 namespace Engine {
+
+namespace {
+
+std::string wrap_selectable_text(const std::string& text, float width) {
+    if (text.empty() || width <= 1.0f) return text;
+
+    std::string wrapped;
+    wrapped.reserve(text.size() + text.size() / 24);
+    std::string line;
+    std::size_t cursor = 0;
+    const auto flush_line = [&]() {
+        wrapped += line;
+        line.clear();
+    };
+
+    while (cursor < text.size()) {
+        if (text[cursor] == '\n') {
+            flush_line();
+            wrapped.push_back('\n');
+            ++cursor;
+            continue;
+        }
+
+        const std::size_t word_end = text.find_first_of(" \n", cursor);
+        const std::size_t end = word_end == std::string::npos ? text.size() : word_end;
+        std::string word = text.substr(cursor, end - cursor);
+        if (end < text.size() && text[end] == ' ') word.push_back(' ');
+
+        if (!line.empty() && ImGui::CalcTextSize((line + word).c_str()).x > width) {
+            flush_line();
+            wrapped.push_back('\n');
+        }
+        while (!word.empty() && ImGui::CalcTextSize(word.c_str()).x > width) {
+            std::size_t split = 1;
+            while (split < word.size() &&
+                ImGui::CalcTextSize(word.substr(0, split + 1).c_str()).x <= width) {
+                ++split;
+            }
+            line += word.substr(0, split);
+            flush_line();
+            wrapped.push_back('\n');
+            word.erase(0, split);
+        }
+        line += word;
+        cursor = end + (end < text.size() && text[end] == ' ' ? 1 : 0);
+    }
+    flush_line();
+    return wrapped;
+}
+
+void draw_selectable_console(const std::string& text) {
+    const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    std::string wrapped = wrap_selectable_text(text, width);
+    const std::size_t line_count = 1 + static_cast<std::size_t>(
+        std::count(wrapped.begin(), wrapped.end(), '\n')
+    );
+    const float height = static_cast<float>(line_count) * ImGui::GetTextLineHeight() + 4.0f;
+
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 1.0f));
+    ImGui::InputTextMultiline(
+        "##log_text",
+        wrapped.data(),
+        wrapped.size() + 1,
+        ImVec2(width, height),
+        ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_NoHorizontalScroll
+    );
+    if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(3);
+}
+
+} // namespace
 
 ConsolePanel::ConsolePanel() {
     add_log({"00:00:00", LogLevel::INFO, "Engine2D Live Editor Console ready.", {"editor"}});
@@ -64,7 +139,6 @@ void ConsolePanel::on_gui() {
         &is_open,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
     )) {
-        EditorUi::area_heading(EditorIcon::History, "Console", "Runtime and editor messages");
         // --- 1. Top Controls Bar ---
         if (ImGui::Button("Clear")) {
             clear();
@@ -105,6 +179,7 @@ void ConsolePanel::on_gui() {
             std::lock_guard lock(m_entries_mutex);
             entries = m_entries;
         }
+        std::string console_text;
         for (const auto& entry : entries) {
             if (entry.level == LogLevel::INFO && !m_show_info) continue;
             if (entry.level == LogLevel::WARN && !m_show_warn) continue;
@@ -123,39 +198,30 @@ void ConsolePanel::on_gui() {
                 }
             }
 
-            ImVec4 col = ImVec4(0.85f, 0.85f, 0.88f, 1.0f);
-            if (entry.level == LogLevel::WARN) {
-                col = ImVec4(0.95f, 0.75f, 0.2f, 1.0f);
-            } else if (entry.level == LogLevel::ERR || entry.level == LogLevel::CRITICAL) {
-                col = ImVec4(0.95f, 0.3f, 0.3f, 1.0f);
-            } else if (entry.level == LogLevel::DEBUG || entry.level == LogLevel::TRACE) {
-                col = ImVec4(0.5f, 0.5f, 0.6f, 1.0f);
-            }
-
             const char* level = entry.level == LogLevel::ERR ? "ERROR" :
                 entry.level == LogLevel::CRITICAL ? "CRIT" :
                 entry.level == LogLevel::WARN ? "WARN" :
                 entry.level == LogLevel::DEBUG ? "DEBUG" :
                 entry.level == LogLevel::TRACE ? "TRACE" : "INFO";
 
-            ImGui::TextColored(ImVec4(0.45f, 0.45f, 0.55f, 1.0f), "[%s]", entry.timestamp.c_str());
-            ImGui::SameLine();
-            ImGui::TextColored(col, "[%s]", level);
+            std::string line = "[" + entry.timestamp + "] [" + level + "]";
             if (!entry.metadata.category.empty()) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("[%s]", entry.metadata.category.c_str());
+                line += " [" + entry.metadata.category + "]";
             }
             if (entry.metadata.entity) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("[entity=%u]", *entry.metadata.entity);
+                line += " [entity=" + std::to_string(*entry.metadata.entity) + "]";
             }
             if (entry.metadata.source && entry.metadata.source->is_valid()) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("[%s:%u:%u]", entry.metadata.source->path.c_str(), entry.metadata.source->line, entry.metadata.source->column);
+                line += " [" + entry.metadata.source->path + ":" +
+                    std::to_string(entry.metadata.source->line) + ":" +
+                    std::to_string(entry.metadata.source->column) + "]";
             }
-            ImGui::SameLine();
-            ImGui::TextWrapped("%s", entry.message.c_str());
+            line += " " + entry.message;
+            if (!console_text.empty()) console_text.push_back('\n');
+            console_text += line;
         }
+
+        draw_selectable_console(console_text);
 
         if (m_auto_scroll && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
             ImGui::SetScrollHereY(1.0f);
