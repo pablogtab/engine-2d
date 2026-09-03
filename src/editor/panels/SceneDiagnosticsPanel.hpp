@@ -11,6 +11,7 @@
 
 namespace Engine {
 
+class Scene;
 class SceneManager;
 class AssetDatabase;
 
@@ -34,6 +35,12 @@ public:
     void set_on_reveal_asset(std::function<void(const std::string&)> callback) { m_on_reveal_asset = std::move(callback); }
 
 private:
+    void draw_diagnostic_row(
+        Scene& scene,
+        const SceneDiagnostic& diagnostic,
+        std::size_t index
+    );
+
     std::string m_name{"Scene Diagnostics"};
     SceneManager* m_scene_manager{nullptr};
     AssetDatabase* m_asset_database{nullptr};
@@ -41,6 +48,9 @@ private:
     std::shared_ptr<EditorCommandHistory> m_command_history;
     std::function<void(const std::string&)> m_on_reveal_asset;
     std::optional<SceneDiagnostic> m_pending_clear;
+    char m_filter_buffer[96]{};
+    bool m_show_errors{true};
+    bool m_show_warnings{true};
 };
 
 } // namespace Engine
