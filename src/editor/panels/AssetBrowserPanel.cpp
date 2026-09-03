@@ -1,15 +1,23 @@
 #include "AssetBrowserPanel.hpp"
+#include "../EditorTheme.hpp"
 #include "../ui/EditorUi.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../core/Log.hpp"
 #include "../../core/FileSystem.hpp"
+#include "../../ecs/RenderSystem.hpp"
+#include "../../ecs/TransformSystem.hpp"
 #include "../../particles/ParticleEffectAsset.hpp"
+#include "../../renderer/Renderer2D.hpp"
 #include "../../renderer/postprocess/PostProcessProfile.hpp"
 #include "../../renderer/RenderLayerEffectProfile.hpp"
+#include "../../renderer/SpriteSortKey.hpp"
 #include "../../renderer/material/MaterialAsset.hpp"
 #include "../../renderer/material/SDLGPUMaterialBackend.hpp"
 #include "../../renderer/material/ShaderAsset.hpp"
+#include "../../scene/EntitySubtreeArchive.hpp"
+#include "../../scene/PrefabSerializer.hpp"
+#include "../../scene/Scene.hpp"
 #include "../commands/AssetFileCommands.hpp"
 #include "../commands/EditorCommandHistory.hpp"
 #include "../commands/EditorCommandGroup.hpp"
@@ -17,6 +25,7 @@
 #include "../inspector/AssetDropResolver.hpp"
 #include "../inspector/MaterialInspectorWidget.hpp"
 #include "../scripting/ScriptTemplates.hpp"
+#include "../tools/ViewportNavigation.hpp"
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <algorithm>
@@ -27,6 +36,7 @@
 #include <ctime>
 #include <cstring>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <nlohmann/json.hpp>
 
@@ -115,26 +125,6 @@ bool path_is_within(const std::filesystem::path& path, const std::filesystem::pa
         (!relative.empty() && relative.begin()->string() != "..");
 }
 
-const char* asset_tag(const AssetBrowserEntry& entry) {
-    if (entry.is_directory) return "[DIR]";
-    switch (entry.type) {
-        case AssetType::Scene: return "[SCENE]";
-        case AssetType::Prefab: return "[PREFAB]";
-        case AssetType::Texture: return "[IMAGE]";
-        case AssetType::Font: return "[FONT]";
-        case AssetType::Audio: return "[AUDIO]";
-        case AssetType::Shader: return "[SHADER]";
-        case AssetType::Material: return "[MATERIAL]";
-        case AssetType::PostProcessProfile: return "[POST FX]";
-        case AssetType::RenderLayerEffectProfile: return "[LAYER FX]";
-        case AssetType::ParticleEffect: return "[PARTICLE]";
-        case AssetType::Script: return "[SCRIPT]";
-        case AssetType::Data: return "[DATA]";
-        case AssetType::Unknown: return "[FILE]";
-    }
-    return "[FILE]";
-}
-
 ImVec4 asset_tag_color(const AssetBrowserEntry& entry) {
     if (!entry.is_directory && entry.status != AssetStatus::Ready) {
         return ImVec4(0.95f, 0.42f, 0.32f, 1.0f);
@@ -156,6 +146,26 @@ ImVec4 asset_tag_color(const AssetBrowserEntry& entry) {
         case AssetType::Unknown: return ImVec4(0.70f, 0.70f, 0.70f, 1.0f);
     }
     return ImVec4(0.70f, 0.70f, 0.70f, 1.0f);
+}
+
+EditorIcon asset_icon(const AssetBrowserEntry& entry) {
+    if (entry.is_directory) return EditorIcon::Folder;
+    switch (entry.type) {
+        case AssetType::Texture: return EditorIcon::Sprite;
+        case AssetType::Material: return EditorIcon::Material;
+        case AssetType::Script: return EditorIcon::Edit;
+        case AssetType::ParticleEffect: return EditorIcon::Zap;
+        case AssetType::Scene: return EditorIcon::Sprite;
+        case AssetType::Prefab: return EditorIcon::Component;
+        case AssetType::PostProcessProfile:
+        case AssetType::RenderLayerEffectProfile: return EditorIcon::Settings;
+        case AssetType::Shader: return EditorIcon::Zap;
+        case AssetType::Font:
+        case AssetType::Audio:
+        case AssetType::Data:
+        case AssetType::Unknown: return EditorIcon::File;
+    }
+    return EditorIcon::File;
 }
 
 std::string human_file_size(std::uintmax_t size) {
@@ -258,19 +268,34 @@ AssetBrowserPanel::~AssetBrowserPanel() {
     destroy_asset_previews();
 }
 
+void AssetBrowserPanel::set_renderer(SDL_Renderer* renderer) {
+    if (m_renderer == renderer) return;
+    destroy_asset_previews();
+    m_prefab_preview_renderer.reset();
+    m_renderer = renderer;
+}
+
+void AssetBrowserPanel::set_material_backend(std::shared_ptr<IMaterialBackend> backend) {
+    m_material_backend = std::move(backend);
+    if (m_prefab_preview_renderer) {
+        m_prefab_preview_renderer->set_material_backend(m_material_backend);
+    }
+}
+
 void AssetBrowserPanel::on_render_resources_invalidated() {
     destroy_asset_previews();
+    m_prefab_preview_renderer.reset();
 }
 
 void AssetBrowserPanel::load_preferences() {
     const AssetBrowserPersistentState state = AssetBrowserState::load(m_preferences_path);
     m_view_mode = state.view_mode;
-    m_collection = state.collection;
+    // Collections are intentionally absent from the streamlined browser.
+    // Never restore an invisible Favorites/Recent filter from an older session.
+    m_collection = AssetBrowserCollection::All;
     m_search_scope = state.scope;
-    // Type and status remain available as search tokens (t:/status:), but are
-    // no longer hidden persistent filters now that the toolbar is compact.
-    m_type_filter = AssetBrowserTypeFilter::All;
-    m_status_filter = AssetBrowserStatusFilter::All;
+    m_type_filter = state.type_filter;
+    m_status_filter = state.status_filter;
     m_sort = state.sort;
     m_sort_ascending = state.sort_ascending;
     m_thumbnail_size = state.thumbnail_size;
@@ -597,76 +622,226 @@ SDL_Texture* AssetBrowserPanel::preview_asset(const AssetBrowserEntry& entry) {
         return preview ? preview->get_sdl_texture() : nullptr;
     }
     if (entry.type == AssetType::Material) return preview_material_asset(entry.handle);
-    if (entry.type == AssetType::Scene) return render_scene_preview(entry);
+    if (entry.type == AssetType::Prefab) return render_prefab_preview(entry);
+    if (entry.type == AssetType::Scene) return render_entity_asset_preview(entry);
     return nullptr;
 }
 
-SDL_Texture* AssetBrowserPanel::render_scene_preview(const AssetBrowserEntry& entry) {
-    if (const auto cached = m_scene_preview_outputs.find(entry.handle);
-        cached != m_scene_preview_outputs.end()) return cached->second;
+SDL_Texture* AssetBrowserPanel::render_prefab_preview(const AssetBrowserEntry& entry) {
+    if (const auto cached = m_entity_preview_outputs.find(entry.handle);
+        cached != m_entity_preview_outputs.end()) return cached->second;
+    if (!m_renderer || !m_asset_database) return nullptr;
+
+    const std::string source = PrefabSerializer::read_json_from_file(entry.absolute_path.string());
+    if (source.empty()) {
+        m_entity_preview_outputs[entry.handle] = nullptr;
+        return nullptr;
+    }
+
+    Scene preview_scene("Prefab Thumbnail");
+    EntityManager& entities = preview_scene.get_entity_manager();
+    ComponentSerializationContext context{
+        .renderer = m_renderer,
+        .asset_manager = &AssetManager::get(),
+        .asset_database = m_asset_database
+    };
+    const SubtreeInstantiationResult instantiated = EntitySubtreeArchive::instantiate_from_json(
+        entities, source, std::nullopt, 0, context
+    );
+    if (!instantiated.success || instantiated.root_entity == 0) {
+        m_entity_preview_outputs[entry.handle] = nullptr;
+        return nullptr;
+    }
+
+    TransformSystem::update(entities);
+    std::vector<EntityID> visual_entities;
+    entities.for_each<TransformComponent, SpriteComponent>(
+        [&visual_entities](
+            EntityID entity, const TransformComponent& transform, const SpriteComponent& sprite
+        ) {
+            const glm::vec2 world_size = sprite.size * glm::abs(transform.world_scale);
+            if (transform.world_visible && sprite.visible && sprite.texture &&
+                world_size.x > 0.01f && world_size.y > 0.01f) {
+                visual_entities.push_back(entity);
+            }
+        }
+    );
+    if (visual_entities.empty()) {
+        m_entity_preview_outputs[entry.handle] = nullptr;
+        return nullptr;
+    }
+
+    constexpr int preview_width = 160;
+    constexpr int preview_height = 96;
+    Camera2D preview_camera(preview_width, preview_height);
+    preview_camera.set_reference_size(preview_width, preview_height);
+    if (!ViewportNavigation::frame_entities(
+            &preview_scene, &preview_camera, visual_entities, 0.12f
+        )) {
+        m_entity_preview_outputs[entry.handle] = nullptr;
+        return nullptr;
+    }
+
+    SDL_Texture* output = SDL_CreateTexture(
+        m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
+        preview_width, preview_height
+    );
+    if (!output) return nullptr;
+    SDL_SetTextureBlendMode(output, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureScaleMode(output, SDL_SCALEMODE_LINEAR);
+
+    if (!m_prefab_preview_renderer) {
+        m_prefab_preview_renderer = std::make_unique<Renderer2D>(m_renderer);
+        m_prefab_preview_renderer->set_material_backend(m_material_backend);
+    }
+
+    SDL_Texture* previous_target = SDL_GetRenderTarget(m_renderer);
+    SDL_Rect previous_viewport{};
+    const bool had_viewport = SDL_GetRenderViewport(m_renderer, &previous_viewport);
+    float previous_scale_x = 1.0f;
+    float previous_scale_y = 1.0f;
+    static_cast<void>(SDL_GetRenderScale(m_renderer, &previous_scale_x, &previous_scale_y));
+    Uint8 previous_r = 0, previous_g = 0, previous_b = 0, previous_a = 0;
+    static_cast<void>(SDL_GetRenderDrawColor(
+        m_renderer, &previous_r, &previous_g, &previous_b, &previous_a
+    ));
+
+    if (!SDL_SetRenderTarget(m_renderer, output)) {
+        SDL_DestroyTexture(output);
+        return nullptr;
+    }
+    static_cast<void>(SDL_SetRenderScale(m_renderer, 1.0f, 1.0f));
+    static_cast<void>(SDL_SetRenderViewport(m_renderer, nullptr));
+    static_cast<void>(SDL_SetRenderDrawColor(m_renderer, 18, 21, 28, 255));
+    static_cast<void>(SDL_RenderClear(m_renderer));
+
+    m_prefab_preview_renderer->set_custom_render_target(output);
+    m_prefab_preview_renderer->set_scene_clear_color({18, 21, 28, 255});
+    m_prefab_preview_renderer->begin_scene(preview_camera);
+    RenderSystem::render(entities, *m_prefab_preview_renderer);
+    m_prefab_preview_renderer->end_scene();
+    m_prefab_preview_renderer->set_custom_render_target(previous_target);
+
+    static_cast<void>(SDL_SetRenderTarget(m_renderer, previous_target));
+    static_cast<void>(SDL_SetRenderScale(m_renderer, previous_scale_x, previous_scale_y));
+    if (had_viewport) static_cast<void>(SDL_SetRenderViewport(m_renderer, &previous_viewport));
+    static_cast<void>(SDL_SetRenderDrawColor(
+        m_renderer, previous_r, previous_g, previous_b, previous_a
+    ));
+
+    m_entity_preview_outputs[entry.handle] = output;
+    return output;
+}
+
+SDL_Texture* AssetBrowserPanel::render_entity_asset_preview(const AssetBrowserEntry& entry) {
+    if (const auto cached = m_entity_preview_outputs.find(entry.handle);
+        cached != m_entity_preview_outputs.end()) return cached->second;
     if (!m_renderer || !m_asset_database) return nullptr;
 
     struct PreviewSprite {
         float x{0.0f};
         float y{0.0f};
+        float z{0.0f};
         float width{16.0f};
         float height{16.0f};
+        float rotation{0.0f};
+        float pivot_x{0.5f};
+        float pivot_y{0.5f};
         SDL_Color color{125, 175, 235, 255};
         AssetHandle texture_handle{};
         SDL_FRect source{};
         bool use_source{false};
+        bool flip_x{false};
+        bool flip_y{false};
+        std::int16_t sorting_layer{0};
+        std::int16_t order_in_layer{0};
     };
     std::vector<PreviewSprite> sprites;
-    const nlohmann::json root = nlohmann::json::parse(
-        FileSystem::read_text(entry.absolute_path.string()), nullptr, false
-    );
+    // PrefabSerializer resolves variants before thumbnail extraction, while
+    // scene files can be inspected directly. This remains an editor-only,
+    // side-effect-free preview: scripts and physics are never started.
+    const std::string source = entry.type == AssetType::Prefab
+        ? PrefabSerializer::read_json_from_file(entry.absolute_path.string())
+        : FileSystem::read_text(entry.absolute_path.string());
+    const nlohmann::json root = nlohmann::json::parse(source, nullptr, false);
     if (root.is_discarded() || !root.contains("entities") || !root["entities"].is_array()) {
-        m_scene_preview_outputs[entry.handle] = nullptr;
+        m_entity_preview_outputs[entry.handle] = nullptr;
         return nullptr;
     }
     try {
     for (const auto& entity : root["entities"]) {
-        if (!entity.is_object() || !entity.contains("transform")) continue;
+        if (!entity.is_object() || !entity.contains("transform") ||
+            !entity.contains("sprite") || !entity["sprite"].is_object()) continue;
         const auto& transform = entity["transform"];
+        if (!transform.value("visible", true)) continue;
         const auto position = transform.value("position", nlohmann::json::array());
         if (!position.is_array() || position.size() < 2 ||
             !position[0].is_number() || !position[1].is_number()) continue;
         PreviewSprite item;
         item.x = position[0].get<float>();
         item.y = position[1].get<float>();
-        if (entity.contains("sprite") && entity["sprite"].is_object()) {
-            const auto& sprite = entity["sprite"];
-            if (!sprite.value("visible", true)) continue;
-            const auto size = sprite.value("size", nlohmann::json::array());
-            if (size.is_array() && size.size() >= 2 && size[0].is_number() && size[1].is_number()) {
-                item.width = std::max(2.0f, std::abs(size[0].get<float>()));
-                item.height = std::max(2.0f, std::abs(size[1].get<float>()));
-            }
-            const auto color = sprite.value("color", nlohmann::json::array());
-            if (color.is_array() && color.size() >= 4) {
-                item.color = {
-                    color[0].get<std::uint8_t>(), color[1].get<std::uint8_t>(),
-                    color[2].get<std::uint8_t>(), color[3].get<std::uint8_t>()
-                };
-            }
-            if (const auto handle = AssetHandle::from_string(
-                    sprite.value("texture_handle", std::string{})
-                )) item.texture_handle = *handle;
-            const auto source = sprite.value("src_rect", nlohmann::json::array());
-            if (sprite.value("use_src_rect", false) && source.is_array() && source.size() >= 4) {
-                item.source = {
-                    source[0].get<float>(), source[1].get<float>(),
-                    source[2].get<float>(), source[3].get<float>()
-                };
-                item.use_source = item.source.w > 0.0f && item.source.h > 0.0f;
-            }
+        if (position.size() >= 3 && position[2].is_number()) item.z = position[2].get<float>();
+        item.rotation = transform.value("rotation", 0.0f);
+        const auto transform_scale = transform.value("scale", nlohmann::json::array());
+        float scale_x = 1.0f;
+        float scale_y = 1.0f;
+        if (transform_scale.is_array() && transform_scale.size() >= 2 &&
+            transform_scale[0].is_number() && transform_scale[1].is_number()) {
+            scale_x = std::abs(transform_scale[0].get<float>());
+            scale_y = std::abs(transform_scale[1].get<float>());
+        }
+        const auto pivot = transform.value("pivot", nlohmann::json::array());
+        if (pivot.is_array() && pivot.size() >= 2 &&
+            pivot[0].is_number() && pivot[1].is_number()) {
+            item.pivot_x = pivot[0].get<float>();
+            item.pivot_y = pivot[1].get<float>();
+        }
+
+        const auto& sprite = entity["sprite"];
+        if (!sprite.value("visible", true)) continue;
+        const auto size = sprite.value("size", nlohmann::json::array());
+        if (size.is_array() && size.size() >= 2 && size[0].is_number() && size[1].is_number()) {
+            item.width = std::abs(size[0].get<float>()) * scale_x;
+            item.height = std::abs(size[1].get<float>()) * scale_y;
+        }
+        if (item.width < 0.01f || item.height < 0.01f) continue;
+        const auto color = sprite.value("color", nlohmann::json::array());
+        if (color.is_array() && color.size() >= 4) {
+            item.color = {
+                color[0].get<std::uint8_t>(), color[1].get<std::uint8_t>(),
+                color[2].get<std::uint8_t>(), color[3].get<std::uint8_t>()
+            };
+        }
+        item.sorting_layer = static_cast<std::int16_t>(sprite.value("sorting_layer", 0));
+        item.order_in_layer = static_cast<std::int16_t>(sprite.value("order_in_layer", 0));
+        item.flip_x = sprite.value("flip_x", false);
+        item.flip_y = sprite.value("flip_y", false);
+        if (const auto handle = AssetHandle::from_string(
+                sprite.value("texture_handle", std::string{})
+            )) item.texture_handle = *handle;
+        const auto source_rect = sprite.value("src_rect", nlohmann::json::array());
+        if (sprite.value("use_src_rect", false) && source_rect.is_array() &&
+            source_rect.size() >= 4) {
+            item.source = {
+                source_rect[0].get<float>(), source_rect[1].get<float>(),
+                source_rect[2].get<float>(), source_rect[3].get<float>()
+            };
+            item.use_source = item.source.w > 0.0f && item.source.h > 0.0f;
         }
         sprites.push_back(item);
     }
     } catch (const nlohmann::json::exception&) {
-        m_scene_preview_outputs[entry.handle] = nullptr;
+        m_entity_preview_outputs[entry.handle] = nullptr;
         return nullptr;
     }
+
+    std::stable_sort(sprites.begin(), sprites.end(), [](const auto& left, const auto& right) {
+        return SpriteSortKey::world(
+            left.sorting_layer, left.z, left.y, left.order_in_layer
+        ) < SpriteSortKey::world(
+            right.sorting_layer, right.z, right.y, right.order_in_layer
+        );
+    });
 
     constexpr int preview_width = 160;
     constexpr int preview_height = 96;
@@ -697,15 +872,46 @@ SDL_Texture* AssetBrowserPanel::render_scene_preview(const AssetBrowserEntry& en
     static_cast<void>(SDL_SetRenderDrawColor(m_renderer, 18, 21, 28, 255));
     static_cast<void>(SDL_RenderClear(m_renderer));
 
+    const auto sprite_bounds = [](const PreviewSprite& sprite) {
+        const float left = -sprite.pivot_x * sprite.width;
+        const float right = (1.0f - sprite.pivot_x) * sprite.width;
+        const float top = -sprite.pivot_y * sprite.height;
+        const float bottom = (1.0f - sprite.pivot_y) * sprite.height;
+        const float radians = sprite.rotation * 3.14159265358979323846f / 180.0f;
+        const float cosine = std::cos(radians);
+        const float sine = std::sin(radians);
+        const std::array<ImVec2, 4> corners{{
+            {left, top}, {right, top}, {right, bottom}, {left, bottom}
+        }};
+        const float screen_y = -sprite.y;
+        std::array<float, 4> bounds{
+            std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest()
+        };
+        for (const ImVec2& corner : corners) {
+            const float x = sprite.x + corner.x * cosine - corner.y * sine;
+            const float y = screen_y + corner.x * sine + corner.y * cosine;
+            bounds[0] = std::min(bounds[0], x);
+            bounds[1] = std::max(bounds[1], x);
+            bounds[2] = std::min(bounds[2], y);
+            bounds[3] = std::max(bounds[3], y);
+        }
+        return bounds;
+    };
+
     float minimum_x = 0.0f, maximum_x = 1.0f, minimum_y = 0.0f, maximum_y = 1.0f;
     if (!sprites.empty()) {
-        minimum_x = maximum_x = sprites.front().x;
-        minimum_y = maximum_y = sprites.front().y;
+        const auto first_bounds = sprite_bounds(sprites.front());
+        minimum_x = first_bounds[0];
+        maximum_x = first_bounds[1];
+        minimum_y = first_bounds[2];
+        maximum_y = first_bounds[3];
         for (const auto& sprite : sprites) {
-            minimum_x = std::min(minimum_x, sprite.x - sprite.width * 0.5f);
-            maximum_x = std::max(maximum_x, sprite.x + sprite.width * 0.5f);
-            minimum_y = std::min(minimum_y, sprite.y - sprite.height * 0.5f);
-            maximum_y = std::max(maximum_y, sprite.y + sprite.height * 0.5f);
+            const auto bounds = sprite_bounds(sprite);
+            minimum_x = std::min(minimum_x, bounds[0]);
+            maximum_x = std::max(maximum_x, bounds[1]);
+            minimum_y = std::min(minimum_y, bounds[2]);
+            maximum_y = std::max(maximum_y, bounds[3]);
         }
     }
     const float world_width = std::max(1.0f, maximum_x - minimum_x);
@@ -718,8 +924,8 @@ SDL_Texture* AssetBrowserPanel::render_scene_preview(const AssetBrowserEntry& en
     const float offset_y = (preview_height - world_height * scale) * 0.5f;
     for (const auto& sprite : sprites) {
         SDL_FRect destination{
-            offset_x + (sprite.x - sprite.width * 0.5f - minimum_x) * scale,
-            offset_y + (sprite.y - sprite.height * 0.5f - minimum_y) * scale,
+            offset_x + (sprite.x - sprite.width * sprite.pivot_x - minimum_x) * scale,
+            offset_y + (-sprite.y - sprite.height * sprite.pivot_y - minimum_y) * scale,
             std::max(2.0f, sprite.width * scale),
             std::max(2.0f, sprite.height * scale)
         };
@@ -743,8 +949,17 @@ SDL_Texture* AssetBrowserPanel::render_scene_preview(const AssetBrowserEntry& en
                 texture, sprite.color.r, sprite.color.g, sprite.color.b
             ));
             static_cast<void>(SDL_SetTextureAlphaMod(texture, sprite.color.a));
-            static_cast<void>(SDL_RenderTexture(
-                m_renderer, texture, sprite.use_source ? &sprite.source : nullptr, &destination
+            const SDL_FPoint pivot{
+                destination.w * sprite.pivot_x,
+                destination.h * sprite.pivot_y
+            };
+            const SDL_FlipMode flip = static_cast<SDL_FlipMode>(
+                (sprite.flip_x ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE) |
+                (sprite.flip_y ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE)
+            );
+            static_cast<void>(SDL_RenderTextureRotated(
+                m_renderer, texture, sprite.use_source ? &sprite.source : nullptr,
+                &destination, sprite.rotation, &pivot, flip
             ));
             static_cast<void>(SDL_SetTextureColorMod(texture, old_r, old_g, old_b));
             static_cast<void>(SDL_SetTextureAlphaMod(texture, old_a));
@@ -762,7 +977,7 @@ SDL_Texture* AssetBrowserPanel::render_scene_preview(const AssetBrowserEntry& en
     static_cast<void>(SDL_SetRenderDrawColor(
         m_renderer, previous_r, previous_g, previous_b, previous_a
     ));
-    m_scene_preview_outputs[entry.handle] = output;
+    m_entity_preview_outputs[entry.handle] = output;
     return output;
 }
 
@@ -778,11 +993,11 @@ void AssetBrowserPanel::destroy_material_previews() {
 
 void AssetBrowserPanel::destroy_asset_previews() {
     destroy_material_previews();
-    for (auto& [handle, texture] : m_scene_preview_outputs) {
+    for (auto& [handle, texture] : m_entity_preview_outputs) {
         (void)handle;
         if (texture) SDL_DestroyTexture(texture);
     }
-    m_scene_preview_outputs.clear();
+    m_entity_preview_outputs.clear();
     m_texture_previews.clear();
 }
 
@@ -984,6 +1199,8 @@ void AssetBrowserPanel::request_rename(const AssetBrowserEntry& entry) {
 }
 
 void AssetBrowserPanel::draw_entry(const AssetBrowserEntry& entry) {
+    const auto& palette = EditorTheme::palette();
+    const auto& metrics = EditorTheme::metrics();
     ImGui::PushID(entry.project_path.c_str());
     const ImVec2 card_size{m_thumbnail_size + 14.0f, m_thumbnail_size + 38.0f};
     const ImVec2 minimum = ImGui::GetCursorScreenPos();
@@ -994,16 +1211,24 @@ void AssetBrowserPanel::draw_entry(const AssetBrowserEntry& entry) {
     const bool hovered = ImGui::IsItemHovered();
     draw_list->AddRectFilled(
         minimum, maximum,
-        selected ? IM_COL32(45, 78, 125, 255) :
-            (hovered ? IM_COL32(40, 47, 62, 255) : IM_COL32(31, 35, 46, 235)),
-        6.0f
+        ImGui::ColorConvertFloat4ToU32(
+            selected ? palette.selected : (hovered ? palette.header : palette.panel_raised)
+        ),
+        metrics.small_rounding
     );
     const ImVec2 preview_min{minimum.x + 7.0f, minimum.y + 7.0f};
     const ImVec2 preview_max{
         preview_min.x + m_thumbnail_size,
         preview_min.y + m_thumbnail_size
     };
-    draw_list->AddRectFilled(preview_min, preview_max, IM_COL32(18, 21, 28, 255), 4.0f);
+    draw_list->AddRectFilled(
+        preview_min, preview_max,
+        ImGui::ColorConvertFloat4ToU32(palette.window), metrics.small_rounding
+    );
+    draw_list->AddRect(
+        preview_min, preview_max,
+        ImGui::ColorConvertFloat4ToU32(palette.border), metrics.small_rounding
+    );
     SDL_Texture* preview = ImGui::IsItemVisible() ? preview_asset(entry) : nullptr;
     if (preview) {
         float width = 1.0f;
@@ -1024,25 +1249,29 @@ void AssetBrowserPanel::draw_entry(const AssetBrowserEntry& entry) {
             {image_min.x + size.x, image_min.y + size.y}
         );
     } else {
-        const char* tag = asset_tag(entry);
-        const ImVec2 tag_size = ImGui::CalcTextSize(tag);
-        draw_list->AddText(
-            {preview_min.x + (m_thumbnail_size - tag_size.x) * 0.5f,
-             preview_min.y + (m_thumbnail_size - tag_size.y) * 0.5f},
-            ImGui::ColorConvertFloat4ToU32(asset_tag_color(entry)),
-            tag
+        draw_editor_icon(
+            draw_list, asset_icon(entry),
+            ImVec2(
+                preview_min.x + m_thumbnail_size * 0.5f,
+                preview_min.y + m_thumbnail_size * 0.5f
+            ),
+            25.0f * metrics.scale,
+            ImGui::ColorConvertFloat4ToU32(asset_tag_color(entry))
         );
     }
     if (!entry.is_directory && entry.status != AssetStatus::Ready) {
-        draw_list->AddText(
-            {preview_max.x - 12.0f, preview_min.y + 2.0f},
-            IM_COL32(245, 95, 70, 255), "!"
+        draw_list->AddCircleFilled(
+            ImVec2(preview_max.x - 7.0f, preview_min.y + 7.0f),
+            3.5f * metrics.scale,
+            ImGui::ColorConvertFloat4ToU32(palette.error)
         );
     }
     if (AssetBrowserState::contains(m_favorites, entry.handle)) {
-        draw_list->AddText(
-            {preview_min.x + 3.0f, preview_min.y + 1.0f},
-            IM_COL32(250, 195, 65, 255), "*"
+        draw_editor_icon(
+            draw_list, EditorIcon::Star,
+            ImVec2(preview_min.x + 9.0f, preview_min.y + 9.0f),
+            12.0f * metrics.scale,
+            ImGui::ColorConvertFloat4ToU32(palette.warning)
         );
     }
     draw_list->PushClipRect(
@@ -1050,16 +1279,18 @@ void AssetBrowserPanel::draw_entry(const AssetBrowserEntry& entry) {
         {maximum.x - 5.0f, maximum.y - 3.0f},
         true
     );
-    const ImVec2 name_size = ImGui::CalcTextSize(entry.name.c_str());
+    const std::string display_name = entry.is_directory
+        ? entry.name : entry.absolute_path.stem().string();
+    const ImVec2 name_size = ImGui::CalcTextSize(display_name.c_str());
     draw_list->AddText(
         {minimum.x + std::max(6.0f, (card_size.x - name_size.x) * 0.5f), preview_max.y + 7.0f},
-        ImGui::GetColorU32(ImGuiCol_Text), entry.name.c_str()
+        ImGui::GetColorU32(ImGuiCol_Text), display_name.c_str()
     );
     draw_list->PopClipRect();
     draw_list->AddRect(
         minimum, maximum,
-        selected ? IM_COL32(80, 185, 240, 255) : IM_COL32(75, 82, 100, 150),
-        6.0f, 0, selected ? 2.0f : 1.0f
+        ImGui::ColorConvertFloat4ToU32(selected ? palette.accent_hovered : palette.border),
+        metrics.small_rounding, 0, selected ? 2.0f : 1.0f
     );
     draw_entry_interactions(entry);
     ImGui::PopID();
@@ -1168,15 +1399,30 @@ void AssetBrowserPanel::draw_entry_interactions(const AssetBrowserEntry& entry) 
 void AssetBrowserPanel::draw_list_entry(const AssetBrowserEntry& entry) {
     ImGui::PushID(entry.project_path.c_str());
     const bool selected = is_selected(entry);
-    std::string label = std::string(asset_tag(entry)) + "  " + entry.name;
-    if (!entry.is_directory && entry.status != AssetStatus::Ready) label += "  !";
-    ImGui::PushStyleColor(ImGuiCol_Text, asset_tag_color(entry));
+    const ImVec2 row_min = ImGui::GetCursorScreenPos();
     if (ImGui::Selectable(
-            label.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns, ImVec2(0.0f, 24.0f)
+            "##asset_list_entry", selected, ImGuiSelectableFlags_SpanAllColumns,
+            ImVec2(0.0f, EditorTheme::metrics().row_height)
         )) {
         select_entry(entry);
     }
-    ImGui::PopStyleColor();
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    const float row_height = ImGui::GetItemRectSize().y;
+    draw_editor_icon(
+        draw_list, asset_icon(entry), ImVec2(row_min.x + 10.0f, row_min.y + row_height * 0.5f),
+        13.0f * EditorTheme::metrics().scale,
+        ImGui::ColorConvertFloat4ToU32(asset_tag_color(entry))
+    );
+    draw_list->AddText(
+        ImVec2(row_min.x + 23.0f, row_min.y + (row_height - ImGui::GetTextLineHeight()) * 0.5f),
+        ImGui::GetColorU32(ImGuiCol_Text), entry.name.c_str()
+    );
+    if (!entry.is_directory && entry.status != AssetStatus::Ready) {
+        draw_list->AddCircleFilled(
+            ImVec2(ImGui::GetItemRectMax().x - 10.0f, row_min.y + row_height * 0.5f),
+            3.0f, ImGui::ColorConvertFloat4ToU32(EditorTheme::palette().error)
+        );
+    }
     draw_entry_interactions(entry);
     ImGui::PopID();
 }
@@ -1246,17 +1492,24 @@ void AssetBrowserPanel::draw_details_entries(const std::vector<AssetBrowserEntry
         ImGui::TableSetColumnIndex(0);
         ImGui::PushID(entry.project_path.c_str());
         const bool selected = is_selected(entry);
-        std::string label = std::string(asset_tag(entry)) + "  " + entry.name;
-        if (!entry.is_directory && entry.status != AssetStatus::Ready) label += "  !";
-        ImGui::PushStyleColor(ImGuiCol_Text, asset_tag_color(entry));
+        const ImVec2 name_min = ImGui::GetCursorScreenPos();
         if (ImGui::Selectable(
-                label.c_str(), selected,
+                "##asset_details_entry", selected,
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
                 ImVec2(0.0f, 22.0f)
             )) {
             select_entry(entry);
         }
-        ImGui::PopStyleColor();
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        draw_editor_icon(
+            draw_list, asset_icon(entry), ImVec2(name_min.x + 10.0f, name_min.y + 11.0f),
+            13.0f * EditorTheme::metrics().scale,
+            ImGui::ColorConvertFloat4ToU32(asset_tag_color(entry))
+        );
+        draw_list->AddText(
+            ImVec2(name_min.x + 23.0f, name_min.y + (22.0f - ImGui::GetTextLineHeight()) * 0.5f),
+            ImGui::GetColorU32(ImGuiCol_Text), entry.name.c_str()
+        );
         draw_entry_interactions(entry);
 
         ImGui::TableSetColumnIndex(1);
@@ -1342,7 +1595,10 @@ void AssetBrowserPanel::draw_folder_tree_node(const std::filesystem::path& direc
     }
     if (directory == m_root_path) flags |= ImGuiTreeNodeFlags_DefaultOpen;
     ImGui::PushID(directory.string().c_str());
-    const bool open = ImGui::TreeNodeEx(directory.filename().string().c_str(), flags);
+    const std::string folder_label = editor_icon_label(
+        EditorIcon::Folder, directory.filename().string().c_str()
+    );
+    const bool open = ImGui::TreeNodeEx(folder_label.c_str(), flags);
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
         m_collection = AssetBrowserCollection::All;
         navigate_to(directory);
@@ -1358,37 +1614,7 @@ void AssetBrowserPanel::draw_folder_tree_node(const std::filesystem::path& direc
 
 void AssetBrowserPanel::draw_folder_tree() {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5.0f, 3.0f));
-    ImGui::SeparatorText("Collections");
-    if (ImGui::Selectable(
-            "All Assets",
-            m_collection == AssetBrowserCollection::All &&
-                m_search_scope == AssetBrowserScope::Project,
-            ImGuiSelectableFlags_None, ImVec2(0.0f, 20.0f)
-        )) {
-        clear_selection();
-        m_collection = AssetBrowserCollection::All;
-        m_search_scope = AssetBrowserScope::Project;
-        save_preferences();
-    }
-    if (ImGui::Selectable(
-            "Favorites", m_collection == AssetBrowserCollection::Favorites,
-            ImGuiSelectableFlags_None, ImVec2(0.0f, 20.0f)
-        )) {
-        clear_selection();
-        m_collection = AssetBrowserCollection::Favorites;
-        m_search_scope = AssetBrowserScope::Project;
-        save_preferences();
-    }
-    if (ImGui::Selectable(
-            "Recent", m_collection == AssetBrowserCollection::Recent,
-            ImGuiSelectableFlags_None, ImVec2(0.0f, 20.0f)
-        )) {
-        clear_selection();
-        m_collection = AssetBrowserCollection::Recent;
-        m_search_scope = AssetBrowserScope::Project;
-        save_preferences();
-    }
-    ImGui::SeparatorText("Folders");
+    EditorUi::section_heading("FOLDERS");
     draw_folder_tree_node(m_root_path);
     ImGui::PopStyleVar();
 }
@@ -1464,7 +1690,64 @@ void AssetBrowserPanel::draw_selected_asset_details() {
 }
 
 void AssetBrowserPanel::draw_toolbar() {
-    const auto draw_search = [this]() {
+    const auto& metrics = EditorTheme::metrics();
+    const float spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float icon_button_size = metrics.toolbar_height - 6.0f * metrics.scale;
+
+    std::vector<std::string> breadcrumb_parts;
+    const std::filesystem::path relative = m_current_path.lexically_relative(m_root_path);
+    for (const auto& part : relative) {
+        if (part != ".") breadcrumb_parts.push_back(part.string());
+    }
+
+    const auto text_button_width = [](const std::string& text) {
+        return ImGui::CalcTextSize(text.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    };
+    float navigation_width = icon_button_size * 2.0f + spacing * 3.0f +
+        text_button_width(m_root_path.filename().string());
+    for (const std::string& part : breadcrumb_parts) {
+        navigation_width += ImGui::CalcTextSize(">").x + spacing * 2.0f +
+            text_button_width(part);
+    }
+
+    constexpr float sort_width = 105.0f;
+    constexpr float direction_width = 42.0f;
+    const float controls_without_search = sort_width + direction_width +
+        icon_button_size * 4.0f + spacing * 7.0f;
+    const float available_width = ImGui::GetContentRegionAvail().x;
+    const bool single_row = available_width >=
+        navigation_width + controls_without_search + 170.0f * metrics.scale;
+
+    const auto draw_navigation = [this, &breadcrumb_parts]() {
+        const bool at_root = m_current_path == m_root_path;
+        if (EditorUi::toolbar_button(
+                "asset_up", EditorIcon::ArrowUp, "Parent folder", false, !at_root
+            )) {
+            navigate_to(m_current_path.parent_path());
+        }
+        ImGui::SameLine();
+
+        std::filesystem::path breadcrumb = m_root_path;
+        ImGui::PushID("asset_breadcrumb_root");
+        if (ImGui::Button(m_root_path.filename().string().c_str())) navigate_to(m_root_path);
+        ImGui::PopID();
+        int breadcrumb_index = 0;
+        for (const std::string& part : breadcrumb_parts) {
+            breadcrumb /= part;
+            ImGui::SameLine();
+            ImGui::TextDisabled(">");
+            ImGui::SameLine();
+            ImGui::PushID(breadcrumb_index++);
+            if (ImGui::Button(part.c_str())) navigate_to(breadcrumb);
+            ImGui::PopID();
+        }
+        ImGui::SameLine();
+        if (EditorUi::toolbar_button("asset_refresh", EditorIcon::Refresh, "Refresh assets")) {
+            refresh();
+        }
+    };
+
+    const auto draw_search = [this](float width) {
         const ImGuiIO& io = ImGui::GetIO();
         const bool focus_search = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
             (io.KeySuper || io.KeyCtrl) && ImGui::IsKeyPressed(ImGuiKey_F);
@@ -1472,15 +1755,12 @@ void AssetBrowserPanel::draw_toolbar() {
             m_search_scope = AssetBrowserScope::Project;
             ImGui::SetKeyboardFocusHere();
         }
-        ImGui::SetNextItemWidth(std::max(
-            140.0f,
-            ImGui::GetContentRegionAvail().x - 455.0f
-        ));
-        ImGui::InputTextWithHint(
+        EditorUi::search_field(
             "##asset_search",
             "Search assets; t:, path:, ext:, status:, id:...",
             m_search_query.data(),
-            m_search_query.size()
+            m_search_query.size(),
+            width
         );
         if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             m_search_query.fill('\0');
@@ -1496,8 +1776,8 @@ void AssetBrowserPanel::draw_toolbar() {
         }
     };
 
-    const auto draw_sort = [this]() {
-        ImGui::SetNextItemWidth(105.0f);
+    const auto draw_sort = [this, sort_width, direction_width, icon_button_size]() {
+        ImGui::SetNextItemWidth(sort_width);
         if (ImGui::BeginCombo("##asset_sort", AssetBrowserQuery::sort_name(m_sort))) {
             for (int value = static_cast<int>(AssetBrowserSort::Name);
                  value <= static_cast<int>(AssetBrowserSort::Size); ++value) {
@@ -1510,45 +1790,123 @@ void AssetBrowserPanel::draw_toolbar() {
             ImGui::EndCombo();
         }
         ImGui::SameLine();
-        if (ImGui::Button(m_sort_ascending ? "A-Z" : "Z-A")) {
+        if (ImGui::Button(
+                m_sort_ascending ? "A-Z" : "Z-A",
+                ImVec2(direction_width, icon_button_size)
+            )) {
             m_sort_ascending = !m_sort_ascending;
             save_preferences();
         }
     };
 
+    const auto draw_filters = [this]() {
+        const bool filtered = m_type_filter != AssetBrowserTypeFilter::All ||
+            m_status_filter != AssetBrowserStatusFilter::All ||
+            (m_collection == AssetBrowserCollection::All &&
+             m_search_scope == AssetBrowserScope::Project);
+        if (EditorUi::toolbar_button(
+                "asset_filters", EditorIcon::Settings, "Search scope and filters", filtered
+            )) {
+            ImGui::OpenPopup("AssetFilters");
+        }
+        if (ImGui::BeginPopup("AssetFilters")) {
+            ImGui::TextUnformatted("Asset filters");
+            ImGui::Separator();
+            ImGui::SetNextItemWidth(180.0f);
+            const char* scope_name = m_search_scope == AssetBrowserScope::CurrentFolder
+                ? "Current folder" : "Entire project";
+            if (ImGui::BeginCombo("Scope", scope_name)) {
+                if (ImGui::Selectable(
+                        "Current folder", m_search_scope == AssetBrowserScope::CurrentFolder
+                    )) {
+                    m_collection = AssetBrowserCollection::All;
+                    m_search_scope = AssetBrowserScope::CurrentFolder;
+                    save_preferences();
+                }
+                if (ImGui::Selectable(
+                        "Entire project", m_search_scope == AssetBrowserScope::Project
+                    )) {
+                    m_collection = AssetBrowserCollection::All;
+                    m_search_scope = AssetBrowserScope::Project;
+                    save_preferences();
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SetNextItemWidth(180.0f);
+            if (ImGui::BeginCombo(
+                    "Type", AssetBrowserQuery::type_filter_name(m_type_filter)
+                )) {
+                for (int value = static_cast<int>(AssetBrowserTypeFilter::All);
+                     value <= static_cast<int>(AssetBrowserTypeFilter::Other); ++value) {
+                    const auto filter = static_cast<AssetBrowserTypeFilter>(value);
+                    if (ImGui::Selectable(
+                            AssetBrowserQuery::type_filter_name(filter), filter == m_type_filter
+                        )) {
+                        m_type_filter = filter;
+                        save_preferences();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SetNextItemWidth(180.0f);
+            if (ImGui::BeginCombo(
+                    "Status", AssetBrowserQuery::status_filter_name(m_status_filter)
+                )) {
+                for (int value = static_cast<int>(AssetBrowserStatusFilter::All);
+                     value <= static_cast<int>(AssetBrowserStatusFilter::Issues); ++value) {
+                    const auto filter = static_cast<AssetBrowserStatusFilter>(value);
+                    if (ImGui::Selectable(
+                            AssetBrowserQuery::status_filter_name(filter), filter == m_status_filter
+                        )) {
+                        m_status_filter = filter;
+                        save_preferences();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            const bool has_filter = m_type_filter != AssetBrowserTypeFilter::All ||
+                m_status_filter != AssetBrowserStatusFilter::All;
+            ImGui::BeginDisabled(!has_filter);
+            if (ImGui::Button("Clear filters")) {
+                m_type_filter = AssetBrowserTypeFilter::All;
+                m_status_filter = AssetBrowserStatusFilter::All;
+                save_preferences();
+            }
+            ImGui::EndDisabled();
+            ImGui::EndPopup();
+        }
+    };
+
     const auto draw_view = [this]() {
-        ImGui::TextDisabled("View");
-        ImGui::SameLine();
-        const auto view_button = [this](const char* label, AssetBrowserViewMode mode) {
-            const bool active = m_view_mode == mode;
-            ImGui::PushStyleColor(
-                ImGuiCol_Button,
-                active
-                    ? ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive)
-                    : ImGui::GetStyleColorVec4(ImGuiCol_FrameBg)
-            );
-            ImGui::PushStyleColor(
-                ImGuiCol_ButtonHovered,
-                active
-                    ? ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered)
-                    : ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered)
-            );
-            if (ImGui::Button(label)) {
+        const auto view_button = [this](
+            const char* id, EditorIcon icon, const char* tooltip, AssetBrowserViewMode mode
+        ) {
+            if (EditorUi::toolbar_button(id, icon, tooltip, m_view_mode == mode)) {
                 m_view_mode = mode;
                 save_preferences();
             }
-            ImGui::PopStyleColor(2);
         };
-        view_button("Grid", AssetBrowserViewMode::Grid);
+        view_button("asset_grid", EditorIcon::Grid, "Grid view", AssetBrowserViewMode::Grid);
         ImGui::SameLine();
-        view_button("List", AssetBrowserViewMode::List);
+        view_button("asset_list", EditorIcon::List, "List view", AssetBrowserViewMode::List);
         ImGui::SameLine();
-        view_button("Details", AssetBrowserViewMode::Details);
+        view_button(
+            "asset_details", EditorIcon::Details, "Details view", AssetBrowserViewMode::Details
+        );
     };
 
-    draw_search();
+    draw_navigation();
+    if (single_row) ImGui::SameLine();
+
+    const float search_width = std::max(
+        140.0f * metrics.scale,
+        ImGui::GetContentRegionAvail().x - controls_without_search
+    );
+    draw_search(search_width);
     ImGui::SameLine();
     draw_sort();
+    ImGui::SameLine();
+    draw_filters();
     ImGui::SameLine();
     draw_view();
 }
@@ -1562,31 +1920,6 @@ void AssetBrowserPanel::on_gui() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
     if (ImGui::Begin("Asset Browser", &is_open)) {
         m_is_focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-        const bool at_root = m_current_path == m_root_path;
-        ImGui::BeginDisabled(at_root);
-        if (ImGui::Button("< Up")) navigate_to(m_current_path.parent_path());
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-
-        std::filesystem::path breadcrumb = m_root_path;
-        ImGui::PushID("asset_breadcrumb_root");
-        if (ImGui::Button(m_root_path.filename().string().c_str())) navigate_to(m_root_path);
-        ImGui::PopID();
-        const std::filesystem::path relative = m_current_path.lexically_relative(m_root_path);
-        int breadcrumb_index = 0;
-        for (const auto& part : relative) {
-            if (part == ".") continue;
-            breadcrumb /= part;
-            ImGui::SameLine();
-            ImGui::TextDisabled("/");
-            ImGui::SameLine();
-            ImGui::PushID(breadcrumb_index++);
-            if (ImGui::Button(part.string().c_str())) navigate_to(breadcrumb);
-            ImGui::PopID();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Refresh")) refresh();
-
         draw_toolbar();
         const ImGuiIO& io = ImGui::GetIO();
 
@@ -1698,6 +2031,15 @@ void AssetBrowserPanel::on_gui() {
             draw_details_entries(entries);
         }
         draw_selected_asset_details();
+
+        // Match desktop asset browsers: clicking unoccupied panel space clears
+        // the current asset selection without stealing clicks from controls,
+        // rows, cards, scrollbars, or popup menus.
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) &&
+            ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+            !ImGui::IsAnyItemHovered() && !ImGui::IsAnyItemActive()) {
+            clear_selection();
+        }
 
         if (!m_selected_file.empty() && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
             ImGui::IsKeyPressed(ImGuiKey_F2)) {

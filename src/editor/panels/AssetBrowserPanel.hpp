@@ -23,6 +23,7 @@ class AssetDatabase;
 class EditorCommandHistory;
 class Material;
 class IMaterialBackend;
+class Renderer2D;
 class Texture;
 
 class AssetBrowserPanel : public EditorPanel {
@@ -46,10 +47,8 @@ public:
     void set_command_history(std::shared_ptr<EditorCommandHistory> command_history) {
         m_command_history = std::move(command_history);
     }
-    void set_renderer(SDL_Renderer* renderer) { m_renderer = renderer; }
-    void set_material_backend(std::shared_ptr<IMaterialBackend> backend) {
-        m_material_backend = std::move(backend);
-    }
+    void set_renderer(SDL_Renderer* renderer);
+    void set_material_backend(std::shared_ptr<IMaterialBackend> backend);
 
     void refresh();
     void reveal_asset_path(const std::string& path);
@@ -101,7 +100,8 @@ private:
     void load_preferences();
     void save_preferences() const;
     [[nodiscard]] SDL_Texture* preview_asset(const AssetBrowserEntry& entry);
-    [[nodiscard]] SDL_Texture* render_scene_preview(const AssetBrowserEntry& entry);
+    [[nodiscard]] SDL_Texture* render_prefab_preview(const AssetBrowserEntry& entry);
+    [[nodiscard]] SDL_Texture* render_entity_asset_preview(const AssetBrowserEntry& entry);
     void destroy_asset_previews();
     void request_rename(const AssetBrowserEntry& entry);
     [[nodiscard]] SDL_Texture* render_material_preview(
@@ -118,9 +118,10 @@ private:
     AssetDatabase* m_asset_database{nullptr};
     SDL_Renderer* m_renderer{nullptr};
     std::shared_ptr<IMaterialBackend> m_material_backend;
+    std::unique_ptr<Renderer2D> m_prefab_preview_renderer;
     SDL_Texture* m_material_preview_source{nullptr};
     std::unordered_map<AssetHandle, SDL_Texture*> m_material_preview_outputs;
-    std::unordered_map<AssetHandle, SDL_Texture*> m_scene_preview_outputs;
+    std::unordered_map<AssetHandle, SDL_Texture*> m_entity_preview_outputs;
     std::unordered_map<AssetHandle, std::shared_ptr<Texture>> m_texture_previews;
     std::shared_ptr<EditorCommandHistory> m_command_history;
     std::function<void(const std::string&)> m_on_load_scene;

@@ -43,6 +43,12 @@ enum class EditorIcon {
     Assistant,
     Save,
     StepForward,
+    Folder,
+    File,
+    Star,
+    List,
+    Details,
+    Refresh,
     Count
 };
 

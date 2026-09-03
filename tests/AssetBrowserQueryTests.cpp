@@ -38,10 +38,16 @@ int main() {
     write_file(root / "Assets/Materials/Hero.material", "{}\n");
     write_file(root / "Assets/Scenes/Main.scene", "{}\n");
     write_file(root / "Assets/Readme.txt", "text\n");
+    write_file(root / "Assets/.DS_Store", "finder metadata\n");
+    write_file(root / "Assets/.hidden.png", "hidden image\n");
+    write_file(root / "Assets/.cache/Ghost.png", "hidden cache\n");
+    write_file(root / "Assets/Characters/Hero.png.meta", "sidecar\n");
+    write_file(root / "Assets/Thumbs.db", "windows metadata\n");
+    write_file(root / "Assets/draft.tmp", "temporary\n");
 
     AssetDatabase database(root);
     const AssetScanResult scan = database.scan(root / "Assets");
-    assert(scan.ready == 5);
+    assert(scan.ready == 11);
 
     AssetBrowserQueryOptions options;
     auto entries = AssetBrowserQuery::collect(
@@ -50,6 +56,11 @@ int main() {
     assert(entries.size() == 4);
     assert(entries[0].is_directory && entries[1].is_directory && entries[2].is_directory);
     assert(find_entry(entries, "Readme.txt"));
+    assert(!find_entry(entries, ".DS_Store"));
+    assert(!find_entry(entries, ".hidden.png"));
+    assert(!find_entry(entries, ".cache"));
+    assert(!find_entry(entries, "Thumbs.db"));
+    assert(!find_entry(entries, "draft.tmp"));
 
     options.scope = AssetBrowserScope::Project;
     options.text = "hero";
@@ -77,7 +88,7 @@ int main() {
 
     options.type = AssetBrowserTypeFilter::All;
     fs::remove(root / "Assets/Characters/Hero.png", error);
-    assert(database.rescan().ready == 4);
+    assert(database.rescan().ready == 10);
     options.status = AssetBrowserStatusFilter::Issues;
     entries = AssetBrowserQuery::collect(database, root / "Assets", root / "Assets", options);
     assert(entries.size() == 1);

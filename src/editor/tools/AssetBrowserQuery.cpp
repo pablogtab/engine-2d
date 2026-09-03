@@ -43,6 +43,23 @@ bool is_inside(const fs::path& path, const fs::path& root) {
     return !relative.empty() && relative != "." && relative.begin()->string() != "..";
 }
 
+bool is_hidden_browser_path(const fs::path& path, const fs::path& root) {
+    const fs::path relative = path.lexically_normal().lexically_relative(root.lexically_normal());
+    if (relative.empty() || relative == "." || relative.begin()->string() == "..") return false;
+
+    for (const fs::path& part : relative) {
+        const std::string name = part.string();
+        if (!name.empty() && name.front() == '.') return true;
+    }
+
+    const std::string filename = lower_copy(path.filename().string());
+    const std::string extension = lower_copy(path.extension().string());
+    return filename == "thumbs.db" || filename == "desktop.ini" ||
+        (!filename.empty() && filename.back() == '~') ||
+        extension == ".meta" || extension == ".tmp" ||
+        extension == ".temp" || extension == ".bak";
+}
+
 bool type_matches_alias(const AssetBrowserEntry& entry, const std::string& alias) {
     if (alias == "folder" || alias == "dir" || alias == "directory") return entry.is_directory;
     if (entry.is_directory) return false;
@@ -173,6 +190,10 @@ std::vector<AssetBrowserEntry> AssetBrowserQuery::collect(
             for (fs::recursive_directory_iterator iterator(root, error), end;
                  iterator != end && !error; iterator.increment(error)) {
                 if (!iterator->is_directory(error)) continue;
+                if (is_hidden_browser_path(iterator->path(), root)) {
+                    iterator.disable_recursion_pending();
+                    continue;
+                }
                 AssetBrowserEntry entry = make_directory_entry(database, iterator->path());
                 if (type_filter_matches(entry, options.type) &&
                     status_filter_matches(entry, options.status) && matches_text(entry, options.text)) {
@@ -183,6 +204,7 @@ std::vector<AssetBrowserEntry> AssetBrowserQuery::collect(
             for (fs::directory_iterator iterator(current, error), end;
                  iterator != end && !error; iterator.increment(error)) {
                 if (!iterator->is_directory(error)) continue;
+                if (is_hidden_browser_path(iterator->path(), root)) continue;
                 AssetBrowserEntry entry = make_directory_entry(database, iterator->path());
                 if (type_filter_matches(entry, options.type) &&
                     status_filter_matches(entry, options.status) && matches_text(entry, options.text)) {
@@ -195,6 +217,7 @@ std::vector<AssetBrowserEntry> AssetBrowserQuery::collect(
     for (const AssetRecord& record : database.records()) {
         AssetBrowserEntry entry = make_asset_entry(database, record);
         if (!is_inside(entry.absolute_path, root)) continue;
+        if (is_hidden_browser_path(entry.absolute_path, root)) continue;
         if (options.scope == AssetBrowserScope::CurrentFolder &&
             entry.absolute_path.parent_path() != current) continue;
         if (!type_filter_matches(entry, options.type) ||
