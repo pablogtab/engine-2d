@@ -216,6 +216,24 @@ void test_material_contract_is_shared_by_sprites_and_post_process() {
     SDL_DestroySurface(surface);
 }
 
+void test_material_render_context_packs_engine_globals() {
+    const auto close = [](float left, float right) {
+        return std::abs(left - right) <= 0.0001f;
+    };
+    const Engine::MaterialRenderContext context{
+        640, 320, 12.5f, 18.0f, 0.025f, 42.0f
+    };
+    const Engine::EngineShaderGlobals globals = context.engine_globals();
+    assert(close(globals.game_time_seconds, 12.5f));
+    assert(close(globals.real_time_seconds, 18.0f));
+    assert(close(globals.delta_time_seconds, 0.025f));
+    assert(close(globals.frame_index, 42.0f));
+    assert(close(globals.output_width, 640.0f));
+    assert(close(globals.output_height, 320.0f));
+    assert(close(globals.inverse_output_width, 1.0f / 640.0f));
+    assert(close(globals.inverse_output_height, 1.0f / 320.0f));
+}
+
 } // namespace
 
 namespace {
@@ -940,6 +958,7 @@ void test_failed_layer_effect_edit_restores_asset_contents() {
 int main() {
     test_night_vision_shader_assets_match_runtime_contract();
     test_material_contract_is_shared_by_sprites_and_post_process();
+    test_material_render_context_packs_engine_globals();
     test_effect_scale_matches_authoring_resolution();
     test_non_uniform_output_uses_area_preserving_pixel_scale();
     test_world_sort_keys_never_overlap_the_screen_space_partition();

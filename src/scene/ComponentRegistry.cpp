@@ -1,4 +1,5 @@
 #include "ComponentRegistry.hpp"
+#include "../renderer/material/Material.hpp"
 #include "BuiltinComponentRegistrations.hpp"
 #include "../core/AssetDatabase.hpp"
 #include "../core/AssetManager.hpp"
@@ -474,7 +475,9 @@ ComponentRegistry& default_component_registry() {
                         sprite.material = MaterialAsset::load(*handle, *context.asset_database);
                     }
                 }
-                if (!sprite.texture && context.renderer && context.asset_manager) {
+                const bool material_only = sprite.material &&
+                    sprite.material->shader().sampler_count() == 0;
+                if (!sprite.texture && !material_only && context.renderer && context.asset_manager) {
                     sprite.texture = context.asset_manager->get_white_texture(context.renderer);
                 }
                 const auto& size = value.at("size");
@@ -525,7 +528,9 @@ ComponentRegistry& default_component_registry() {
                 const ComponentFinalizeContext& context,
                 std::string&
             ) {
-                if (!sprite.texture && context.serialization.renderer &&
+                const bool material_only = sprite.material &&
+                    sprite.material->shader().sampler_count() == 0;
+                if (!sprite.texture && !material_only && context.serialization.renderer &&
                     context.serialization.asset_manager) {
                     sprite.texture = context.serialization.asset_manager->get_white_texture(
                         context.serialization.renderer

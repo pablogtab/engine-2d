@@ -25,7 +25,9 @@ public:
             !SDL_SetRenderTarget(context.renderer, context.destination)) return false;
         SDL_SetRenderDrawColor(context.renderer, 0, 0, 0, 0);
         SDL_RenderClear(context.renderer);
-        const MaterialRenderContext material_context{context.width, context.height};
+        const MaterialRenderContext material_context = MaterialRenderContext::current(
+            context.width, context.height
+        );
         if (m_backend && m_backend->draw_fullscreen(*m_material, context.source, material_context)) return true;
         return SDL_RenderTexture(context.renderer, context.source, nullptr, nullptr);
     }

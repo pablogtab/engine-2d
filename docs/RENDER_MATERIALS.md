@@ -9,8 +9,8 @@ fragment variants for the APIs supported by the project:
 - DXIL for D3D12 targets.
 - MSL or a Metal library for Metal targets.
 
-`Material` references one shader and owns the uniform values for one visual
-instance. A material does not know whether it will render a world sprite, a UI
+`Material` references one shader and owns its authored uniform values. A
+material does not know whether it will render a world sprite, a UI
 image, a text glyph, or a full screen quad. `Renderer2D` binds it while flushing
 sprite batches, and `MaterialPostProcessPass` adapts that same material to
 `PostProcessPipeline`.
@@ -30,6 +30,43 @@ shader code on a sprite, but the result is limited to the pixels available in
 that sprite's source texture. A multi-pass fullscreen effect still belongs in
 `PostProcessPipeline`; a local multi-pass effect will eventually render the
 entity to an intermediate target before applying the same material chain.
+
+## Engine shader globals
+
+A shader can opt into one engine-owned uniform buffer by declaring
+`"source": "engine"` in its `.shader` descriptor. The buffer is uploaded by
+the renderer and is deliberately absent from the `.material` `uniforms` array:
+
+```json
+{
+  "name": "EngineGlobals",
+  "size": 32,
+  "source": "engine",
+  "parameters": []
+}
+```
+
+Its portable HLSL layout is two `float4` rows:
+
+```hlsl
+cbuffer EngineGlobals : register(b1, space3)
+{
+    float4 engine_time;     // game time, real time, game delta, frame index
+    float4 engine_viewport; // output size xy, inverse output size zw
+};
+```
+
+The binding number must match the buffer's position in `uniform_buffers`.
+There can be at most one engine buffer, it must be exactly 32 bytes, and the
+existing four-buffer GPU limit includes it. `engine_time.x` follows the scaled
+game clock and therefore stops while gameplay is paused; `engine_time.y`
+continues on the real/editor clock.
+
+Shaders may set `sampler_count` to `0`. A world `SpriteComponent` that has such
+a material is a material-only quad and does not require a texture asset. Its
+UVs, vertex color, transform, render layer, sorting and batching still use the
+normal sprite path. Shaders with one or more samplers retain the white-texture
+fallback when no texture is authored.
 
 ## Trail Renderer 2D
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,9 @@ public:
     [[nodiscard]] const std::vector<FragmentShaderVariant>& variants() const { return m_variants; }
     [[nodiscard]] std::uint32_t sampler_count() const { return m_sampler_count; }
     [[nodiscard]] std::uint32_t uniform_buffer_count() const { return m_uniform_buffer_count; }
+    [[nodiscard]] std::optional<std::uint32_t> engine_uniform_slot() const {
+        return m_engine_uniform_slot;
+    }
 
     void add_variant(FragmentShaderVariant variant) { m_variants.push_back(std::move(variant)); }
     bool add_variant_from_file(
@@ -39,12 +43,14 @@ public:
     );
     void set_sampler_count(std::uint32_t count) { m_sampler_count = count; }
     void set_uniform_buffer_count(std::uint32_t count);
+    void set_engine_uniform_slot(std::optional<std::uint32_t> slot);
 
 private:
     std::string m_name;
     std::vector<FragmentShaderVariant> m_variants;
     std::uint32_t m_sampler_count{1};
     std::uint32_t m_uniform_buffer_count{0};
+    std::optional<std::uint32_t> m_engine_uniform_slot;
 };
 
 } // namespace Engine

@@ -122,7 +122,9 @@ SDLGPUMaterialBackend::CachedState* SDLGPUMaterialBackend::state_for(const Mater
         return nullptr;
     }
 
-    const std::uint32_t additional_sampler_count = shader->sampler_count() - 1;
+    const std::uint32_t additional_sampler_count = shader->sampler_count() > 0
+        ? shader->sampler_count() - 1
+        : 0;
     std::vector<SDL_GPUTextureSamplerBinding> sampler_bindings;
     if (additional_sampler_count > 0) {
         if (!m_default_sampler) {
@@ -181,22 +183,31 @@ SDLGPUMaterialBackend::CachedState* SDLGPUMaterialBackend::state_for(const Mater
     return &inserted->second;
 }
 
-bool SDLGPUMaterialBackend::bind(const Material& material, const MaterialRenderContext&) {
+bool SDLGPUMaterialBackend::bind(const Material& material, const MaterialRenderContext& context) {
     CachedState* state = state_for(material);
     if (!state) return false;
 
     const std::uint32_t uniform_count = material.shader().uniform_buffer_count();
+    const auto engine_slot = material.shader().engine_uniform_slot();
+    const EngineShaderGlobals engine_globals = context.engine_globals();
     for (std::uint32_t slot = 0; slot < uniform_count; ++slot) {
-        const auto bytes = material.uniform_bytes(slot);
-        if (bytes.empty()) {
+        const auto material_bytes = material.uniform_bytes(slot);
+        const bool uses_engine_globals = engine_slot && *engine_slot == slot;
+        const void* bytes = uses_engine_globals
+            ? static_cast<const void*>(&engine_globals)
+            : static_cast<const void*>(material_bytes.data());
+        const std::size_t byte_count = uses_engine_globals
+            ? sizeof(engine_globals)
+            : material_bytes.size();
+        if (byte_count == 0) {
             ENGINE_LOG_ERROR("[MATERIAL] Material '{}' is missing uniform slot {}", material.name(), slot);
             return false;
         }
         if (!SDL_SetGPURenderStateFragmentUniforms(
                 state->render_state,
                 slot,
-                bytes.data(),
-                static_cast<Uint32>(bytes.size()))) {
+                bytes,
+                static_cast<Uint32>(byte_count))) {
             ENGINE_LOG_ERROR("[MATERIAL] Failed to upload '{}' uniform slot {}: {}",
                              material.name(), slot, SDL_GetError());
             return false;

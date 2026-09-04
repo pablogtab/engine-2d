@@ -109,8 +109,16 @@ std::shared_ptr<const Material> MaterialAsset::instantiate(
     const auto shader = ShaderAsset::load(description.shader_handle, database, error);
     if (!shader) return {};
     auto material = std::make_shared<Material>(description.name, shader);
-    for (std::size_t i = 0; i < description.uniforms.size(); ++i) {
-        material->set_uniform_bytes(i, description.uniforms[i]);
+    std::size_t material_slot = 0;
+    for (std::size_t shader_slot = 0;
+         shader_slot < shader_description->uniform_buffers.size();
+         ++shader_slot) {
+        if (shader_description->uniform_buffers[shader_slot].source ==
+            ShaderUniformBufferSource::Engine) {
+            continue;
+        }
+        material->set_uniform_bytes(shader_slot, description.uniforms[material_slot]);
+        ++material_slot;
     }
     return material;
 }

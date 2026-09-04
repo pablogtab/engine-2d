@@ -1,5 +1,6 @@
 #include "core/AssetDatabase.hpp"
 #include "core/AssetManager.hpp"
+#include "core/Time.hpp"
 #include "ecs/EntityManager.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/UIComponents.hpp"
@@ -174,8 +175,44 @@ int main() {
                 {0.0f, 0.0f, 0.0f, 0.0f}
             };
             material->set_uniform(0, uniforms);
+            auto procedural_shader = std::make_shared<Engine::FragmentShader>(
+                "GPU Smoke Engine Globals"
+            );
+            procedural_shader->set_sampler_count(0);
+            procedural_shader->set_uniform_buffer_count(2);
+            procedural_shader->set_engine_uniform_slot(1);
+            const std::filesystem::path globals_output = output_dir / "tests";
+            bool has_procedural_variant = add_variant_if_present(
+                *procedural_shader,
+                Engine::ShaderBinaryFormat::Msl,
+                globals_output / "engine_globals.frag.msl",
+                "main0"
+            );
+            has_procedural_variant = add_variant_if_present(
+                *procedural_shader,
+                Engine::ShaderBinaryFormat::SpirV,
+                globals_output / "engine_globals.frag.spv",
+                "main"
+            ) || has_procedural_variant;
+            has_procedural_variant = add_variant_if_present(
+                *procedural_shader,
+                Engine::ShaderBinaryFormat::Dxil,
+                globals_output / "engine_globals.frag.dxil",
+                "main"
+            ) || has_procedural_variant;
+            auto procedural_material = std::make_shared<Engine::Material>(
+                "GPU Smoke Procedural Quad", procedural_shader
+            );
+            const std::array<float, 4> procedural_probe{0.75f, 0.0f, 0.0f, 0.0f};
+            procedural_material->set_uniform(0, procedural_probe);
             auto backend = std::make_shared<Engine::SDLGPUMaterialBackend>(sdl_renderer);
-            if (!backend->is_available()) {
+            std::string procedural_support_error;
+            if (!has_procedural_variant || !Engine::SDLGPUMaterialBackend::supports(
+                    sdl_renderer, *procedural_shader, &procedural_support_error
+                )) {
+                std::cerr << "GPURenderSmokeTests failed: engine globals shader unavailable: "
+                          << procedural_support_error << '\n';
+            } else if (!backend->is_available()) {
                 std::cout << "GPURenderSmokeTests skipped: material backend unavailable\n";
                 exit_code = SKIP_RETURN_CODE;
             } else {
@@ -237,9 +274,16 @@ int main() {
                     width,
                     height
                 );
+                SDL_Texture* procedural_target = SDL_CreateTexture(
+                    sdl_renderer,
+                    SDL_PIXELFORMAT_RGBA8888,
+                    SDL_TEXTUREACCESS_TARGET,
+                    width,
+                    height
+                );
                 if (!sprite_target || !fullscreen_source || !fullscreen_target ||
                     !lighting_target || !baked_target || !canvas_target ||
-                    !canvas_text_target || !lit_sprite_target) {
+                    !canvas_text_target || !lit_sprite_target || !procedural_target) {
                     std::cerr << "GPURenderSmokeTests failed: render target creation failed: "
                               << SDL_GetError() << '\n';
                 } else {
@@ -288,6 +332,41 @@ int main() {
                             width,
                             height
                         );
+
+                        Engine::Time::reset();
+                        Engine::Time::update(0.05f);
+                        renderer.set_custom_render_target(procedural_target);
+                        SDL_SetRenderTarget(sdl_renderer, procedural_target);
+                        SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
+                        SDL_RenderClear(sdl_renderer);
+                        renderer.begin_scene(camera);
+                        renderer.submit_sprite(
+                            nullptr,
+                            {0.0f, 0.0f, 0.0f},
+                            {48.0f, 48.0f},
+                            0.0f,
+                            {255, 255, 255, 255},
+                            nullptr,
+                            {0.5f, 0.5f},
+                            false,
+                            false,
+                            false,
+                            0,
+                            0,
+                            procedural_material
+                        );
+                        renderer.end_scene();
+                        const Pixel procedural_pixel = read_center(
+                            sdl_renderer,
+                            procedural_target,
+                            width,
+                            height
+                        );
+                        const bool procedural_matches =
+                            procedural_pixel.red >= 125 && procedural_pixel.red <= 130 &&
+                            procedural_pixel.green >= 125 && procedural_pixel.green <= 130 &&
+                            procedural_pixel.blue >= 189 && procedural_pixel.blue <= 193 &&
+                            procedural_pixel.alpha >= 252;
 
                         std::unique_ptr<Engine::Texture> lit_albedo(
                             Engine::Texture::create_solid(sdl_renderer, 4, 4, 32, 64, 96, 255)
@@ -684,6 +763,7 @@ int main() {
                             canvas_text_stats.text_lines != 1 ||
                             !canvas_text_graded ||
                             !matches_expected_grade(fullscreen_pixel) ||
+                            !procedural_matches ||
                             !lit_sprite_matches ||
                             !realtime_shadow_matches ||
                             !baked_matches ||
@@ -701,7 +781,11 @@ int main() {
                                 << static_cast<int>(fullscreen_pixel.red) << ','
                                 << static_cast<int>(fullscreen_pixel.green) << ','
                                 << static_cast<int>(fullscreen_pixel.blue) << ','
-                                << static_cast<int>(fullscreen_pixel.alpha) << ") lit sprite RGBA=("
+                                << static_cast<int>(fullscreen_pixel.alpha) << ") procedural RGBA=("
+                                << static_cast<int>(procedural_pixel.red) << ','
+                                << static_cast<int>(procedural_pixel.green) << ','
+                                << static_cast<int>(procedural_pixel.blue) << ','
+                                << static_cast<int>(procedural_pixel.alpha) << ") lit sprite RGBA=("
                                 << static_cast<int>(lit_sprite_pixel.red) << ','
                                 << static_cast<int>(lit_sprite_pixel.green) << ','
                                 << static_cast<int>(lit_sprite_pixel.blue) << ','
@@ -749,7 +833,7 @@ int main() {
                                 << static_cast<int>(layer_culled_pixel.alpha) << ")\n";
                         } else {
                             std::cout << "GPURenderSmokeTests passed on " << backend->backend_name()
-                                      << ": sprite, material pack, realtime/baked shadows, Canvas UI, fullscreen, blend, and zoom-stability probes matched\n";
+                                      << ": sprite, procedural globals, material pack, realtime/baked shadows, Canvas UI, fullscreen, blend, and zoom-stability probes matched\n";
                             exit_code = 0;
                         }
                     }
@@ -762,6 +846,7 @@ int main() {
                 if (canvas_target) SDL_DestroyTexture(canvas_target);
                 if (canvas_text_target) SDL_DestroyTexture(canvas_text_target);
                 if (lit_sprite_target) SDL_DestroyTexture(lit_sprite_target);
+                if (procedural_target) SDL_DestroyTexture(procedural_target);
             }
         }
     }

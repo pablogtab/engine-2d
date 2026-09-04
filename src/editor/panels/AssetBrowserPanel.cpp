@@ -2497,26 +2497,32 @@ void AssetBrowserPanel::on_gui() {
             ImGui::EndGroup();
             ImGui::Separator();
             if (shader_description) {
+                std::size_t material_index = 0;
                 for (std::size_t index = 0; index < shader_description->uniform_buffers.size(); ++index) {
                     const auto& layout = shader_description->uniform_buffers[index];
                     ImGui::PushID(static_cast<int>(index));
                     ImGui::TextDisabled("%s", layout.name.c_str());
-                    if (!layout.parameters.empty() && index < m_edit_material_draft.uniforms.size()) {
+                    if (layout.source == ShaderUniformBufferSource::Engine) {
+                        ImGui::TextDisabled("Provided automatically by the engine.");
+                        ImGui::PopID();
+                        continue;
+                    }
+                    if (!layout.parameters.empty() && material_index < m_edit_material_draft.uniforms.size()) {
                         for (const auto& parameter : layout.parameters) {
                             preview_changed |= draw_uniform_parameter(
-                                parameter, m_edit_material_draft.uniforms[index]
+                                parameter, m_edit_material_draft.uniforms[material_index]
                             );
                         }
-                    } else if (index < m_edit_material_uniform_count) {
+                    } else if (material_index < m_edit_material_uniform_count) {
                         ImGui::TextDisabled("This shader exposes no friendly properties for this buffer.");
                         if (ImGui::InputText(
-                                "Raw bytes", m_edit_material_uniforms[index].data(),
-                                m_edit_material_uniforms[index].size()
+                                "Raw bytes", m_edit_material_uniforms[material_index].data(),
+                                m_edit_material_uniforms[material_index].size()
                             )) {
                             std::vector<std::byte> parsed;
-                            if (parse_hex_bytes(m_edit_material_uniforms[index].data(), parsed) &&
+                            if (parse_hex_bytes(m_edit_material_uniforms[material_index].data(), parsed) &&
                                 parsed.size() == layout.size) {
-                                m_edit_material_draft.uniforms[index] = std::move(parsed);
+                                m_edit_material_draft.uniforms[material_index] = std::move(parsed);
                                 m_edit_material_error.clear();
                                 preview_changed = true;
                             } else {
@@ -2524,6 +2530,7 @@ void AssetBrowserPanel::on_gui() {
                             }
                         }
                     }
+                    ++material_index;
                     ImGui::PopID();
                 }
             } else {

@@ -864,10 +864,14 @@ void test_material_assets_load_by_handle() {
     const AssetHandle source_handle = source->handle;
     const nlohmann::json shader_json{
         {"name", "Test Shader"},
-        {"sampler_count", 2},
-        {"uniform_buffers", nlohmann::json::array({{{"name", "TestUniforms"}, {"size", 4},
-            {"parameters", nlohmann::json::array({{{"name", "Strength"}, {"type", "float"},
-                {"offset", 0}, {"default", nlohmann::json::array({0.5f})}, {"min", 0.0f}, {"max", 1.0f}}})}}})},
+        {"sampler_count", 0},
+        {"uniform_buffers", nlohmann::json::array({
+            {{"name", "TestUniforms"}, {"size", 4},
+             {"parameters", nlohmann::json::array({{{"name", "Strength"}, {"type", "float"},
+                 {"offset", 0}, {"default", nlohmann::json::array({0.5f})}, {"min", 0.0f}, {"max", 1.0f}}})}},
+            {{"name", "EngineGlobals"}, {"size", 32}, {"source", "engine"},
+             {"parameters", nlohmann::json::array()}}
+        })},
         {"variants", nlohmann::json::array({{{"format", "msl"}, {"source_handle", source_handle.to_string()}, {"entry_point", "main0"}}})}
     };
     assert(FileSystem::write_text((root / "assets/shaders/Test.shader").string(), shader_json.dump()));
@@ -886,11 +890,15 @@ void test_material_assets_load_by_handle() {
     assert(loaded && loaded->name() == "Test Material");
     assert(loaded->uniform_bytes(0).size() == 4);
     assert(loaded->shader().variants().front().entry_point == "main0");
-    assert(loaded->shader().sampler_count() == 2);
+    assert(loaded->shader().sampler_count() == 0);
+    assert(loaded->shader().engine_uniform_slot() == 1);
+    assert(loaded->uniform_bytes(1).empty());
     const auto shader_description = ShaderAsset::read(*shader_handle, database);
     assert(shader_description && shader_description->uniform_buffers.front().parameters.size() == 1);
     assert(shader_description->uniform_buffers.front().parameters.front().name == "Strength");
+    assert(shader_description->uniform_buffers[1].source == ShaderUniformBufferSource::Engine);
     const auto defaults = ShaderAsset::make_default_uniforms(*shader_description);
+    assert(defaults.size() == 1);
     float default_strength = 0.0f;
     std::memcpy(&default_strength, defaults.front().data(), sizeof(float));
     assert(default_strength == 0.5f);

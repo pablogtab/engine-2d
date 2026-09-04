@@ -29,6 +29,16 @@ bool FragmentShader::add_variant_from_file(
 void FragmentShader::set_uniform_buffer_count(std::uint32_t count) {
     if (count > 4) throw std::out_of_range("SDL GPU supports four fragment uniform slots");
     m_uniform_buffer_count = count;
+    if (m_engine_uniform_slot && *m_engine_uniform_slot >= count) {
+        m_engine_uniform_slot.reset();
+    }
+}
+
+void FragmentShader::set_engine_uniform_slot(std::optional<std::uint32_t> slot) {
+    if (slot && *slot >= m_uniform_buffer_count) {
+        throw std::out_of_range("Engine uniform slot must belong to the shader layout");
+    }
+    m_engine_uniform_slot = slot;
 }
 
 } // namespace Engine

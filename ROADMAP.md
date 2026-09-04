@@ -29,6 +29,13 @@ contratos vigentes en `docs/` y de la historia Git.
 
 ## Renderer y presentación
 
+- [ ] Diseñar `MaterialInstance`/property blocks para sobrescribir parámetros
+  por renderer sin duplicar shader ni modificar el material compartido.
+  - Definir identidad, herencia del material base y ciclo de vida de overrides.
+  - Agrupar instancias con valores compatibles y medir el impacto real sobre
+    batching y draw calls antes de exponer setters dinámicos a EngineScript.
+  - Incorporar parámetros tipados/reflejados, validación de hot reload,
+    serialización sólo cuando sean datos de autoría y preview/Undo del editor.
 - [ ] Establecer un pipeline de color lineal de extremo a extremo.
   - El contrato actual usa canales sRGB `SDL_Color` para sprites, luces,
     render targets y postproceso. `Color.srgbToLinear` y

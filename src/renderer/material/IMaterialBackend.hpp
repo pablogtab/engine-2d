@@ -1,5 +1,8 @@
 #pragma once
 
+#include "EngineShaderGlobals.hpp"
+#include "../../core/Time.hpp"
+#include <algorithm>
 #include <memory>
 
 struct SDL_Renderer;
@@ -12,6 +15,36 @@ class Material;
 struct MaterialRenderContext {
     int output_width{1};
     int output_height{1};
+    float game_time_seconds{0.0f};
+    float real_time_seconds{0.0f};
+    float delta_time_seconds{0.0f};
+    float frame_index{0.0f};
+
+    [[nodiscard]] static MaterialRenderContext current(int width, int height) {
+        MaterialRenderContext context;
+        context.output_width = std::max(width, 1);
+        context.output_height = std::max(height, 1);
+        context.game_time_seconds = Time::get_time();
+        context.real_time_seconds = Time::get_real_time();
+        context.delta_time_seconds = Time::get_delta_time();
+        context.frame_index = static_cast<float>(Time::get_frame_count());
+        return context;
+    }
+
+    [[nodiscard]] EngineShaderGlobals engine_globals() const {
+        const float width = static_cast<float>(std::max(output_width, 1));
+        const float height = static_cast<float>(std::max(output_height, 1));
+        return {
+            game_time_seconds,
+            real_time_seconds,
+            delta_time_seconds,
+            frame_index,
+            width,
+            height,
+            1.0f / width,
+            1.0f / height
+        };
+    }
 };
 
 class IMaterialBackend {

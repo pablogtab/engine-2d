@@ -6,6 +6,10 @@
 #include "renderer/material/Material.hpp"
 #include "renderer/postprocess/IPostProcessPass.hpp"
 #include "renderer/postprocess/PostProcessPipeline.hpp"
+#include "ecs/EntityManager.hpp"
+#include "ecs/RenderSystem.hpp"
+#include "ecs/components/CoreComponents.hpp"
+#include "ecs/components/RenderingComponents.hpp"
 #include "scene/Camera2D.hpp"
 #include <SDL3/SDL.h>
 #include <cassert>
@@ -215,11 +219,48 @@ void test_render_target_memory_metrics() {
     SDL_DestroySurface(surface);
 }
 
+void test_material_only_sprite_reaches_the_renderer() {
+    SDL_Surface* surface = SDL_CreateSurface(32, 32, SDL_PIXELFORMAT_RGBA32);
+    assert(surface);
+    SDL_Renderer* sdl_renderer = SDL_CreateSoftwareRenderer(surface);
+    assert(sdl_renderer);
+    {
+        auto shader = std::make_shared<Engine::FragmentShader>("Procedural Quad");
+        shader->set_sampler_count(0);
+        auto material = std::make_shared<Engine::Material>("Procedural Quad", shader);
+
+        Engine::EntityManager entities;
+        const Engine::EntityID entity = entities.create_entity();
+        entities.add_component<Engine::TransformComponent>(entity, Engine::TransformComponent{});
+        Engine::SpriteComponent sprite;
+        sprite.texture = nullptr;
+        sprite.material = material;
+        sprite.size = {8.0f, 8.0f};
+        entities.add_component<Engine::SpriteComponent>(entity, sprite);
+
+        auto backend = std::make_shared<RecordingMaterialBackend>();
+        Engine::Renderer2D renderer(sdl_renderer);
+        renderer.set_material_backend(backend);
+        Engine::Camera2D camera(32.0f, 32.0f);
+        renderer.begin_scene(camera);
+        Engine::RenderSystem::render(entities, renderer);
+        renderer.end_scene();
+
+        assert(backend->bind_count == 1);
+        assert(renderer.get_frame_metrics().stage(
+            Engine::RenderStage::SceneGeometry
+        ).sprites == 1);
+    }
+    SDL_DestroyRenderer(sdl_renderer);
+    SDL_DestroySurface(surface);
+}
+
 } // namespace
 
 int main() {
     test_stage_metrics_and_frame_reset();
     test_render_target_memory_metrics();
+    test_material_only_sprite_reaches_the_renderer();
     std::cout << "RenderMetricsTests passed\n";
     return 0;
 }

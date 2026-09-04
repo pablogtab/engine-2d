@@ -1,9 +1,11 @@
 #pragma once
 
 #include "FragmentShader.hpp"
+#include "EngineShaderGlobals.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include "../../core/FileSystem.hpp"
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,6 +27,11 @@ enum class ShaderUniformParameterType {
     Color
 };
 
+enum class ShaderUniformBufferSource {
+    Material,
+    Engine
+};
+
 struct ShaderUniformParameter {
     std::string name;
     ShaderUniformParameterType type{ShaderUniformParameterType::Float};
@@ -37,6 +44,7 @@ struct ShaderUniformParameter {
 struct ShaderUniformBufferLayout {
     std::string name;
     std::size_t size{0};
+    ShaderUniformBufferSource source{ShaderUniformBufferSource::Material};
     std::vector<ShaderUniformParameter> parameters;
 };
 
@@ -67,12 +75,12 @@ public:
         description.name = json["name"].get<std::string>();
         description.sampler_count = json.value("sampler_count", 1u);
         const auto buffers = json.value("uniform_buffers", nlohmann::json::array());
-        if (description.name.empty() || description.sampler_count == 0 ||
-            description.sampler_count > MaterialSamplerLimit || !buffers.is_array() ||
+        if (description.name.empty() || description.sampler_count > MaterialSamplerLimit || !buffers.is_array() ||
             buffers.size() > MaterialUniformSlotLimit) {
             set_error(error, "Shader layout is unsupported");
             return {};
         }
+        bool has_engine_buffer = false;
         for (const auto& buffer : buffers) {
             if (!buffer.is_object() || !buffer.contains("name") || !buffer["name"].is_string() ||
                 !buffer.contains("size") || !buffer["size"].is_number_unsigned()) {
@@ -81,10 +89,36 @@ public:
             }
             const std::size_t size = buffer["size"].get<std::size_t>();
             if (size == 0) { set_error(error, "Shader uniform buffer size must be positive"); return {}; }
-            ShaderUniformBufferLayout layout{buffer["name"].get<std::string>(), size, {}};
+            ShaderUniformBufferSource source = ShaderUniformBufferSource::Material;
+            if (buffer.contains("source")) {
+                if (!buffer["source"].is_string()) {
+                    set_error(error, "Shader uniform buffer source must be a string");
+                    return {};
+                }
+                const std::string source_name = buffer["source"].get<std::string>();
+                if (source_name == "engine") source = ShaderUniformBufferSource::Engine;
+                else if (source_name != "material") {
+                    set_error(error, "Shader uniform buffer source is unsupported");
+                    return {};
+                }
+            }
+            if (source == ShaderUniformBufferSource::Engine) {
+                if (has_engine_buffer || size != sizeof(EngineShaderGlobals)) {
+                    set_error(error, "Engine uniform buffer must be unique and exactly 32 bytes");
+                    return {};
+                }
+                has_engine_buffer = true;
+            }
+            ShaderUniformBufferLayout layout{
+                buffer["name"].get<std::string>(), size, source, {}
+            };
             const auto parameters = buffer.value("parameters", nlohmann::json::array());
             if (!parameters.is_array()) {
                 set_error(error, "Shader uniform parameters must be an array");
+                return {};
+            }
+            if (source == ShaderUniformBufferSource::Engine && !parameters.empty()) {
+                set_error(error, "Engine uniform buffer cannot declare material parameters");
                 return {};
             }
             for (const auto& parameter : parameters) {
@@ -176,6 +210,12 @@ public:
         auto shader = std::make_shared<FragmentShader>(description->name);
         shader->set_sampler_count(description->sampler_count);
         shader->set_uniform_buffer_count(static_cast<std::uint32_t>(description->uniform_buffers.size()));
+        for (std::size_t slot = 0; slot < description->uniform_buffers.size(); ++slot) {
+            if (description->uniform_buffers[slot].source == ShaderUniformBufferSource::Engine) {
+                shader->set_engine_uniform_slot(static_cast<std::uint32_t>(slot));
+                break;
+            }
+        }
         for (const auto& variant : description->variants) {
             if (!shader->add_variant_from_file(variant.format, database.resolve(variant.source_handle), variant.entry_point)) {
                 set_error(error, "Failed reading shader variant source");
@@ -188,16 +228,25 @@ public:
     [[nodiscard]] static bool validate_material(
         const ShaderAssetDescription& shader, const std::vector<std::vector<std::byte>>& uniforms, std::string* error = nullptr
     ) {
-        if (uniforms.size() != shader.uniform_buffers.size()) {
+        const std::size_t material_buffer_count = static_cast<std::size_t>(std::count_if(
+            shader.uniform_buffers.begin(), shader.uniform_buffers.end(),
+            [](const ShaderUniformBufferLayout& layout) {
+                return layout.source == ShaderUniformBufferSource::Material;
+            }
+        ));
+        if (uniforms.size() != material_buffer_count) {
             set_error(error, "Material uniform buffer count does not match its shader");
             return false;
         }
-        for (std::size_t slot = 0; slot < uniforms.size(); ++slot) {
-            if (uniforms[slot].size() != shader.uniform_buffers[slot].size) {
-                set_error(error, "Material uniform slot " + std::to_string(slot) + " must contain " +
-                    std::to_string(shader.uniform_buffers[slot].size) + " bytes");
+        std::size_t material_slot = 0;
+        for (const auto& layout : shader.uniform_buffers) {
+            if (layout.source == ShaderUniformBufferSource::Engine) continue;
+            if (uniforms[material_slot].size() != layout.size) {
+                set_error(error, "Material uniform slot " + std::to_string(material_slot) + " must contain " +
+                    std::to_string(layout.size) + " bytes");
                 return false;
             }
+            ++material_slot;
         }
         return true;
     }
@@ -208,6 +257,7 @@ public:
         std::vector<std::vector<std::byte>> uniforms;
         uniforms.reserve(shader.uniform_buffers.size());
         for (const auto& layout : shader.uniform_buffers) {
+            if (layout.source == ShaderUniformBufferSource::Engine) continue;
             auto& bytes = uniforms.emplace_back(layout.size, std::byte{0});
             for (const auto& parameter : layout.parameters) {
                 std::memcpy(

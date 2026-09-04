@@ -536,7 +536,7 @@ void Renderer2D::submit_screen_sprite(
     std::shared_ptr<const Material> material,
     bool scale_with_camera_projection
 ) {
-    if (!texture) return;
+    if (!texture && (!material || material->shader().sampler_count() != 0)) return;
 
     SpriteCommand cmd;
     cmd.texture = texture;
@@ -574,7 +574,7 @@ void Renderer2D::submit_world_quad(
     RenderLayer render_layer,
     SDL_BlendMode blend_mode
 ) {
-    if (!texture) return;
+    if (!texture && (!material || material->shader().sampler_count() != 0)) return;
     render_layer = std::min<RenderLayer>(render_layer, 31);
     if (m_active_camera && !m_active_camera->renders_layer(render_layer)) {
         ++m_culled_sprites;
@@ -742,7 +742,7 @@ void Renderer2D::submit_sprites_batch(const SpriteCommand* commands, size_t coun
 
         m_thread_pool->parallel_for(0, count, [&](size_t i) {
             const auto& src = commands[i];
-            if (!src.texture) return;
+            if (!src.texture && (!src.material || src.material->shader().sampler_count() != 0)) return;
 
             if (m_active_camera && !m_active_camera->is_visible(src.position, src.size)) {
                 return; // Culled
@@ -1020,7 +1020,9 @@ void Renderer2D::end_scene() {
         int material_output_width = 1;
         int material_output_height = 1;
         SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &material_output_width, &material_output_height);
-        const MaterialRenderContext material_context{material_output_width, material_output_height};
+        const MaterialRenderContext material_context = MaterialRenderContext::current(
+            material_output_width, material_output_height
+        );
         auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(stage)];
         const auto stage_begin = std::chrono::high_resolution_clock::now();
         size_t batch_start = start_idx;
@@ -1040,7 +1042,24 @@ void Renderer2D::end_scene() {
                     const bool material_bound = current_material && m_material_backend &&
                         m_material_backend->bind(*current_material, material_context);
                     if (material_bound) ++metrics.material_switches;
-                    SDL_Texture* sdl_tex = current_texture ? current_texture->get_sdl_texture() : nullptr;
+                    if (!current_texture && !material_bound) {
+                        batch_start = i;
+                        current_texture = tex;
+                        current_material = std::move(material);
+                        current_blend_mode = blend_mode;
+                        continue;
+                    }
+                    // SDL's geometry path omits TEXCOORD0 when no texture is
+                    // supplied, even if a custom zero-sampler shader consumes
+                    // UVs. A shared white carrier keeps the authored 0..1 UVs
+                    // available without becoming a shader sampler dependency.
+                    Texture* geometry_texture = current_texture;
+                    if (!geometry_texture && current_material &&
+                        current_material->shader().sampler_count() == 0) {
+                        geometry_texture = Texture::get_white(m_sdl_renderer);
+                    }
+                    SDL_Texture* sdl_tex = geometry_texture
+                        ? geometry_texture->get_sdl_texture() : nullptr;
                     if (sdl_tex) SDL_SetTextureBlendMode(sdl_tex, current_blend_mode);
                     else SDL_SetRenderDrawBlendMode(m_sdl_renderer, current_blend_mode);
                     SDL_RenderGeometry(

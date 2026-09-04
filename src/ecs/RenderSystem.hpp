@@ -5,6 +5,7 @@
 #include "components/PhysicsComponents.hpp"
 #include "components/RenderingComponents.hpp"
 #include "../renderer/Renderer2D.hpp"
+#include "../renderer/material/Material.hpp"
 #include "../scene/SpatialGrid.hpp"
 #include "../core/AssetManager.hpp"
 #include "../tilemap/Tilemap.hpp"
@@ -29,7 +30,7 @@ public:
         entity_manager.for_each<TransformComponent, SpriteComponent>(
             [visibility_filter](EntityID id, const TransformComponent& transform, const SpriteComponent& sprite) {
                 if (visibility_filter && !visibility_filter->should_render(id)) return;
-                if (transform.world_visible && sprite.visible && sprite.texture) {
+                if (transform.world_visible && sprite.visible && has_render_source(sprite)) {
                     s_spatial_grid.insert(id, transform.world_position, sprite.size * transform.world_scale);
                 }
             }
@@ -53,7 +54,7 @@ public:
                 const auto& transform = entity_manager.get_component<TransformComponent>(id);
                 const auto& sprite = entity_manager.get_component<SpriteComponent>(id);
 
-                if (!transform.world_visible || !sprite.visible || !sprite.texture) continue;
+                if (!transform.world_visible || !sprite.visible || !has_render_source(sprite)) continue;
 
                 const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
                 const RenderEffectComponent* effect = entity_manager.has_component<RenderEffectComponent>(id)
@@ -65,7 +66,7 @@ public:
             entity_manager.for_each<TransformComponent, SpriteComponent>(
                 [&renderer, &entity_manager, visibility_filter](EntityID id, const TransformComponent& transform, const SpriteComponent& sprite) {
                     if (visibility_filter && !visibility_filter->should_render(id)) return;
-                    if (!transform.world_visible || !sprite.visible || !sprite.texture) return;
+                    if (!transform.world_visible || !sprite.visible || !has_render_source(sprite)) return;
 
                     const SDL_FRect* src_rect_ptr = sprite.use_src_rect ? &sprite.src_rect : nullptr;
                     const RenderEffectComponent* effect = entity_manager.has_component<RenderEffectComponent>(id)
@@ -144,6 +145,12 @@ public:
     }
 
 private:
+    [[nodiscard]] static bool has_render_source(const SpriteComponent& sprite) {
+        return sprite.texture || (
+            sprite.material && sprite.material->shader().sampler_count() == 0
+        );
+    }
+
     static inline void submit_sprite_with_outline(
         Renderer2D& renderer,
         EntityManager& entity_manager,
@@ -224,7 +231,7 @@ private:
                 );
             }
         }
-        if (sprite.has_outline && sprite.outline_thickness > 0.0f) {
+        if (sprite.texture && sprite.has_outline && sprite.outline_thickness > 0.0f) {
             float thick = sprite.outline_thickness;
             SDL_Color out_col = sprite.outline_color;
 

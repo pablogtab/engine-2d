@@ -104,6 +104,25 @@ engine_add_builtin_lit_shader_variant(MSL msl)
 set(ENGINE_BUILTIN_LIT_SHADER_OUTPUT_BASE
     "${ENGINE_SHADER_OUTPUT_DIR}/builtin/lit_sprite.frag")
 
+set(ENGINE_GLOBALS_TEST_SHADER_SOURCE
+    "${CMAKE_SOURCE_DIR}/tests/fixtures/shaders/engine_globals.frag.hlsl")
+function(engine_add_globals_test_shader_variant format extension)
+    set(output "${ENGINE_SHADER_OUTPUT_DIR}/tests/engine_globals.frag.${extension}")
+    add_custom_command(
+        OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${ENGINE_SHADER_OUTPUT_DIR}/tests"
+        COMMAND "${engine_shadercross_command}" "${ENGINE_GLOBALS_TEST_SHADER_SOURCE}"
+            --source HLSL --dest "${format}" --stage fragment --entrypoint main --output "${output}"
+        DEPENDS "${ENGINE_GLOBALS_TEST_SHADER_SOURCE}"
+        COMMENT "Compiling engine globals ${format} shader test variant"
+        VERBATIM
+    )
+    set(ENGINE_SHADER_VARIANTS "${ENGINE_SHADER_VARIANTS};${output}" PARENT_SCOPE)
+endfunction()
+engine_add_globals_test_shader_variant(SPIRV spv)
+engine_add_globals_test_shader_variant(DXIL dxil)
+engine_add_globals_test_shader_variant(MSL msl)
+
 add_custom_target(compile_shaders DEPENDS ${ENGINE_SHADER_VARIANTS})
 if(TARGET engine_shadercross_toolchain)
     add_dependencies(compile_shaders engine_shadercross_toolchain)

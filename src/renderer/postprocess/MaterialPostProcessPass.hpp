@@ -28,7 +28,9 @@ public:
         SDL_Texture*,
         const PostProcessContext& context
     ) override {
-        const MaterialRenderContext material_context{context.output_width, context.output_height};
+        const MaterialRenderContext material_context = MaterialRenderContext::current(
+            context.output_width, context.output_height
+        );
         if (!m_backend || !m_backend->draw_fullscreen(*m_material, source, material_context)) {
             // Unsupported renderers keep the scene visible instead of turning
             // a missing optional GPU feature into a black frame.
