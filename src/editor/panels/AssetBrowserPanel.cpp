@@ -1338,6 +1338,11 @@ void AssetBrowserPanel::draw_entry_interactions(const AssetBrowserEntry& entry) 
             const bool ready = entry.status == AssetStatus::Ready;
             ImGui::BeginDisabled(!ready);
             if (ImGui::MenuItem("Open")) activate_entry(entry);
+            if (entry.type == AssetType::Prefab &&
+                ImGui::MenuItem("Open in VFX Preview")) {
+                record_recent(entry.handle);
+                if (m_on_open_vfx_preview) m_on_open_vfx_preview(entry.handle);
+            }
             if (entry.type == AssetType::Material && ImGui::MenuItem("Duplicate Material") &&
                 m_command_history && m_asset_database) {
                 static_cast<void>(duplicate_material_asset(entry.handle));
@@ -1664,6 +1669,13 @@ void AssetBrowserPanel::draw_selected_asset_details() {
         const std::filesystem::path absolute =
             (m_asset_database->project_root() / record->source_path).lexically_normal();
         static_cast<void>(SDL_OpenURL(file_url(absolute.parent_path()).c_str()));
+    }
+    if (record->type == AssetType::Prefab && m_on_open_vfx_preview) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Preview VFX")) {
+            record_recent(record->handle);
+            m_on_open_vfx_preview(record->handle);
+        }
     }
 
     const auto& dependencies = m_asset_database->dependencies(record->handle);

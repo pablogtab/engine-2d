@@ -1771,8 +1771,12 @@ struct CompiledAsset {
 std::vector<ScriptPublicField> public_fields_from_behaviour(const EngineScript::BehaviourManifest& behaviour) {
     std::vector<ScriptPublicField> fields;
     for (const auto& property : behaviour.properties) {
+        if (!property.is_exposed) continue;
         ScriptPublicField field;
         field.name = property.name;
+        field.is_exposed = true;
+        field.minimum = property.min_value;
+        field.maximum = property.max_value;
         if (property.type == "Float" || property.type == "Int") {
             field.type = ScriptFieldType::Number;
             try {
@@ -2439,13 +2443,20 @@ bool ScriptRuntime::instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot,
     }
 
     std::vector<ScriptPublicField> compiled_fields = public_fields_from_behaviour(*manifest);
+    std::vector<ScriptPublicField> synchronized_fields;
+    synchronized_fields.reserve(compiled_fields.size());
     for (const ScriptPublicField& default_field : compiled_fields) {
         const auto existing = std::find_if(slot.public_fields.begin(), slot.public_fields.end(),
             [&default_field](const ScriptPublicField& field) {
-                return field.name == default_field.name && field.type == default_field.type;
+                return field.name == default_field.name && field.type == default_field.type &&
+                    script_field_value_matches_type(field);
             });
-        if (existing == slot.public_fields.end()) slot.public_fields.push_back(default_field);
+        synchronized_fields.push_back(default_field);
+        if (existing != slot.public_fields.end()) {
+            synchronized_fields.back().value = existing->value;
+        }
     }
+    slot.public_fields = std::move(synchronized_fields);
 
     Instance instance;
     instance.entity = entity;

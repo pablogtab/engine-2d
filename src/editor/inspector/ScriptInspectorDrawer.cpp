@@ -110,6 +110,9 @@ void synchronize_fields(ScriptBehaviourSlot& instance, const std::vector<ScriptP
         } else {
             synchronized.push_back(*existing);
             synchronized.back().enum_values = definition.enum_values;
+            synchronized.back().is_exposed = definition.is_exposed;
+            synchronized.back().minimum = definition.minimum;
+            synchronized.back().maximum = definition.maximum;
         }
     }
     instance.public_fields = std::move(synchronized);
@@ -344,6 +347,7 @@ void ScriptInspectorDrawer::draw(
         }
 
         for (ScriptPublicField& field : instance.public_fields) {
+            if (!field.is_exposed) continue;
             ImGui::PushID(field.name.c_str());
             const ScriptComponent before = component;
             bool changed = false;

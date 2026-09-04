@@ -110,11 +110,13 @@ export class Evolution extends Behaviour {
     @expose
     speed: String = "walk";
 
-    @expose
+    @expose({ min: 1.0, max: 9.0 })
     lives: Float = 3.0;
 
     @expose
     new_enabled: Bool = true;
+
+    private elapsed: Float = 0.0;
 }
 )";
     write_file(root / "Assets/scripts/Evolution.e2s", source);
@@ -128,15 +130,21 @@ export class Evolution extends Behaviour {
     assert(inspection.success);
     assert(inspection.public_fields.size() == 3);
     assert(std::get<std::string>(find_field(inspection.public_fields, "speed")->value) == "walk");
-    assert(std::get<double>(find_field(inspection.public_fields, "lives")->value) == 3.0);
+    const ScriptPublicField* lives = find_field(inspection.public_fields, "lives");
+    assert(lives && std::get<double>(lives->value) == 3.0);
+    assert(lives->is_exposed);
+    assert(lives->minimum && *lives->minimum == 1.0);
+    assert(lives->maximum && *lives->maximum == 9.0);
     assert(std::get<bool>(find_field(inspection.public_fields, "new_enabled")->value));
+    assert(find_field(inspection.public_fields, "elapsed") == nullptr);
 
     ScriptComponent evolved;
     evolved.instances.front().script_handle = script_asset->handle;
     evolved.instances.front().public_fields = {
         {"speed", ScriptFieldType::String, std::string("walk")},
         {"lives", ScriptFieldType::Number, 7.0},
-        {"new_enabled", ScriptFieldType::Boolean, true}
+        {"new_enabled", ScriptFieldType::Boolean, true},
+        {"elapsed", ScriptFieldType::Number, 4.0}
     };
     entities.add_component<ScriptComponent>(scripted, evolved);
 
@@ -149,6 +157,13 @@ export class Evolution extends Behaviour {
     ScriptRuntime runtime;
     const ScriptRuntimeStartResult started = runtime.start(entities, database);
     assert(started.started == 1 && started.failed == 0);
+    const auto& synchronized = entities.get_component<ScriptComponent>(scripted)
+        .instances.front().public_fields;
+    assert(synchronized.size() == 3);
+    assert(find_field(synchronized, "elapsed") == nullptr);
+    assert(std::get<double>(find_field(synchronized, "lives")->value) == 7.0);
+    assert(find_field(synchronized, "lives")->minimum == 1.0);
+    assert(find_field(synchronized, "lives")->maximum == 9.0);
     runtime.shutdown();
 }
 

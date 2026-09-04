@@ -23,6 +23,7 @@
 #include "../editor/panels/SpriteAnimationStudioPanel.hpp"
 #include "../editor/panels/ParticleEffectEditorPanel.hpp"
 #include "../editor/panels/TrailPreviewPanel.hpp"
+#include "../editor/panels/VfxPreviewPanel.hpp"
 #include "../editor/panels/AiAssistantPanel.hpp"
 #include "../editor/panels/UiGalleryPanel.hpp"
 #endif
@@ -466,6 +467,15 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     );
     inspector_panel->set_trail_preview(trail_preview_panel.get());
 
+    auto vfx_preview_panel = std::make_shared<VfxPreviewPanel>(
+        m_window->get_sdl_renderer(), &get_asset_database(), &m_scene_manager,
+        m_renderer->get_material_backend()
+    );
+    vfx_preview_panel->is_open = false;
+    asset_browser->set_on_open_vfx_preview([vfx_preview_panel](AssetHandle handle) {
+        vfx_preview_panel->open_asset(handle);
+    });
+
     viewport_panel->set_palette_panel(palette_panel.get());
     m_editor_layer->set_viewport_panel(viewport_panel.get());
     m_editor_layer->set_animation_studio_panel(anim_studio_panel.get());
@@ -482,6 +492,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_editor_layer->register_panel(EditorPanelId::PostProcess, postprocess_panel);
     m_editor_layer->register_panel(EditorPanelId::Particles, particle_editor_panel);
     m_editor_layer->register_panel(EditorPanelId::TrailPreview, trail_preview_panel);
+    m_editor_layer->register_panel(EditorPanelId::VfxPreview, vfx_preview_panel);
     m_editor_layer->register_panel(EditorPanelId::ProjectSettings, project_settings_panel);
     m_editor_layer->register_panel(EditorPanelId::Shortcuts, shortcuts_panel);
     m_editor_layer->register_panel(EditorPanelId::Tilemap, palette_panel);

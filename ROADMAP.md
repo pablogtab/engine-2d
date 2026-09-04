@@ -36,6 +36,8 @@ contratos vigentes en `docs/` y de la historia Git.
     batching y draw calls antes de exponer setters dinámicos a EngineScript.
   - Incorporar parámetros tipados/reflejados, validación de hot reload,
     serialización sólo cuando sean datos de autoría y preview/Undo del editor.
+  - Conectar esos overrides al VFX Preview para editar seeds del shader y
+    comparar cuatro variaciones deterministas del mismo efecto en paralelo.
 - [ ] Establecer un pipeline de color lineal de extremo a extremo.
   - El contrato actual usa canales sRGB `SDL_Color` para sprites, luces,
     render targets y postproceso. `Color.srgbToLinear` y
@@ -51,7 +53,9 @@ contratos vigentes en `docs/` y de la historia Git.
 
 El contrato vigente de composición, Canvas y materiales está en
 [`docs/RENDERER_CANVAS_CONTRACTS.md`](docs/RENDERER_CANVAS_CONTRACTS.md) y
-[`docs/RENDER_MATERIALS.md`](docs/RENDER_MATERIALS.md).
+[`docs/RENDER_MATERIALS.md`](docs/RENDER_MATERIALS.md). El preview aislado de
+prefabs visuales está documentado en
+[`docs/VFX_PREVIEW.md`](docs/VFX_PREVIEW.md).
 
 ## Assets, runtime y distribución
 

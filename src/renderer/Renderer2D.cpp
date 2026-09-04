@@ -1020,9 +1020,15 @@ void Renderer2D::end_scene() {
         int material_output_width = 1;
         int material_output_height = 1;
         SDL_GetCurrentRenderOutputSize(m_sdl_renderer, &material_output_width, &material_output_height);
-        const MaterialRenderContext material_context = MaterialRenderContext::current(
+        MaterialRenderContext material_context = MaterialRenderContext::current(
             material_output_width, material_output_height
         );
+        if (m_shader_time_override) {
+            material_context.game_time_seconds = m_shader_time_override->game_time_seconds;
+            material_context.real_time_seconds = m_shader_time_override->real_time_seconds;
+            material_context.delta_time_seconds = m_shader_time_override->delta_time_seconds;
+            material_context.frame_index = m_shader_time_override->frame_index;
+        }
         auto& metrics = m_frame_metrics.stages[static_cast<std::size_t>(stage)];
         const auto stage_begin = std::chrono::high_resolution_clock::now();
         size_t batch_start = start_idx;

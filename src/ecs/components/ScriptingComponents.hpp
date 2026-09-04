@@ -6,6 +6,7 @@
 #include <string>
 #include <atomic>
 #include <cstdint>
+#include <optional>
 #include <variant>
 #include <vector>
 
@@ -48,8 +49,18 @@ struct ScriptPublicField {
     // Authored enum name and current members. The serialized value remains the member name.
     std::string enum_type;
     std::vector<std::string> enum_values;
+    // Definition metadata comes from @expose and is not authored per scene/prefab.
+    bool is_exposed{false};
+    std::optional<double> minimum;
+    std::optional<double> maximum;
 
-    bool operator==(const ScriptPublicField&) const = default;
+    bool operator==(const ScriptPublicField& other) const {
+        // Exposure/range/enum members are derived from the script definition.
+        // They must not make an authored scene dirty when the schema is refreshed.
+        return name == other.name && type == other.type && value == other.value &&
+            component_type == other.component_type && asset_type == other.asset_type &&
+            enum_type == other.enum_type;
+    }
 };
 
 using ScriptSlotID = std::uint64_t;

@@ -26,10 +26,13 @@ int main() {
     assert(manager.set_active(EditorWorkspaceId::Vfx));
     assert(manager.contains(EditorPanelId::Particles));
     assert(manager.contains(EditorPanelId::TrailPreview));
+    assert(manager.contains(EditorPanelId::VfxPreview));
     assert(manager.contains(EditorPanelId::PostProcess));
     assert(!manager.contains(EditorPanelId::Console));
     assert(std::string(editor_panel_id_key(EditorPanelId::TrailPreview)) ==
         "trail_preview");
+    assert(std::string(editor_panel_id_key(EditorPanelId::VfxPreview)) ==
+        "vfx_preview");
 
     assert(manager.set_active(EditorWorkspaceId::Debug));
     assert(!manager.set_active(EditorWorkspaceId::Debug));

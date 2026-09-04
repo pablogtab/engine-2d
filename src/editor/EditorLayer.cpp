@@ -2256,9 +2256,11 @@ void EditorLayer::render_panels(float delta_time) {
     render_external_scene_change_modal();
 
     for (auto& panel : m_panel_registry.panels()) {
+        if (panel) panel->notify_visibility_if_changed();
         if (panel && panel->is_open) {
             panel->on_update(delta_time);
             panel->on_gui();
+            panel->notify_visibility_if_changed();
         }
     }
 

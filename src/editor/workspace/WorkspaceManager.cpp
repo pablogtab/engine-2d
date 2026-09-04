@@ -36,6 +36,7 @@ WorkspaceManager::WorkspaceManager()
         {EditorWorkspaceId::Vfx, "vfx", "VFX", {
             EditorPanelId::Viewport, EditorPanelId::Inspector,
             EditorPanelId::Particles, EditorPanelId::TrailPreview,
+            EditorPanelId::VfxPreview,
             EditorPanelId::PostProcess,
             EditorPanelId::Assets
         }},

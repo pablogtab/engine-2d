@@ -126,6 +126,7 @@ set(SOURCES
     src/editor/panels/ParticleEffectEditorSidebar.cpp
     src/editor/panels/ParticleEffectEditorPreview.cpp
     src/editor/panels/TrailPreviewPanel.cpp
+    src/editor/panels/VfxPreviewPanel.cpp
     src/editor/panels/ProjectSettingsPanel.cpp
     src/editor/panels/ShortcutsPreferencesPanel.cpp
     src/editor/panels/TilemapPalettePanel.cpp

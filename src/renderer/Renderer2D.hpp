@@ -14,6 +14,7 @@
 #include <span>
 #include <vector>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <SDL3/SDL.h>
 
@@ -130,6 +131,13 @@ struct SpriteMaterialLighting {
 
 class Renderer2D {
 public:
+    struct ShaderTimeOverride {
+        float game_time_seconds{0.0f};
+        float real_time_seconds{0.0f};
+        float delta_time_seconds{0.0f};
+        float frame_index{0.0f};
+    };
+
     explicit Renderer2D(SDL_Renderer* renderer);
 
     void set_thread_pool(ThreadPool* thread_pool) {
@@ -153,6 +161,9 @@ public:
     PostProcessPipeline* get_post_process_pipeline() const { return m_post_process_pipeline; }
     void set_material_backend(std::shared_ptr<IMaterialBackend> backend) { m_material_backend = std::move(backend); }
     [[nodiscard]] const std::shared_ptr<IMaterialBackend>& get_material_backend() const { return m_material_backend; }
+    void set_shader_time_override(std::optional<ShaderTimeOverride> value) {
+        m_shader_time_override = value;
+    }
     [[nodiscard]] MaterialPackCache& material_pack_cache() { return m_material_pack_cache; }
     [[nodiscard]] const MaterialPackCache& material_pack_cache() const { return m_material_pack_cache; }
     Texture* get_sprite_shadow_ellipse(float softness);
@@ -302,6 +313,7 @@ private:
     std::array<std::vector<std::shared_ptr<ILocalEffectPass>>, 32> m_render_layer_effects;
     std::unordered_map<AssetHandle, std::vector<std::shared_ptr<ILocalEffectPass>>> m_entity_effect_profiles;
     std::shared_ptr<IMaterialBackend> m_material_backend;
+    std::optional<ShaderTimeOverride> m_shader_time_override;
     SDL_Texture* m_custom_render_target{nullptr};
     SDL_Texture* m_frame_world_target{nullptr};
     bool m_frame_world_target_leased{false};

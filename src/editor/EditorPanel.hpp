@@ -27,6 +27,7 @@ enum class EditorPanelId {
     PostProcess,
     Particles,
     TrailPreview,
+    VfxPreview,
     ProjectSettings,
     Shortcuts,
     Tilemap,
@@ -47,6 +48,7 @@ enum class EditorPanelId {
         case EditorPanelId::PostProcess: return "post_process";
         case EditorPanelId::Particles: return "particles";
         case EditorPanelId::TrailPreview: return "trail_preview";
+        case EditorPanelId::VfxPreview: return "vfx_preview";
         case EditorPanelId::ProjectSettings: return "project_settings";
         case EditorPanelId::Shortcuts: return "shortcuts";
         case EditorPanelId::Tilemap: return "tilemap";
@@ -71,7 +73,15 @@ public:
     virtual void on_update(float /*delta_time*/) {}
     virtual void on_render_resources_invalidated() {}
     virtual void on_context_changed(const EditorPanelContext& /*context*/) {}
+    virtual void on_visibility_changed(bool /*visible*/) {}
     [[nodiscard]] virtual const std::string& get_name() const = 0;
+
+    void notify_visibility_if_changed() {
+        if (m_visibility_initialized && m_last_notified_visibility == is_open) return;
+        m_visibility_initialized = true;
+        m_last_notified_visibility = is_open;
+        on_visibility_changed(is_open);
+    }
 
     [[nodiscard]] EditorPanelId get_id() const { return m_id; }
     void set_id(EditorPanelId id) { m_id = id; }
@@ -80,6 +90,8 @@ public:
 
 private:
     EditorPanelId m_id{EditorPanelId::Unknown};
+    bool m_visibility_initialized{false};
+    bool m_last_notified_visibility{true};
 };
 
 } // namespace Engine
