@@ -2140,6 +2140,8 @@ ScriptRuntimeStartResult ScriptRuntime::start(
     std::shared_ptr<EngineScript::GameModule> generated_native_module;
     std::string native_build_error;
     bool native_cache_hit = false;
+    std::uint32_t native_compiled_objects = 0;
+    std::uint32_t native_reused_objects = 0;
     if (!m_services.native_module_path.empty()) {
         std::unique_ptr<EngineScript::GameModule> loaded = EngineScript::GameModule::load_dynamic_library(
             m_services.native_module_path,
@@ -2205,6 +2207,8 @@ ScriptRuntimeStartResult ScriptRuntime::start(
             m_next_native_build_number++
         );
         native_cache_hit = native_build.cache_hit;
+        native_compiled_objects = native_build.compiled_objects;
+        native_reused_objects = native_build.reused_objects;
         if (native_build.success) {
             std::unique_ptr<EngineScript::GameModule> loaded = EngineScript::GameModule::load_dynamic_library(
                 native_build.library_path,
@@ -2216,7 +2220,8 @@ ScriptRuntimeStartResult ScriptRuntime::start(
         }
     }
     return finish_start(
-        std::move(generated_native_module), std::move(native_build_error), native_cache_hit
+        std::move(generated_native_module), std::move(native_build_error), native_cache_hit,
+        native_compiled_objects, native_reused_objects
     );
 }
 
@@ -2244,7 +2249,10 @@ ScriptRuntimeStartResult ScriptRuntime::poll_start() {
             EngineScript::GameModule::load_dynamic_library(native_build.library_path, &error);
         if (loaded) module = std::shared_ptr<EngineScript::GameModule>(std::move(loaded));
     }
-    return finish_start(std::move(module), std::move(error), native_build.cache_hit);
+    return finish_start(
+        std::move(module), std::move(error), native_build.cache_hit,
+        native_build.compiled_objects, native_build.reused_objects
+    );
 }
 
 bool ScriptRuntime::is_starting() const {
@@ -2267,10 +2275,14 @@ ScriptNativeBuildPhase ScriptRuntime::native_build_phase() const {
 ScriptRuntimeStartResult ScriptRuntime::finish_start(
     std::shared_ptr<EngineScript::GameModule> module,
     std::string native_build_error,
-    bool native_cache_hit
+    bool native_cache_hit,
+    std::uint32_t native_compiled_objects,
+    std::uint32_t native_reused_objects
 ) {
     ScriptRuntimeStartResult result;
     result.native_cache_hit = native_cache_hit;
+    result.native_compiled_objects = native_compiled_objects;
+    result.native_reused_objects = native_reused_objects;
     if (!module) {
         const std::string error = native_build_error.empty()
             ? "EngineScript native module could not be loaded"

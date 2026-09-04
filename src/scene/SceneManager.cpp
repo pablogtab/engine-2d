@@ -190,12 +190,17 @@ void SceneManager::advance_play_startup() {
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - m_play_startup_started_at
         ).count();
+        const std::string native_status = scripts.native_cache_hit
+            ? "cache hit"
+            : std::to_string(scripts.native_compiled_objects) +
+                (scripts.native_compiled_objects == 1 ? " object compiled, " : " objects compiled, ") +
+                std::to_string(scripts.native_reused_objects) + " reused";
         ENGINE_LOG_INFO(
             "[SCENE PLAY] Ready in {} ms: {} scripts running, {} failed; native module {}",
             elapsed,
             scripts.started,
             scripts.failed,
-            scripts.native_cache_hit ? "cache hit" : "rebuilt"
+            native_status
         );
         m_play_startup_phase = PlayStartupPhase::None;
         m_play_load_progress = {};

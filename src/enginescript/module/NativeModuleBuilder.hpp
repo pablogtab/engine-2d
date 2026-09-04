@@ -25,6 +25,8 @@ using NativeModuleBuildProgress = std::function<void(NativeModuleBuildPhase)>;
 struct NativeModuleBuildResult {
     bool success{false};
     bool cache_hit{false};
+    std::uint32_t compiled_objects{0};
+    std::uint32_t reused_objects{0};
     std::string output_directory;
     std::string library_path;
     std::string source_hash;

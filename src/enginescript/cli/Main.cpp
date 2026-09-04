@@ -135,7 +135,17 @@ int main(int argc, char* argv[]) {
             std::cerr << "Native module build failed: " << native.error << "\n";
             return 1;
         }
-        if (!json_diagnostics) std::cout << "Built native EngineScript module: " << native.library_path << "\n";
+        if (!json_diagnostics) {
+            std::cout << "Built native EngineScript module: " << native.library_path;
+            if (native.cache_hit) {
+                std::cout << " (module cache hit)";
+            } else {
+                std::cout << " (" << native.compiled_objects
+                          << (native.compiled_objects == 1 ? " object compiled, " : " objects compiled, ")
+                          << native.reused_objects << " reused)";
+            }
+            std::cout << "\n";
+        }
         return 0;
     }
 

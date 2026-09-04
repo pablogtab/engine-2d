@@ -111,6 +111,8 @@ struct ScriptRuntimeStartResult {
     std::size_t failed{0};
     bool pending{false};
     bool native_cache_hit{false};
+    std::uint32_t native_compiled_objects{0};
+    std::uint32_t native_reused_objects{0};
 };
 
 struct ScriptHotReloadResult {
@@ -211,7 +213,9 @@ private:
     [[nodiscard]] ScriptRuntimeStartResult finish_start(
         std::shared_ptr<EngineScript::GameModule> module,
         std::string native_build_error,
-        bool native_cache_hit
+        bool native_cache_hit,
+        std::uint32_t native_compiled_objects = 0,
+        std::uint32_t native_reused_objects = 0
     );
     bool instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error, bool start_lifecycle = true);
     void discard_entity_instances(EntityID entity);

@@ -320,6 +320,16 @@ destroyed before its module is unloaded.
 It registers every behaviour factory through that export symbol; native build
 targets compile this file together with the generated behaviour sources.
 
+Native builds first reuse the complete dynamic library when the project source
+hash is unchanged. On a module cache miss, each generated translation unit uses
+a persistent content-addressed object cache under
+`Library/EngineScript/ObjectCache`. The object fingerprint includes the source,
+its transitive generated-header dependencies, compiler identity/version, SDK,
+and code-generation cache identity. An implementation-only edit therefore
+recompiles that script while reusing unrelated objects; a public-header change
+also recompiles its generated C++ consumers. Cold misses compile up to eight
+objects in parallel before the module is relinked.
+
 `NativeModuleBuilder` has two explicit outputs: `DynamicLibrary` is used by
 desktop Play Mode and the current packaged runtime, while `StaticSources`
 writes the same generated sources and entrypoint for future static-link export

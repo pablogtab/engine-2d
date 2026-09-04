@@ -118,6 +118,9 @@ void test_generated_module_build_and_load() {
     workspace.add_source_file("Assets/Scripts/Utils.e2s", R"(
 export function identity<T extends Send>(value: T): T { return value; }
 )");
+    workspace.add_source_file("Assets/Scripts/Independent.e2s", R"(
+export function stableValue(): Int { return 7; }
+)");
     workspace.add_source_file("Assets/Scripts/Probe.e2s", R"(
 import { identity } from "./Utils";
 @behaviour
@@ -129,6 +132,8 @@ export class Probe extends Behaviour {
     assert(workspace.compile().success);
     const NativeModuleBuildResult build = NativeModuleBuilder::build(workspace, root.string(), 11);
     assert(build.success);
+    assert(build.compiled_objects == 4);
+    assert(build.reused_objects == 0);
     std::string load_error;
     std::unique_ptr<GameModule> module = GameModule::load_dynamic_library(build.library_path, &load_error);
     assert(module && module->has_behaviour_type("Probe"));
@@ -144,6 +149,8 @@ export class Probe extends Behaviour {
     const NativeModuleBuildResult cached = NativeModuleBuilder::build(workspace, root.string(), 12);
     assert(cached.success);
     assert(cached.cache_hit);
+    assert(cached.compiled_objects == 0);
+    assert(cached.reused_objects == 0);
     assert(cached.source_hash == build.source_hash);
     assert(cached.library_path == build.library_path);
     workspace.update_source_file("Assets/Scripts/Probe.e2s", R"(
@@ -159,8 +166,30 @@ export class Probe extends Behaviour {
     assert(!rebuilt.cache_hit);
     assert(rebuilt.source_hash != build.source_hash);
     assert(rebuilt.library_path != build.library_path);
+    // Probe's implementation and the build-numbered entrypoint change. Utils
+    // and the independent module retain their object fingerprints.
+    assert(rebuilt.compiled_objects == 2);
+    assert(rebuilt.reused_objects == 2);
+    workspace.update_source_file("Assets/Scripts/Utils.e2s", R"(
+export function identity<T extends Send>(value: T, fallback: T): T { return value; }
+)");
+    workspace.update_source_file("Assets/Scripts/Probe.e2s", R"(
+import { identity } from "./Utils";
+@behaviour
+export class Probe extends Behaviour {
+    @expose speed: Float = identity<Float>(41.0, 0.0);
+    override update(deltaTime: Float): Void { speed = speed + deltaTime; }
+}
+)");
+    const NativeModuleBuildResult dependency_rebuild = NativeModuleBuilder::build(
+        workspace, root.string(), 14
+    );
+    assert(dependency_rebuild.success);
+    assert(!dependency_rebuild.cache_hit);
+    assert(dependency_rebuild.compiled_objects == 3);
+    assert(dependency_rebuild.reused_objects == 1);
     const NativeModuleBuildResult static_sources = NativeModuleBuilder::build(
-        workspace, root.string(), 14, NativeModuleBuildMode::StaticSources
+        workspace, root.string(), 15, NativeModuleBuildMode::StaticSources
     );
     assert(static_sources.success);
     assert(fs::exists(fs::path(static_sources.output_directory) / "GameModule.generated.cpp"));
