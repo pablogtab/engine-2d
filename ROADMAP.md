@@ -13,6 +13,17 @@ contratos vigentes en `docs/` y de la historia Git.
 3. Incorporar fuente exacta y filtros estructurados para fallos de callbacks
    nativos de EngineScript.
 
+## Ergonomía de EngineScript
+
+- [ ] Ejecutar por incrementos el plan de seguridad y ergonomía del lenguaje:
+  vistas de componentes estables, interpolación tipada, bindings opcionales,
+  `match`, argumentos por defecto y nombrados, colecciones apropiadas para
+  gameplay y auditoría estructurada para IA. Ver
+  [`docs/ENGINESCRIPT_ERGONOMICS_PLAN.md`](docs/ENGINESCRIPT_ERGONOMICS_PLAN.md).
+- [ ] Mantener una sola documentación vigente de EngineScript. Cada cambio del
+  lenguaje debe actualizar contratos, ejemplos, LSP y datos machine-readable;
+  Git conserva el historial y no se publican documentos separados por versión.
+
 ## Renderer y presentación
 
 - [ ] Establecer un pipeline de color lineal de extremo a extremo.
