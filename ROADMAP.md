@@ -15,11 +15,14 @@ contratos vigentes en `docs/` y de la historia Git.
 
 ## Ergonomía de EngineScript
 
-- [ ] Ejecutar por incrementos el plan de seguridad y ergonomía del lenguaje:
-  vistas de componentes estables, interpolación tipada, bindings opcionales,
-  `match`, argumentos por defecto y nombrados, colecciones apropiadas para
-  gameplay y auditoría estructurada para IA. Ver
-  [`docs/ENGINESCRIPT_ERGONOMICS_PLAN.md`](docs/ENGINESCRIPT_ERGONOMICS_PLAN.md).
+- [ ] Incorporar transferencia explícita de estado seleccionado entre escenas
+  y durante hot reload. Sólo participará estado serializable; la restauración
+  validará tipo y versión, aplicará una migración compatible o reiniciará de
+  forma segura con diagnóstico. No se copiarán punteros, handles nativos ni
+  entidades completas.
+- [ ] Diseñar por separado una futura persistencia de entidades equivalente a
+  `DontDestroyOnLoad`; no debe quedar implícita en los campos `static` ni en la
+  transferencia de estado.
 - [ ] Mantener una sola documentación vigente de EngineScript. Cada cambio del
   lenguaje debe actualizar contratos, ejemplos, LSP y datos machine-readable;
   Git conserva el historial y no se publican documentos separados por versión.
@@ -72,10 +75,6 @@ El contrato vigente de composición, Canvas y materiales está en
 
 ## Diagnóstico, rendimiento y automatización
 
-- [ ] Ejecutar el plan de diagnóstico y rendimiento por incrementos medibles:
-  diagnósticos estructurados, overlays, inspección de runtime, profiler y
-  presupuestos de estrés. Ver
-  [`docs/DEBUGGING_PERFORMANCE_PLAN.md`](docs/DEBUGGING_PERFORMANCE_PLAN.md).
 - [ ] Completar las APIs de autoría asistida pendientes: comandos/build
   auditables, previsualización de diffs de archivos, recibos estructurados,
   audio, materiales, prefabs, escenas, Tilemap, animación y capturas de juego.

@@ -6,9 +6,9 @@ describes only the current compiler and runtime contract.
 ## Contract
 
 - Language: `3`
-- ABI: `35`
-- SDK: `engine2d_abi_v38`
-- Compiler cache: `enginescript_codegen_v10_ergonomics`
+- ABI: `36`
+- SDK: `engine2d_abi_v39`
+- Compiler cache: `enginescript_codegen_v11_init_static`
 
 ## Language features
 
@@ -22,6 +22,9 @@ describes only the current compiler and runtime contract.
 - `defaultArguments`: `true`
 - `deque`: `true`
 - `nullableGameplayTagLookup`: `true`
+- `staticMembers`: `true`
+- `onInitLifecycle`: `true`
+- `requiredReferences`: `true`
 
 ## Types
 
@@ -111,6 +114,7 @@ describes only the current compiler and runtime contract.
 - `self(): Entity` — Returns the entity that owns the current Behaviour.
 - `instantiate(name: String): Entity`
 - `findEntities(tag: String): Array<Entity>`
+- `require(value: T?, message: String): T` — Unwraps a required value or raises a controlled ScriptRuntimeError.
 
 ## Properties
 
@@ -355,6 +359,7 @@ describes only the current compiler and runtime contract.
 - `Entity.destroy(): Void`
 - `Entity.hasComponent(): Bool`
 - `Entity.getComponent(): T?`
+- `Entity.requireComponent(): T` — Returns a required component or raises ScriptRuntimeError.
 - `Entity.getComponents(): Array<T>`
 - `Entity.addComponent(): T?`
 - `Entity.removeComponent(component: T): Bool`
@@ -384,6 +389,7 @@ describes only the current compiler and runtime contract.
 - `Entities.findAllByTag(): Array<Entity>`
 - `Entities.findByGameplayTag(tag: String): Entity` — Returns the first entity carrying the semantic gameplay tag, or the invalid Entity value when none exists.
 - `Entities.firstByGameplayTag(tag: String): Entity?` — Returns the first entity carrying the semantic gameplay tag, or null when none exists.
+- `Entities.requireFirstByGameplayTag(tag: String): Entity` — Returns the first matching entity or raises ScriptRuntimeError.
 - `Entities.findAllByGameplayTag(tag: String): Array<Entity>` — Returns all entities carrying the semantic gameplay tag.
 - `Entities.hasGameplayTag(entity: Entity, tag: String): Bool`
 - `Entities.addGameplayTag(entity: Entity, tag: String): Bool`
@@ -430,6 +436,7 @@ describes only the current compiler and runtime contract.
 - `Scene.currentName(): String`
 - `Scene.isLoading(): Bool`
 - `Scene.lastError(): String`
+- `Log.error(message: String): Void` — Writes an EngineScript error without stopping execution.
 - `Prefabs.create(prefab: Prefab): Entity`
 - `Prefabs.spawn(instance: Entity, position: Vec2): Bool`
 - `Prefabs.instantiate(prefab: Prefab, position: Vec2): Entity` — Creates a new prefab instance at the given world position.

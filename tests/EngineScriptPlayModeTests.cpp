@@ -658,6 +658,8 @@ export class RangeError extends Behaviour {
     const ScriptExecutionStatus* status = runtime.status(entity);
     assert(status && status->state == ScriptExecutionState::Error);
     assert(status->message.find("collection index is out of range") != std::string::npos);
+    const ScriptExecutionStatus* slot_status = runtime.status(entity, script.instances.front().id);
+    assert(slot_status && slot_status->message == status->message);
 
     // An errored behaviour is fail-stopped rather than invoked again.
     runtime.update(0.016f);
@@ -1544,6 +1546,154 @@ export class Clickable extends Behaviour {
     std::cout << "PASSED\n";
 }
 
+void test_on_init_barrier_and_scene_singleton() {
+    std::cout << "[Test] OnInitBarrier_AndSceneSingleton... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_on_init_singleton_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/Director.e2s", R"(
+@behaviour
+export class Director extends Behaviour {
+    private static current: Director? = null;
+    private owns: Bool = false;
+
+    static instance(): Director { return require(Director.current, "Director missing"); }
+
+    on_init(): Void {
+        if (Director.current) { self().destroy(); return; }
+        Director.current = self().requireComponent<Director>();
+        owns = true;
+    }
+
+    on_destroy(): Void { if (owns) Director.current = null; }
+}
+)");
+    write_test_file(root / "Assets/Scripts/Consumer.e2s", R"(
+import { Director } from "./Director";
+@behaviour
+export class Consumer extends Behaviour {
+    private director: Director;
+    @expose ready: Bool = false;
+    on_start(): Void { director = Director.instance(); ready = true; }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* director_record = asset_database.find_by_path(root / "Assets/Scripts/Director.e2s");
+    const AssetRecord* consumer_record = asset_database.find_by_path(root / "Assets/Scripts/Consumer.e2s");
+    assert(director_record && consumer_record);
+
+    EntityManager entities;
+    const auto attach = [&](AssetHandle handle) {
+        const EntityID entity = entities.create_entity();
+        ScriptComponent scripts;
+        scripts.instances.front().enabled = true;
+        scripts.instances.front().script_handle = handle;
+        entities.add_component<ScriptComponent>(entity, scripts);
+        return entity;
+    };
+    const EntityID first_director = attach(director_record->handle);
+    const EntityID duplicate_director = attach(director_record->handle);
+    const EntityID consumer = attach(consumer_record->handle);
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entities, asset_database);
+    assert(started.failed == 0);
+    assert(entities.is_alive(first_director) != entities.is_alive(duplicate_director));
+    assert(entities.is_alive(consumer));
+    assert(runtime.instance_count() == 2);
+    const auto& fields = entities.get_component<ScriptComponent>(consumer).instances.front().public_fields;
+    const auto ready = std::find_if(fields.begin(), fields.end(), [](const ScriptPublicField& field) {
+        return field.name == "ready";
+    });
+    assert(ready != fields.end() && std::get<bool>(ready->value));
+
+    runtime.shutdown();
+    const ScriptRuntimeStartResult restarted = runtime.start(entities, asset_database);
+    assert(restarted.started == 2 && restarted.failed == 0);
+    assert(runtime.instance_count() == 2);
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
+void test_required_dependency_failure_is_isolated() {
+    std::cout << "[Test] RequiredDependencyFailure_IsIsolated... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_required_dependency_failure_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/FailingDirector.e2s", R"(
+@behaviour
+export class FailingDirector extends Behaviour {
+    private static current: FailingDirector? = null;
+    static instance(): FailingDirector { return require(FailingDirector.current, "director unavailable"); }
+    on_init(): Void { FailingDirector.current = self().requireComponent<FailingDirector>(); }
+    on_start(): Void {
+        let missing: Entity? = null;
+        let required: Entity = require(missing, "intentional director failure");
+    }
+}
+)");
+    write_test_file(root / "Assets/Scripts/RequiredConsumer.e2s", R"(
+import { FailingDirector } from "./FailingDirector";
+@behaviour
+export class RequiredConsumer extends Behaviour {
+    private director: FailingDirector;
+    on_start(): Void { director = FailingDirector.instance(); }
+}
+)");
+    write_test_file(root / "Assets/Scripts/Unrelated.e2s", R"(
+@behaviour
+export class Unrelated extends Behaviour {
+    @expose running: Bool = false;
+    on_start(): Void { running = true; }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* director_record = asset_database.find_by_path(root / "Assets/Scripts/FailingDirector.e2s");
+    const AssetRecord* consumer_record = asset_database.find_by_path(root / "Assets/Scripts/RequiredConsumer.e2s");
+    const AssetRecord* unrelated_record = asset_database.find_by_path(root / "Assets/Scripts/Unrelated.e2s");
+    assert(director_record && consumer_record && unrelated_record);
+
+    EntityManager entities;
+    const auto attach = [&](AssetHandle handle) {
+        const EntityID entity = entities.create_entity();
+        ScriptComponent scripts;
+        scripts.instances.front().enabled = true;
+        scripts.instances.front().script_handle = handle;
+        entities.add_component<ScriptComponent>(entity, scripts);
+        return entity;
+    };
+    const EntityID director = attach(director_record->handle);
+    const EntityID consumer = attach(consumer_record->handle);
+    const EntityID unrelated = attach(unrelated_record->handle);
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entities, asset_database);
+    assert(started.started == 1 && started.failed == 2);
+    assert(runtime.status(director));
+    assert(runtime.status(consumer));
+    assert(!runtime.status(unrelated));
+    const auto& fields = entities.get_component<ScriptComponent>(unrelated).instances.front().public_fields;
+    const auto running = std::find_if(fields.begin(), fields.end(), [](const ScriptPublicField& field) {
+        return field.name == "running";
+    });
+    assert(running != fields.end() && std::get<bool>(running->value));
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
 int main() {
     std::cout << "=== Running EngineScript Play Mode Tests ===\n";
     test_play_mode_lifecycle();
@@ -1564,6 +1714,8 @@ int main() {
     test_transform_write_moves_kinematic_body();
     test_behaviour_self_can_destroy_owner();
     test_button_click_dispatches_to_owning_behaviour();
+    test_on_init_barrier_and_scene_singleton();
+    test_required_dependency_failure_is_isolated();
     test_async_scheduler_cancellation();
     test_game_session_transitions();
     test_e2s_script_inspection();

@@ -11,6 +11,10 @@ This includes contextual component methods such as
 `Entities` gameplay-tag methods, and deterministic numeric conversions.
 The current extension also covers interpolated backtick strings, optional
 bindings, exhaustive `match`, enums, named/default arguments, and `Deque<T>`.
+It recognizes `static` fields and methods, offers snippets and hover help for
+`on_init` and the other lifecycle hooks without `override`, and reports invalid
+hook signatures or instance access from static methods through the shared
+compiler diagnostics.
 Numeric type calls such as `Int(value)`, `UInt8(value)`, and `Float64(value)`
 provide completion documentation, hover details, and signature help.
 The `EngineScript: Compile Project` command builds `.e2s` files. Its status-bar item

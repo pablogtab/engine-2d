@@ -76,6 +76,8 @@ private:
     mutable std::unordered_set<std::uint64_t> m_reported_type_contracts;
     mutable std::unordered_set<std::uint64_t> m_reported_constraint_contracts;
     std::shared_ptr<Type> m_current_self_type;
+    std::string m_current_class_name;
+    bool m_in_static_method{false};
     std::unordered_set<std::string> m_narrowed_nonnull;
     std::size_t m_loop_depth = 0;
 

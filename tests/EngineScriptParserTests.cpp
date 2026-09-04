@@ -177,6 +177,24 @@ int main() {
     assert(named_call->argument_names[1] == "bonus");
     assert(named_call->argument_names[2] == "multiplier");
 
+    DiagnosticEngine static_diags;
+    const std::string static_code = R"(
+        @behaviour
+        export class Director extends Behaviour {
+            private static current: Director? = null;
+            static instance(): Director { return require(Director.current, "missing"); }
+            on_init(): Void {}
+        }
+    )";
+    Lexer static_lexer(9, static_code, static_diags);
+    Parser static_parser(9, "StaticMembers.e2s", static_lexer.tokenize_all(), static_diags);
+    const auto static_module = static_parser.parse_module();
+    assert(static_module && !static_diags.has_errors());
+    const auto* static_class = dynamic_cast<ClassDecl*>(static_module->declarations.front().get());
+    assert(static_class && static_class->properties.front()->is_static);
+    assert(static_class->methods.front()->is_static);
+    assert(static_class->methods.back()->name == "on_init" && !static_class->methods.back()->is_override);
+
     std::cout << "[PASS] EngineScriptParserTests passed!\n";
     return 0;
 }

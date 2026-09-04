@@ -494,6 +494,62 @@ int main() {
     assert(named_error_codes.contains("E3116"));
     assert(named_error_codes.contains("E3117"));
 
+    DiagnosticEngine lifecycle_diags;
+    const std::string lifecycle_code = R"(
+        @behaviour
+        export class Director extends Behaviour {
+            private static current: Director? = null;
+            private owns: Bool = false;
+            static instance(): Director { return require(Director.current, "Director missing"); }
+            ping(): Void {}
+            on_init(): Void {
+                Director.current = self().requireComponent<Director>();
+                owns = true;
+            }
+            on_destroy(): Void { if (owns) Director.current = null; }
+        }
+        @behaviour
+        export class Consumer extends Behaviour {
+            private director: Director;
+            on_start(): Void { director = Director.instance(); }
+            update(deltaTime: Float): Void { director.ping(); }
+        }
+    )";
+    const FileId lifecycle_file = sm.register_source("Source/Lifecycle.e2s", lifecycle_code);
+    Lexer lifecycle_lexer(lifecycle_file, lifecycle_code, lifecycle_diags);
+    Parser lifecycle_parser(lifecycle_file, "Source/Lifecycle.e2s", lifecycle_lexer.tokenize_all(), lifecycle_diags);
+    const auto lifecycle_module = lifecycle_parser.parse_module();
+    SymbolResolver lifecycle_resolver(sm, lifecycle_diags);
+    lifecycle_resolver.resolve_module(lifecycle_module);
+    TypeChecker lifecycle_checker(lifecycle_resolver, lifecycle_diags);
+    lifecycle_checker.check_module(lifecycle_module);
+    if (lifecycle_diags.has_errors()) std::cerr << lifecycle_diags.render_cli(sm);
+    assert(!lifecycle_diags.has_errors());
+
+    DiagnosticEngine lifecycle_error_diags;
+    const std::string lifecycle_error_code = R"(
+        @behaviour
+        export class InvalidLifecycle extends Behaviour {
+            private missing: InvalidLifecycle;
+            private value: Int = 1;
+            static broken(): Entity { return self(); }
+            update(): Float { return 1.0; }
+        }
+    )";
+    const FileId lifecycle_error_file = sm.register_source("Source/InvalidLifecycle.e2s", lifecycle_error_code);
+    Lexer lifecycle_error_lexer(lifecycle_error_file, lifecycle_error_code, lifecycle_error_diags);
+    Parser lifecycle_error_parser(lifecycle_error_file, "Source/InvalidLifecycle.e2s", lifecycle_error_lexer.tokenize_all(), lifecycle_error_diags);
+    const auto lifecycle_error_module = lifecycle_error_parser.parse_module();
+    SymbolResolver lifecycle_error_resolver(sm, lifecycle_error_diags);
+    lifecycle_error_resolver.resolve_module(lifecycle_error_module);
+    TypeChecker lifecycle_error_checker(lifecycle_error_resolver, lifecycle_error_diags);
+    lifecycle_error_checker.check_module(lifecycle_error_module);
+    std::unordered_set<std::string> lifecycle_error_codes;
+    for (const Diagnostic& diagnostic : lifecycle_error_diags.get_diagnostics()) lifecycle_error_codes.insert(diagnostic.code);
+    assert(lifecycle_error_codes.contains("E3141"));
+    assert(lifecycle_error_codes.contains("E3148"));
+    assert(lifecycle_error_codes.contains("E3149"));
+
     std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;
 }

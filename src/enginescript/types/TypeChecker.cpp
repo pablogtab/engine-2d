@@ -35,6 +35,65 @@ bool statement_terminates_flow(const std::shared_ptr<Statement>& statement) {
     return false;
 }
 
+struct RequiredAssignmentFlow {
+    bool can_continue{true};
+    bool assigned{false};
+};
+
+bool assigns_field(const std::shared_ptr<Expression>& expression, std::string_view field) {
+    const auto* assignment = dynamic_cast<const AssignmentExpr*>(expression.get());
+    if (!assignment || assignment->op != TokenType::Equals) return false;
+    if (const auto* identifier = dynamic_cast<const IdentifierExpr*>(assignment->target.get())) {
+        return identifier->name == field;
+    }
+    if (const auto* member = dynamic_cast<const MemberAccessExpr*>(assignment->target.get())) {
+        return member->member_name == field && dynamic_cast<const ThisExpr*>(member->object.get());
+    }
+    return false;
+}
+
+RequiredAssignmentFlow required_assignment_flow(
+    const std::shared_ptr<Statement>& statement,
+    std::string_view field,
+    bool assigned
+) {
+    if (!statement) return {true, assigned};
+    if (dynamic_cast<const ReturnStmt*>(statement.get())) return {false, assigned};
+    if (const auto* expression = dynamic_cast<const ExprStmt*>(statement.get())) {
+        return {true, assigned || assigns_field(expression->expr, field)};
+    }
+    if (const auto* block = dynamic_cast<const BlockStmt*>(statement.get())) {
+        RequiredAssignmentFlow result{true, assigned};
+        for (const auto& child : block->statements) {
+            if (!result.can_continue) break;
+            result = required_assignment_flow(child, field, result.assigned);
+        }
+        return result;
+    }
+    const auto merge_branches = [](const RequiredAssignmentFlow& left, const RequiredAssignmentFlow& right) {
+        if (!left.can_continue) return right;
+        if (!right.can_continue) return left;
+        return RequiredAssignmentFlow{true, left.assigned && right.assigned};
+    };
+    if (const auto* branch = dynamic_cast<const IfStmt*>(statement.get())) {
+        return merge_branches(
+            required_assignment_flow(branch->then_branch, field, assigned),
+            branch->else_branch
+                ? required_assignment_flow(branch->else_branch, field, assigned)
+                : RequiredAssignmentFlow{true, assigned}
+        );
+    }
+    if (const auto* branch = dynamic_cast<const OptionalBindingIfStmt*>(statement.get())) {
+        return merge_branches(
+            required_assignment_flow(branch->then_branch, field, assigned),
+            branch->else_branch
+                ? required_assignment_flow(branch->else_branch, field, assigned)
+                : RequiredAssignmentFlow{true, assigned}
+        );
+    }
+    return {true, assigned};
+}
+
 bool validate_match_patterns(
     const std::shared_ptr<Type>& subject_type,
     const std::vector<MatchPattern>& patterns,
@@ -776,6 +835,9 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
     auto cls_scope = m_resolver.find_scope_for_node(&cls);
     if (!cls_scope) return;
     const auto previous_self = m_current_self_type;
+    const std::string previous_class_name = m_current_class_name;
+    const bool previous_static_method = m_in_static_method;
+    m_current_class_name = cls.name;
     TypeAnnotation self_annotation{cls.name};
     m_current_self_type = resolve_type_annotation(self_annotation, cls_scope.get());
 
@@ -787,6 +849,10 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
     }
 
     for (const auto& prop : cls.properties) {
+        if (prop->is_static && prop->initializer &&
+            !dynamic_cast<const LiteralExpr*>(prop->initializer.get())) {
+            m_diagnostics.report_error("E3140", "Static fields currently accept only literal or null initializers", prop->initializer->span);
+        }
         if (prop->type_annotation) {
             m_node_types[prop.get()] = resolve_type_annotation(*prop->type_annotation, cls_scope.get());
         }
@@ -815,6 +881,24 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
     }
 
     for (const auto& m : cls.methods) {
+        static const std::unordered_map<std::string, std::pair<std::vector<std::string>, std::string>> hooks{
+            {"on_init", {{}, "Void"}}, {"on_start", {{}, "Void"}}, {"on_destroy", {{}, "Void"}},
+            {"on_button_clicked", {{}, "Void"}}, {"update", {{"Float"}, "Void"}},
+            {"on_collision_enter", {{"Entity"}, "Void"}}
+        };
+        if (cls.is_behaviour()) {
+            if (const auto hook = hooks.find(m->name); hook != hooks.end()) {
+                const std::string return_name = m->return_type ? m->return_type->to_string() : "Void";
+                bool valid = !m->is_static && !m->is_async && return_name == hook->second.second &&
+                    m->params.size() == hook->second.first.size();
+                for (std::size_t index = 0; valid && index < m->params.size(); ++index) {
+                    valid = m->params[index]->type_annotation.to_string() == hook->second.first[index];
+                }
+                if (!valid) {
+                    m_diagnostics.report_error("E3141", std::format("Lifecycle hook '{}' has an invalid signature", m->name), m->span);
+                }
+            }
+        }
         validate_parameter_defaults(m->params, cls_scope, cls.name + "." + m->name);
         if (m->body) {
             auto m_scope = std::make_shared<Scope>(ScopeKind::Function, cls_scope);
@@ -831,8 +915,10 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
             std::shared_ptr<Type> ret_t = m->return_type ? resolve_type_annotation(*m->return_type, m_scope.get()) : m_type_void;
             m_node_types[m.get()] = ret_t;
             const auto previous_narrowing = m_narrowed_nonnull;
+            m_in_static_method = m->is_static;
             m_narrowed_nonnull.clear();
             check_statement(m->body, m_scope, ret_t, m->is_async);
+            m_in_static_method = previous_static_method;
             m_narrowed_nonnull = previous_narrowing;
 
             if (!ret_t->is_void() && !m->is_async) {
@@ -842,8 +928,41 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
             }
         }
     }
+    if (cls.is_behaviour()) {
+        const auto find_hook = [&cls](std::string_view name) -> const MethodDecl* {
+            const auto found = std::find_if(cls.methods.begin(), cls.methods.end(), [name](const auto& method) {
+                return method && method->name == name;
+            });
+            return found == cls.methods.end() ? nullptr : found->get();
+        };
+        const MethodDecl* init_hook = find_hook("on_init");
+        const MethodDecl* start_hook = find_hook("on_start");
+        for (const auto& property : cls.properties) {
+            const auto type = get_type_of_node(property.get());
+            if (!type || property->is_static || property->initializer || type->is_nullable) continue;
+            const bool authored_behaviour = type->kind == TypeKind::Class && type->is_behaviour;
+            const bool native_component = type->name == "Transform2D" || type->name == "RigidBody2D" ||
+                type->name == "SpriteRenderer2D" || type->name == "Animator2D" ||
+                type->name == "ParticleEmitter2D" || type->name == "Joint2D";
+            if (!authored_behaviour && !native_component) continue;
+            bool assigned = init_hook && init_hook->body &&
+                required_assignment_flow(init_hook->body, property->name, false).assigned;
+            if (!assigned && start_hook && start_hook->body) {
+                assigned = required_assignment_flow(start_hook->body, property->name, false).assigned;
+            }
+            if (!assigned) {
+                m_diagnostics.report_error(
+                    "E3149",
+                    std::format("Required reference '{}' must be assigned on every normal path of on_init or on_start", property->name),
+                    property->span
+                );
+            }
+        }
+    }
     check_interface_implementation(cls.name, cls.interfaces, cls.properties, cls.methods, cls_scope);
     m_current_self_type = previous_self;
+    m_current_class_name = previous_class_name;
+    m_in_static_method = previous_static_method;
 }
 
 void TypeChecker::check_struct_decl(const StructDecl& st, const std::shared_ptr<Scope>& scope) {
@@ -1448,6 +1567,10 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         }
 
         if (sym) {
+            if (m_in_static_method && (sym->kind == SymbolKind::Field || sym->kind == SymbolKind::Method) &&
+                !sym->is_static) {
+                m_diagnostics.report_error("E3142", std::format("Static method cannot access instance member '{}'", id->name), id->span);
+            }
             // Built-in special objects
             if (id->name == "input") {
                 auto t = Type::make_custom(TypeKind::Class, "Input");
@@ -1756,6 +1879,38 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         for (const auto& a : call->arguments) {
             check_expression(a, scope);
         }
+        if (m_in_static_method) {
+            if (const auto* identifier = dynamic_cast<IdentifierExpr*>(call->callee.get());
+                identifier && (identifier->name == "self" || identifier->name == "instantiate" ||
+                    identifier->name == "findEntities" || identifier->name == "delay" ||
+                    identifier->name == "realDelay" || identifier->name == "nextFrame" ||
+                    identifier->name == "fixedUpdate")) {
+                m_diagnostics.report_error("E3148", std::format("Static method cannot call instance function '{}'", identifier->name), identifier->span);
+            }
+        }
+        if (const auto* identifier = dynamic_cast<IdentifierExpr*>(call->callee.get());
+            identifier && identifier->name == "require") {
+            if (call->arguments.size() != 2) {
+                m_diagnostics.report_error("E3143", "require expects a nullable value and an error message", call->span);
+                m_node_types[call] = m_type_error;
+                return m_type_error;
+            }
+            const auto value_type = get_type_of_node(call->arguments[0].get());
+            const auto message_type = get_type_of_node(call->arguments[1].get());
+            if (!message_type || !message_type->is_string()) {
+                m_diagnostics.report_error("E3144", "require message must be a String", call->arguments[1]->span);
+            }
+            if (!value_type || (!value_type->is_nullable && value_type->kind != TypeKind::Optional)) {
+                m_diagnostics.report_error("E3145", "require value must be nullable", call->arguments[0]->span);
+            }
+            auto required_type = value_type ? std::make_shared<Type>(*value_type) : m_type_error;
+            required_type->is_nullable = false;
+            if (required_type->kind == TypeKind::Optional && !required_type->type_args.empty()) {
+                required_type = required_type->type_args.front();
+            }
+            m_node_types[call] = required_type;
+            return required_type;
+        }
         const auto normalize_authored = [&](const std::vector<std::shared_ptr<ParamDecl>>& parameters,
                                              std::string_view callable_name) {
             std::vector<std::string> names;
@@ -1866,7 +2021,8 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 }
                 if (target_t->kind == TypeKind::Entity &&
                     (mem->member_name == "getComponent" || mem->member_name == "getComponents" ||
-                     mem->member_name == "hasComponent" || mem->member_name == "addComponent")) {
+                     mem->member_name == "hasComponent" || mem->member_name == "addComponent" ||
+                     mem->member_name == "requireComponent")) {
                     if (call->type_arguments.size() != 1) {
                         m_diagnostics.report_error(
                             "E3050",
@@ -1907,7 +2063,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                         return array_type;
                     }
                     component_type = std::make_shared<Type>(*component_type);
-                    component_type->is_nullable = true;
+                    component_type->is_nullable = mem->member_name != "requireComponent";
                     m_node_types[call] = component_type;
                     return component_type;
                 }
@@ -2950,7 +3106,19 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 );
                 if (member != owner->members.end()) {
                     m_member_symbols[mem] = *member;
-                    if ((*member)->access != AccessModifier::Public) {
+                    bool accessed_through_type = false;
+                    if (const auto* owner_identifier = dynamic_cast<const IdentifierExpr*>(mem->object.get())) {
+                        const auto owner_symbol = scope->lookup(owner_identifier->name);
+                        accessed_through_type = owner_symbol &&
+                            (owner_symbol->kind == SymbolKind::Class || owner_symbol->kind == SymbolKind::Struct ||
+                             owner_symbol->kind == SymbolKind::Import);
+                    }
+                    if (accessed_through_type && !(*member)->is_static) {
+                        m_diagnostics.report_error("E3146", std::format("Instance member '{}.{}' requires an instance", obj_t->name, mem->member_name), mem->span);
+                    } else if (!accessed_through_type && (*member)->is_static) {
+                        m_diagnostics.report_error("E3147", std::format("Static member '{}.{}' must be accessed through its type", obj_t->name, mem->member_name), mem->span);
+                    }
+                    if ((*member)->access != AccessModifier::Public && obj_t->name != m_current_class_name) {
                         m_diagnostics.report_error(
                             "E3056",
                             std::format("{}.{} is not public", obj_t->name, mem->member_name),
@@ -3115,7 +3283,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
     }
 
     if (auto self = dynamic_cast<ThisExpr*>(expr.get())) {
-        if (!m_current_self_type) {
+        if (!m_current_self_type || m_in_static_method) {
             m_diagnostics.report_error("E3042", "'this' is only valid in an instance member", self->span);
             m_node_types[self] = m_type_error;
             return m_type_error;

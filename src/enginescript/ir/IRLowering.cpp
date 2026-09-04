@@ -156,6 +156,7 @@ IRProperty IRLowering::lower_property(const PropertyDecl& prop) {
     IRProperty ir_prop;
     ir_prop.name = prop.name;
     ir_prop.is_public = prop.access == AccessModifier::Public;
+    ir_prop.is_static = prop.is_static;
     ir_prop.type = m_type_checker.get_type_of_node(&prop);
     if (!ir_prop.type || ir_prop.type->is_error()) {
         ir_prop.type = prop.type_annotation ? m_type_checker.resolve_type_annotation(*prop.type_annotation) : ir_prop.type;
@@ -188,6 +189,7 @@ IRMethod IRLowering::lower_method(const MethodDecl& m) {
     }
     ir_m.is_async = m.is_async;
     ir_m.is_override = m.is_override;
+    ir_m.is_static = m.is_static;
     ir_m.is_public = m.access == AccessModifier::Public;
     ir_m.return_type = m_type_checker.get_type_of_node(&m);
     if (!ir_m.return_type || ir_m.return_type->is_error()) {

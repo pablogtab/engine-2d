@@ -36,7 +36,7 @@ export class PlatformerPlayer extends Behaviour {
     @expose
     jumpSpeed: Float = 520.0;
 
-    override update(deltaTime: Float): Void {
+    update(deltaTime: Float): Void {
         let direction: Float = input.axis("Horizontal");
         body.velocity.x = direction * walkSpeed;
         body.setIgnoreOneWay(input.axis("Vertical") < -0.5);
@@ -57,6 +57,10 @@ Constructor decorators define dependencies rather than hiding service lookups:
   with a diagnostic when it is missing.
 - `@optional` supplies a nullable component binding.
 - `@expose` publishes a typed property to metadata and the Inspector.
+
+Lifecycle hooks use their canonical names and exact signatures without needing
+`override`. The keyword remains valid for compatibility and for ordinary class
+inheritance.
 
 ## Serialized state and live fields
 
@@ -81,11 +85,26 @@ imports resolve across files. A project compilation error prevents behaviour
 startup and places affected `ScriptComponent` instances in an error state.
 
 The editor runtime creates `GameModule` behaviour registrations backed by the
-compiler's TypedIR and executes the authored lifecycle bodies. It does not
-contain a platformer controller or other game-specific fallback. The currently
-connected execution surface includes:
+compiler's TypedIR and executes the authored lifecycle bodies. Startup uses a
+scene-wide barrier:
 
-- `on_start`, `update`, `on_destroy`, and `on_collision_enter`;
+1. construct every enabled Behaviour;
+2. call every `on_init()`;
+3. process deferred destruction and validate required dependencies;
+4. call every `on_start()`;
+5. enable updates, events, and tasks only for instances that reached `Running`.
+
+Order within `on_init` and within `on_start` is deliberately unspecified.
+Therefore, initialize a scene Singleton in `on_init`, but consume it from
+`on_start`. Prefabs pass through the same phases before activation. A failure is
+stored against the specific script slot; required consumers fail in a controlled
+way while unrelated scene Behaviours continue running.
+
+The runtime does not contain a platformer controller or other game-specific
+fallback. The currently connected execution surface includes:
+
+- `on_init`, `on_start`, `update`, `on_destroy`, `on_collision_enter`, and
+  `on_button_clicked`;
 - local declarations, assignments, arithmetic, comparisons, boolean operators,
   and `if`/`else`;
 - live exposed-property reads and writes;
@@ -117,6 +136,66 @@ which `entities.exists(...)` is `false`; invalid or destroyed
 references otherwise return `false` or an empty array rather than exposing stale
 ECS storage. Display-name queries remain available for authoring-oriented lookups,
 but gameplay behavior should prefer semantic tags.
+
+Use required-reference APIs when absence is a configuration error:
+
+```enginescript
+private director: PocDirector;
+
+on_start(): Void {
+    director = PocDirector.instance();
+    let body: RigidBody2D = self().requireComponent<RigidBody2D>();
+    let player: Entity = entities.requireFirstByGameplayTag("player");
+}
+```
+
+`getComponent<T>()` and `firstByGameplayTag(...)` remain nullable for expected
+absence. `require(value, message)`, `requireComponent<T>()`, and
+`requireFirstByGameplayTag(...)` raise `ScriptRuntimeError` instead of allowing a
+native null dereference. Behaviour component handles include entity, script slot,
+and generation, so using a destroyed or recycled handle also fails in a
+controlled way. A non-null component field may be assigned in `on_init` or
+`on_start`; the compiler requires assignment on every normal path, and the
+runtime validates it before updates begin.
+
+## Static members and scene Singletons
+
+EngineScript supports `static` fields and methods. Static field initializers are
+currently limited to constants and `null`. Static methods cannot use `this`,
+`self()`, injected services, or instance members. Access static members through
+their declaring type:
+
+```enginescript
+@behaviour
+export class PocDirector extends Behaviour {
+    private static current: PocDirector? = null;
+    private ownsInstance: Bool = false;
+
+    constructor(@inject private log: Log) {}
+
+    static instance(): PocDirector {
+        return require(PocDirector.current, "PocDirector is not initialized");
+    }
+
+    on_init(): Void {
+        if (PocDirector.current) {
+            log.error("Duplicate PocDirector destroyed");
+            self().destroy();
+            return;
+        }
+        PocDirector.current = self().requireComponent<PocDirector>();
+        ownsInstance = true;
+    }
+
+    on_destroy(): Void {
+        if (ownsInstance) PocDirector.current = null;
+    }
+}
+```
+
+Static state returns to its declared initializers on Play/Stop, scene changes,
+and native-module hot reload. There is no `DontDestroyOnLoad` equivalent yet;
+scene-persistent state must not rely on these static fields.
 
 `@inject` can also request the following gameplay services:
 

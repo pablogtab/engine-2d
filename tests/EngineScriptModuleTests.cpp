@@ -130,13 +130,16 @@ export class Probe extends Behaviour {
 }
 )");
     assert(workspace.compile().success);
-    const NativeModuleBuildResult build = NativeModuleBuilder::build(workspace, root.string(), 11);
+    // A CLI invocation commonly supplies ".". Preserve the real project
+    // directory name instead of emitting an empty module name.
+    const NativeModuleBuildResult build = NativeModuleBuilder::build(workspace, (root / ".").string(), 11);
     assert(build.success);
     assert(build.compiled_objects == 4);
     assert(build.reused_objects == 0);
     std::string load_error;
     std::unique_ptr<GameModule> module = GameModule::load_dynamic_library(build.library_path, &load_error);
     assert(module && module->has_behaviour_type("Probe"));
+    assert(module->descriptor().module_name == root.filename().string());
     std::unique_ptr<NativeBehaviour> behaviour(module->create_behaviour("Probe"));
     NativeBehaviour::ExposedPropertyValue speed;
     assert(behaviour && behaviour->get_exposed_property("speed", speed));

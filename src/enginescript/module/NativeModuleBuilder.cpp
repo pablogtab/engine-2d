@@ -240,7 +240,7 @@ NativeModuleBuildResult NativeModuleBuilder::build(
         result.error = "EngineScript project compilation failed before native build";
         return result;
     }
-    const fs::path root = fs::absolute(project_root).lexically_normal();
+    const fs::path root = fs::weakly_canonical(fs::absolute(project_root));
     const std::string module_name = root.filename().string();
     result.source_hash = build_source_hash(workspace, compilation, module_name);
     if (mode != NativeModuleBuildMode::StaticSources) {
@@ -330,7 +330,7 @@ NativeModuleBuildResult NativeModuleBuilder::compile_prepared(
 ) {
     namespace fs = std::filesystem;
     NativeModuleBuildResult result;
-    const fs::path root = fs::absolute(project_root).lexically_normal();
+    const fs::path root = fs::weakly_canonical(fs::absolute(project_root));
     const fs::path output = root / "Library" / "EngineScript" / "Generated" /
         std::to_string(build_number);
     result.output_directory = output.string();

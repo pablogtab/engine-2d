@@ -342,6 +342,7 @@ struct IRMethod {
     std::vector<IRBlock> blocks;
     bool is_async = false;
     bool is_override = false;
+    bool is_static = false;
     bool is_public = true;
     std::vector<std::string> decorators;
 };
@@ -352,6 +353,7 @@ struct IRProperty {
     std::shared_ptr<IROperation> initializer;
     std::vector<std::string> decorators;
     bool is_public = true;
+    bool is_static = false;
     std::unordered_map<std::string, double> numeric_attributes; // e.g. min, max
 };
 

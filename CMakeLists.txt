@@ -88,6 +88,7 @@ set(SOURCES
     src/scene/SceneSerializer.cpp
     src/scene/SceneValidator.cpp
     src/scripting/ScriptRuntime.cpp
+    src/scripting/ScriptInstanceRegistry.cpp
     src/scene/EntitySubtreeArchive.cpp
     src/scene/PrefabSerializer.cpp
     src/scene/PrefabPropagation.cpp

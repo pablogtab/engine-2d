@@ -24,6 +24,7 @@ enum class TokenType {
     Extends,
     Implements,
     Override,
+    Static,
     Async,
     Await,
     Private,
@@ -123,6 +124,7 @@ inline const char* token_type_to_string(TokenType type) {
         case TokenType::Extends:           return "extends";
         case TokenType::Implements:        return "implements";
         case TokenType::Override:          return "override";
+        case TokenType::Static:            return "static";
         case TokenType::Async:             return "async";
         case TokenType::Await:             return "await";
         case TokenType::Private:           return "private";

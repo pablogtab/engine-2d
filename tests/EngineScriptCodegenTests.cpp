@@ -824,6 +824,45 @@ int main() {
         generic_emitter.emit_game_module_entrypoint({producer_ir, consumer_ir}, "GenericModules")
     );
 
+    DiagnosticEngine static_diags;
+    SourceManager static_sources("/workspace-static");
+    const std::string static_code = R"(
+        @behaviour
+        export class SceneDirector extends Behaviour {
+            private static current: SceneDirector? = null;
+            private owns: Bool = false;
+            static instance(): SceneDirector {
+                return require(SceneDirector.current, "SceneDirector is not initialized");
+            }
+            on_init(): Void {
+                SceneDirector.current = self().requireComponent<SceneDirector>();
+                owns = true;
+            }
+            on_destroy(): Void { if (owns) SceneDirector.current = null; }
+        }
+    )";
+    const FileId static_file = static_sources.register_source("Source/SceneDirector.e2s", static_code);
+    Lexer static_lexer(static_file, static_code, static_diags);
+    Parser static_parser(static_file, "Source/SceneDirector.e2s", static_lexer.tokenize_all(), static_diags);
+    const auto static_module = static_parser.parse_module();
+    SymbolResolver static_resolver(static_sources, static_diags);
+    static_resolver.resolve_module(static_module);
+    TypeChecker static_checker(static_resolver, static_diags);
+    static_checker.check_module(static_module);
+    if (static_diags.has_errors()) std::cerr << static_diags.render_cli(static_sources);
+    assert(!static_diags.has_errors());
+    IRLowering static_lowering(static_checker);
+    const IRModule static_ir = static_lowering.lower_module(*static_module);
+    CppEmitter static_emitter(static_sources);
+    const CppOutput static_output = static_emitter.emit_module(static_ir);
+    assert(static_output.header_content.find("inline static EngineScript::ComponentHandle<SceneDirector> current") != std::string::npos);
+    assert(static_output.source_content.find("SceneDirector::current") != std::string::npos);
+    assert(static_output.source_content.find("EngineScript::requireValue") != std::string::npos);
+    assert(static_output.source_content.find("SceneDirector::on_init") != std::string::npos);
+    const std::string static_entrypoint = static_emitter.emit_game_module_entrypoint({static_ir}, "StaticLifecycle");
+    assert(static_entrypoint.find("reset_module_static_state") != std::string::npos);
+    require_generated_cpp_compiles(static_output, static_entrypoint);
+
     std::cout << "[PASS] EngineScriptCodegenTests passed!\n";
     return 0;
 }

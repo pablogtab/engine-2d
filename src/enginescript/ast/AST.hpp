@@ -300,6 +300,7 @@ struct ParamDecl : public ASTNode {
 struct PropertyDecl : public Declaration {
     AccessModifier access = AccessModifier::Public;
     bool is_override = false;
+    bool is_static = false;
     std::string name;
     std::optional<TypeAnnotation> type_annotation;
     std::shared_ptr<Expression> initializer;
@@ -308,6 +309,7 @@ struct PropertyDecl : public Declaration {
 struct MethodDecl : public Declaration {
     AccessModifier access = AccessModifier::Public;
     bool is_override = false;
+    bool is_static = false;
     bool is_async = false;
     std::string name;
     std::vector<GenericParam> generic_params;

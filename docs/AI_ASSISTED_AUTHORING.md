@@ -291,6 +291,14 @@ and plausible CPU or memory costs. Related values should use one collection of
 structs rather than parallel arrays. Expected absence should use nullable APIs
 such as `firstByGameplayTag` rather than invalid-entity sentinels in new code.
 
+For stable scene references, prefer one lookup or `PocDirector.instance()` in
+`on_start` and cache the typed result in a required field. Do not repeat entity
+or component searches in `update`. A scene Singleton claims its static instance
+in `on_init`, rejects duplicates before `on_start`, and clears only the instance
+it owns in `on_destroy`. Hooks use their exact documented signatures and normally
+omit `override`. Keep `@component` for required owner components and continue to
+query components of dynamic collision/spawn targets at the point of use.
+
 Every request emits `[AI AUDIT]` records to the editor Console and the current
 run's `engine.log`. A request ID connects its start, tool calls, completion,
 application or rejection, and optional AI-session undo. Records include backend,

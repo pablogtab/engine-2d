@@ -955,7 +955,7 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
     std::vector<std::string> kw = {
         "class", "struct", "interface", "export", "import", "from", "extends",
         "let", "const", "if", "else", "while", "for", "return", "async", "await",
-        "override", "constructor", "private", "protected", "public", "enum", "match",
+        "override", "static", "constructor", "private", "protected", "public", "enum", "match",
         "guard", "break", "continue", "true", "false", "null"
     };
     if (!completing_decorator) {
@@ -995,9 +995,20 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
             {"kind", 15},
             {"detail", "EngineScript lifecycle method"},
             {"insertTextFormat", 2},
-            {"insertText", "override update(deltaTime: Float): Void {\\n    $0\\n}"},
+            {"insertText", "update(deltaTime: Float): Void {\\n    $0\\n}"},
             {"sortText", "3_update"}
         });
+        for (const auto& [name, snippet] : std::vector<std::pair<std::string, std::string>>{
+                 {"on_init", "on_init(): Void {\\n    $0\\n}"},
+                 {"on_start", "on_start(): Void {\\n    $0\\n}"},
+                 {"on_destroy", "on_destroy(): Void {\\n    $0\\n}"},
+                 {"on_collision_enter", "on_collision_enter(other: Entity): Void {\\n    $0\\n}"},
+                 {"on_button_clicked", "on_button_clicked(): Void {\\n    $0\\n}"}}) {
+            items.push_back({
+                {"label", name}, {"kind", 15}, {"detail", "EngineScript lifecycle method"},
+                {"insertTextFormat", 2}, {"insertText", snippet}, {"sortText", "3_" + name}
+            });
+        }
         items.push_back({
             {"label", "guard let"},
             {"kind", 15},
@@ -1097,7 +1108,7 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
 
     // 1. Decorators
     if (word == "@behaviour" || word == "behaviour") {
-        markdown = "### `@behaviour`\n\n```enginescript\n@behaviour\nexport class <Name> extends Behaviour\n```\n\nMarks this class as an **Engine2D Behaviour** script component.\n\nParticipates in entity lifecycle events:\n- `update(deltaTime: Float): Void`\n- `on_start(): Void`\n- `on_destroy(): Void`\n- `on_collision_enter(other: Entity): Void`\n- `on_button_clicked(): Void`";
+        markdown = "### `@behaviour`\n\n```enginescript\n@behaviour\nexport class <Name> extends Behaviour\n```\n\nMarks this class as an **Engine2D Behaviour** script component.\n\nParticipates in entity lifecycle events:\n- `on_init(): Void`\n- `on_start(): Void`\n- `update(deltaTime: Float): Void`\n- `on_destroy(): Void`\n- `on_collision_enter(other: Entity): Void`\n- `on_button_clicked(): Void`\n\nLifecycle hooks do not require `override`.";
     } else if (word == "@expose" || word == "expose") {
         markdown = "### `@expose`\n\n```enginescript\n@expose({ min?: Float, max?: Float, step?: Float })\n```\n\nExposes this field to the **Engine2D Inspector UI** for live editing and serializes it in scenes and prefabs.";
     } else if (word == "@inject" || word == "inject") {

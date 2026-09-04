@@ -5,6 +5,7 @@
 #include "../ecs/components/ScriptingComponents.hpp"
 #include "../core/Display.hpp"
 #include "../enginescript/module/GameModule.hpp"
+#include "ScriptInstanceRegistry.hpp"
 
 #include <cstddef>
 #include <string>
@@ -159,6 +160,7 @@ public:
     [[nodiscard]] bool is_running() const { return m_entity_manager != nullptr || !m_instances.empty(); }
     [[nodiscard]] std::size_t instance_count() const { return m_instances.size(); }
     [[nodiscard]] const ScriptExecutionStatus* status(EntityID entity) const;
+    [[nodiscard]] const ScriptExecutionStatus* status(EntityID entity, ScriptSlotID slot) const;
     [[nodiscard]] const std::string* reload_error(AssetHandle handle) const;
 
     [[nodiscard]] EngineScript::ComponentReference find_behaviour_component(
@@ -169,6 +171,7 @@ public:
     [[nodiscard]] std::size_t count_behaviour_components(EntityID entity, const std::string& type_name) const;
     [[nodiscard]] EngineScript::ComponentReference add_behaviour_component(EntityID entity, const std::string& type_name);
     bool remove_behaviour_component(const EngineScript::ComponentReference& reference);
+    void request_entity_destroy(EntityID entity);
 
     [[nodiscard]] static ScriptInspectionResult inspect_asset(
         AssetHandle handle,
@@ -210,6 +213,7 @@ private:
     void subscribe_to_events();
     void unsubscribe_from_events();
     void set_error(EntityID entity, std::string message, std::string source_path = {}, uint32_t line = 0, uint32_t column = 0);
+    void set_error(EntityID entity, ScriptSlotID slot, std::string message, std::string source_path = {}, uint32_t line = 0, uint32_t column = 0);
     [[nodiscard]] ScriptRuntimeStartResult finish_start(
         std::shared_ptr<EngineScript::GameModule> module,
         std::string native_build_error,
@@ -218,6 +222,10 @@ private:
         std::uint32_t native_reused_objects = 0
     );
     bool instantiate_slot(EntityID entity, ScriptBehaviourSlot& slot, std::string& error, bool start_lifecycle = true);
+    bool initialize_instances(std::optional<EntityID> entity = std::nullopt);
+    bool start_instances(std::optional<EntityID> entity = std::nullopt);
+    bool validate_running_instances(std::optional<EntityID> entity = std::nullopt);
+    void flush_pending_entity_destroys();
     void discard_entity_instances(EntityID entity);
     void flush_pending_component_removals();
 
@@ -226,6 +234,7 @@ private:
     EventDispatcher* m_event_dispatcher{nullptr};
     ScriptRuntimeServices m_services;
     std::list<Instance> m_instances;
+    ScriptInstanceRegistry m_instance_registry;
     std::vector<EntityID> m_pending_entity_starts;
     std::unique_ptr<EngineScript::EngineScriptWorkspace> m_native_workspace;
     std::unique_ptr<EngineScript::AsyncScheduler> m_native_async_scheduler;
@@ -234,6 +243,11 @@ private:
     struct PendingNativeBuild;
     std::unique_ptr<PendingNativeBuild> m_pending_native_build;
     std::unordered_map<EntityID, ScriptExecutionStatus> m_statuses;
+    struct SlotExecutionStatus {
+        EntityID entity{0};
+        ScriptExecutionStatus status;
+    };
+    std::unordered_map<ScriptSlotID, SlotExecutionStatus> m_slot_statuses;
     std::unordered_map<AssetHandle, std::optional<std::uint64_t>> m_source_signatures;
     std::unordered_map<AssetHandle, std::string> m_reload_errors;
     std::uint64_t m_next_hot_reload_poll_ms{0};
@@ -241,9 +255,11 @@ private:
     std::vector<std::uint64_t> m_event_subscriptions;
     std::vector<PendingEvent> m_pending_events;
     std::vector<EngineScript::ComponentReference> m_pending_component_removals;
+    std::vector<EntityID> m_pending_entity_destroys;
     std::unordered_set<ScriptSlotID> m_instantiating_slots;
     std::uint64_t m_phase_sequence{0};
     bool m_phase_active{false};
+    bool m_lifecycle_callbacks_active{false};
 };
 
 } // namespace Engine

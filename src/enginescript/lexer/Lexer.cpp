@@ -21,6 +21,7 @@ static const std::unordered_map<std::string_view, TokenType> s_keywords = {
     {"extends",     TokenType::Extends},
     {"implements",  TokenType::Implements},
     {"override",    TokenType::Override},
+    {"static",      TokenType::Static},
     {"async",       TokenType::Async},
     {"await",       TokenType::Await},
     {"private",     TokenType::Private},

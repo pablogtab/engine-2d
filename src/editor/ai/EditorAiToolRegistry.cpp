@@ -55,10 +55,10 @@ constexpr EngineDocumentDescriptor ENGINE_DOCUMENTS[] = {
     {"projects", "External project contract", "docs/PROJECTS.md",
      "External project layout, ownership, startup scenes, asset database, and "
      "export boundaries."},
-    {"debugging", "Debugging and performance",
-     "docs/DEBUGGING_PERFORMANCE_PLAN.md",
-     "Physics overlays, play transport, runtime inspection, profiler, stress "
-     "scenarios, and commands."}
+    {"renderer_canvas", "Renderer and Canvas contracts",
+     "docs/RENDERER_CANVAS_CONTRACTS.md",
+     "Coordinate spaces, camera composition, Canvas behavior, rendering, and "
+     "platform validation contracts."}
 };
 
 std::vector<EntityID> sorted_selection(const EditorSelection* selection) {
@@ -228,7 +228,7 @@ EditorAiToolRegistry::EditorAiToolRegistry(
                       {"document_id", {
                           {"type", "string"},
                           {"enum", {"engine_contracts", "roadmap", "render_materials", "runtime_display", "increment_checklist", "ai_authoring", "project_commands", "scripting", "projects",
-                    "debugging"}}
+                    "renderer_canvas"}}
                       }}
                   }},
                   {"required", {"document_id"}},

@@ -133,6 +133,7 @@ void SymbolResolver::declare_symbols_in_module(const std::shared_ptr<ModuleNode>
                 prop_sym->span = prop->span;
                 prop_sym->file_id = module->file_id;
                 prop_sym->access = prop->access;
+                prop_sym->is_static = prop->is_static;
                 prop_sym->type_string = prop->type_annotation ? prop->type_annotation->to_string() : "<inferred>";
                 prop_sym->ast_node = prop;
                 prop_sym->parent_symbol = sym;
@@ -151,6 +152,7 @@ void SymbolResolver::declare_symbols_in_module(const std::shared_ptr<ModuleNode>
                 m_sym->file_id = module->file_id;
                 m_sym->access = m->access;
                 m_sym->is_async = m->is_async;
+                m_sym->is_static = m->is_static;
                 m_sym->type_string = m->return_type ? m->return_type->to_string() : "Void";
                 m_sym->ast_node = m;
                 m_sym->parent_symbol = sym;

@@ -94,6 +94,7 @@ std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
 
                 json props_arr = json::array();
                 for (const auto& prop : cls.properties) {
+                    if (prop.is_static) continue;
                     json p_obj;
                     p_obj["name"] = prop.name;
                     p_obj["type"] = prop.type ? prop.type->to_string() : "Float";

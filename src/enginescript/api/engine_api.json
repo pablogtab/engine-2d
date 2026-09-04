@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "languageVersion": 3,
-  "compilerCacheId": "enginescript_codegen_v10_ergonomics",
-  "abiVersion": 35,
-  "sdkHash": "engine2d_abi_v38",
+  "compilerCacheId": "enginescript_codegen_v11_init_static",
+  "abiVersion": 36,
+  "sdkHash": "engine2d_abi_v39",
   "languageFeatures": {
     "interpolatedStrings": true,
     "customToString": "structural",
@@ -14,7 +14,10 @@
     "namedArguments": true,
     "defaultArguments": true,
     "deque": true,
-    "nullableGameplayTagLookup": true
+    "nullableGameplayTagLookup": true,
+    "staticMembers": true,
+    "onInitLifecycle": true,
+    "requiredReferences": true
   },
   "policy": {
     "scope": "gameplay-runtime-only",
@@ -50,7 +53,8 @@
     { "name": "fixedUpdate", "returnType": "Task<Void>" },
     { "name": "self", "returnType": "Entity", "documentation": "Returns the entity that owns the current Behaviour." },
     { "name": "instantiate", "returnType": "Entity", "parameters": [{ "name": "name", "type": "String" }] },
-    { "name": "findEntities", "returnType": "Array<Entity>", "parameters": [{ "name": "tag", "type": "String" }] }
+    { "name": "findEntities", "returnType": "Array<Entity>", "parameters": [{ "name": "tag", "type": "String" }] },
+    { "name": "require", "returnType": "T", "genericParameters": ["T"], "parameters": [{ "name": "value", "type": "T?" }, { "name": "message", "type": "String" }], "documentation": "Unwraps a required value or raises a controlled ScriptRuntimeError." }
   ],
   "properties": [
     { "ownerType": "Math", "name": "PI", "type": "Float", "documentation": "Pi in radians." },
@@ -293,6 +297,7 @@
     { "ownerType": "Entity", "name": "destroy", "returnType": "Void" },
     { "ownerType": "Entity", "name": "hasComponent", "returnType": "Bool", "genericParameters": ["T"] },
     { "ownerType": "Entity", "name": "getComponent", "returnType": "T", "nullableReturn": true, "genericParameters": ["T"] },
+    { "ownerType": "Entity", "name": "requireComponent", "returnType": "T", "genericParameters": ["T"], "documentation": "Returns a required component or raises ScriptRuntimeError." },
     { "ownerType": "Entity", "name": "getComponents", "returnType": "Array<T>", "genericParameters": ["T"] },
     { "ownerType": "Entity", "name": "addComponent", "returnType": "T", "nullableReturn": true, "genericParameters": ["T"] },
     { "ownerType": "Entity", "name": "removeComponent", "returnType": "Bool", "parameters": [{ "name": "component", "type": "T" }], "genericParameters": ["T"] },
@@ -322,6 +327,7 @@
     { "ownerType": "Entities", "name": "findAllByTag", "returnType": "Array<Entity>", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Entities", "name": "findByGameplayTag", "returnType": "Entity", "parameters": [{ "name": "tag", "type": "String" }], "documentation": "Returns the first entity carrying the semantic gameplay tag, or the invalid Entity value when none exists." },
     { "ownerType": "Entities", "name": "firstByGameplayTag", "returnType": "Entity", "nullableReturn": true, "parameters": [{ "name": "tag", "type": "String" }], "documentation": "Returns the first entity carrying the semantic gameplay tag, or null when none exists." },
+    { "ownerType": "Entities", "name": "requireFirstByGameplayTag", "returnType": "Entity", "parameters": [{ "name": "tag", "type": "String" }], "documentation": "Returns the first matching entity or raises ScriptRuntimeError." },
     { "ownerType": "Entities", "name": "findAllByGameplayTag", "returnType": "Array<Entity>", "parameters": [{ "name": "tag", "type": "String" }], "documentation": "Returns all entities carrying the semantic gameplay tag." },
     { "ownerType": "Entities", "name": "hasGameplayTag", "returnType": "Bool", "parameters": [{ "name": "entity", "type": "Entity" }, { "name": "tag", "type": "String" }] },
     { "ownerType": "Entities", "name": "addGameplayTag", "returnType": "Bool", "parameters": [{ "name": "entity", "type": "Entity" }, { "name": "tag", "type": "String" }] },
@@ -367,7 +373,8 @@
     { "ownerType": "Scene", "name": "load", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Scene", "name": "currentName", "returnType": "String" },
     { "ownerType": "Scene", "name": "isLoading", "returnType": "Bool" },
-    { "ownerType": "Scene", "name": "lastError", "returnType": "String" }
+    { "ownerType": "Scene", "name": "lastError", "returnType": "String" },
+    { "ownerType": "Log", "name": "error", "returnType": "Void", "parameters": [{ "name": "message", "type": "String" }], "documentation": "Writes an EngineScript error without stopping execution." }
     ,{ "ownerType": "Prefabs", "name": "create", "returnType": "Entity", "parameters": [{ "name": "prefab", "type": "Prefab" }] },
     { "ownerType": "Prefabs", "name": "spawn", "returnType": "Bool", "parameters": [{ "name": "instance", "type": "Entity" }, { "name": "position", "type": "Vec2" }] },
     { "ownerType": "Prefabs", "name": "instantiate", "returnType": "Entity", "parameters": [{ "name": "prefab", "type": "Prefab" }, { "name": "position", "type": "Vec2" }], "documentation": "Creates a new prefab instance at the given world position." }

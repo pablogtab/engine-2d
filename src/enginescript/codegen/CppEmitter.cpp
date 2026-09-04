@@ -338,10 +338,12 @@ std::string CppEmitter::emit_game_module_entrypoint(
     uint32_t build_number
 ) const {
     std::unordered_set<std::string> behaviour_names;
+    std::vector<std::string> class_names;
     std::ostringstream output;
     output << "#include \"enginescript/module/GameModule.hpp\"\n\n";
     for (const IRModule& module : modules) {
         for (const IRClass& behaviour : module.classes) {
+            if (behaviour.generic_params.empty()) class_names.push_back(behaviour.name);
             if (!behaviour.is_behaviour) continue;
             if (!behaviour_names.emplace(behaviour.name).second) {
                 throw std::runtime_error("EngineScript native module requires unique behaviour class names");
@@ -352,11 +354,19 @@ std::string CppEmitter::emit_game_module_entrypoint(
             );
         }
     }
+    for (const std::string& class_name : class_names) {
+        output << std::format("extern \"C\" void reset_statics_{}();\n", class_name);
+    }
+    output << "static void reset_module_static_state() {\n";
+    for (const std::string& class_name : class_names) {
+        output << std::format("    reset_statics_{}();\n", class_name);
+    }
+    output << "}\n";
     output << "\nextern \"C\" const EngineScript::NativeModuleExports* "
            << "engine_script_module_exports() {\n";
     if (behaviour_names.empty()) {
         output << std::format(
-            "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, \"{}\", {}, nullptr, 0}};\n",
+            "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, \"{}\", {}, nullptr, 0, reset_module_static_state}};\n",
             ENGINE_SCRIPT_ABI_VERSION,
             module_name,
             build_number
@@ -414,7 +424,7 @@ std::string CppEmitter::emit_game_module_entrypoint(
     }
     output << "    };\n";
     output << std::format(
-        "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, \"{}\", {}, behaviours, sizeof(behaviours) / sizeof(behaviours[0])}};\n",
+        "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, \"{}\", {}, behaviours, sizeof(behaviours) / sizeof(behaviours[0]), reset_module_static_state}};\n",
         ENGINE_SCRIPT_ABI_VERSION,
         module_name,
         build_number
@@ -553,7 +563,11 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
     // Properties
     for (const auto& prop : cls.properties) {
         if (!prop.is_public) continue;
-        out += std::format("    {} {} = {{}};\n", type_to_cpp(prop.type.get()), prop.name);
+        const std::string prefix = prop.is_static ? "inline static " : "";
+        const std::string initial = prop.is_static && prop.initializer
+            ? emit_operation_cpp(prop.initializer.get()) : "{}";
+        out += std::format("    {}{} {} = {};\n", prefix, type_to_cpp(prop.type.get()), prop.name, initial);
+        if (prop.is_static) continue;
         out += std::format("    {} get_{}() const {{ return {}; }}\n", type_to_cpp(prop.type.get()), prop.name, prop.name);
     }
 
@@ -563,10 +577,10 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
         out += template_declaration(m.generic_params, "    ");
         std::string ret = type_to_cpp(m.return_type.get());
         const bool overrides_lifecycle = cls.is_behaviour &&
-            (m.name == "on_start" || m.name == "update" || m.name == "on_destroy" ||
+            (m.name == "on_init" || m.name == "on_start" || m.name == "update" || m.name == "on_destroy" ||
              m.name == "on_collision_enter" || m.name == "on_button_clicked");
         std::string virt = (m.is_override || overrides_lifecycle) ? " override" : "";
-        out += std::format("    {} {}(", ret, m.name);
+        out += std::format("    {}{} {}(", m.is_static ? "static " : "", ret, m.name);
         for (size_t i = 0; i < m.params.size(); ++i) {
             const auto& p = m.params[i];
             out += std::format("{} {}", type_to_cpp(p.type.get(), true), p.name);
@@ -578,22 +592,27 @@ void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
     if (cls.is_behaviour) {
         out += "    bool set_exposed_property(const std::string& name, const ExposedPropertyValue& value) override;\n";
         out += "    bool get_exposed_property(const std::string& name, ExposedPropertyValue& value) const override;\n";
+        out += "    bool validate_required_references(std::string& error) const override;\n";
     }
+    out += "    static void reset_engine_script_statics();\n";
 
     out += "private:\n";
     for (const auto& prop : cls.properties) {
         if (prop.is_public) continue;
-        out += std::format("    {} {} = {{}};\n", type_to_cpp(prop.type.get()), prop.name);
+        const std::string prefix = prop.is_static ? "inline static " : "";
+        const std::string initial = prop.is_static && prop.initializer
+            ? emit_operation_cpp(prop.initializer.get()) : "{}";
+        out += std::format("    {}{} {} = {};\n", prefix, type_to_cpp(prop.type.get()), prop.name, initial);
     }
     for (const auto& m : cls.methods) {
         if (m.is_public) continue;
         out += template_declaration(m.generic_params, "    ");
         std::string ret = type_to_cpp(m.return_type.get());
         const bool overrides_lifecycle = cls.is_behaviour &&
-            (m.name == "on_start" || m.name == "update" || m.name == "on_destroy" ||
+            (m.name == "on_init" || m.name == "on_start" || m.name == "update" || m.name == "on_destroy" ||
              m.name == "on_collision_enter" || m.name == "on_button_clicked");
         std::string virt = (m.is_override || overrides_lifecycle) ? " override" : "";
-        out += std::format("    {} {}(", ret, m.name);
+        out += std::format("    {}{} {}(", m.is_static ? "static " : "", ret, m.name);
         for (size_t i = 0; i < m.params.size(); ++i) {
             const auto& p = m.params[i];
             out += std::format("{} {}", type_to_cpp(p.type.get(), true), p.name);
@@ -656,7 +675,7 @@ void CppEmitter::emit_class_source(const IRClass& cls, const std::string& header
     out += "{\n";
     // Initialize properties with defaults
     for (const auto& prop : cls.properties) {
-        if (prop.initializer) {
+        if (!prop.is_static && prop.initializer) {
             out += std::format("    this->{} = {};\n", prop.name, emit_operation_cpp(prop.initializer.get()));
         }
     }
@@ -667,11 +686,35 @@ void CppEmitter::emit_class_source(const IRClass& cls, const std::string& header
 
     if (cls.is_behaviour) {
         emit_exposed_property_bridge(cls, out);
+        out += std::format("bool {}::validate_required_references(std::string& error) const {{\n", cls.name);
+        for (const auto& prop : cls.properties) {
+            if (prop.is_static || !prop.type || prop.type->is_nullable) continue;
+            const bool authored_behaviour = prop.type->kind == TypeKind::Class && prop.type->is_behaviour;
+            const bool native_component = prop.type->name == "Transform2D" || prop.type->name == "RigidBody2D" ||
+                prop.type->name == "SpriteRenderer2D" || prop.type->name == "Animator2D" ||
+                prop.type->name == "ParticleEmitter2D" || prop.type->name == "Joint2D";
+            if (!authored_behaviour && !native_component) continue;
+            out += std::format("    if (!{}) {{ error = \"Required reference '{}' is not initialized\"; return false; }}\n",
+                prop.name, prop.name);
+        }
+        out += "    return true;\n}\n\n";
     }
 
     // Method implementations
     for (const auto& m : cls.methods) {
         emit_method_source(cls, m, out);
+    }
+
+    out += template_declaration(cls.generic_params);
+    out += std::format("void {}::reset_engine_script_statics() {{\n", specialized_name(cls.name, cls.generic_params));
+    for (const auto& prop : cls.properties) {
+        if (!prop.is_static) continue;
+        out += std::format("    {} = {};\n", prop.name,
+            prop.initializer ? emit_operation_cpp(prop.initializer.get()) : "{}");
+    }
+    out += "}\n\n";
+    if (cls.generic_params.empty()) {
+        out += std::format("extern \"C\" void reset_statics_{}() {{ {}::reset_engine_script_statics(); }}\n\n", cls.name, cls.name);
     }
 
     if (!cls.is_behaviour) return;
@@ -1349,7 +1392,9 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
                 ? "int" : type_to_cpp(call->type_arguments.front().get());
             return "std::deque<" + element + ">{}";
         }
-        if (call->callee_name == "delay" || call->callee_name == "realDelay" ||
+        if (call->callee_name == "require") {
+            s = "EngineScript::requireValue(";
+        } else if (call->callee_name == "delay" || call->callee_name == "realDelay" ||
             call->callee_name == "nextFrame" || call->callee_name == "fixedUpdate" ||
             call->callee_name == "self" || call->callee_name == "instantiate" ||
             call->callee_name == "findEntities") {
@@ -1660,6 +1705,8 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
 }
 
 std::string CppEmitter::member_access_operator(const IROperation* target) const {
+    if (const auto* variable = dynamic_cast<const IRVarRef*>(target); variable && target->result_type &&
+        variable->name == target->result_type->name) return "::";
     if (target && target->result_type && target->result_type->is_nullable &&
         target->result_type->kind != TypeKind::Class && target->result_type->kind != TypeKind::Interface) {
         return "->";

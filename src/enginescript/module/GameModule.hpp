@@ -266,6 +266,7 @@ class Log {
 public:
     virtual ~Log() = default;
     virtual void write(const std::string& message) const = 0;
+    virtual void error(const std::string& message) const = 0;
 
     void operator()(const std::string& message) const {
         write(message);
@@ -365,13 +366,35 @@ public:
     [[nodiscard]] uint64_t slotId() const { return m_reference.slot_id; }
     [[nodiscard]] const ComponentReference& reference() const { return m_reference; }
 
-    T* operator->() const { return get(); }
+    T* operator->() const {
+        T* value = get();
+        if (!value) throw ScriptRuntimeError("component handle is destroyed or stale");
+        return value;
+    }
     operator T*() const { return get(); }
     explicit operator bool() const { return isValid(); }
 
 private:
     ComponentReference m_reference;
 };
+
+template <typename T>
+[[nodiscard]] T requireValue(std::optional<T> value, const std::string& message) {
+    if (!value) throw ScriptRuntimeError(message);
+    return std::move(*value);
+}
+
+template <typename T>
+[[nodiscard]] ComponentHandle<T> requireValue(ComponentHandle<T> value, const std::string& message) {
+    if (!value) throw ScriptRuntimeError(message);
+    return value;
+}
+
+template <typename T>
+[[nodiscard]] T* requireValue(T* value, const std::string& message) {
+    if (!value) throw ScriptRuntimeError(message);
+    return value;
+}
 
 struct Entity {
     uint32_t id = 0;
@@ -399,6 +422,11 @@ struct Entity {
         return ComponentHandle<T>{find_component_callback && type
             ? find_component_callback(component_context, id, type, 0)
             : ComponentReference{}};
+    }
+
+    template <typename T>
+    [[nodiscard]] ComponentHandle<T> requireComponent() const {
+        return requireValue(getComponent<T>(), std::string("Entity requires component ") + component_type_name<T>());
     }
 
     template <typename T>
@@ -525,6 +553,9 @@ public:
     [[nodiscard]] std::optional<Entity> firstByGameplayTag(const std::string& tag) const {
         Entity entity = findByGameplayTag(tag);
         return entity.id == 0 ? std::nullopt : std::optional<Entity>{std::move(entity)};
+    }
+    [[nodiscard]] Entity requireFirstByGameplayTag(const std::string& tag) const {
+        return requireValue(firstByGameplayTag(tag), "Required gameplay tag was not found: " + tag);
     }
     [[nodiscard]] virtual std::vector<Entity> findAllByGameplayTag(const std::string& tag) const = 0;
     [[nodiscard]] virtual bool hasGameplayTag(const Entity& entity, const std::string& tag) const = 0;
@@ -695,11 +726,16 @@ public:
     using ExposedPropertyValue = std::variant<bool, double, std::string, glm::vec2, Entity, Asset>;
 
     virtual ~NativeBehaviour() = default;
+    virtual void on_init() {}
     virtual void update(float delta_time) {}
     virtual void on_start() {}
     virtual void on_destroy() {}
     virtual void on_collision_enter(const Entity& other) { static_cast<void>(other); }
     virtual void on_button_clicked() {}
+    virtual bool validate_required_references(std::string& error) const {
+        static_cast<void>(error);
+        return true;
+    }
     virtual bool set_exposed_property(const std::string& name, const ExposedPropertyValue& value) {
         static_cast<void>(name);
         static_cast<void>(value);
@@ -816,6 +852,7 @@ struct NativeModuleExports {
     uint32_t build_number{0};
     const NativeBehaviourExport* behaviour_types{nullptr};
     std::size_t behaviour_type_count{0};
+    void (*reset_static_state)(){nullptr};
 };
 
 using GetNativeModuleExportsFn = const NativeModuleExports* (*)();
@@ -841,6 +878,7 @@ struct ModuleDescriptor {
     std::string module_name;
     uint32_t build_number = 0;
     std::vector<BehaviourTypeRegistration> behaviour_types;
+    std::function<void()> reset_static_state;
 };
 
 class GameModule {
@@ -853,6 +891,7 @@ public:
 
     NativeBehaviour* create_behaviour(const std::string& type_name, void** args = nullptr) const;
     bool has_behaviour_type(const std::string& type_name) const;
+    void reset_static_state() const;
 
     [[nodiscard]] static std::unique_ptr<GameModule> from_native_exports(
         const NativeModuleExports& exports,

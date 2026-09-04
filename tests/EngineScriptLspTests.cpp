@@ -103,6 +103,8 @@ int main() {
     bool has_int_conversion = false;
     bool has_uint8_conversion = false;
     bool has_float64_conversion = false;
+    bool has_static_keyword = false;
+    bool has_on_init_snippet = false;
     for (const auto& item : j_comp["result"]) {
         if (item["label"] == "behaviour class") {
             has_behaviour_template = item["insertTextFormat"] == 2;
@@ -116,11 +118,17 @@ int main() {
             item.value("detail", "") == "UInt8(value: Numeric) -> UInt8";
         has_float64_conversion |= item["label"] == "Float64" &&
             item.value("detail", "") == "Float64(value: Numeric) -> Float64";
+        has_static_keyword |= item["label"] == "static";
+        if (item["label"] == "on_init") {
+            has_on_init_snippet = item.value("insertText", "").find("on_init(): Void") != std::string::npos &&
+                item.value("insertText", "").find("override") == std::string::npos;
+        }
     }
     assert(has_behaviour_template);
     assert(!has_to_string);
     assert(has_string_conversion);
     assert(has_int_conversion && has_uint8_conversion && has_float64_conversion);
+    assert(has_static_keyword && has_on_init_snippet);
 
     // Definitions resolve to the declaration span instead of a placeholder range.
     std::string definition_req = R"({
@@ -159,7 +167,7 @@ int main() {
         "method":"textDocument/didChange",
         "params":{
             "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s","version":3},
-            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  audio: Audio;\n  sprite: SpriteRenderer2D;\n  update(deltaTime: Float): Void {\n    let waiting = delay(1.ms);\n    audio.playSound(\"jump\");\n    sprite.flipX = true;\n  }\n}"}]
+            "contentChanges":[{"text":"@behaviour\nexport class Player extends Behaviour {\n  constructor(@inject private audio: Audio, @component private sprite: SpriteRenderer2D) {}\n  update(deltaTime: Float): Void {\n    let waiting = delay(1.ms);\n    audio.playSound(\"jump\");\n    sprite.flipX = true;\n  }\n}"}]
         }
     })";
     json player_diagnostics = json::parse(server.handle_message(player_fixed));
@@ -178,7 +186,7 @@ int main() {
         "method":"textDocument/completion",
         "params":{
             "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
-            "position":{"line":6,"character":10}
+            "position":{"line":5,"character":10}
         }
     })";
     json member_completion = json::parse(server.handle_message(member_completion_req));
@@ -198,7 +206,7 @@ int main() {
         "method":"textDocument/completion",
         "params":{
             "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
-            "position":{"line":7,"character":11}
+            "position":{"line":6,"character":11}
         }
     })";
     json sprite_completion = json::parse(server.handle_message(sprite_completion_req));
@@ -270,7 +278,7 @@ int main() {
         "method":"textDocument/hover",
         "params":{
             "textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},
-            "position":{"line":5,"character":10}
+            "position":{"line":4,"character":10}
         }
     })";
     json inferred_hover = json::parse(server.handle_message(inferred_hover_req));
@@ -487,6 +495,7 @@ int main() {
             item.value("detail", "").find("name: String") != std::string::npos &&
             item.value("insertText", "").find("${1:name}") != std::string::npos;
     }
+
     assert(has_axis_signature);
 
     std::string imported_source_open = R"({

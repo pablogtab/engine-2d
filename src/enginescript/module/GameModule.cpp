@@ -34,6 +34,10 @@ bool GameModule::has_behaviour_type(const std::string& type_name) const {
     return m_types_map.find(type_name) != m_types_map.end();
 }
 
+void GameModule::reset_static_state() const {
+    if (m_descriptor.reset_static_state) m_descriptor.reset_static_state();
+}
+
 NativeBehaviour* GameModule::create_behaviour(const std::string& type_name, void** args) const {
     auto it = m_types_map.find(type_name);
     if (it != m_types_map.end() && it->second.factory) {
@@ -68,6 +72,7 @@ std::unique_ptr<GameModule> GameModule::from_native_exports(
     descriptor.sdk_hash = exports.sdk_hash;
     descriptor.module_name = exports.module_name;
     descriptor.build_number = exports.build_number;
+    descriptor.reset_static_state = exports.reset_static_state;
     std::unordered_set<std::string> registered_names;
     for (std::size_t index = 0; index < exports.behaviour_type_count; ++index) {
         const NativeBehaviourExport& native_registration = exports.behaviour_types[index];

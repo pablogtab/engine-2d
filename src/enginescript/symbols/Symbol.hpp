@@ -52,6 +52,7 @@ struct Symbol {
     bool is_exported = false;
     bool is_const = false;
     bool is_async = false;
+    bool is_static = false;
     bool is_behaviour = false;
 
     std::string type_string; // String representation of declared or resolved type

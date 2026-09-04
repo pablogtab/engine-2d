@@ -321,6 +321,7 @@ std::shared_ptr<ClassDecl> Parser::parse_class(bool is_exported, std::vector<Dec
         else if (match(TokenType::Protected)) access = AccessModifier::Protected;
         else if (match(TokenType::Public)) access = AccessModifier::Public;
 
+        bool is_static = match(TokenType::Static);
         bool is_override = match(TokenType::Override);
         bool is_async = match(TokenType::Async);
 
@@ -330,10 +331,12 @@ std::shared_ptr<ClassDecl> Parser::parse_class(bool is_exported, std::vector<Dec
         } else if (check(TokenType::Identifier) && m_current + 1 < m_tokens.size() && (m_tokens[m_current + 1].is(TokenType::OpenParen) || m_tokens[m_current + 1].is(TokenType::Less))) {
             // Method
             auto method = parse_method(access, is_override, is_async, std::move(member_decorators));
+            method->is_static = is_static;
             cls->methods.push_back(method);
         } else if (check(TokenType::Identifier)) {
             // Property
             auto prop = parse_property(access, is_override, std::move(member_decorators));
+            prop->is_static = is_static;
             cls->properties.push_back(prop);
         } else {
             Token unexpected = advance();

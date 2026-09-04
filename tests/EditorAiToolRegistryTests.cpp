@@ -216,6 +216,12 @@ void test_engine_documents_are_allowlisted() {
     assert(authoring.success);
     assert(authoring.output.at("content").get<std::string>().find("# AI-assisted authoring contract") != std::string::npos);
 
+    const EditorAiToolResult renderer_canvas = registry.execute(
+        "read_engine_document", nlohmann::json{{"document_id", "renderer_canvas"}}, nullptr, nullptr
+    );
+    assert(renderer_canvas.success);
+    assert(renderer_canvas.output.at("content").get<std::string>().find("# Renderer and Canvas Contracts") != std::string::npos);
+
     const EditorAiToolResult disallowed = registry.execute(
         "read_engine_document", nlohmann::json{{"document_id", "../../.ssh/id_rsa"}}, nullptr, nullptr
     );
