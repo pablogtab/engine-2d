@@ -2,6 +2,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <optional>
+#include <unordered_map>
 
 namespace EngineScript {
 
@@ -53,6 +54,16 @@ std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
     json structs_arr = json::array();
     json enums_arr = json::array();
 
+    std::unordered_map<std::string, std::vector<std::string>> enum_members;
+    for (const auto& mod : modules) {
+        for (const auto& enum_decl : mod.enums) {
+            std::vector<std::string> members;
+            for (const auto& entry : enum_decl.entries) members.push_back(entry.name);
+            enum_members.emplace(enum_decl.name, members);
+            enums_arr.push_back({{"name", enum_decl.name}, {"members", std::move(members)}});
+        }
+    }
+
     for (const auto& mod : modules) {
         for (const auto& cls : mod.classes) {
             if (cls.is_behaviour) {
@@ -96,6 +107,10 @@ std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
                     p_obj["isExposed"] = is_exp;
                     p_obj["isSerializable"] = is_ser;
                     p_obj["isBehaviourReference"] = prop.type && prop.type->is_behaviour;
+                    if (prop.type && prop.type->kind == TypeKind::Enum) {
+                        p_obj["enumType"] = prop.type->name;
+                        p_obj["enumValues"] = enum_members[prop.type->name];
+                    }
 
                     auto min_it = prop.numeric_attributes.find("min");
                     if (min_it != prop.numeric_attributes.end()) {
@@ -118,6 +133,11 @@ std::string MetadataEmitter::emit_json(const std::vector<IRModule>& modules) {
                         }
                     } else if (const auto value = vector2_default(prop.initializer)) {
                         p_obj["defaultValue"] = *value;
+                    } else if (prop.initializer && prop.initializer->kind == IROpKind::MemberGet) {
+                        const auto member = std::static_pointer_cast<IRMemberGet>(prop.initializer);
+                        if (member->result_type && member->result_type->kind == TypeKind::Enum) {
+                            p_obj["defaultValue"] = member->member_name;
+                        }
                     }
 
                     props_arr.push_back(p_obj);
@@ -180,6 +200,10 @@ ProjectMetadataManifest MetadataEmitter::parse_json(const std::string& json_str)
                         if (prop.contains("isExposed")) epd.is_exposed = prop["isExposed"].get<bool>();
                         if (prop.contains("isSerializable")) epd.is_serializable = prop["isSerializable"].get<bool>();
                         if (prop.contains("isBehaviourReference")) epd.is_behaviour_reference = prop["isBehaviourReference"].get<bool>();
+                        if (prop.contains("enumType")) epd.enum_type = prop["enumType"].get<std::string>();
+                        if (prop.contains("enumValues") && prop["enumValues"].is_array()) {
+                            for (const auto& value : prop["enumValues"]) epd.enum_values.push_back(value.get<std::string>());
+                        }
                         if (prop.contains("minValue")) epd.min_value = prop["minValue"].get<double>();
                         if (prop.contains("maxValue")) epd.max_value = prop["maxValue"].get<double>();
                         bm.properties.push_back(epd);
@@ -199,6 +223,17 @@ ProjectMetadataManifest MetadataEmitter::parse_json(const std::string& json_str)
         if (root.contains("structs") && root["structs"].is_array()) {
             for (const auto& s : root["structs"]) {
                 manifest.structs.push_back(s.get<std::string>());
+            }
+        }
+        if (root.contains("enums") && root["enums"].is_array()) {
+            for (const auto& value : root["enums"]) {
+                if (!value.is_object()) continue;
+                EnumManifest enum_manifest;
+                enum_manifest.name = value.value("name", "");
+                if (value.contains("members") && value["members"].is_array()) {
+                    for (const auto& member : value["members"]) enum_manifest.members.push_back(member.get<std::string>());
+                }
+                manifest.enums.push_back(std::move(enum_manifest));
             }
         }
     } catch (...) {

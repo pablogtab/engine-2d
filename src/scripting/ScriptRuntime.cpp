@@ -764,25 +764,29 @@ private:
         }
         EngineScript::Transform2D* transform(const EngineScript::Entity& entity) override {
             if (!hasTransform(entity)) return nullptr;
+            auto [view_it, inserted] = m_transforms.try_emplace(entity.id);
+            TransformView& view = view_it->second;
+            if (!inserted) return &view.value;
             const TransformComponent& source = m_binding.entity_manager->get_component<TransformComponent>(entity.id);
-            m_transform.id = entity.id;
-            m_transform.value.position = glm::vec2(source.position);
-            m_transform.value.rotation = source.rotation;
-            m_transform.value.scale = source.scale;
-            return &m_transform.value;
+            view.value.position = glm::vec2(source.position);
+            view.value.rotation = source.rotation;
+            view.value.scale = source.scale;
+            return &view.value;
         }
         bool hasRigidBody(const EngineScript::Entity& entity) const override {
             return alive_with<RigidBodyComponent>(entity.id);
         }
         EngineScript::RigidBody2D* rigidBody(const EngineScript::Entity& entity) override {
             if (!hasRigidBody(entity)) return nullptr;
+            auto [view_it, inserted] = m_rigid_bodies.try_emplace(entity.id);
+            RigidBodyView& view = view_it->second;
+            if (!inserted) return &view.value;
             const RigidBodyComponent& source = m_binding.entity_manager->get_component<RigidBodyComponent>(entity.id);
-            m_rigid_body.id = entity.id;
-            m_rigid_body.value.velocity = source.velocity;
-            m_rigid_body.value.isGrounded = PhysicsSystem::is_grounded(*m_binding.entity_manager, entity.id);
-            m_rigid_body.value.runtime_context = const_cast<ScriptRuntimeBinding*>(&m_binding);
-            m_rigid_body.value.entity_id = entity.id;
-            m_rigid_body.value.ignore_one_way_callback = [](void* context, uint32_t id, bool ignore) {
+            view.value.velocity = source.velocity;
+            view.value.isGrounded = PhysicsSystem::is_grounded(*m_binding.entity_manager, entity.id);
+            view.value.runtime_context = const_cast<ScriptRuntimeBinding*>(&m_binding);
+            view.value.entity_id = entity.id;
+            view.value.ignore_one_way_callback = [](void* context, uint32_t id, bool ignore) {
                 auto* binding = static_cast<ScriptRuntimeBinding*>(context);
                 if (!binding) return;
                 require_main_thread(*binding);
@@ -791,24 +795,28 @@ private:
                     !entities->has_component<RigidBodyComponent>(id)) return;
                 PhysicsSystem::set_ignore_one_way(id, ignore);
             };
-            return &m_rigid_body.value;
+            return &view.value;
         }
         bool hasSpriteRenderer(const EngineScript::Entity& entity) const override {
             return alive_with<SpriteComponent>(entity.id);
         }
         EngineScript::SpriteRenderer2D* spriteRenderer(const EngineScript::Entity& entity) override {
             if (!hasSpriteRenderer(entity)) return nullptr;
-            m_sprite_renderer.id = entity.id;
+            auto [view_it, inserted] = m_sprite_renderers.try_emplace(entity.id);
+            SpriteRendererView& view = view_it->second;
+            if (!inserted) return &view.value;
             const SpriteComponent& source = m_binding.entity_manager->get_component<SpriteComponent>(entity.id);
-            m_sprite_renderer.value.flipX = source.flip_x;
-            m_sprite_renderer.value.color = sprite_color_to_script(source.color);
-            return &m_sprite_renderer.value;
+            view.value.flipX = source.flip_x;
+            view.value.color = sprite_color_to_script(source.color);
+            return &view.value;
         }
         bool hasParticleEmitter(const EngineScript::Entity& entity) const override { return alive_with<ParticleEmitter2DComponent>(entity.id); }
         EngineScript::ParticleEmitter2D* particleEmitter(const EngineScript::Entity& entity) override {
             if (!hasParticleEmitter(entity)) return nullptr;
+            auto [view_it, inserted] = m_particles.try_emplace(entity.id);
+            ParticleView& view = view_it->second;
+            if (!inserted) return &view.value;
             const ParticleEmitter2DComponent& source = m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(entity.id);
-            m_particle.id = entity.id;
             float asset_rate = 0.0f;
             int asset_burst = 0;
             if (m_binding.asset_database && source.effect_handle.is_valid()) {
@@ -817,34 +825,34 @@ private:
                     asset_burst = asset->emission.burst_count;
                 }
             }
-            m_particle.value.emitRate = source.emit_rate_override.value_or(asset_rate);
-            m_particle.value.burstCount = source.burst_count_override.value_or(asset_burst);
-            m_particle.value.active = source.active;
-            m_particle.initial_emit_rate = m_particle.value.emitRate;
-            m_particle.initial_burst_count = m_particle.value.burstCount;
-            m_particle.initial_active = m_particle.value.active;
-            m_particle.value.isPlaying = source.is_playing;
-            m_particle.value.effectHandle = source.effect_handle.value;
-            m_particle.value.runtime_context = const_cast<ScriptRuntimeBinding*>(&m_binding);
-            m_particle.value.entity_id = entity.id;
-            m_particle.value.play_callback = [](void* context, uint32_t id) {
+            view.value.emitRate = source.emit_rate_override.value_or(asset_rate);
+            view.value.burstCount = source.burst_count_override.value_or(asset_burst);
+            view.value.active = source.active;
+            view.initial_emit_rate = view.value.emitRate;
+            view.initial_burst_count = view.value.burstCount;
+            view.initial_active = view.value.active;
+            view.value.isPlaying = source.is_playing;
+            view.value.effectHandle = source.effect_handle.value;
+            view.value.runtime_context = const_cast<ScriptRuntimeBinding*>(&m_binding);
+            view.value.entity_id = entity.id;
+            view.value.play_callback = [](void* context, uint32_t id) {
                 const auto* binding = static_cast<ScriptRuntimeBinding*>(context);
                 const auto* services = binding ? binding->services : nullptr;
                 return services && services->play_particle_emitter && services->play_particle_emitter(id);
             };
-            m_particle.value.stop_callback = [](void* context, uint32_t id, bool clear_particles) {
+            view.value.stop_callback = [](void* context, uint32_t id, bool clear_particles) {
                 const auto* binding = static_cast<ScriptRuntimeBinding*>(context);
                 const auto* services = binding ? binding->services : nullptr;
                 return services && services->stop_particle_emitter &&
                     services->stop_particle_emitter(id, clear_particles);
             };
-            m_particle.value.burst_callback = [](void* context, uint32_t id, int count) {
+            view.value.burst_callback = [](void* context, uint32_t id, int count) {
                 const auto* binding = static_cast<ScriptRuntimeBinding*>(context);
                 const auto* services = binding ? binding->services : nullptr;
                 return services && services->burst_particle_emitter &&
                     services->burst_particle_emitter(id, count);
             };
-            m_particle.value.set_effect_callback = [](void* context, uint32_t id, const EngineScript::Asset* effect) {
+            view.value.set_effect_callback = [](void* context, uint32_t id, const EngineScript::Asset* effect) {
                 auto* binding = static_cast<ScriptRuntimeBinding*>(context);
                 if (!binding || !binding->entity_manager || !binding->asset_database ||
                     !effect || !effect->ready || effect->handle == 0 ||
@@ -860,56 +868,64 @@ private:
                 target.delay_remaining = 0.0f;
                 return true;
             };
-            return &m_particle.value;
+            return &view.value;
         }
         bool hasJoint(const EngineScript::Entity& entity) const override { return alive_with<JointComponent>(entity.id); }
         EngineScript::Joint2D* joint(const EngineScript::Entity& entity) override {
             if (!hasJoint(entity)) return nullptr;
+            auto [view_it, inserted] = m_joints.try_emplace(entity.id);
+            JointView& view = view_it->second;
+            if (!inserted) return &view.value;
             const JointComponent& source = m_binding.entity_manager->get_component<JointComponent>(entity.id);
-            m_joint.id = entity.id;
-            m_joint.value.target = make_entity(source.target_entity);
-            m_joint.value.collideConnected = source.collide_connected;
-            return &m_joint.value;
+            view.value.target = make_entity(source.target_entity);
+            view.value.collideConnected = source.collide_connected;
+            return &view.value;
         }
         void sync_after() {
             require_main_thread(m_binding);
             if (!m_binding.entity_manager) return;
-            if (m_transform.id != 0 && alive_with<TransformComponent>(m_transform.id)) {
-                TransformComponent& target = m_binding.entity_manager->get_component<TransformComponent>(m_transform.id);
-                const bool position_changed = glm::vec2(target.position) != m_transform.value.position;
-                target.position = glm::vec3(m_transform.value.position, target.position.z);
-                target.rotation = m_transform.value.rotation;
-                target.scale = m_transform.value.scale;
-                if (position_changed && alive_with<RigidBodyComponent>(m_transform.id)) {
+            for (const auto& [entity, view] : m_transforms) {
+                if (!alive_with<TransformComponent>(entity)) continue;
+                TransformComponent& target = m_binding.entity_manager->get_component<TransformComponent>(entity);
+                const bool position_changed = glm::vec2(target.position) != view.value.position;
+                target.position = glm::vec3(view.value.position, target.position.z);
+                target.rotation = view.value.rotation;
+                target.scale = view.value.scale;
+                if (position_changed && alive_with<RigidBodyComponent>(entity)) {
                     PhysicsSystem::set_position(
-                        *m_binding.entity_manager, m_transform.id, m_transform.value.position
+                        *m_binding.entity_manager, entity, view.value.position
                     );
                 }
             }
-            if (m_rigid_body.id != 0 && alive_with<RigidBodyComponent>(m_rigid_body.id)) {
-                PhysicsSystem::set_velocity(*m_binding.entity_manager, m_rigid_body.id, m_rigid_body.value.velocity);
-            }
-            if (m_sprite_renderer.id != 0 && alive_with<SpriteComponent>(m_sprite_renderer.id)) {
-                SpriteComponent& target = m_binding.entity_manager->get_component<SpriteComponent>(m_sprite_renderer.id);
-                target.flip_x = m_sprite_renderer.value.flipX;
-                target.color = script_color_to_sprite(m_sprite_renderer.value.color);
-            }
-            if (m_particle.id != 0 && alive_with<ParticleEmitter2DComponent>(m_particle.id)) {
-                ParticleEmitter2DComponent& target = m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(m_particle.id);
-                if (m_particle.value.emitRate != m_particle.initial_emit_rate) {
-                    target.emit_rate_override = m_particle.value.emitRate;
-                }
-                if (m_particle.value.burstCount != m_particle.initial_burst_count) {
-                    target.burst_count_override = m_particle.value.burstCount;
-                }
-                if (m_particle.value.active != m_particle.initial_active) {
-                    target.active = m_particle.value.active;
+            for (const auto& [entity, view] : m_rigid_bodies) {
+                if (alive_with<RigidBodyComponent>(entity)) {
+                    PhysicsSystem::set_velocity(*m_binding.entity_manager, entity, view.value.velocity);
                 }
             }
-            if (m_joint.id != 0 && alive_with<JointComponent>(m_joint.id)) {
-                JointComponent& target = m_binding.entity_manager->get_component<JointComponent>(m_joint.id);
-                target.target_entity = m_joint.value.target.id;
-                target.collide_connected = m_joint.value.collideConnected;
+            for (const auto& [entity, view] : m_sprite_renderers) {
+                if (!alive_with<SpriteComponent>(entity)) continue;
+                SpriteComponent& target = m_binding.entity_manager->get_component<SpriteComponent>(entity);
+                target.flip_x = view.value.flipX;
+                target.color = script_color_to_sprite(view.value.color);
+            }
+            for (const auto& [entity, view] : m_particles) {
+                if (!alive_with<ParticleEmitter2DComponent>(entity)) continue;
+                ParticleEmitter2DComponent& target = m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(entity);
+                if (view.value.emitRate != view.initial_emit_rate) {
+                    target.emit_rate_override = view.value.emitRate;
+                }
+                if (view.value.burstCount != view.initial_burst_count) {
+                    target.burst_count_override = view.value.burstCount;
+                }
+                if (view.value.active != view.initial_active) {
+                    target.active = view.value.active;
+                }
+            }
+            for (const auto& [entity, view] : m_joints) {
+                if (!alive_with<JointComponent>(entity)) continue;
+                JointComponent& target = m_binding.entity_manager->get_component<JointComponent>(entity);
+                target.target_entity = view.value.target.id;
+                target.collide_connected = view.value.collideConnected;
             }
         }
 
@@ -917,10 +933,34 @@ private:
             // Dynamic component views are valid only for the callback that queried them.
             // Keeping their entity ids across callbacks would write stale snapshots back
             // during the async scheduler's otherwise empty synchronization pass.
-            m_transform.id = 0;
-            m_rigid_body.id = 0;
-            m_sprite_renderer.id = 0;
-            m_joint.id = 0;
+            m_transforms.clear();
+            m_rigid_bodies.clear();
+            m_sprite_renderers.clear();
+            m_joints.clear();
+            // ParticleEmitter2D is also injectable as a raw constructor dependency,
+            // so its view address must remain stable for the host lifetime. Refresh
+            // retained particle views eagerly instead of erasing their map nodes.
+            for (auto& [entity, view] : m_particles) {
+                if (!alive_with<ParticleEmitter2DComponent>(entity)) continue;
+                const ParticleEmitter2DComponent& source =
+                    m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(entity);
+                float asset_rate = 0.0f;
+                int asset_burst = 0;
+                if (m_binding.asset_database && source.effect_handle.is_valid()) {
+                    if (const auto asset = ParticleEffectAsset::load_asset(source.effect_handle, *m_binding.asset_database)) {
+                        asset_rate = asset->emission.continuous_rate;
+                        asset_burst = asset->emission.burst_count;
+                    }
+                }
+                view.value.emitRate = source.emit_rate_override.value_or(asset_rate);
+                view.value.burstCount = source.burst_count_override.value_or(asset_burst);
+                view.value.active = source.active;
+                view.initial_emit_rate = view.value.emitRate;
+                view.initial_burst_count = view.value.burstCount;
+                view.initial_active = view.value.active;
+                view.value.isPlaying = source.is_playing;
+                view.value.effectHandle = source.effect_handle.value;
+            }
         }
     private:
         class EntityAnimator final : public EngineScript::Animator2D {
@@ -986,17 +1026,21 @@ private:
         }
         const ScriptRuntimeBinding& m_binding;
         EntityAnimator m_entity_animator{m_binding};
-        struct { EntityID id{0}; EngineScript::Transform2D value; } m_transform;
-        struct { EntityID id{0}; EngineScript::RigidBody2D value; } m_rigid_body;
-        struct { EntityID id{0}; EngineScript::SpriteRenderer2D value; } m_sprite_renderer;
-        struct {
-            EntityID id{0};
+        struct TransformView { EngineScript::Transform2D value; };
+        struct RigidBodyView { EngineScript::RigidBody2D value; };
+        struct SpriteRendererView { EngineScript::SpriteRenderer2D value; };
+        struct ParticleView {
             EngineScript::ParticleEmitter2D value;
             float initial_emit_rate{0.0f};
             int initial_burst_count{0};
             bool initial_active{false};
-        } m_particle;
-        struct { EntityID id{0}; EngineScript::Joint2D value; } m_joint;
+        };
+        struct JointView { EngineScript::Joint2D value; };
+        std::unordered_map<EntityID, TransformView> m_transforms;
+        std::unordered_map<EntityID, RigidBodyView> m_rigid_bodies;
+        std::unordered_map<EntityID, SpriteRendererView> m_sprite_renderers;
+        std::unordered_map<EntityID, ParticleView> m_particles;
+        std::unordered_map<EntityID, JointView> m_joints;
     };
 
     ScriptRuntimeBinding& m_binding;
@@ -1131,6 +1175,10 @@ public:
                 if (const auto* typed = std::get_if<std::string>(&value)) field->value = *typed;
                 else return false;
                 return true;
+            case ScriptFieldType::Enum:
+                if (const auto* typed = std::get_if<std::string>(&value)) field->value = *typed;
+                else return false;
+                return true;
             case ScriptFieldType::Vector2:
                 if (const auto* typed = std::get_if<glm::vec2>(&value)) field->value = ScriptVector2{typed->x, typed->y};
                 else return false;
@@ -1216,7 +1264,7 @@ private:
             if (field.name != name) continue;
             if (field.type == ScriptFieldType::Number) field.value = runtime_number(value);
             else if (field.type == ScriptFieldType::Boolean) field.value = runtime_boolean(value);
-            else if (field.type == ScriptFieldType::String) field.value = runtime_string(value);
+            else if (field.type == ScriptFieldType::String || field.type == ScriptFieldType::Enum) field.value = runtime_string(value);
             else if (field.type == ScriptFieldType::Entity) {
                 if (const auto* entity = std::get_if<EntityID>(&value)) field.value = *entity;
             }
@@ -1739,6 +1787,11 @@ std::vector<ScriptPublicField> public_fields_from_behaviour(const EngineScript::
         } else if (property.type == "String") {
             field.type = ScriptFieldType::String;
             field.value = property.default_value_str;
+        } else if (!property.enum_type.empty()) {
+            field.type = ScriptFieldType::Enum;
+            field.value = property.default_value_str;
+            field.enum_type = property.enum_type;
+            field.enum_values = property.enum_values;
         } else if (property.type == "Vec2") {
             field.type = ScriptFieldType::Vector2;
             ScriptVector2 value{0.0f, 0.0f};
@@ -1856,6 +1909,9 @@ bool push_exposed_property(
         case ScriptFieldType::String:
             if (const auto* value = std::get_if<std::string>(&field.value)) return behaviour.set_exposed_property(field.name, *value);
             break;
+        case ScriptFieldType::Enum:
+            if (const auto* value = std::get_if<std::string>(&field.value)) return behaviour.set_exposed_property(field.name, *value);
+            break;
         case ScriptFieldType::Vector2:
             if (const auto* value = std::get_if<ScriptVector2>(&field.value)) {
                 return behaviour.set_exposed_property(field.name, glm::vec2{value->x, value->y});
@@ -1896,7 +1952,7 @@ void pull_exposed_property(
         if (const auto* typed = std::get_if<bool>(&value)) field.value = *typed;
     } else if (field.type == ScriptFieldType::Number) {
         if (const auto* typed = std::get_if<double>(&value)) field.value = *typed;
-    } else if (field.type == ScriptFieldType::String) {
+    } else if (field.type == ScriptFieldType::String || field.type == ScriptFieldType::Enum) {
         if (const auto* typed = std::get_if<std::string>(&value)) field.value = *typed;
     } else if (field.type == ScriptFieldType::Vector2) {
         if (const auto* typed = std::get_if<glm::vec2>(&value)) field.value = ScriptVector2{typed->x, typed->y};

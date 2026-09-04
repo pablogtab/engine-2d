@@ -19,8 +19,11 @@ enum class IROpKind {
     Assign,
     Binary,
     Unary,
+    Conditional,
+    MatchExpression,
     NumericConvert,
     StringConvert,
+    InterpolatedString,
     ValueConstruct,
     ClassConstruct,
     WeakConstruct,
@@ -42,6 +45,9 @@ enum class IROpKind {
     IndexSet,
     Return,
     If,
+    OptionalBindingIf,
+    Guard,
+    MatchStatement,
     While,
     For,
     ForIn,
@@ -97,6 +103,33 @@ struct IRUnary : public IROperation {
     std::shared_ptr<IROperation> operand;
 };
 
+struct IRConditional : public IROperation {
+    std::shared_ptr<IROperation> condition;
+    std::shared_ptr<IROperation> then_value;
+    std::shared_ptr<IROperation> else_value;
+};
+
+struct IRMatchPattern {
+    enum class Kind { Wildcard, Null, Boolean, Integer, Float, String, EnumMember };
+    Kind kind = Kind::Wildcard;
+    bool bool_value = false;
+    int64_t int_value = 0;
+    double float_value = 0.0;
+    std::string string_value;
+    std::string enum_name;
+    std::string member_name;
+};
+
+struct IRMatchExpressionArm {
+    IRMatchPattern pattern;
+    std::shared_ptr<IROperation> value;
+};
+
+struct IRMatchExpression : public IROperation {
+    std::shared_ptr<IROperation> subject;
+    std::vector<IRMatchExpressionArm> arms;
+};
+
 struct IRNumericConvert : public IROperation {
     TypeKind target_kind = TypeKind::Error;
     std::shared_ptr<IROperation> operand;
@@ -104,6 +137,16 @@ struct IRNumericConvert : public IROperation {
 
 struct IRStringConvert : public IROperation {
     std::shared_ptr<IROperation> operand;
+};
+
+struct IRInterpolatedStringSegment {
+    std::string text;
+    std::shared_ptr<IROperation> value;
+    std::string format;
+};
+
+struct IRInterpolatedString : public IROperation {
+    std::vector<IRInterpolatedStringSegment> segments;
 };
 
 struct IRValueConstruct : public IROperation {
@@ -220,6 +263,29 @@ struct IRIf : public IROperation {
     std::shared_ptr<IROperation> condition;
     std::vector<std::shared_ptr<IROperation>> then_operations;
     std::vector<std::shared_ptr<IROperation>> else_operations;
+};
+
+struct IROptionalBindingIf : public IROperation {
+    std::string name;
+    std::shared_ptr<IROperation> optional_value;
+    std::vector<std::shared_ptr<IROperation>> then_operations;
+    std::vector<std::shared_ptr<IROperation>> else_operations;
+};
+
+struct IRGuard : public IROperation {
+    std::string name;
+    std::shared_ptr<IROperation> optional_value;
+    std::vector<std::shared_ptr<IROperation>> else_operations;
+};
+
+struct IRMatchStatementArm {
+    IRMatchPattern pattern;
+    std::vector<std::shared_ptr<IROperation>> operations;
+};
+
+struct IRMatchStatement : public IROperation {
+    std::shared_ptr<IROperation> subject;
+    std::vector<IRMatchStatementArm> arms;
 };
 
 struct IRWhile : public IROperation {

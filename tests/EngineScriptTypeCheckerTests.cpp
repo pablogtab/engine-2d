@@ -1,5 +1,6 @@
 #include <cassert>
 #include <iostream>
+#include <unordered_set>
 #include "enginescript/core/SourceManager.hpp"
 #include "enginescript/lexer/Lexer.hpp"
 #include "enginescript/parser/Parser.hpp"
@@ -400,6 +401,9 @@ int main() {
             if (enemies.length > 0) return enemies[0];
             return entities.findByGameplayTag("enemy.basic");
         }
+        function firstEnemy(entities: Entities): Entity? {
+            return entities.firstByGameplayTag(tag: "enemy.basic");
+        }
     )";
     const FileId f14 = sm.register_source("Source/NativeCollection.e2s", native_collection_code);
     Lexer l14(f14, native_collection_code, native_collection_diags);
@@ -410,6 +414,85 @@ int main() {
     TypeChecker check14(res14, native_collection_diags);
     assert(check14.check_module(m14));
     assert(!native_collection_diags.has_errors());
+
+    DiagnosticEngine deque_nullable_diags;
+    const std::string deque_nullable_code = R"(
+        function peek(values: Deque<Int>): Int? {
+            return values.front();
+        }
+    )";
+    const FileId deque_nullable_file = sm.register_source("Source/DequeNullable.e2s", deque_nullable_code);
+    Lexer deque_nullable_lexer(deque_nullable_file, deque_nullable_code, deque_nullable_diags);
+    Parser deque_nullable_parser(
+        deque_nullable_file,
+        "Source/DequeNullable.e2s",
+        deque_nullable_lexer.tokenize_all(),
+        deque_nullable_diags
+    );
+    const auto deque_nullable_module = deque_nullable_parser.parse_module();
+    SymbolResolver deque_nullable_resolver(sm, deque_nullable_diags);
+    deque_nullable_resolver.resolve_module(deque_nullable_module);
+    TypeChecker deque_nullable_checker(deque_nullable_resolver, deque_nullable_diags);
+    assert(deque_nullable_checker.check_module(deque_nullable_module));
+    assert(!deque_nullable_diags.has_errors());
+    assert(!deque_nullable_checker.resolve_type_annotation(TypeAnnotation{"Int"})->is_nullable);
+
+    DiagnosticEngine narrowing_scope_diags;
+    const std::string narrowing_scope_code = R"(
+        function unwrapFirst(value: Int?): Int {
+            guard (let director = value) else { return 0; }
+            return director;
+        }
+        function unwrapAgain(director: Int?): Int {
+            if (let activeDirector = director) return activeDirector;
+            return 0;
+        }
+    )";
+    const FileId narrowing_scope_file = sm.register_source("Source/NarrowingScope.e2s", narrowing_scope_code);
+    Lexer narrowing_scope_lexer(narrowing_scope_file, narrowing_scope_code, narrowing_scope_diags);
+    Parser narrowing_scope_parser(
+        narrowing_scope_file,
+        "Source/NarrowingScope.e2s",
+        narrowing_scope_lexer.tokenize_all(),
+        narrowing_scope_diags
+    );
+    const auto narrowing_scope_module = narrowing_scope_parser.parse_module();
+    SymbolResolver narrowing_scope_resolver(sm, narrowing_scope_diags);
+    narrowing_scope_resolver.resolve_module(narrowing_scope_module);
+    TypeChecker narrowing_scope_checker(narrowing_scope_resolver, narrowing_scope_diags);
+    assert(narrowing_scope_checker.check_module(narrowing_scope_module));
+    assert(!narrowing_scope_diags.has_errors());
+
+    DiagnosticEngine named_argument_diags;
+    const std::string named_argument_code = R"(
+        function misplaced(a: Int = 1, b: Int): Int { return a + b; }
+        function dynamicDefault(seed: Int, value: Int = seed): Int { return value; }
+        function target(a: Int, b: Int = 2): Int { return a + b; }
+        function invalidCalls(): Void {
+            target(unknown: 1);
+            target(a: 1, 2);
+            target(a: 1, a: 2);
+            target();
+        }
+    )";
+    const FileId f15 = sm.register_source("Source/NamedArgumentErrors.e2s", named_argument_code);
+    Lexer l15(f15, named_argument_code, named_argument_diags);
+    Parser p15(f15, "Source/NamedArgumentErrors.e2s", l15.tokenize_all(), named_argument_diags);
+    const auto m15 = p15.parse_module();
+    SymbolResolver res15(sm, named_argument_diags);
+    res15.resolve_module(m15);
+    TypeChecker check15(res15, named_argument_diags);
+    check15.check_module(m15);
+    std::unordered_set<std::string> named_error_codes;
+    for (const Diagnostic& diagnostic : named_argument_diags.get_diagnostics()) {
+        named_error_codes.insert(diagnostic.code);
+    }
+    assert(named_error_codes.contains("E3111"));
+    assert(named_error_codes.contains("E3112"));
+    assert(named_error_codes.contains("E3114"));
+    assert(named_error_codes.contains("E3115"));
+    assert(named_error_codes.contains("E3116"));
+    assert(named_error_codes.contains("E3117"));
 
     std::cout << "[PASS] EngineScriptTypeCheckerTests passed!\n";
     return 0;

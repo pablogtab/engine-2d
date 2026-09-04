@@ -37,3 +37,18 @@ test('resolves only executable configured or embedded tools', () => {
     assert.strictEqual(findToolBinary({ extensionPath, baseName: 'missing', platform, architecture }), undefined);
     fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('grammar and editor pairs cover current EngineScript ergonomics', () => {
+    const grammar = JSON.parse(fs.readFileSync(
+        path.join(__dirname, '..', 'syntaxes', 'enginescript.tmLanguage.json'), 'utf8'
+    ));
+    const grammarText = JSON.stringify(grammar);
+    assert.match(grammarText, /string\.interpolated\.backtick/);
+    assert.match(grammarText, /Deque/);
+    assert.match(grammarText, /guard\|match/);
+
+    const configuration = JSON.parse(fs.readFileSync(
+        path.join(__dirname, '..', 'language-configuration.json'), 'utf8'
+    ));
+    assert(configuration.autoClosingPairs.some((pair) => pair.open === '`' && pair.close === '`'));
+});

@@ -51,7 +51,9 @@ private:
     // Statements
     std::shared_ptr<BlockStmt> parse_block();
     std::shared_ptr<VarDeclStmt> parse_var_decl();
-    std::shared_ptr<IfStmt> parse_if();
+    std::shared_ptr<Statement> parse_if();
+    std::shared_ptr<GuardStmt> parse_guard();
+    std::shared_ptr<MatchStmt> parse_match_statement();
     std::shared_ptr<WhileStmt> parse_while();
     std::shared_ptr<Statement> parse_for();
     std::shared_ptr<ReturnStmt> parse_return();
@@ -62,7 +64,10 @@ private:
     std::shared_ptr<Expression> parse_primary();
     std::shared_ptr<Expression> parse_prefix();
     std::shared_ptr<Expression> parse_postfix(std::shared_ptr<Expression> expr);
+    void parse_call_arguments(CallExpr& call);
     std::shared_ptr<Expression> parse_infix(std::shared_ptr<Expression> left, const Token& op);
+    MatchPattern parse_match_pattern();
+    std::shared_ptr<MatchExpr> parse_match_expression();
     [[nodiscard]] bool looks_like_generic_call() const;
 
     FileId m_file_id;

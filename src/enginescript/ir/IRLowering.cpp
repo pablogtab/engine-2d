@@ -4,6 +4,22 @@
 
 namespace EngineScript {
 
+namespace {
+
+IRMatchPattern lower_match_pattern(const MatchPattern& pattern) {
+    IRMatchPattern result;
+    result.kind = static_cast<IRMatchPattern::Kind>(pattern.kind);
+    result.bool_value = pattern.bool_value;
+    result.int_value = pattern.int_value;
+    result.float_value = pattern.float_value;
+    result.string_value = pattern.string_value;
+    result.enum_name = pattern.enum_name;
+    result.member_name = pattern.member_name;
+    return result;
+}
+
+} // namespace
+
 IRLowering::IRLowering(const TypeChecker& type_checker)
     : m_type_checker(type_checker) {
 }
@@ -320,6 +336,53 @@ void IRLowering::lower_statement(const std::shared_ptr<Statement>& stmt, IRBlock
         st.op = std::move(branch);
         st.span = if_s->span;
         current_block.statements.push_back(std::move(st));
+    } else if (auto binding = dynamic_cast<const OptionalBindingIfStmt*>(stmt.get())) {
+        auto operation = std::make_shared<IROptionalBindingIf>();
+        operation->kind = IROpKind::OptionalBindingIf;
+        operation->name = binding->name;
+        operation->optional_value = lower_expression(binding->optional_value);
+        operation->span = binding->span;
+        IRBlock then_block;
+        lower_statement(binding->then_branch, then_block);
+        for (auto& statement : then_block.statements) {
+            operation->then_operations.push_back(std::move(statement.op));
+        }
+        if (binding->else_branch) {
+            IRBlock else_block;
+            lower_statement(binding->else_branch, else_block);
+            for (auto& statement : else_block.statements) {
+                operation->else_operations.push_back(std::move(statement.op));
+            }
+        }
+        current_block.statements.push_back({operation, binding->span});
+    } else if (auto guard = dynamic_cast<const GuardStmt*>(stmt.get())) {
+        auto operation = std::make_shared<IRGuard>();
+        operation->kind = IROpKind::Guard;
+        operation->name = guard->name;
+        operation->optional_value = lower_expression(guard->optional_value);
+        operation->span = guard->span;
+        IRBlock else_block;
+        lower_statement(guard->else_branch, else_block);
+        for (auto& statement : else_block.statements) {
+            operation->else_operations.push_back(std::move(statement.op));
+        }
+        current_block.statements.push_back({operation, guard->span});
+    } else if (auto match_statement = dynamic_cast<const MatchStmt*>(stmt.get())) {
+        auto operation = std::make_shared<IRMatchStatement>();
+        operation->kind = IROpKind::MatchStatement;
+        operation->subject = lower_expression(match_statement->subject);
+        operation->span = match_statement->span;
+        for (const auto& arm : match_statement->arms) {
+            IRMatchStatementArm lowered_arm;
+            lowered_arm.pattern = lower_match_pattern(arm.pattern);
+            IRBlock body;
+            lower_statement(arm.body, body);
+            for (auto& statement : body.statements) {
+                lowered_arm.operations.push_back(std::move(statement.op));
+            }
+            operation->arms.push_back(std::move(lowered_arm));
+        }
+        current_block.statements.push_back({operation, match_statement->span});
     } else if (auto loop = dynamic_cast<const WhileStmt*>(stmt.get())) {
         auto operation = std::make_shared<IRWhile>();
         operation->kind = IROpKind::While;
@@ -398,7 +461,10 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
                 break;
             case LiteralExpr::Kind::Null:
                 c->is_null = true;
-                c->result_type = Type::make_primitive(TypeKind::Null);
+                c->result_type = m_type_checker.get_type_of_node(lit);
+                if (!c->result_type || c->result_type->is_error()) {
+                    c->result_type = Type::make_primitive(TypeKind::Null);
+                }
                 break;
         }
         return c;
@@ -413,6 +479,21 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
         return v;
     }
 
+    if (auto interpolated = dynamic_cast<const InterpolatedStringExpr*>(expr.get())) {
+        auto value = std::make_shared<IRInterpolatedString>();
+        value->kind = IROpKind::InterpolatedString;
+        value->result_type = m_type_checker.get_type_of_node(interpolated);
+        value->span = interpolated->span;
+        for (const auto& segment : interpolated->segments) {
+            IRInterpolatedStringSegment lowered;
+            lowered.text = segment.text;
+            lowered.format = segment.format;
+            if (segment.expression) lowered.value = lower_expression(segment.expression);
+            value->segments.push_back(std::move(lowered));
+        }
+        return value;
+    }
+
     if (auto bin = dynamic_cast<const BinaryExpr*>(expr.get())) {
         auto b = std::make_shared<IRBinary>();
         b->kind = IROpKind::Binary;
@@ -422,6 +503,29 @@ std::shared_ptr<IROperation> IRLowering::lower_expression(const std::shared_ptr<
         b->result_type = m_type_checker.get_type_of_node(bin);
         b->span = bin->span;
         return b;
+    }
+
+    if (auto conditional = dynamic_cast<const ConditionalExpr*>(expr.get())) {
+        auto value = std::make_shared<IRConditional>();
+        value->kind = IROpKind::Conditional;
+        value->condition = lower_expression(conditional->condition);
+        value->then_value = lower_expression(conditional->then_value);
+        value->else_value = lower_expression(conditional->else_value);
+        value->result_type = m_type_checker.get_type_of_node(conditional);
+        value->span = conditional->span;
+        return value;
+    }
+
+    if (auto match_expression = dynamic_cast<const MatchExpr*>(expr.get())) {
+        auto value = std::make_shared<IRMatchExpression>();
+        value->kind = IROpKind::MatchExpression;
+        value->subject = lower_expression(match_expression->subject);
+        value->result_type = m_type_checker.get_type_of_node(match_expression);
+        value->span = match_expression->span;
+        for (const auto& arm : match_expression->arms) {
+            value->arms.push_back({lower_match_pattern(arm.pattern), lower_expression(arm.value)});
+        }
+        return value;
     }
 
     if (auto un = dynamic_cast<const UnaryExpr*>(expr.get())) {

@@ -840,6 +840,7 @@ export class AliasWriter extends Behaviour {
         original.x = 42.0;
     }
 }
+
 )");
 
     AssetDatabase asset_database(root);
@@ -863,6 +864,77 @@ export class AliasWriter extends Behaviour {
     assert(started.started == 1 && started.failed == 0);
     runtime.update(0.016f);
     assert(std::abs(entity_manager.get_component<TransformComponent>(player).position.x - 42.0f) < 0.001f);
+
+    runtime.shutdown();
+    fs::remove_all(root, error);
+    std::cout << "PASSED\n";
+}
+
+void test_component_views_do_not_alias_between_entities() {
+    std::cout << "[Test] ComponentViews_DoNotAliasBetweenEntities... ";
+
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "engine2d_component_view_alias_tests";
+    std::error_code error;
+    fs::remove_all(root, error);
+
+    write_test_file(root / "Assets/Scripts/MultiTransformWriter.e2s", R"(
+@behaviour
+export class MultiTransformWriter extends Behaviour {
+    constructor(@inject private entities: Entities) {}
+
+    override update(deltaTime: Float): Void {
+        let firstEntity: Entity = entities.findByGameplayTag("view.first");
+        let secondEntity: Entity = entities.findByGameplayTag("view.second");
+        if (entities.exists(firstEntity) && entities.hasTransform(firstEntity)) {
+            let firstPosition: Vec2 = entities.transform(firstEntity).position;
+            firstPosition.x = firstPosition.x + 11.0;
+        }
+        if (entities.exists(secondEntity) && entities.hasTransform(secondEntity)) {
+            let secondPosition: Vec2 = entities.transform(secondEntity).position;
+            secondPosition.x = secondPosition.x + 22.0;
+        }
+    }
+}
+)");
+
+    AssetDatabase asset_database(root);
+    static_cast<void>(asset_database.scan("Assets"));
+    const AssetRecord* script_record = asset_database.find_by_path(root / "Assets/Scripts/MultiTransformWriter.e2s");
+    assert(script_record);
+
+    EntityManager entity_manager;
+    const EntityID first = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(first, TransformComponent{});
+    entity_manager.add_component<GameplayTagsComponent>(first, GameplayTagsComponent{{"view.first"}});
+
+    const EntityID second = entity_manager.create_entity();
+    entity_manager.add_component<TransformComponent>(second, TransformComponent{});
+    entity_manager.add_component<GameplayTagsComponent>(second, GameplayTagsComponent{{"view.second"}});
+
+    const EntityID writer = entity_manager.create_entity();
+    ScriptComponent script;
+    script.instances.front().enabled = true;
+    script.instances.front().script_handle = script_record->handle;
+    entity_manager.add_component<ScriptComponent>(writer, script);
+
+    ScriptRuntime runtime;
+    const ScriptRuntimeStartResult started = runtime.start(entity_manager, asset_database);
+    assert(started.started == 1 && started.failed == 0);
+    runtime.update(0.016f);
+
+    assert(std::abs(entity_manager.get_component<TransformComponent>(first).position.x - 11.0f) < 0.001f);
+    assert(std::abs(entity_manager.get_component<TransformComponent>(second).position.x - 22.0f) < 0.001f);
+
+    // A later callback must resolve fresh views instead of replaying stale snapshots.
+    runtime.update(0.016f);
+    assert(std::abs(entity_manager.get_component<TransformComponent>(first).position.x - 22.0f) < 0.001f);
+    assert(std::abs(entity_manager.get_component<TransformComponent>(second).position.x - 44.0f) < 0.001f);
+
+    // Destroyed components/entities are skipped safely by the next callback.
+    entity_manager.destroy_entity(second);
+    runtime.update(0.016f);
+    assert(std::abs(entity_manager.get_component<TransformComponent>(first).position.x - 33.0f) < 0.001f);
 
     runtime.shutdown();
     fs::remove_all(root, error);
@@ -1484,6 +1556,7 @@ int main() {
     test_collection_range_error_is_controlled();
     test_entity_transform_following_across_updates();
     test_member_initializer_keeps_component_field_reference();
+    test_component_views_do_not_alias_between_entities();
     test_exposed_component_reference_targets_other_entity();
     test_coin_pickup_spawns_prefab_at_knight_position();
     test_update_spawns_prefab_at_moved_owner_position();

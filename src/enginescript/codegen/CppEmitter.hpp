@@ -43,6 +43,11 @@ private:
     void emit_operation_statement_cpp(const IROperation* op, std::string& out, int indent);
     std::string emit_operation_cpp(const IROperation* op);
     std::string emit_truthy_cpp(const IROperation* op);
+    std::string emit_match_condition_cpp(
+        const IRMatchPattern& pattern,
+        std::string_view subject,
+        const Type* subject_type
+    ) const;
     [[nodiscard]] std::string member_access_operator(const IROperation* target) const;
     [[nodiscard]] std::string identifier_to_cpp(const std::string& identifier) const;
 

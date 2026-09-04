@@ -59,6 +59,9 @@ int main() {
 
     std::string json_out = diag.render_json(sm);
     assert(json_out.find("\"code\": \"E1001\"") != std::string::npos);
+    assert(json_out.find("\"explanation\"") != std::string::npos);
+    assert(json_out.find("\"suggestedFix\"") != std::string::npos);
+    assert(json_out.find("\"fixes\"") != std::string::npos);
 
     std::cout << "[PASS] EngineScriptSourceTests passed!\n";
     return 0;

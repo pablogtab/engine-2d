@@ -31,6 +31,25 @@
     "strings": {
       "patterns": [
         {
+          "name": "string.interpolated.backtick.enginescript",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            {
+              "name": "constant.character.escape.enginescript",
+              "match": "\\\\(`|\\$\\{|[nrt\\\\0])"
+            },
+            {
+              "name": "meta.interpolation.enginescript",
+              "begin": "\\$\\{",
+              "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.enginescript" } },
+              "end": "\\}",
+              "endCaptures": { "0": { "name": "punctuation.section.embedded.end.enginescript" } },
+              "patterns": [ { "include": "$self" } ]
+            }
+          ]
+        },
+        {
           "name": "string.quoted.double.enginescript",
           "begin": "\"",
           "end": "\"",
@@ -87,7 +106,7 @@
       "patterns": [
         {
           "name": "keyword.control.enginescript",
-          "match": "\\b(if|else|while|for|in|return|break|continue|await|async)\\b"
+          "match": "\\b(if|else|while|for|in|return|break|continue|await|async|guard|match)\\b"
         },
         {
           "name": "keyword.declaration.enginescript",
@@ -103,7 +122,7 @@
       "patterns": [
         {
           "name": "support.type.primitive.enginescript",
-          "match": "\\b(Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Int|UInt|Float|Float32|Float64|String|Vec2|Vec3|Vec4|Color|Duration|Entity|Entities|Array|FixedArray|Map|Set|Optional|Result|Task|TaskScope|Weak|Send|Equatable|Ordered|Behaviour|Input|Log|Jobs|RigidBody2D|Animator2D|Transform2D|SpriteRenderer2D|ParticleEmitter2D|Joint2D|Time|Physics|RaycastHit|Display|Audio|Scene|Assets|Asset|Texture|AudioClip|Font|DataAsset|Path|Events|PlayerPrefs|UI|Tilemap|Particles|ParticleEffect2D|ParticleEmitOptions)\\b"
+          "match": "\\b(Void|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Int|UInt|Float|Float32|Float64|String|Vec2|Vec3|Vec4|Color|Rect|Bounds2|Duration|Entity|Entities|Array|Deque|FixedArray|Map|Set|Optional|Result|Task|TaskScope|Weak|Send|Equatable|Ordered|Behaviour|Input|Log|Jobs|RigidBody2D|Animator2D|Transform2D|SpriteRenderer2D|ParticleEmitter2D|Joint2D|Time|Physics|RaycastHit|Display|Audio|Scene|Assets|Asset|Texture|AudioClip|Font|DataAsset|Path|Events|PlayerPrefs|UI|Tilemap|Particles|ParticleEffect2D|ParticleEmitOptions)\\b"
         },
         {
           "name": "entity.name.type.class.enginescript",

@@ -1,0 +1,9 @@
+function invalid(optionalValue: Int?, required: Int = 1): String {
+    guard (let value = optionalValue) else { let noExit = 0; }
+    let incomplete = match (true) { true => "yes" };
+    return `${value:02}`;
+}
+
+function callInvalid(): String {
+    return invalid(missing: 1, null);
+}

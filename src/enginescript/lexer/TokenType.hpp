@@ -33,6 +33,8 @@ enum class TokenType {
     Else,
     While,
     For,
+    Guard,
+    Match,
     In,
     Return,
     Break,
@@ -48,6 +50,11 @@ enum class TokenType {
     FloatLiteral,
     DurationLiteral,
     StringLiteral,
+    TemplateStart,
+    TemplateText,
+    TemplateExprStart,
+    TemplateExprEnd,
+    TemplateEnd,
 
     // Symbols & Operators
     At,                // @
@@ -125,6 +132,8 @@ inline const char* token_type_to_string(TokenType type) {
         case TokenType::Else:              return "else";
         case TokenType::While:             return "while";
         case TokenType::For:               return "for";
+        case TokenType::Guard:             return "guard";
+        case TokenType::Match:             return "match";
         case TokenType::In:                return "in";
         case TokenType::Return:            return "return";
         case TokenType::Break:             return "break";
@@ -138,6 +147,11 @@ inline const char* token_type_to_string(TokenType type) {
         case TokenType::FloatLiteral:      return "FloatLiteral";
         case TokenType::DurationLiteral:   return "DurationLiteral";
         case TokenType::StringLiteral:     return "StringLiteral";
+        case TokenType::TemplateStart:     return "TemplateStart";
+        case TokenType::TemplateText:      return "TemplateText";
+        case TokenType::TemplateExprStart: return "TemplateExprStart";
+        case TokenType::TemplateExprEnd:   return "TemplateExprEnd";
+        case TokenType::TemplateEnd:       return "TemplateEnd";
         case TokenType::At:                return "@";
         case TokenType::Dot:               return ".";
         case TokenType::QuestionDot:       return "?.";

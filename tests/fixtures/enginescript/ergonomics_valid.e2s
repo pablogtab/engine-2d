@@ -1,0 +1,26 @@
+export enum EnemyState { Idle, Chase, Attack }
+
+export struct ScoreLabel {
+    value: Int;
+    toString(): String { return `Score ${value:04}`; }
+}
+
+export function scaledDamage(base: Int, multiplier: Int = 1): Int {
+    return base * multiplier;
+}
+
+export class ErgonomicsExample {
+    @expose state: EnemyState = EnemyState.Idle;
+
+    describe(label: ScoreLabel, target: Entity?): String {
+        let pending: Deque<Int> = Deque<Int>();
+        pending.pushBack(scaledDamage(10, multiplier: 2));
+        let stateText = match (state) {
+            EnemyState.Idle => "idle",
+            EnemyState.Chase => "chase",
+            EnemyState.Attack => "attack"
+        };
+        if (let entity = target) return `${label}: ${stateText} @ ${entity.id}`;
+        return `${label}: ${stateText}`;
+    }
+}

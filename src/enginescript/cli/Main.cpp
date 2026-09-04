@@ -16,7 +16,8 @@ void print_usage() {
               << "  -o, --output <dir>    Output directory for generated C++ and metadata (default: <project_dir>/.e2s_build)\n"
               << "  -c, --check           Type-check and verify without generating C++ files\n"
               << "  --native-module        Build the native gameplay module under Library/EngineScript\n"
-              << "  --json-diagnostics    Emit diagnostics as JSON formatted strings\n"
+              << "  --json, --json-diagnostics\n"
+              << "                         Emit a machine-readable result with detailed diagnostics\n"
               << "  -v, --version         Print version information\n"
               << "  -h, --help            Show this help message\n";
 }
@@ -44,7 +45,7 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (arg == "-c" || arg == "--check") {
             check_only = true;
-        } else if (arg == "--json-diagnostics") {
+        } else if (arg == "--json" || arg == "--json-diagnostics") {
             json_diagnostics = true;
         } else if (arg == "--native-module") {
             native_module = true;
@@ -83,19 +84,26 @@ int main(int argc, char* argv[]) {
     const size_t file_count = workspace.discover_project_sources();
 
     if (file_count == 0) {
-        std::cout << "No .e2s source files found in " << project_dir << "\n";
+        if (json_diagnostics) {
+            std::cout << "{\"success\":true,\"error_count\":0,\"warning_count\":0,"
+                         "\"generic_instantiations\":0,\"generated_cpp_bytes\":0,\"diagnostics\":[]}\n";
+        } else {
+            std::cout << "No .e2s source files found in " << project_dir << "\n";
+        }
         return 0;
     }
 
     CompilationResult res = workspace.compile();
 
     if (json_diagnostics) {
-        // Output JSON format
-        std::cout << "{\"error_count\":" << res.error_count 
+        std::cout << "{\"error_count\":" << res.error_count
                   << ",\"warning_count\":" << res.warning_count 
                   << ",\"generic_instantiations\":" << res.generic_code_growth.unique_instantiations
                   << ",\"generated_cpp_bytes\":" << res.generic_code_growth.generated_cpp_bytes
-                  << ",\"success\":" << (res.success ? "true" : "false") << "}\n";
+                  << ",\"success\":" << (res.success ? "true" : "false")
+                  << ",\"diagnostics\":"
+                  << workspace.diagnostic_engine().render_json(workspace.source_manager())
+                  << "}\n";
     }
 
     if (!res.success) {
@@ -114,8 +122,10 @@ int main(int argc, char* argv[]) {
     }
 
     if (check_only) {
-        std::cout << "Verification successful. " << file_count << " files checked with 0 errors; "
-                  << res.generic_code_growth.unique_instantiations << " concrete generic instantiations.\n";
+        if (!json_diagnostics) {
+            std::cout << "Verification successful. " << file_count << " files checked with 0 errors; "
+                      << res.generic_code_growth.unique_instantiations << " concrete generic instantiations.\n";
+        }
         return 0;
     }
 
@@ -125,7 +135,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "Native module build failed: " << native.error << "\n";
             return 1;
         }
-        std::cout << "Built native EngineScript module: " << native.library_path << "\n";
+        if (!json_diagnostics) std::cout << "Built native EngineScript module: " << native.library_path << "\n";
         return 0;
     }
 
@@ -159,10 +169,12 @@ int main(int argc, char* argv[]) {
             fs::path(project_dir).filename().string()
         );
 
-        std::cout << "Successfully compiled " << file_count << " EngineScript files into " << output_dir << "\n"
-                  << "Generic code growth: " << res.generic_code_growth.unique_instantiations
-                  << " concrete instantiations across " << res.generic_code_growth.generated_cpp_bytes
-                  << " generated C++ bytes.\n";
+        if (!json_diagnostics) {
+            std::cout << "Successfully compiled " << file_count << " EngineScript files into " << output_dir << "\n"
+                      << "Generic code growth: " << res.generic_code_growth.unique_instantiations
+                      << " concrete instantiations across " << res.generic_code_growth.generated_cpp_bytes
+                      << " generated C++ bytes.\n";
+        }
     } catch (const std::exception& ex) {
         std::cerr << "Error writing build output: " << ex.what() << "\n";
         return 1;

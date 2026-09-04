@@ -922,6 +922,40 @@ int main() {
         ["file:///workspace/Actions/Source/Formatter.e2s"][0]["newText"].get<std::string>().find(
         "format(value: Int): String") != std::string::npos);
 
+    const std::string guard_uri = "file:///workspace/Actions/Source/Guard.e2s";
+    static_cast<void>(action_server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didOpen"},
+        {"params", {{"textDocument", {
+            {"uri", guard_uri}, {"version", 1},
+            {"text",
+                "function update(value: Int?): Void {\n"
+                "    guard (let current = value) else {\n"
+                "        let ignored: Int = 1;\n"
+                "    }\n"
+                "}\n"}
+        }}}}
+    }.dump()));
+    const json guard_diagnostic = {
+        {"code", "E3103"},
+        {"message", "Guard else branch must end with return, break, or continue"},
+        {"range", {
+            {"start", {{"line", 1}, {"character", 43}}},
+            {"end", {{"line", 3}, {"character", 5}}}
+        }}
+    };
+    const json guard_actions = json::parse(action_server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 321}, {"method", "textDocument/codeAction"},
+        {"params", {
+            {"textDocument", {{"uri", guard_uri}}},
+            {"range", guard_diagnostic["range"]},
+            {"context", {{"diagnostics", json::array({guard_diagnostic})}}}
+        }}
+    }.dump()));
+    assert(guard_actions["result"].size() == 1);
+    assert(guard_actions["result"][0]["title"] == "Terminate guard else with return");
+    assert(guard_actions["result"][0]["edit"]["changes"][guard_uri][0]["newText"] ==
+        "    return;\n    ");
+
     const json removed_change = {
         {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
         {"params", {
@@ -1094,6 +1128,99 @@ int main() {
         "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"options":{"tabSize":4,"insertSpaces":true}}
     })"));
     assert(invalid_formatting["result"].empty());
+
+    const std::string ergonomics_document =
+        "function use(values: Deque<Int>, value: Int): String {\n"
+        "    values.\n"
+        "    return `Value ${value}`;\n"
+        "}\n";
+    static_cast<void>(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 36}}},
+            {"contentChanges", json::array({{{"text", ergonomics_document}}})}
+        }}
+    }.dump()));
+    const json deque_completion = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":44, "method":"textDocument/completion",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"position":{"line":1,"character":11}}
+    })"));
+    bool has_push_front = false;
+    bool has_pop_back = false;
+    bool has_is_empty = false;
+    for (const auto& item : deque_completion["result"]) {
+        has_push_front |= item["label"] == "pushFront";
+        has_pop_back |= item["label"] == "popBack";
+        has_is_empty |= item["label"] == "isEmpty";
+    }
+    assert(has_push_front && has_pop_back && has_is_empty);
+
+    const json semantic = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":45, "method":"textDocument/semanticTokens/full",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"}}
+    })"));
+    bool has_template_string_token = false;
+    const auto& ergonomics_semantic_data = semantic["result"]["data"];
+    for (std::size_t index = 0; index + 4 < ergonomics_semantic_data.size(); index += 5) {
+        has_template_string_token |= ergonomics_semantic_data[index + 3] == 14;
+    }
+    assert(has_template_string_token);
+
+    const std::string named_signature_document =
+        "function scaled(base: Int, multiplier: Int = 2, bonus: Int = 0): Int { return base * multiplier + bonus; }\n"
+        "function invoke(): Int { return scaled(1, bonus: 3, multiplier: 4); }\n";
+    static_cast<void>(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 37}}},
+            {"contentChanges", json::array({{{"text", named_signature_document}}})}
+        }}
+    }.dump()));
+    const std::size_t named_cursor = named_signature_document.substr(named_signature_document.find('\n') + 1)
+        .find("multiplier:") + std::string("multiplier:").size();
+    const json named_signature = json::parse(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"id", 451}, {"method", "textDocument/signatureHelp"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}}},
+            {"position", {{"line", 1}, {"character", named_cursor}}}
+        }}
+    }.dump()));
+    assert(named_signature["result"]["signatures"][0]["label"].get<std::string>().find(
+        "multiplier: Int = 2") != std::string::npos);
+    assert(named_signature["result"]["activeParameter"] == 1);
+
+    const std::string template_format_document =
+        "function formatted(): Void {\n"
+        "let text = `first\n"
+        "  keep this indentation\n"
+        "last`;\n"
+        "return;\n"
+        "}\n";
+    static_cast<void>(server.handle_message(json{
+        {"jsonrpc", "2.0"}, {"method", "textDocument/didChange"},
+        {"params", {
+            {"textDocument", {{"uri", "file:///workspace/My%20Game/Source/Player.e2s"}, {"version", 38}}},
+            {"contentChanges", json::array({{{"text", template_format_document}}})}
+        }}
+    }.dump()));
+    const json template_formatting = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":46, "method":"textDocument/formatting",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"},"options":{"tabSize":4,"insertSpaces":true}}
+    })"));
+    assert(template_formatting["result"].size() == 1);
+    const std::string formatted_template = template_formatting["result"][0]["newText"];
+    assert(formatted_template.find("  keep this indentation") != std::string::npos);
+    assert(formatted_template.find("    return;\n}") != std::string::npos);
+    const json multiline_semantic = json::parse(server.handle_message(R"({
+        "jsonrpc":"2.0", "id":47, "method":"textDocument/semanticTokens/full",
+        "params":{"textDocument":{"uri":"file:///workspace/My%20Game/Source/Player.e2s"}}
+    })"));
+    std::size_t multiline_string_tokens = 0;
+    const auto& multiline_data = multiline_semantic["result"]["data"];
+    for (std::size_t index = 0; index + 4 < multiline_data.size(); index += 5) {
+        multiline_string_tokens += multiline_data[index + 3] == 14;
+    }
+    assert(multiline_string_tokens >= 3);
     fs::remove_all(discovery_root);
 
     std::cout << "[PASS] EngineScriptLspTests passed!\n";

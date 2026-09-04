@@ -35,6 +35,7 @@ enum class TypeKind {
     Interface,
     Enum,
     Array,
+    Deque,
     FixedArray,
     Map,
     Set,

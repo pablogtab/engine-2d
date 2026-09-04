@@ -144,6 +144,43 @@ std::string base_type_name(std::string type_name) {
     return type_name;
 }
 
+bool span_contains_offset(const SourceSpan& span, uint32_t offset) {
+    return span.is_valid() && offset >= span.start_offset && offset <= span.end_offset;
+}
+
+bool is_void_return(const std::optional<TypeAnnotation>& return_type) {
+    return !return_type ||
+        (return_type->name == "Void" && !return_type->is_nullable && return_type->generic_args.empty());
+}
+
+bool is_inside_void_callable(const ModuleNode& module, uint32_t offset) {
+    for (const auto& declaration : module.declarations) {
+        if (const auto* function = dynamic_cast<const FunctionDecl*>(declaration.get());
+            function && function->body && span_contains_offset(function->body->span, offset)) {
+            return is_void_return(function->return_type);
+        }
+
+        const auto inspect_owner = [&](const auto* owner) -> std::optional<bool> {
+            if (!owner) return std::nullopt;
+            if constexpr (requires { owner->constructor_decl; }) {
+                if (owner->constructor_decl && owner->constructor_decl->body &&
+                    span_contains_offset(owner->constructor_decl->body->span, offset)) {
+                    return true;
+                }
+            }
+            for (const auto& method : owner->methods) {
+                if (method->body && span_contains_offset(method->body->span, offset)) {
+                    return is_void_return(method->return_type);
+                }
+            }
+            return std::nullopt;
+        };
+        if (const auto result = inspect_owner(dynamic_cast<const ClassDecl*>(declaration.get()))) return *result;
+        if (const auto result = inspect_owner(dynamic_cast<const StructDecl*>(declaration.get()))) return *result;
+    }
+    return false;
+}
+
 std::string parameter_signature(const ApiParameterDescriptor& parameter) {
     std::string signature = parameter.name + ": " + parameter.type;
     if (!parameter.default_value.empty()) signature += " = " + parameter.default_value;
@@ -250,6 +287,25 @@ std::string callable_snippet(
         snippet += ")$0";
     }
     return snippet;
+}
+
+uint32_t active_parameter_index(
+    std::string_view call_prefix,
+    const std::vector<std::string>& parameter_names
+) {
+    const std::size_t open = call_prefix.rfind('(');
+    if (open == std::string_view::npos) return 0;
+    const std::string_view arguments = call_prefix.substr(open + 1);
+    const std::size_t current_start = arguments.rfind(',') == std::string_view::npos
+        ? 0 : arguments.rfind(',') + 1;
+    const std::string current(arguments.substr(current_start));
+    static const std::regex named_pattern(R"(^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:)");
+    std::smatch named;
+    if (std::regex_search(current, named, named_pattern)) {
+        const auto found = std::find(parameter_names.begin(), parameter_names.end(), named[1].str());
+        if (found != parameter_names.end()) return static_cast<uint32_t>(found - parameter_names.begin());
+    }
+    return static_cast<uint32_t>(std::count(arguments.begin(), arguments.end(), ','));
 }
 
 std::optional<std::string> infer_initializer_type(
@@ -899,7 +955,8 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
     std::vector<std::string> kw = {
         "class", "struct", "interface", "export", "import", "from", "extends",
         "let", "const", "if", "else", "while", "for", "return", "async", "await",
-        "override", "constructor", "private", "protected", "public"
+        "override", "constructor", "private", "protected", "public", "enum", "match",
+        "guard", "break", "continue", "true", "false", "null"
     };
     if (!completing_decorator) {
         for (const auto& k : kw) {
@@ -916,12 +973,16 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
         });
         for (const ApiFunctionDescriptor& function : ApiCatalog::instance().functions()) {
             if (function.availability != ApiAvailability::Available) continue;
+            const uint32_t minimum_arguments = static_cast<uint32_t>(std::count_if(
+                function.parameters.begin(), function.parameters.end(),
+                [](const auto& parameter) { return !parameter.optional; }
+            ));
             items.push_back({
                 {"label", function.name},
                 {"kind", 3},
                 {"detail", callable_signature(
                     function.name, function.parameters,
-                    static_cast<uint32_t>(function.parameters.size()),
+                    minimum_arguments,
                     static_cast<uint32_t>(function.parameters.size()), function.return_type)},
                 {"insertTextFormat", 2},
                 {"insertText", callable_snippet(
@@ -936,6 +997,30 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
             {"insertTextFormat", 2},
             {"insertText", "override update(deltaTime: Float): Void {\\n    $0\\n}"},
             {"sortText", "3_update"}
+        });
+        items.push_back({
+            {"label", "guard let"},
+            {"kind", 15},
+            {"detail", "Unwrap a nullable value or terminate the current flow"},
+            {"insertTextFormat", 2},
+            {"insertText", "guard (let ${1:value} = ${2:optional}) else {\n    ${3:return};\n}\n$0"},
+            {"sortText", "3_guard_let"}
+        });
+        items.push_back({
+            {"label", "match expression"},
+            {"kind", 15},
+            {"detail", "Exhaustive match expression"},
+            {"insertTextFormat", 2},
+            {"insertText", "match (${1:value}) {\n    ${2:pattern} => ${3:result},\n    _ => ${4:fallback}\n}$0"},
+            {"sortText", "3_match_expression"}
+        });
+        items.push_back({
+            {"label", "interpolated string"},
+            {"kind", 15},
+            {"detail", "EngineScript interpolated string"},
+            {"insertTextFormat", 2},
+            {"insertText", "`${1:Text }\\${${2:value}}`$0"},
+            {"sortText", "3_interpolated_string"}
         });
     }
 
@@ -1228,19 +1313,84 @@ std::string LanguageServer::on_signature_help(
     for (const ApiFunctionDescriptor& function : ApiCatalog::instance().functions()) {
         if (function.availability != ApiAvailability::Available || function.name != name) continue;
         json parameters = json::array();
-        for (const auto& parameter : function.parameters) parameters.push_back({{"label", parameter_signature(parameter)}});
+        std::vector<std::string> parameter_names;
+        for (const auto& parameter : function.parameters) {
+            parameters.push_back({{"label", parameter_signature(parameter)}});
+            parameter_names.push_back(parameter.name);
+        }
+        const uint32_t minimum = static_cast<uint32_t>(std::count_if(function.parameters.begin(), function.parameters.end(),
+            [](const auto& parameter) { return !parameter.optional; }));
         response["result"] = {{"signatures", {{{"label", callable_signature(name, function.parameters,
-            static_cast<uint32_t>(function.parameters.size()), static_cast<uint32_t>(function.parameters.size()), function.return_type)},
-            {"parameters", parameters}}}}, {"activeSignature", 0}, {"activeParameter", 0}};
+            minimum, static_cast<uint32_t>(function.parameters.size()), function.return_type)},
+            {"parameters", parameters}}}}, {"activeSignature", 0},
+            {"activeParameter", active_parameter_index(prefix, parameter_names)}};
         return response.dump();
     }
     for (const ApiMethodDescriptor& method : ApiCatalog::instance().methods()) {
         if (method.availability != ApiAvailability::Available || method.name != name) continue;
         json parameters = json::array();
-        for (const auto& parameter : method.parameters) parameters.push_back({{"label", parameter_signature(parameter)}});
+        std::vector<std::string> parameter_names;
+        for (const auto& parameter : method.parameters) {
+            parameters.push_back({{"label", parameter_signature(parameter)}});
+            parameter_names.push_back(parameter.name);
+        }
         response["result"] = {{"signatures", {{{"label", callable_signature(name, method.parameters, method.min_arguments,
-            method.max_arguments, method.return_type)}, {"parameters", parameters}}}}, {"activeSignature", 0}, {"activeParameter", 0}};
+            method.max_arguments, method.return_type)}, {"parameters", parameters}}}}, {"activeSignature", 0},
+            {"activeParameter", active_parameter_index(prefix, parameter_names)}};
         return response.dump();
+    }
+
+    for (const SourceFile& source : m_workspace.source_manager().all_files()) {
+        DiagnosticEngine recovery_diagnostics;
+        Lexer lexer(source.id, source.content, recovery_diagnostics);
+        Parser parser(source.id, source.path, lexer.tokenize_all(), recovery_diagnostics);
+        const auto module = parser.parse_module();
+        if (!module) continue;
+        const auto make_signature = [&](const auto& parameters, std::string_view return_type) {
+            std::string label = name + "(";
+            json parameter_items = json::array();
+            std::vector<std::string> parameter_names;
+            for (std::size_t index = 0; index < parameters.size(); ++index) {
+                if (index > 0) label += ", ";
+                const auto& parameter = parameters[index];
+                std::string parameter_label = parameter->name + ": " + parameter->type_annotation.to_string();
+                if (parameter->default_value && parameter->default_value->span.end_offset <= source.content.size()) {
+                    parameter_label += " = " + source.content.substr(
+                        parameter->default_value->span.start_offset,
+                        parameter->default_value->span.end_offset - parameter->default_value->span.start_offset
+                    );
+                }
+                label += parameter_label;
+                parameter_items.push_back({{"label", parameter_label}});
+                parameter_names.push_back(parameter->name);
+            }
+            label += ") -> " + std::string(return_type);
+            response["result"] = {{"signatures", {{{"label", label}, {"parameters", parameter_items}}}},
+                {"activeSignature", 0}, {"activeParameter", active_parameter_index(prefix, parameter_names)}};
+        };
+        for (const auto& declaration : module->declarations) {
+            if (const auto* function = dynamic_cast<const FunctionDecl*>(declaration.get());
+                function && function->name == name) {
+                make_signature(function->params, function->return_type ? function->return_type->to_string() : "Void");
+                return response.dump();
+            }
+            if (const auto* class_declaration = dynamic_cast<const ClassDecl*>(declaration.get());
+                class_declaration && class_declaration->name == name && class_declaration->constructor_decl) {
+                make_signature(class_declaration->constructor_decl->params, class_declaration->name);
+                return response.dump();
+            }
+            const auto inspect_members = [&](const auto* owner) {
+                if (!owner) return false;
+                for (const auto& method : owner->methods) {
+                    if (method->name != name) continue;
+                    make_signature(method->params, method->return_type ? method->return_type->to_string() : "Void");
+                    return true;
+                }
+                return false;
+            };
+            if (inspect_members(dynamic_cast<const ClassDecl*>(declaration.get())) ||
+                inspect_members(dynamic_cast<const StructDecl*>(declaration.get()))) return response.dump();
+        }
     }
     return response.dump();
 }
@@ -1324,16 +1474,17 @@ std::string LanguageServer::on_formatting(const std::string& id, const std::stri
     int indent = 0;
     uint32_t line_count = 0;
     bool in_block_comment = false;
+    bool in_template = false;
     while (std::getline(input, line)) {
         ++line_count;
         const std::size_t first = line.find_first_not_of(" \t\r");
         std::string trimmed = first == std::string::npos ? std::string{} : line.substr(first);
         std::size_t leading_closes = 0;
-        if (!in_block_comment) {
+        if (!in_block_comment && !in_template) {
             while (leading_closes < trimmed.size() && trimmed[leading_closes] == '}') ++leading_closes;
         }
         const int line_indent = std::max(0, indent - static_cast<int>(leading_closes));
-        if (invalid_lines.contains(line_count - 1)) {
+        if (invalid_lines.contains(line_count - 1) || in_template) {
             formatted += line;
         } else {
             if (!trimmed.empty()) formatted.append(static_cast<std::size_t>(line_indent) * 4, ' ');
@@ -1351,6 +1502,15 @@ std::string LanguageServer::on_formatting(const std::string& id, const std::stri
                     in_block_comment = false;
                     ++index;
                 }
+                continue;
+            }
+            if (!in_string && character_value == '`' && !escaped) {
+                in_template = !in_template;
+                continue;
+            }
+            if (in_template) {
+                escaped = character_value == '\\' && !escaped;
+                if (character_value != '\\') escaped = false;
                 continue;
             }
             if (!in_string && character_value == '/' && index + 1 < trimmed.size()) {
@@ -1403,6 +1563,64 @@ std::string LanguageServer::on_code_action(
         const std::string code = diagnostic.value("code", "");
         const std::string message = diagnostic.value("message", "");
         std::smatch match;
+        if (code == "E3103" && current_file && diagnostic.contains("range")) {
+            const json& range = diagnostic["range"];
+            const auto start_offset = byte_offset_at(
+                m_workspace.source_manager(), current_file->id,
+                range["start"].value("line", 0U), range["start"].value("character", 0U));
+            const auto end_offset = byte_offset_at(
+                m_workspace.source_manager(), current_file->id,
+                range["end"].value("line", 0U), range["end"].value("character", 0U));
+            if (!start_offset || !end_offset || *end_offset <= *start_offset ||
+                *end_offset > current_file->content.size()) {
+                continue;
+            }
+
+            std::size_t closing_brace = *end_offset;
+            while (closing_brace > *start_offset &&
+                   std::isspace(static_cast<unsigned char>(current_file->content[closing_brace - 1]))) {
+                --closing_brace;
+            }
+            if (closing_brace == *start_offset || current_file->content[closing_brace - 1] != '}') continue;
+            --closing_brace;
+
+            DiagnosticEngine recovery_diagnostics;
+            Lexer lexer(current_file->id, current_file->content, recovery_diagnostics);
+            Parser parser(current_file->id, current_file->path, lexer.tokenize_all(), recovery_diagnostics);
+            const auto module = parser.parse_module();
+            if (!module || !is_inside_void_callable(*module, *start_offset)) continue;
+
+            const std::size_t line_start_position = current_file->content.rfind('\n', closing_brace);
+            const std::size_t line_start = line_start_position == std::string::npos ? 0 : line_start_position + 1;
+            const std::string prefix = current_file->content.substr(line_start, closing_brace - line_start);
+            const bool brace_on_indented_line = std::all_of(prefix.begin(), prefix.end(), [](char value) {
+                return value == ' ' || value == '\t';
+            });
+            const std::size_t indent_end = current_file->content.find_first_not_of(" \t", line_start);
+            const std::string indent = current_file->content.substr(
+                line_start,
+                (indent_end == std::string::npos || indent_end > closing_brace ? closing_brace : indent_end) - line_start
+            );
+            const std::string insertion_text = brace_on_indented_line
+                ? "    return;\n" + prefix
+                : "\n" + indent + "    return;\n" + indent;
+            const SourceLocation insertion = m_workspace.source_manager().get_location(
+                current_file->id, static_cast<uint32_t>(closing_brace));
+            const json insertion_range = {
+                {"start", {{"line", insertion.line - 1}, {"character", insertion.column - 1}}},
+                {"end", {{"line", insertion.line - 1}, {"character", insertion.column - 1}}}
+            };
+            actions.push_back({
+                {"title", "Terminate guard else with return"},
+                {"kind", "quickfix"},
+                {"diagnostics", json::array({diagnostic})},
+                {"edit", {{"changes", {{uri, json::array({{
+                    {"range", insertion_range}, {"newText", insertion_text}
+                }})}}}}}
+            });
+            continue;
+        }
+
         if (code == "E3010" && std::regex_search(message, match, destination_pattern) && match[1].str() != "String" &&
             numeric_type_for_name(match[1].str())) {
             const json range = diagnostic["range"];
@@ -1582,12 +1800,27 @@ std::string LanguageServer::on_semantic_tokens(const std::string& id, const std:
         uint32_t previous_line = 0;
         uint32_t previous_start = 0;
         TokenType previous_type = TokenType::Invalid;
+        auto append_semantic_token = [&](uint32_t token_line, uint32_t start,
+                                               uint32_t length, uint32_t type,
+                                               uint32_t modifiers) mutable {
+            if (length == 0) return;
+            const uint32_t delta_line = token_line - previous_line;
+            const uint32_t delta_start = delta_line == 0 ? start - previous_start : start;
+            data.push_back(delta_line);
+            data.push_back(delta_start);
+            data.push_back(length);
+            data.push_back(type);
+            data.push_back(modifiers);
+            previous_line = token_line;
+            previous_start = start;
+        };
         for (const Token& token : tokens) {
             uint32_t type = 0;
             uint32_t modifiers = 0;
             bool emit = true;
             if (token.is_keyword()) type = 13;
-            else if (token.type == TokenType::StringLiteral) type = 14;
+            else if (token.type == TokenType::StringLiteral || token.type == TokenType::TemplateStart ||
+                     token.type == TokenType::TemplateText || token.type == TokenType::TemplateEnd) type = 14;
             else if (token.type == TokenType::IntegerLiteral || token.type == TokenType::FloatLiteral ||
                      token.type == TokenType::DurationLiteral) type = 15;
             else if (token.type == TokenType::Identifier) {
@@ -1606,17 +1839,19 @@ std::string LanguageServer::on_semantic_tokens(const std::string& id, const std:
                 emit = false;
             }
             if (emit && token.span.is_valid()) {
-                const uint32_t line = token.span.start_line - 1;
-                const uint32_t start = token.span.start_column - 1;
-                const uint32_t delta_line = line - previous_line;
-                const uint32_t delta_start = delta_line == 0 ? start - previous_start : start;
-                data.push_back(delta_line);
-                data.push_back(delta_start);
-                data.push_back(static_cast<uint32_t>(token.text.size()));
-                data.push_back(type);
-                data.push_back(modifiers);
-                previous_line = line;
-                previous_start = start;
+                if (token.span.start_line == token.span.end_line) {
+                    append_semantic_token(token.span.start_line - 1, token.span.start_column - 1,
+                        token.span.end_column - token.span.start_column, type, modifiers);
+                } else {
+                    for (uint32_t source_line = token.span.start_line; source_line <= token.span.end_line; ++source_line) {
+                        const std::string source_text = m_workspace.source_manager().get_line_content(file->id, source_line);
+                        const uint32_t start = source_line == token.span.start_line
+                            ? token.span.start_column - 1 : 0;
+                        const uint32_t end = source_line == token.span.end_line
+                            ? token.span.end_column - 1 : static_cast<uint32_t>(source_text.size());
+                        if (end > start) append_semantic_token(source_line - 1, start, end - start, type, modifiers);
+                    }
+                }
             }
             previous_type = token.type;
         }

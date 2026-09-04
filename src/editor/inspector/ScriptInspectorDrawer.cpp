@@ -101,10 +101,16 @@ void synchronize_fields(ScriptBehaviourSlot& instance, const std::vector<ScriptP
             [&definition](const ScriptPublicField& field) {
                 return field.name == definition.name && field.type == definition.type &&
                     field.component_type == definition.component_type &&
+                    field.enum_type == definition.enum_type &&
                     script_field_value_matches_type(field);
             }
         );
-        synchronized.push_back(existing == instance.public_fields.end() ? definition : *existing);
+        if (existing == instance.public_fields.end()) {
+            synchronized.push_back(definition);
+        } else {
+            synchronized.push_back(*existing);
+            synchronized.back().enum_values = definition.enum_values;
+        }
     }
     instance.public_fields = std::move(synchronized);
 }
@@ -360,6 +366,30 @@ void ScriptInspectorDrawer::draw(
                     std::snprintf(buffer.data(), buffer.size(), "%s", std::get<std::string>(field.value).c_str());
                     changed = InspectorWidgets::property_text(field.name.c_str(), buffer.data(), buffer.size());
                     if (changed) field.value = std::string(buffer.data());
+                    break;
+                }
+                case ScriptFieldType::Enum: {
+                    const std::string current = std::get<std::string>(field.value);
+                    const auto selected = std::find(field.enum_values.begin(), field.enum_values.end(), current);
+                    int index = selected == field.enum_values.end()
+                        ? -1 : static_cast<int>(std::distance(field.enum_values.begin(), selected));
+                    std::vector<const char*> labels;
+                    labels.reserve(field.enum_values.size());
+                    for (const auto& value : field.enum_values) labels.push_back(value.c_str());
+                    changed = InspectorWidgets::property_enum(
+                        field.name.c_str(), &index, labels.data(), static_cast<int>(labels.size())
+                    );
+                    if (changed && index >= 0 && index < static_cast<int>(field.enum_values.size())) {
+                        field.value = field.enum_values[static_cast<std::size_t>(index)];
+                    }
+                    if (selected == field.enum_values.end() && !current.empty()) {
+                        ImGui::TextColored(
+                            ImVec4(0.95f, 0.38f, 0.32f, 1.0f),
+                            "Invalid %s member: %s",
+                            field.enum_type.c_str(), current.c_str()
+                        );
+                    }
+                    discrete = changed;
                     break;
                 }
                 case ScriptFieldType::Vector2: {

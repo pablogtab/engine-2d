@@ -356,6 +356,12 @@ void test_engine_capabilities_report_the_compiled_contract() {
          EngineScript::ENGINE_SCRIPT_ABI_VERSION);
   assert(result.output.at("engine_script").at("sdk_hash") ==
          EngineScript::ENGINE_SCRIPT_SDK_HASH);
+  assert(result.output.at("engine_script").at("language_version") ==
+         EngineScript::ENGINE_SCRIPT_LANGUAGE_VERSION);
+  assert(result.output.at("engine_script").at("compiler_cache_id") ==
+         EngineScript::ENGINE_SCRIPT_COMPILER_CACHE_ID);
+  assert(result.output.at("engine_script").at("features").at("exhaustive_match") == true);
+  assert(result.output.at("engine_script").at("features").at("deque") == true);
   const auto &components = result.output.at("registered_components");
   assert(std::any_of(components.begin(), components.end(),
                      [](const nlohmann::json &component) {

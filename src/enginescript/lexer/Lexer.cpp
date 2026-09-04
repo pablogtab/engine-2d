@@ -30,6 +30,8 @@ static const std::unordered_map<std::string_view, TokenType> s_keywords = {
     {"else",        TokenType::Else},
     {"while",       TokenType::While},
     {"for",         TokenType::For},
+    {"guard",       TokenType::Guard},
+    {"match",       TokenType::Match},
     {"in",          TokenType::In},
     {"return",      TokenType::Return},
     {"break",       TokenType::Break},
@@ -320,7 +322,68 @@ Token Lexer::scan_string() {
     return tok;
 }
 
+Token Lexer::scan_template_text() {
+    std::string parsed;
+    while (!is_at_end()) {
+        if (peek() == '`' || (peek() == '$' && peek_next() == '{')) break;
+
+        if (peek() == '\\') {
+            advance();
+            if (is_at_end()) break;
+            const char escaped = advance();
+            switch (escaped) {
+                case 'n': parsed.push_back('\n'); break;
+                case 't': parsed.push_back('\t'); break;
+                case 'r': parsed.push_back('\r'); break;
+                case '\\': parsed.push_back('\\'); break;
+                case '`': parsed.push_back('`'); break;
+                case '$':
+                    if (peek() == '{') {
+                        advance();
+                        parsed += "${";
+                    } else {
+                        parsed.push_back('$');
+                    }
+                    break;
+                default: parsed.push_back(escaped); break;
+            }
+        } else {
+            parsed.push_back(advance());
+        }
+    }
+
+    Token token = make_token(TokenType::TemplateText);
+    token.string_value = std::move(parsed);
+    return token;
+}
+
 Token Lexer::next_token() {
+    if (m_in_template_text) {
+        m_start = m_current;
+        m_start_line = m_line;
+        m_start_column = m_column;
+
+        if (is_at_end()) {
+            m_in_template_text = false;
+            m_diagnostics.report_error("E0005", "Unterminated interpolated string", current_span(m_start));
+            return make_token(TokenType::Eof, "");
+        }
+        if (peek() == '`') {
+            advance();
+            m_in_template_text = false;
+            return make_token(TokenType::TemplateEnd);
+        }
+        if (peek() == '$' && peek_next() == '{') {
+            advance();
+            advance();
+            m_in_template_text = false;
+            m_in_template_expression = true;
+            m_template_brace_depth = 0;
+            return make_token(TokenType::TemplateExprStart);
+        }
+        return scan_template_text();
+    }
+
     skip_whitespace_and_comments();
 
     m_start = m_current;
@@ -345,8 +408,19 @@ Token Lexer::next_token() {
         case '@': return make_token(TokenType::At);
         case '(': return make_token(TokenType::OpenParen);
         case ')': return make_token(TokenType::CloseParen);
-        case '{': return make_token(TokenType::OpenBrace);
-        case '}': return make_token(TokenType::CloseBrace);
+        case '{':
+            if (m_in_template_expression) ++m_template_brace_depth;
+            return make_token(TokenType::OpenBrace);
+        case '}':
+            if (m_in_template_expression) {
+                if (m_template_brace_depth == 0) {
+                    m_in_template_expression = false;
+                    m_in_template_text = true;
+                    return make_token(TokenType::TemplateExprEnd);
+                }
+                --m_template_brace_depth;
+            }
+            return make_token(TokenType::CloseBrace);
         case '[': return make_token(TokenType::OpenBracket);
         case ']': return make_token(TokenType::CloseBracket);
         case ',': return make_token(TokenType::Comma);
@@ -395,6 +469,13 @@ Token Lexer::next_token() {
             break;
         case '"':
             return scan_string();
+        case '`':
+            if (m_in_template_expression) {
+                m_diagnostics.report_error("E0006", "Nested interpolated strings are not supported", current_span(m_start));
+                return make_token(TokenType::Invalid);
+            }
+            m_in_template_text = true;
+            return make_token(TokenType::TemplateStart);
     }
 
     // Invalid character

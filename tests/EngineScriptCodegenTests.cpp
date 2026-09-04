@@ -376,6 +376,290 @@ int main() {
         }
     )");
 
+    DiagnosticEngine interpolation_diags;
+    const std::string interpolation_code = R"(
+        export enum Mood { Idle, Run }
+
+        export struct Label {
+            value: Int;
+            toString(): String { return `L${value}`; }
+        }
+
+        export class InterpolationRuntime {
+            count: Int = 0;
+            next(): Int { count += 1; return count; }
+            render(damage: Float, active: Bool, label: Label, mood: Mood): String {
+                return `Hit ${this.next():02}: ${damage:.2f} ${active} ${label} ${mood}\n${Vec2(1.0, 2.0)}`;
+            }
+        }
+    )";
+    const FileId interpolation_file = sm.register_source("Source/InterpolationRuntime.e2s", interpolation_code);
+    Lexer interpolation_lexer(interpolation_file, interpolation_code, interpolation_diags);
+    Parser interpolation_parser(
+        interpolation_file,
+        "Source/InterpolationRuntime.e2s",
+        interpolation_lexer.tokenize_all(),
+        interpolation_diags
+    );
+    const auto interpolation_module = interpolation_parser.parse_module();
+    SymbolResolver interpolation_resolver(sm, interpolation_diags);
+    interpolation_resolver.resolve_module(interpolation_module);
+    TypeChecker interpolation_checker(interpolation_resolver, interpolation_diags);
+    if (!interpolation_checker.check_module(interpolation_module)) {
+        std::cerr << interpolation_diags.render_cli(sm);
+    }
+    assert(!interpolation_diags.has_errors());
+    IRLowering interpolation_lowering(interpolation_checker);
+    const IRModule interpolation_ir = interpolation_lowering.lower_module(*interpolation_module);
+    const CppOutput interpolation_output = emitter.emit_module(interpolation_ir);
+    assert(interpolation_output.source_content.find("EngineScript::StringBuilder") != std::string::npos);
+    assert(interpolation_output.source_content.find("_es_value_0") != std::string::npos);
+    require_generated_cpp_runs(interpolation_output, R"DRIVER(
+        #include "InterpolationRuntime.generated.hpp"
+        #include <cassert>
+
+        int main() {
+            InterpolationRuntime runtime;
+            Label label{};
+            label.value = 3;
+            const std::string rendered = runtime.render(1.236f, true, label, Mood::Run);
+            assert(rendered == "Hit 01: 1.24 true L3 Run\n(1, 2)");
+            assert(runtime.count == 1);
+            return 0;
+        }
+    )DRIVER");
+
+    DiagnosticEngine optional_diags;
+    const std::string optional_code = R"(
+        export class OptionalRuntime {
+            choose(condition: Bool, left: Int, right: Int): Int {
+                return condition ? left : right;
+            }
+            read(value: Int?): Int {
+                if (let resolved = value) { return resolved; }
+                else { return -1; }
+            }
+            require(value: Int?): Int {
+                guard (let resolved = value) else { return -2; }
+                return resolved;
+            }
+        }
+    )";
+    const FileId optional_file = sm.register_source("Source/OptionalRuntime.e2s", optional_code);
+    Lexer optional_lexer(optional_file, optional_code, optional_diags);
+    Parser optional_parser(optional_file, "Source/OptionalRuntime.e2s", optional_lexer.tokenize_all(), optional_diags);
+    const auto optional_module = optional_parser.parse_module();
+    SymbolResolver optional_resolver(sm, optional_diags);
+    optional_resolver.resolve_module(optional_module);
+    TypeChecker optional_checker(optional_resolver, optional_diags);
+    if (!optional_checker.check_module(optional_module)) std::cerr << optional_diags.render_cli(sm);
+    assert(!optional_diags.has_errors());
+    IRLowering optional_lowering(optional_checker);
+    const IRModule optional_ir = optional_lowering.lower_module(*optional_module);
+    const CppOutput optional_output = emitter.emit_module(optional_ir);
+    require_generated_cpp_runs(optional_output, R"(
+        #include "OptionalRuntime.generated.hpp"
+        #include <cassert>
+        #include <optional>
+
+        int main() {
+            OptionalRuntime runtime;
+            assert(runtime.choose(true, 2, 3) == 2);
+            assert(runtime.choose(false, 2, 3) == 3);
+            assert(runtime.read(std::optional<int32_t>{7}) == 7);
+            assert(runtime.read(std::nullopt) == -1);
+            assert(runtime.require(std::optional<int32_t>{9}) == 9);
+            assert(runtime.require(std::nullopt) == -2);
+            return 0;
+        }
+    )");
+
+    DiagnosticEngine match_diags;
+    const std::string match_code = R"(
+        export enum RuntimeState { Idle, Running }
+        export enum WireState { Idle = "idle", Running = "run" }
+        export class MatchRuntime {
+            label(state: RuntimeState): String {
+                return match (state) {
+                    RuntimeState.Idle => "idle",
+                    RuntimeState.Running => "running"
+                };
+            }
+            score(state: RuntimeState): Int {
+                let result: Int = 0;
+                match (state) {
+                    RuntimeState.Idle => { result = 1; }
+                    RuntimeState.Running => { result = 2; }
+                }
+                return result;
+            }
+            flag(value: Bool): Int {
+                return match (value) { true => 10, false => 20 };
+            }
+        }
+        @behaviour
+        export class EnumBehaviour extends Behaviour {
+            @expose state: RuntimeState = RuntimeState.Idle;
+            @expose wireState: WireState = WireState.Idle;
+        }
+    )";
+    const FileId match_file = sm.register_source("Source/MatchRuntime.e2s", match_code);
+    Lexer match_lexer(match_file, match_code, match_diags);
+    Parser match_parser(match_file, "Source/MatchRuntime.e2s", match_lexer.tokenize_all(), match_diags);
+    const auto match_module = match_parser.parse_module();
+    SymbolResolver match_resolver(sm, match_diags);
+    match_resolver.resolve_module(match_module);
+    TypeChecker match_checker(match_resolver, match_diags);
+    if (!match_checker.check_module(match_module)) std::cerr << match_diags.render_cli(sm);
+    assert(!match_diags.has_errors());
+    IRLowering match_lowering(match_checker);
+    const IRModule match_ir = match_lowering.lower_module(*match_module);
+    const CppOutput match_output = emitter.emit_module(match_ir);
+    require_generated_cpp_runs(match_output, R"(
+        #include "MatchRuntime.generated.hpp"
+        #include <cassert>
+
+        int main() {
+            MatchRuntime runtime;
+            assert(runtime.label(RuntimeState::Idle) == "idle");
+            assert(runtime.label(RuntimeState::Running) == "running");
+            assert(runtime.score(RuntimeState::Idle) == 1);
+            assert(runtime.score(RuntimeState::Running) == 2);
+            assert(runtime.flag(true) == 10);
+            assert(runtime.flag(false) == 20);
+            EnumBehaviour behaviour;
+            EngineScript::NativeBehaviour::ExposedPropertyValue value = std::string("Running");
+            assert(behaviour.set_exposed_property("state", value));
+            assert(behaviour.state == RuntimeState::Running);
+            value = std::string("RemovedMember");
+            assert(!behaviour.set_exposed_property("state", value));
+            assert(behaviour.state == RuntimeState::Running);
+            assert(behaviour.get_exposed_property("state", value));
+            assert(std::get<std::string>(value) == "Running");
+            value = std::string("Running");
+            assert(behaviour.set_exposed_property("wireState", value));
+            assert(behaviour.wireState == WireState::Running);
+            assert(behaviour.get_exposed_property("wireState", value));
+            assert(std::get<std::string>(value) == "Running");
+            EngineScript::StringBuilder builder;
+            builder.append(behaviour.wireState);
+            assert(std::move(builder).take() == "run");
+            return 0;
+        }
+    )");
+
+    DiagnosticEngine defaults_diags;
+    const std::string defaults_code = R"(
+        export function combine(a: Int, b: Int = 4, c: Int = 7): Int {
+            return a + b + c;
+        }
+        export class DefaultsRuntime {
+            constructor(private base: Int = 3) {}
+            add(left: Int, right: Int = 2): Int { return left + right; }
+            read(): Int { return base; }
+            calculate(): Int {
+                let other = DefaultsRuntime();
+                return combine(c: 5, a: 1) + this.add(right: 4, left: 2) + other.read();
+            }
+        }
+    )";
+    const FileId defaults_file = sm.register_source("Source/DefaultsRuntime.e2s", defaults_code);
+    Lexer defaults_lexer(defaults_file, defaults_code, defaults_diags);
+    Parser defaults_parser(defaults_file, "Source/DefaultsRuntime.e2s", defaults_lexer.tokenize_all(), defaults_diags);
+    const auto defaults_module = defaults_parser.parse_module();
+    SymbolResolver defaults_resolver(sm, defaults_diags);
+    defaults_resolver.resolve_module(defaults_module);
+    TypeChecker defaults_checker(defaults_resolver, defaults_diags);
+    if (!defaults_checker.check_module(defaults_module)) std::cerr << defaults_diags.render_cli(sm);
+    assert(!defaults_diags.has_errors());
+    IRLowering defaults_lowering(defaults_checker);
+    const IRModule defaults_ir = defaults_lowering.lower_module(*defaults_module);
+    const CppOutput defaults_output = emitter.emit_module(defaults_ir);
+    require_generated_cpp_runs(defaults_output, R"(
+        #include "DefaultsRuntime.generated.hpp"
+        #include <cassert>
+
+        int main() {
+            DefaultsRuntime runtime(3);
+            assert(runtime.read() == 3);
+            assert(runtime.calculate() == 19);
+            assert(combine(1, 4, 5) == 10);
+            return 0;
+        }
+    )");
+
+    DiagnosticEngine deque_diags;
+    const std::string deque_code = R"(
+        export struct QueueEntry {
+            value: Int;
+        }
+
+        export class DequeRuntime {
+            records: Deque<QueueEntry> = Deque<QueueEntry>();
+
+            exercise(): Int {
+                let values: Deque<Int> = Deque<Int>();
+                values.pushBack(2);
+                values.pushFront(1);
+                values.pushBack(3);
+                guard (let first = values.popFront()) else { return -1; }
+                guard (let last = values.popBack()) else { return -2; }
+                guard (let remaining = values.front()) else { return -3; }
+                return first + last + remaining + values.length;
+            }
+            clearWorks(): Bool {
+                let values: Deque<Int> = Deque<Int>();
+                values.pushBack(1);
+                values.clear();
+                return values.isEmpty;
+            }
+            emptyRead(): Int? {
+                let values: Deque<Int> = Deque<Int>();
+                return values.back();
+            }
+            structElement(): Int {
+                let entry: QueueEntry = { value: 9 };
+                records.pushBack(entry);
+                guard (let first = records.popFront()) else { return -1; }
+                return first.value;
+            }
+            emptyEntity(): Entity? {
+                let missing: Entity? = null;
+                return missing;
+            }
+            directEmptyEntity(): Entity? {
+                return null;
+            }
+        }
+    )";
+    const FileId deque_file = sm.register_source("Source/DequeRuntime.e2s", deque_code);
+    Lexer deque_lexer(deque_file, deque_code, deque_diags);
+    Parser deque_parser(deque_file, "Source/DequeRuntime.e2s", deque_lexer.tokenize_all(), deque_diags);
+    const auto deque_module = deque_parser.parse_module();
+    SymbolResolver deque_resolver(sm, deque_diags);
+    deque_resolver.resolve_module(deque_module);
+    TypeChecker deque_checker(deque_resolver, deque_diags);
+    if (!deque_checker.check_module(deque_module)) std::cerr << deque_diags.render_cli(sm);
+    assert(!deque_diags.has_errors());
+    IRLowering deque_lowering(deque_checker);
+    const IRModule deque_ir = deque_lowering.lower_module(*deque_module);
+    const CppOutput deque_output = emitter.emit_module(deque_ir);
+    require_generated_cpp_runs(deque_output, R"(
+        #include "DequeRuntime.generated.hpp"
+        #include <cassert>
+
+        int main() {
+            DequeRuntime runtime;
+            assert(runtime.exercise() == 7);
+            assert(runtime.clearWorks());
+            assert(!runtime.emptyRead().has_value());
+            assert(runtime.structElement() == 9);
+            assert(!runtime.emptyEntity().has_value());
+            assert(!runtime.directEmptyEntity().has_value());
+            return 0;
+        }
+    )");
+
     DiagnosticEngine v2_diags;
     SourceManager v2_sources("/workspace-v2");
     const std::string v2_code = R"(
@@ -417,8 +701,8 @@ int main() {
             let event: ScoreChanged = { score: 10 };
             events.emit(event);
             let scores: Map<String, Int> = Map { "player" => 10 };
-            scores.set("bonus", 4);
-            let bonus: Int? = scores.get("bonus");
+            scores.set(value: 4, key: "bonus");
+            let bonus: Int? = scores.get(key: "bonus");
             let hasBonus: Bool = scores.containsKey("bonus");
             let scoreKeys: Array<String> = scores.keys();
             let scoreValues: Array<Int> = scores.values();
@@ -426,19 +710,19 @@ int main() {
             scores.clear();
             scores.set("player", 12);
             let numbers: Array<Int> = [1, 2];
-            numbers.push(3);
+            numbers.push(value: 3);
             let hasTwo: Bool = numbers.contains(2);
             let removedTwo: Bool = numbers.remove(2);
             let firstIndex: Int = numbers.indexOf(1);
             let lastIndex: Int = numbers.lastIndexOf(3);
             let removedAt: Bool = numbers.removeAt(0);
             numbers.push(1);
-            numbers.swap(0, 1);
+            numbers.swap(right: 1, left: 0);
             numbers.reverse();
             let last: Int? = numbers.pop();
             numbers.clear();
             let tags: Set<String> = Set { "enemy", "flying" };
-            tags.add("boss");
+            tags.add(value: "boss");
             let hasFlying: Bool = tags.contains("flying");
             let removedEnemy: Bool = tags.remove("enemy");
             tags.clear();

@@ -15,6 +15,7 @@ enum class ScriptFieldType {
     Boolean,
     Number,
     String,
+    Enum,
     Vector2,
     Entity,
     Asset
@@ -44,6 +45,9 @@ struct ScriptPublicField {
     std::string component_type;
     // Non-empty only for Asset fields constrained to an asset type (for example Prefab).
     std::string asset_type;
+    // Authored enum name and current members. The serialized value remains the member name.
+    std::string enum_type;
+    std::vector<std::string> enum_values;
 
     bool operator==(const ScriptPublicField&) const = default;
 };
@@ -87,6 +91,7 @@ struct ScriptComponent {
         case ScriptFieldType::Boolean: return std::holds_alternative<bool>(field.value);
         case ScriptFieldType::Number: return std::holds_alternative<double>(field.value);
         case ScriptFieldType::String: return std::holds_alternative<std::string>(field.value);
+        case ScriptFieldType::Enum: return std::holds_alternative<std::string>(field.value);
         case ScriptFieldType::Vector2: return std::holds_alternative<ScriptVector2>(field.value);
         case ScriptFieldType::Entity: return std::holds_alternative<EntityID>(field.value);
         case ScriptFieldType::Asset: return std::holds_alternative<AssetHandle>(field.value);

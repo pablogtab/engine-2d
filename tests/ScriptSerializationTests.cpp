@@ -58,6 +58,7 @@ void test_round_trip_references_and_transactional_rejection() {
         {"active", ScriptFieldType::Boolean, true},
         {"speed", ScriptFieldType::Number, 12.5},
         {"title", ScriptFieldType::String, std::string("Hero")},
+        {"state", ScriptFieldType::Enum, std::string("Idle"), {}, {}, "PlayerState"},
         {"offset", ScriptFieldType::Vector2, ScriptVector2{3.0f, 4.0f}},
         {"target", ScriptFieldType::Entity, target, "Transform2D"},
         {"texture", ScriptFieldType::Asset, AssetHandle{0x5678}},
@@ -68,6 +69,8 @@ void test_round_trip_references_and_transactional_rejection() {
     SceneSerializer serializer(&scene);
     const std::string snapshot = serializer.serialize_to_string();
     assert(!snapshot.empty());
+    assert(snapshot.find("\"type\": \"enum\"") != std::string::npos);
+    assert(snapshot.find("\"enum_type\": \"PlayerState\"") != std::string::npos);
     entities.get_component<ScriptComponent>(scripted).instances.front().public_fields.clear();
     assert(serializer.deserialize_from_string(snapshot));
     assert(entities.get_component<ScriptComponent>(scripted) == expected);
@@ -76,7 +79,7 @@ void test_round_trip_references_and_transactional_rejection() {
         entities, scripted, {{target, EntityID{77}}}
     );
     const auto& remapped = entities.get_component<ScriptComponent>(scripted);
-    assert(std::get<EntityID>(remapped.instances.front().public_fields[4].value) == 77);
+    assert(std::get<EntityID>(remapped.instances.front().public_fields[5].value) == 77);
 
     assert(serializer.deserialize_from_string(snapshot));
     nlohmann::json invalid = nlohmann::json::parse(snapshot);

@@ -86,6 +86,25 @@ int main() {
     assert(err_diags.error_count() >= 2);
     assert(bad_tokens.back().is_eof());
 
+    // Test 7: Multiline interpolated strings preserve text, escapes and expression boundaries.
+    DiagnosticEngine template_diags;
+    const std::string template_code = "`line 1\\n${score:02}\\n\\${literal} \\`tick\\``";
+    Lexer template_lexer(7, template_code, template_diags);
+    const auto template_tokens = template_lexer.tokenize_all();
+    assert(!template_diags.has_errors());
+    assert(template_tokens.size() == 10);
+    assert(template_tokens[0].type == TokenType::TemplateStart);
+    assert(template_tokens[1].type == TokenType::TemplateText);
+    assert(template_tokens[1].string_value == "line 1\n");
+    assert(template_tokens[2].type == TokenType::TemplateExprStart);
+    assert(template_tokens[3].type == TokenType::Identifier);
+    assert(template_tokens[4].type == TokenType::Colon);
+    assert(template_tokens[5].type == TokenType::IntegerLiteral);
+    assert(template_tokens[6].type == TokenType::TemplateExprEnd);
+    assert(template_tokens[7].type == TokenType::TemplateText);
+    assert(template_tokens[7].string_value == "\n${literal} `tick`");
+    assert(template_tokens[template_tokens.size() - 2].type == TokenType::TemplateEnd);
+
     std::cout << "[PASS] EngineScriptLexerTests passed!\n";
     return 0;
 }

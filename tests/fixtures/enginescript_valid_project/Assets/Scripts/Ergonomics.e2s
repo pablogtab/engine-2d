@@ -1,0 +1,18 @@
+enum State { Idle, Running }
+
+function score(base: Int, multiplier: Int = 2): Int {
+    return base * multiplier;
+}
+
+class Ergonomics {
+    label(state: State, target: Entity?): String {
+        let queue: Deque<Int> = Deque<Int>();
+        queue.pushBack(score(3, multiplier: 4));
+        guard (let value = queue.popFront()) else { return "empty"; }
+        let stateName = match (state) {
+            State.Idle => "idle",
+            State.Running => "running"
+        };
+        return target ? `${stateName}: ${value:02}` : `no target: ${value:02}`;
+    }
+}

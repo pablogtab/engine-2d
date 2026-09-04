@@ -1,0 +1,15 @@
+enum EnemyState { Idle, Chase }
+
+function misplacedDefaults(optionalValue: Int = 1, requiredValue: Int): Int {
+    return requiredValue;
+}
+
+function invalid(optionalEntity: Entity?): String {
+    guard (let entity = optionalEntity) else { let missingExit = 1; }
+    let incomplete = match (true) { true => "yes" };
+    return `${entity:02}`;
+}
+
+function invalidArguments(): Int {
+    return misplacedDefaults(unknown: 1, 2);
+}

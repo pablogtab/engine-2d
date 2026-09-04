@@ -494,6 +494,35 @@ void SymbolResolver::resolve_statement_and_expr_symbols(const std::shared_ptr<St
         resolve_expression_symbols(if_s->condition, scope);
         resolve_statement_and_expr_symbols(if_s->then_branch, scope);
         if (if_s->else_branch) resolve_statement_and_expr_symbols(if_s->else_branch, scope);
+    } else if (auto binding = dynamic_cast<OptionalBindingIfStmt*>(stmt.get())) {
+        resolve_expression_symbols(binding->optional_value, scope);
+        auto then_scope = std::make_shared<Scope>(ScopeKind::Block, scope);
+        auto symbol = std::make_shared<Symbol>();
+        symbol->id = next_symbol_id();
+        symbol->name = binding->name;
+        symbol->kind = SymbolKind::Variable;
+        symbol->type_string = "<optional-binding>";
+        symbol->span = binding->span;
+        then_scope->define(symbol);
+        m_node_to_symbol[binding] = symbol;
+        resolve_statement_and_expr_symbols(binding->then_branch, then_scope);
+        if (binding->else_branch) resolve_statement_and_expr_symbols(binding->else_branch, scope);
+    } else if (auto guard = dynamic_cast<GuardStmt*>(stmt.get())) {
+        resolve_expression_symbols(guard->optional_value, scope);
+        resolve_statement_and_expr_symbols(guard->else_branch, scope);
+        auto symbol = std::make_shared<Symbol>();
+        symbol->id = next_symbol_id();
+        symbol->name = guard->name;
+        symbol->kind = SymbolKind::Variable;
+        symbol->type_string = "<optional-binding>";
+        symbol->span = guard->span;
+        scope->define(symbol);
+        m_node_to_symbol[guard] = symbol;
+    } else if (auto match_statement = dynamic_cast<MatchStmt*>(stmt.get())) {
+        resolve_expression_symbols(match_statement->subject, scope);
+        for (const auto& arm : match_statement->arms) {
+            resolve_statement_and_expr_symbols(arm.body, scope);
+        }
     } else if (auto w = dynamic_cast<WhileStmt*>(stmt.get())) {
         resolve_expression_symbols(w->condition, scope);
         resolve_statement_and_expr_symbols(w->body, scope);
@@ -526,6 +555,19 @@ void SymbolResolver::resolve_expression_symbols(const std::shared_ptr<Expression
             m_diagnostics.report_error("E2030", std::format("Unresolved identifier '{}'", id->name), id->span);
         } else {
             m_node_to_symbol[id] = sym;
+        }
+    } else if (auto interpolated = dynamic_cast<InterpolatedStringExpr*>(expr.get())) {
+        for (const auto& segment : interpolated->segments) {
+            resolve_expression_symbols(segment.expression, scope);
+        }
+    } else if (auto conditional = dynamic_cast<ConditionalExpr*>(expr.get())) {
+        resolve_expression_symbols(conditional->condition, scope);
+        resolve_expression_symbols(conditional->then_value, scope);
+        resolve_expression_symbols(conditional->else_value, scope);
+    } else if (auto match_expression = dynamic_cast<MatchExpr*>(expr.get())) {
+        resolve_expression_symbols(match_expression->subject, scope);
+        for (const auto& arm : match_expression->arms) {
+            resolve_expression_symbols(arm.value, scope);
         }
     } else if (auto bin = dynamic_cast<BinaryExpr*>(expr.get())) {
         resolve_expression_symbols(bin->left, scope);

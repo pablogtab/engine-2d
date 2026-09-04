@@ -1,0 +1,435 @@
+# EngineScript API Reference
+
+This file is generated from `src/enginescript/api/engine_api.json`. It
+describes only the current compiler and runtime contract.
+
+## Contract
+
+- Language: `3`
+- ABI: `35`
+- SDK: `engine2d_abi_v38`
+- Compiler cache: `enginescript_codegen_v10_ergonomics`
+
+## Language features
+
+- `interpolatedStrings`: `true`
+- `customToString`: `structural`
+- `optionalBindings`: `true`
+- `conditionalExpressions`: `true`
+- `exhaustiveMatch`: `true`
+- `exposedEnums`: `true`
+- `namedArguments`: `true`
+- `defaultArguments`: `true`
+- `deque`: `true`
+- `nullableGameplayTagLookup`: `true`
+
+## Types
+
+- `Void`
+- `Bool`
+- `Int8`
+- `Int16`
+- `Int32`
+- `Int64`
+- `UInt8`
+- `UInt16`
+- `UInt32`
+- `UInt64`
+- `Int`
+- `UInt`
+- `Float`
+- `Float32`
+- `Float64`
+- `String`
+- `Vec2`
+- `Vec3`
+- `Vec4`
+- `Color`
+- `Rect` — A normalized or normalizable 2D axis-aligned rectangle.
+- `Bounds2` — A center/size 2D bounds value.
+- `Math` — Pure scalar math helpers.
+- `Ease` — Pure normalized easing curves.
+- `Random` — Deterministic random helpers with explicit seeds.
+- `Noise` — Pure deterministic seeded noise helpers.
+- `Duration`
+- `Entity`
+- `Entities`
+- `ComponentRef` — A serialized, generation-safe reference to a component on another entity.
+- `Array`
+- `Deque` — A deterministic double-ended queue with safe nullable reads and removals.
+- `FixedArray`
+- `Map`
+- `Set`
+- `Optional`
+- `Result`
+- `Task`
+- `Weak`
+- `TaskScope`
+- `Jobs`
+- `Send` — Marker for values safe to copy to a worker.
+- `Equatable`
+- `Ordered`
+- `Behaviour`
+- `Input`
+- `Log`
+- `RigidBody2D`
+- `Animator2D`
+- `Transform2D`
+- `SpriteRenderer2D`
+- `Time`
+- `Physics`
+- `RaycastHit`
+- `Display`
+- `Scene`
+- `Prefabs` — Instantiates prefab assets in the active play scene.
+- `Assets`
+- `Asset`
+- `Prefab` — A prefab asset that can be serialized in an exposed field and instantiated at runtime.
+- `Texture`
+- `AudioClip`
+- `Font`
+- `DataAsset`
+- `Audio`
+- `Events`
+- `PlayerPrefs`
+- `UI`
+- `Tilemap`
+- `Particles`
+- `ParticleEffect2D`
+- `ParticleEmitOptions`
+- `WorldText`
+- `FloatingTextOptions`
+- `ParticleEmitter2D`
+- `Joint2D`
+
+## Global functions
+
+- `delay(duration: Duration): Task<Void>`
+- `realDelay(duration: Duration): Task<Void>`
+- `nextFrame(): Task<Void>`
+- `fixedUpdate(): Task<Void>`
+- `self(): Entity` — Returns the entity that owns the current Behaviour.
+- `instantiate(name: String): Entity`
+- `findEntities(tag: String): Array<Entity>`
+
+## Properties
+
+- `Math.PI: Float` (read-only) — Pi in radians.
+- `Math.TAU: Float` (read-only) — A full turn in radians.
+- `Math.EPSILON: Float` (read-only) — Default approximate-comparison tolerance.
+- `Vec2.x: Float` (read/write)
+- `Vec2.y: Float` (read/write)
+- `Vec3.x: Float` (read/write)
+- `Vec3.y: Float` (read/write)
+- `Vec3.z: Float` (read/write)
+- `Vec4.x: Float` (read/write)
+- `Vec4.y: Float` (read/write)
+- `Vec4.z: Float` (read/write)
+- `Vec4.w: Float` (read/write)
+- `Color.x: Float` (read/write)
+- `Color.y: Float` (read/write)
+- `Color.z: Float` (read/write)
+- `Color.w: Float` (read/write)
+- `Entity.id: UInt` (read-only) — Stable runtime entity identifier.
+- `Entity.name: String` (read-only)
+- `Entity.tag: String` (read-only)
+- `Transform2D.position: Vec2` (read/write)
+- `Transform2D.rotation: Float` (read/write)
+- `Transform2D.scale: Vec2` (read/write)
+- `RigidBody2D.velocity: Vec2` (read/write)
+- `RigidBody2D.isGrounded: Bool` (read-only)
+- `SpriteRenderer2D.flipX: Bool` (read/write)
+- `SpriteRenderer2D.color: Color` (read/write) — Normalized RGBA tint multiplied with the current sprite frame.
+- `Time.deltaTime: Float` (read-only)
+- `Time.realDeltaTime: Float` (read-only)
+- `Time.elapsed: Float` (read-only)
+- `Time.realElapsed: Float` (read-only)
+- `Time.frameCount: UInt64` (read-only)
+- `Display.width: Int` (read-only)
+- `Display.height: Int` (read-only)
+- `Display.pixelWidth: Int` (read-only)
+- `Display.pixelHeight: Int` (read-only)
+- `Display.dpiScale: Float` (read-only)
+- `Display.isFullscreen: Bool` (read-only)
+- `RaycastHit.hit: Bool` (read-only)
+- `RaycastHit.entity: Entity` (read-only)
+- `RaycastHit.point: Vec2` (read-only)
+- `RaycastHit.normal: Vec2` (read-only)
+- `RaycastHit.distance: Float` (read-only)
+- `Asset.handle: UInt64` (read-only)
+- `Asset.path: String` (read-only)
+- `Asset.type: String` (read-only)
+- `Asset.status: String` (read-only)
+- `Asset.ready: Bool` (read-only)
+- `ParticleEmitter2D.emitRate: Float` (read/write)
+- `ParticleEmitter2D.burstCount: Int` (read/write)
+- `ParticleEmitter2D.active: Bool` (read/write)
+- `ParticleEmitter2D.isPlaying: Bool` (read-only)
+- `ParticleEmitter2D.effectHandle: UInt64` (read-only) — Stable handle of the assigned particle effect asset.
+- `ParticleEmitOptions.count: Int` (read/write)
+- `ParticleEmitOptions.overrideVelocity: Bool` (read/write)
+- `ParticleEmitOptions.velocity: Vec2` (read/write)
+- `ParticleEmitOptions.overrideVelocityVariation: Bool` (read/write)
+- `ParticleEmitOptions.velocityVariation: Vec2` (read/write)
+- `ParticleEmitOptions.overrideColor: Bool` (read/write)
+- `ParticleEmitOptions.color: Color` (read/write)
+- `ParticleEmitOptions.scale: Float` (read/write)
+- `ParticleEmitOptions.rotation: Float` (read/write)
+- `FloatingTextOptions.color: Color` (read/write)
+- `FloatingTextOptions.velocity: Vec2` (read/write)
+- `FloatingTextOptions.duration: Float` (read/write)
+- `FloatingTextOptions.scale: Float` (read/write)
+- `Joint2D.target: Entity` (read/write)
+- `Joint2D.collideConnected: Bool` (read/write)
+- `String.length: Int` (read-only)
+- `String.size: Int` (read-only)
+- `Array.length: Int` (read-only)
+- `Array.size: Int` (read-only)
+- `Deque.length: Int` (read-only)
+- `Deque.size: Int` (read-only)
+- `Deque.isEmpty: Bool` (read-only)
+
+## Methods
+
+- `Math.clamp(value: Float, min: Float, max: Float): Float` — Clamps value to the inclusive range after normalizing its endpoints.
+- `Math.abs(value: Float): Float`
+- `Math.sign(value: Float): Float`
+- `Math.min(a: Float, b: Float): Float`
+- `Math.max(a: Float, b: Float): Float`
+- `Math.saturate(value: Float): Float`
+- `Math.floor(value: Float): Float`
+- `Math.ceil(value: Float): Float`
+- `Math.round(value: Float): Float` — Rounds halfway cases away from zero.
+- `Math.trunc(value: Float): Float`
+- `Math.frac(value: Float): Float`
+- `Math.sqrt(value: Float): Float`
+- `Math.pow(base: Float, exponent: Float): Float`
+- `Math.exp(value: Float): Float`
+- `Math.log(value: Float): Float`
+- `Math.log10(value: Float): Float`
+- `Math.sin(radians: Float): Float`
+- `Math.cos(radians: Float): Float`
+- `Math.tan(radians: Float): Float`
+- `Math.asin(value: Float): Float`
+- `Math.acos(value: Float): Float`
+- `Math.atan2(y: Float, x: Float): Float`
+- `Math.lerp(a: Float, b: Float, t: Float): Float`
+- `Math.lerpClamped(a: Float, b: Float, t: Float): Float`
+- `Math.inverseLerp(a: Float, b: Float, value: Float): Float`
+- `Math.remap(value: Float, fromMin: Float, fromMax: Float, toMin: Float, toMax: Float): Float`
+- `Math.smoothStep(a: Float, b: Float, t: Float): Float`
+- `Math.repeat(value: Float, length: Float): Float`
+- `Math.pingPong(value: Float, length: Float): Float`
+- `Math.approximately(a: Float, b: Float, epsilon: Float = 0.00001): Bool`
+- `Math.degreesToRadians(degrees: Float): Float`
+- `Math.radiansToDegrees(radians: Float): Float`
+- `Vec2.zero(): Vec2`
+- `Vec2.one(): Vec2`
+- `Vec2.up(): Vec2`
+- `Vec2.right(): Vec2`
+- `Vec2.length(value: Vec2): Float`
+- `Vec2.lengthSquared(value: Vec2): Float`
+- `Vec2.normalized(value: Vec2): Vec2`
+- `Vec2.distance(a: Vec2, b: Vec2): Float`
+- `Vec2.dot(a: Vec2, b: Vec2): Float`
+- `Vec2.cross(a: Vec2, b: Vec2): Float`
+- `Vec2.lerp(a: Vec2, b: Vec2, t: Float): Vec2`
+- `Vec2.moveTowards(current: Vec2, target: Vec2, maxDistance: Float): Vec2`
+- `Vec2.reflect(value: Vec2, normal: Vec2): Vec2`
+- `Vec2.project(value: Vec2, onto: Vec2): Vec2`
+- `Vec2.angle(from: Vec2, to: Vec2): Float`
+- `Vec2.signedAngle(from: Vec2, to: Vec2): Float`
+- `Vec2.fromAngle(radians: Float): Vec2`
+- `Vec2.clampMagnitude(value: Vec2, max: Float): Vec2`
+- `Vec3.zero(): Vec3`
+- `Vec3.one(): Vec3`
+- `Vec3.length(value: Vec3): Float`
+- `Vec3.lengthSquared(value: Vec3): Float`
+- `Vec3.normalized(value: Vec3): Vec3`
+- `Vec3.distance(a: Vec3, b: Vec3): Float`
+- `Vec3.dot(a: Vec3, b: Vec3): Float`
+- `Vec3.cross(a: Vec3, b: Vec3): Vec3`
+- `Vec3.lerp(a: Vec3, b: Vec3, t: Float): Vec3`
+- `Vec3.project(value: Vec3, onto: Vec3): Vec3`
+- `Vec3.reflect(value: Vec3, normal: Vec3): Vec3`
+- `Vec3.clampMagnitude(value: Vec3, max: Float): Vec3`
+- `Vec4.zero(): Vec4`
+- `Vec4.one(): Vec4`
+- `Vec4.length(value: Vec4): Float`
+- `Vec4.normalized(value: Vec4): Vec4`
+- `Vec4.dot(a: Vec4, b: Vec4): Float`
+- `Vec4.lerp(a: Vec4, b: Vec4, t: Float): Vec4`
+- `Color.black(): Color`
+- `Color.white(): Color`
+- `Color.clear(): Color`
+- `Color.lerp(a: Color, b: Color, t: Float): Color`
+- `Color.withAlpha(value: Color, alpha: Float): Color`
+- `Color.srgbToLinear(value: Color): Color`
+- `Color.linearToSrgb(value: Color): Color`
+- `Ease.linear(t: Float): Float`
+- `Ease.inQuad(t: Float): Float`
+- `Ease.outQuad(t: Float): Float`
+- `Ease.inOutQuad(t: Float): Float`
+- `Ease.inSine(t: Float): Float`
+- `Ease.outSine(t: Float): Float`
+- `Ease.inOutSine(t: Float): Float`
+- `Ease.inCubic(t: Float): Float`
+- `Ease.outCubic(t: Float): Float`
+- `Ease.inOutCubic(t: Float): Float`
+- `Ease.inExpo(t: Float): Float`
+- `Ease.outExpo(t: Float): Float`
+- `Ease.inOutExpo(t: Float): Float`
+- `Ease.inBack(t: Float): Float`
+- `Ease.outBack(t: Float): Float`
+- `Ease.inOutBack(t: Float): Float`
+- `Ease.inBounce(t: Float): Float`
+- `Ease.outBounce(t: Float): Float`
+- `Ease.inOutBounce(t: Float): Float`
+- `Ease.inElastic(t: Float): Float`
+- `Ease.outElastic(t: Float): Float`
+- `Ease.inOutElastic(t: Float): Float`
+- `Ease.inBounceUnclamped(t: Float): Float`
+- `Ease.outBounceUnclamped(t: Float): Float`
+- `Ease.inOutBounceUnclamped(t: Float): Float`
+- `Ease.inElasticUnclamped(t: Float): Float`
+- `Ease.outElasticUnclamped(t: Float): Float`
+- `Ease.inOutElasticUnclamped(t: Float): Float`
+- `Random.nextUInt(seed: UInt): UInt` — Returns the next deterministic seed.
+- `Random.value(seed: UInt): Float` — Returns a deterministic value in [0, 1) for seed.
+- `Random.rangeInt(seed: UInt, min: Int, max: Int): Int`
+- `Random.rangeFloat(seed: UInt, min: Float, max: Float): Float`
+- `Random.insideUnitCircle(seed: UInt): Vec2`
+- `Random.onUnitCircle(seed: UInt): Vec2`
+- `Random.chance(seed: UInt, probability: Float): Bool`
+- `Rect.fromMinMax(min: Vec2, max: Vec2): Rect`
+- `Rect.normalized(rect: Rect): Rect`
+- `Rect.center(rect: Rect): Vec2`
+- `Rect.min(rect: Rect): Vec2`
+- `Rect.max(rect: Rect): Vec2`
+- `Rect.contains(rect: Rect, point: Vec2): Bool`
+- `Rect.overlaps(left: Rect, right: Rect): Bool`
+- `Rect.intersection(left: Rect, right: Rect): Rect?`
+- `Rect.union(left: Rect, right: Rect): Rect`
+- `Rect.closestPoint(rect: Rect, point: Vec2): Vec2`
+- `Rect.expand(rect: Rect, amount: Float): Rect`
+- `Bounds2.fromMinMax(min: Vec2, max: Vec2): Bounds2`
+- `Bounds2.min(value: Bounds2): Vec2`
+- `Bounds2.max(value: Bounds2): Vec2`
+- `Bounds2.contains(value: Bounds2, point: Vec2): Bool`
+- `Bounds2.intersects(left: Bounds2, right: Bounds2): Bool`
+- `Bounds2.closestPoint(value: Bounds2, point: Vec2): Vec2`
+- `Bounds2.encapsulate(value: Bounds2, point: Vec2): Bounds2`
+- `Bounds2.expand(value: Bounds2, amount: Float): Bounds2`
+- `Noise.value1D(seed: UInt, x: Float): Float`
+- `Noise.value2D(seed: UInt, x: Float, y: Float): Float`
+- `Noise.fbm2D(seed: UInt, x: Float, y: Float, octaves: Int): Float`
+- `Input.axis(name: String): Float`
+- `Input.down(action: String): Bool`
+- `Input.pressed(action: String): Bool`
+- `Input.released(action: String): Bool`
+- `RigidBody2D.setIgnoreOneWay(ignore: Bool): Void` — Temporarily ignores one-way colliders for this body while enabled.
+- `Animator2D.play(clip: String): Void`
+- `ParticleEmitter2D.play(): Bool` — Starts continuous emission for this entity.
+- `ParticleEmitter2D.stop(clear: Bool = false): Bool` — Stops emission and optionally removes particles already emitted by this entity.
+- `ParticleEmitter2D.burst(count: Int = 0): Bool` — Emits a bounded burst; zero uses the component or asset default.
+- `ParticleEmitter2D.setEffect(effect: Asset): Bool` — Assigns a ready ParticleEffect2D asset and resets the emitter runtime state.
+- `Particles.emit(effect: Asset, position: Vec2, count: Int = 1): Bool` — Emits a particle effect asset once at a world position.
+- `Particles.emitWithOptions(effect: Asset, position: Vec2, options: ParticleEmitOptions): Bool` — Emits a particle effect with bounded per-call overrides.
+- `WorldText.show(text: String, position: Vec2, options: FloatingTextOptions): Bool` — Shows bounded transient text at a world position.
+- `PlayerPrefs.has(key: String): Bool`
+- `PlayerPrefs.getInt(key: String, fallback: Int = 0): Int`
+- `PlayerPrefs.getFloat(key: String, fallback: Float = 0): Float`
+- `PlayerPrefs.getBool(key: String, fallback: Bool = false): Bool`
+- `PlayerPrefs.getString(key: String, fallback: String = ""): String`
+- `PlayerPrefs.getVec2(key: String, fallback: Vec2?): Vec2`
+- `PlayerPrefs.getVec3(key: String, fallback: Vec3?): Vec3`
+- `PlayerPrefs.setInt(key: String, value: Int): Void`
+- `PlayerPrefs.setFloat(key: String, value: Float): Void`
+- `PlayerPrefs.setBool(key: String, value: Bool): Void`
+- `PlayerPrefs.setString(key: String, value: String): Void`
+- `PlayerPrefs.setVec2(key: String, value: Vec2): Void`
+- `PlayerPrefs.setVec3(key: String, value: Vec3): Void`
+- `PlayerPrefs.remove(key: String): Void`
+- `PlayerPrefs.clear(): Void`
+- `PlayerPrefs.save(): Bool`
+- `Entity.destroy(): Void`
+- `Entity.hasComponent(): Bool`
+- `Entity.getComponent(): T?`
+- `Entity.getComponents(): Array<T>`
+- `Entity.addComponent(): T?`
+- `Entity.removeComponent(component: T): Bool`
+- `Entities.destroy(entity: Entity): Bool`
+- `Entities.setTag(entity: Entity, tag: String): Bool`
+- `Entities.parent(entity: Entity): Entity?`
+- `Entities.setParent(child: Entity, parent: Entity): Bool`
+- `Entities.clearParent(child: Entity): Bool`
+- `String.includes(needle: String): Bool`
+- `String.contains(needle: String): Bool`
+- `String.startsWith(prefix: String): Bool`
+- `String.endsWith(suffix: String): Bool`
+- `String.indexOf(needle: String): Int`
+- `String.toLowerCase(): String`
+- `String.toUpperCase(): String`
+- `Deque.pushFront(value: T): Void`
+- `Deque.pushBack(value: T): Void`
+- `Deque.front(): T?`
+- `Deque.back(): T?`
+- `Deque.popFront(): T?`
+- `Deque.popBack(): T?`
+- `Deque.clear(): Void`
+- `Entities.create(): Entity`
+- `Entities.findByName(): Entity`
+- `Entities.findByTag(): Entity`
+- `Entities.exists(): Bool`
+- `Entities.findAllByTag(): Array<Entity>`
+- `Entities.findByGameplayTag(tag: String): Entity` — Returns the first entity carrying the semantic gameplay tag, or the invalid Entity value when none exists.
+- `Entities.firstByGameplayTag(tag: String): Entity?` — Returns the first entity carrying the semantic gameplay tag, or null when none exists.
+- `Entities.findAllByGameplayTag(tag: String): Array<Entity>` — Returns all entities carrying the semantic gameplay tag.
+- `Entities.hasGameplayTag(entity: Entity, tag: String): Bool`
+- `Entities.addGameplayTag(entity: Entity, tag: String): Bool`
+- `Entities.removeGameplayTag(entity: Entity, tag: String): Bool`
+- `Entities.gameplayTags(entity: Entity): Array<String>`
+- `Entities.findAllWithTransform(): Array<Entity>`
+- `Entities.hasTransform(): Bool`
+- `Entities.transform(): Transform2D`
+- `Entities.hasRigidBody(): Bool`
+- `Entities.rigidBody(): RigidBody2D`
+- `Entities.hasSpriteRenderer(): Bool`
+- `Entities.spriteRenderer(): SpriteRenderer2D`
+- `Entities.hasParticleEmitter(): Bool`
+- `Entities.particleEmitter(): ParticleEmitter2D`
+- `Entities.hasJoint(): Bool`
+- `Entities.joint(): Joint2D`
+- `Physics.raycast(): RaycastHit`
+- `Display.setVsync(): Bool`
+- `Display.setFullscreen(): Bool`
+- `Events.emit(event: T): Bool` — Emits one value on the channel identified by its EngineScript type.
+- `Events.next(): Task<T>` — Awaits the next value emitted for exactly T.
+- `Assets.find(): Asset`
+- `Assets.exists(): Bool`
+- `Assets.load(path: String): Task<Result<Asset<T>, String>>` — Loads a typed asset and reports failure without returning null.
+- `Jobs.run(work: () => T): Task<Result<T, String>>` — Runs Send work on a worker and resumes on the main scheduler.
+- `TaskScope.cancel(): Void`
+- `TaskScope.isCancelled(): Bool`
+- `UI.setText(): Bool`
+- `UI.setVisible(): Bool`
+- `Tilemap.getTile(): Int`
+- `Tilemap.setTile(): Bool`
+- `Audio.playSound(): Bool`
+- `Audio.playMusic(): Bool`
+- `Audio.stopMusic(): Void`
+- `Audio.pauseMusic(): Void`
+- `Audio.resumeMusic(): Void`
+- `Audio.setMasterVolume(): Void`
+- `Audio.setMusicVolume(): Void`
+- `Audio.setSfxVolume(): Void`
+- `Audio.masterVolume(): Float`
+- `Audio.musicVolume(): Float`
+- `Audio.sfxVolume(): Float`
+- `Scene.load(): Bool`
+- `Scene.currentName(): String`
+- `Scene.isLoading(): Bool`
+- `Scene.lastError(): String`
+- `Prefabs.create(prefab: Prefab): Entity`
+- `Prefabs.spawn(instance: Entity, position: Vec2): Bool`
+- `Prefabs.instantiate(prefab: Prefab, position: Vec2): Entity` — Creates a new prefab instance at the given world position.

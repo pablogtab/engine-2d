@@ -151,6 +151,9 @@ int main() {
   assert(find_gameplay_tag->parameters.at(0).type == "String");
   assert(catalog.find_available_method("Entities", "findAllByGameplayTag") !=
          nullptr);
+  const ApiMethodDescriptor *first_gameplay_tag =
+      catalog.find_available_method("Entities", "firstByGameplayTag");
+  assert(first_gameplay_tag != nullptr && first_gameplay_tag->nullable_return);
   assert(catalog.find_available_method("Entities", "hasGameplayTag") !=
          nullptr);
   assert(catalog.find_available_method("Entities", "addGameplayTag") !=
@@ -161,6 +164,12 @@ int main() {
       catalog.find_available_method("Entities", "gameplayTags");
   assert(gameplay_tags != nullptr);
   assert(gameplay_tags->return_type == "Array<String>");
+  assert(catalog.has_available_type("Deque"));
+  assert(catalog.find_available_property("Deque", "isEmpty") != nullptr);
+  const ApiMethodDescriptor *deque_pop =
+      catalog.find_available_method("Deque", "popFront");
+  assert(deque_pop != nullptr && deque_pop->return_type == "T" &&
+         deque_pop->nullable_return);
 
   std::cout << "[PASS] EngineScriptApiCatalogTests passed!\n";
     return 0;

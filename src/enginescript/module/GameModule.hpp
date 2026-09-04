@@ -19,14 +19,17 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <cstdlib>
 #include <array>
 #include <charconv>
 #include <system_error>
 #include <string>
 #include <vector>
+#include <deque>
 #include <unordered_map>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <variant>
 #include <algorithm>
 #include <cctype>
@@ -94,6 +97,127 @@ inline std::string to_upper(std::string value) {
 }
 
 } // namespace StringOps
+
+class StringBuilder {
+public:
+    void append(std::string_view value, std::string_view = {}) { m_value.append(value); }
+    void append(const std::string& value, std::string_view = {}) { m_value.append(value); }
+    void append(const char* value, std::string_view = {}) {
+        if (value) m_value.append(value);
+        else m_value.append("null");
+    }
+    void append(bool value, std::string_view = {}) { m_value.append(value ? "true" : "false"); }
+
+    template <typename Value>
+    requires (std::is_arithmetic_v<Value> && !std::is_same_v<Value, bool>)
+    void append(Value value, std::string_view format = {}) {
+        std::array<char, 128> buffer{};
+        char* end = buffer.data();
+        std::errc error{};
+
+        if constexpr (std::is_floating_point_v<Value>) {
+            if (std::isnan(value)) {
+                m_value.append("nan");
+                return;
+            }
+            if (std::isinf(value)) {
+                m_value.append(value < Value{0} ? "-inf" : "inf");
+                return;
+            }
+            if (format.size() >= 3 && format.front() == '.' && format.back() == 'f') {
+                int precision = 0;
+                for (std::size_t index = 1; index + 1 < format.size(); ++index) {
+                    precision = precision * 10 + (format[index] - '0');
+                }
+                const auto result = std::to_chars(
+                    buffer.data(), buffer.data() + buffer.size(), value,
+                    std::chars_format::fixed, precision
+                );
+                end = result.ptr;
+                error = result.ec;
+            } else {
+                const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+                end = result.ptr;
+                error = result.ec;
+            }
+        } else {
+            const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+            end = result.ptr;
+            error = result.ec;
+        }
+
+        if (error != std::errc{}) return;
+        const std::string_view rendered(buffer.data(), static_cast<std::size_t>(end - buffer.data()));
+        if (!format.empty() && format.front() != '.') {
+            std::size_t width = 0;
+            for (const char character : format) width = width * 10 + static_cast<std::size_t>(character - '0');
+            if (rendered.size() < width) {
+                const char fill = format.front() == '0' ? '0' : ' ';
+                const bool negative = !rendered.empty() && rendered.front() == '-';
+                if (negative && fill == '0') {
+                    m_value.push_back('-');
+                    m_value.append(width - rendered.size(), fill);
+                    m_value.append(rendered.substr(1));
+                    return;
+                }
+                m_value.append(width - rendered.size(), fill);
+            }
+        }
+        m_value.append(rendered);
+    }
+
+    void append(const glm::vec2& value, std::string_view = {}) {
+        m_value.push_back('('); append(value.x); m_value.append(", "); append(value.y); m_value.push_back(')');
+    }
+    void append(const glm::vec3& value, std::string_view = {}) {
+        m_value.push_back('('); append(value.x); m_value.append(", "); append(value.y); m_value.append(", "); append(value.z); m_value.push_back(')');
+    }
+    void append(const glm::vec4& value, std::string_view = {}) {
+        m_value.push_back('('); append(value.x); m_value.append(", "); append(value.y); m_value.append(", "); append(value.z); m_value.append(", "); append(value.w); m_value.push_back(')');
+    }
+    void append(const Rect& value, std::string_view = {}) {
+        m_value.append("Rect("); append(value.position.x); m_value.append(", "); append(value.position.y);
+        m_value.append(", "); append(value.size.x); m_value.append(", "); append(value.size.y); m_value.push_back(')');
+    }
+    void append(const Bounds2& value, std::string_view = {}) {
+        m_value.append("Bounds2("); append(value.center.x); m_value.append(", "); append(value.center.y);
+        m_value.append(", "); append(value.size.x); m_value.append(", "); append(value.size.y); m_value.push_back(')');
+    }
+
+    template <typename Value>
+    requires (!std::is_arithmetic_v<Value> && requires(const Value& value) { engineScriptToString(value); })
+    void append(const Value& value, std::string_view = {}) {
+        m_value.append(engineScriptToString(value));
+    }
+
+    template <typename Value>
+    requires (!std::is_arithmetic_v<Value> && requires(Value& value) { value.toString(); })
+    void append(Value& value, std::string_view = {}) {
+        m_value.append(value.toString());
+    }
+
+    template <typename Value>
+    requires (!std::is_arithmetic_v<Value> &&
+              requires(const Value& value) { static_cast<bool>(value); value->toString(); })
+    void append(const Value& value, std::string_view = {}) {
+        if (value) m_value.append(value->toString());
+        else m_value.append("null");
+    }
+
+    template <typename Value>
+    requires (!std::is_arithmetic_v<Value> &&
+              requires(const Value& value) { value.has_value(); *value; } &&
+              !requires(const Value& value) { value->toString(); })
+    void append(const Value& value, std::string_view format = {}) {
+        if (value.has_value()) append(*value, format);
+        else m_value.append("null");
+    }
+
+    [[nodiscard]] std::string take() && { return std::move(m_value); }
+
+private:
+    std::string m_value;
+};
 
 template <typename Target, typename Source>
 requires (std::is_arithmetic_v<Target> && std::is_arithmetic_v<Source> &&
@@ -398,6 +522,10 @@ public:
     [[nodiscard]] virtual bool exists(const Entity& entity) const = 0;
     [[nodiscard]] virtual std::vector<Entity> findAllByTag(const std::string& tag) const = 0;
     [[nodiscard]] virtual Entity findByGameplayTag(const std::string& tag) const = 0;
+    [[nodiscard]] std::optional<Entity> firstByGameplayTag(const std::string& tag) const {
+        Entity entity = findByGameplayTag(tag);
+        return entity.id == 0 ? std::nullopt : std::optional<Entity>{std::move(entity)};
+    }
     [[nodiscard]] virtual std::vector<Entity> findAllByGameplayTag(const std::string& tag) const = 0;
     [[nodiscard]] virtual bool hasGameplayTag(const Entity& entity, const std::string& tag) const = 0;
     virtual bool addGameplayTag(const Entity& entity, const std::string& tag) = 0;

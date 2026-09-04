@@ -271,6 +271,26 @@ the editor transaction that can be undone.
 
 ## Audit and performance
 
+When an AI audits EngineScript, it must use the current
+`src/enginescript/api/engine_api.json` capability contract and validate the
+project with `e2sc --check --json`. The report has three separate sections:
+
+1. **Errors**: compiler/type failures, invalid null handling, broken lifecycle or
+   serialization contracts, stale enum members, and unsafe component access.
+2. **Performance risks**: per-frame entity searches, repeated allocations,
+   repeated asset access, unbounded collection growth, excessive component
+   queries, or work that compromises deterministic simulation. A risk is not
+   reported as a measured regression without profiling evidence.
+3. **Optional suggestions**: readability or architecture improvements that do
+   not fix a demonstrated correctness or performance problem.
+
+The audit explicitly checks compilation and types, nullability, lifecycle,
+transient Play state, searches and allocations inside `update`, stable component
+views, asset readiness, deterministic randomness/collections, hot reload state,
+and plausible CPU or memory costs. Related values should use one collection of
+structs rather than parallel arrays. Expected absence should use nullable APIs
+such as `firstByGameplayTag` rather than invalid-entity sentinels in new code.
+
 Every request emits `[AI AUDIT]` records to the editor Console and the current
 run's `engine.log`. A request ID connects its start, tool calls, completion,
 application or rejection, and optional AI-session undo. Records include backend,

@@ -68,7 +68,7 @@ struct Type : public std::enable_shared_from_this<Type> {
         }
 
         if (kind == target->kind) {
-            if (kind == TypeKind::Array || kind == TypeKind::Set || kind == TypeKind::Task ||
+            if (kind == TypeKind::Array || kind == TypeKind::Deque || kind == TypeKind::Set || kind == TypeKind::Task ||
                 kind == TypeKind::Optional || kind == TypeKind::Weak) {
                 if (type_args.size() == target->type_args.size() && !type_args.empty()) {
                     return type_args[0]->is_assignable_to(target->type_args[0]);

@@ -133,6 +133,50 @@ int main() {
     assert(interface_decl && interface_decl->generic_params.front().constraint->name == "Send");
     assert(struct_decl && struct_decl->interfaces.front().name == "Factory");
 
+    DiagnosticEngine interpolation_diags;
+    const std::string interpolation_code = R"(
+        function label(score: Int, damage: Float): String {
+            return `Score ${score:04}\nDamage ${damage:.2f}`;
+        }
+    )";
+    Lexer interpolation_lexer(7, interpolation_code, interpolation_diags);
+    Parser interpolation_parser(
+        7,
+        "Interpolation.e2s",
+        interpolation_lexer.tokenize_all(),
+        interpolation_diags
+    );
+    const auto interpolation_module = interpolation_parser.parse_module();
+    assert(interpolation_module != nullptr);
+    assert(!interpolation_diags.has_errors());
+    const auto* interpolation_function = dynamic_cast<FunctionDecl*>(interpolation_module->declarations.front().get());
+    const auto* interpolation_return = interpolation_function
+        ? dynamic_cast<ReturnStmt*>(interpolation_function->body->statements.front().get()) : nullptr;
+    const auto* interpolation = interpolation_return
+        ? dynamic_cast<InterpolatedStringExpr*>(interpolation_return->value.get()) : nullptr;
+    assert(interpolation && interpolation->segments.size() == 4);
+    assert(interpolation->segments[1].format == "04");
+    assert(interpolation->segments[3].format == ".2f");
+
+    DiagnosticEngine named_diags;
+    const std::string named_code = R"(
+        function score(base: Int, multiplier: Int = 2, bonus: Int = 1): Int {
+            return base * multiplier + bonus;
+        }
+        function use(): Int { return score(10, bonus: 4, multiplier: 3); }
+    )";
+    Lexer named_lexer(8, named_code, named_diags);
+    Parser named_parser(8, "NamedArguments.e2s", named_lexer.tokenize_all(), named_diags);
+    const auto named_module = named_parser.parse_module();
+    assert(named_module && !named_diags.has_errors());
+    const auto* use_function = dynamic_cast<FunctionDecl*>(named_module->declarations[1].get());
+    const auto* use_return = dynamic_cast<ReturnStmt*>(use_function->body->statements.front().get());
+    const auto* named_call = dynamic_cast<CallExpr*>(use_return->value.get());
+    assert(named_call && named_call->argument_names.size() == 3);
+    assert(!named_call->argument_names[0]);
+    assert(named_call->argument_names[1] == "bonus");
+    assert(named_call->argument_names[2] == "multiplier");
+
     std::cout << "[PASS] EngineScriptParserTests passed!\n";
     return 0;
 }

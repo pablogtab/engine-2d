@@ -93,6 +93,11 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
                 s = "std::vector<void*>";
             }
             break;
+        case TypeKind::Deque:
+            s = !type->type_args.empty()
+                ? std::format("std::deque<{}>", type_to_cpp(type->type_args[0].get()))
+                : "std::deque<int>";
+            break;
         case TypeKind::FixedArray:
             if (!type->type_args.empty() && type->fixed_array_size) {
                 s = std::format("std::array<{}, {}>", type_to_cpp(type->type_args[0].get()), *type->fixed_array_size);
@@ -202,7 +207,7 @@ std::string CppEmitter::type_to_cpp(const Type* type, bool is_const_ref) const {
         s = s + "*";
     }
 
-    if (is_const_ref && (type->kind == TypeKind::String || type->kind == TypeKind::Array || type->kind == TypeKind::Map || type->kind == TypeKind::Entity)) {
+    if (is_const_ref && (type->kind == TypeKind::String || type->kind == TypeKind::Array || type->kind == TypeKind::Deque || type->kind == TypeKind::Map || type->kind == TypeKind::Entity)) {
         return std::format("const {}&", s);
     }
 
@@ -225,6 +230,7 @@ CppOutput CppEmitter::emit_module(const IRModule& module) {
     h_ss << "#include <string>\n";
     h_ss << "#include <string_view>\n";
     h_ss << "#include <vector>\n";
+    h_ss << "#include <deque>\n";
     h_ss << "#include <map>\n";
     h_ss << "#include <set>\n";
     h_ss << "#include <array>\n";
@@ -477,7 +483,23 @@ void CppEmitter::emit_enum_header(const IREnum& enum_decl, std::string& out) {
                 index + 1 < enum_decl.entries.size() ? "," : "");
             ++next_value;
         }
-        out += "};\n\n";
+        out += "};\n";
+        out += std::format("inline std::string_view engineScriptToString({} value) {{\n", enum_decl.name);
+        out += "    switch (value) {\n";
+        for (const auto& entry : enum_decl.entries) {
+            out += std::format("        case {}::{}: return \"{}\";\n", enum_decl.name, entry.name, entry.name);
+        }
+        out += "    }\n    return \"<invalid enum>\";\n}\n\n";
+        out += std::format(
+            "inline std::string_view engineScriptEnumMemberName({} value) {{ return engineScriptToString(value); }}\n",
+            enum_decl.name
+        );
+        out += std::format("inline bool engineScriptEnumFromString({}& result, std::string_view value) {{\n", enum_decl.name);
+        for (const auto& entry : enum_decl.entries) {
+            out += std::format("    if (value == \"{}\") {{ result = {}::{}; return true; }}\n",
+                entry.name, enum_decl.name, entry.name);
+        }
+        out += "    return false;\n}\n\n";
         return;
     }
     out += std::format("struct {} {{\n", enum_decl.name);
@@ -489,7 +511,19 @@ void CppEmitter::emit_enum_header(const IREnum& enum_decl, std::string& out) {
         out += std::format("inline constexpr {} {}::{}{{\"{}\"}};\n", enum_decl.name, enum_decl.name,
             entry.name, entry.string_value.value_or(entry.name));
     }
-    out += "\n";
+    out += std::format("inline std::string_view engineScriptToString({} value) {{ return value.value; }}\n", enum_decl.name);
+    out += std::format("inline std::string_view engineScriptEnumMemberName({} value) {{\n", enum_decl.name);
+    for (const auto& entry : enum_decl.entries) {
+        out += std::format("    if (value == {}::{}) return \"{}\";\n",
+            enum_decl.name, entry.name, entry.name);
+    }
+    out += "    return \"<invalid enum>\";\n}\n";
+    out += std::format("inline bool engineScriptEnumFromString({}& result, std::string_view value) {{\n", enum_decl.name);
+    for (const auto& entry : enum_decl.entries) {
+        out += std::format("    if (value == \"{}\") {{ result = {}::{}; return true; }}\n",
+            entry.name, enum_decl.name, entry.name);
+    }
+    out += "    return false;\n}\n\n";
 }
 
 void CppEmitter::emit_class_header(const IRClass& cls, std::string& out) {
@@ -738,6 +772,11 @@ void CppEmitter::emit_exposed_property_bridge(const IRClass& cls, std::string& o
                 "        if (const auto* typed_value = std::get_if<std::string>(&value)) {{ {} = *typed_value; return true; }}\n",
                 property.name
             );
+        } else if (property.type && property.type->kind == TypeKind::Enum) {
+            out += std::format(
+                "        if (const auto* typed_value = std::get_if<std::string>(&value)) {{ return engineScriptEnumFromString({}, *typed_value); }}\n",
+                property.name
+            );
         } else if (property.type && property.type->kind == TypeKind::Vec2) {
             out += std::format(
                 "        if (const auto* typed_value = std::get_if<glm::vec2>(&value)) {{ {} = *typed_value; return true; }}\n",
@@ -784,6 +823,8 @@ void CppEmitter::emit_exposed_property_bridge(const IRClass& cls, std::string& o
             out += std::format("        value = {}; return true;\n", property.name);
         } else if (property.type && property.type->is_string()) {
             out += std::format("        value = {}; return true;\n", property.name);
+        } else if (property.type && property.type->kind == TypeKind::Enum) {
+            out += std::format("        value = std::string(engineScriptEnumMemberName({})); return true;\n", property.name);
         } else if (property.type && property.type->kind == TypeKind::Vec2) {
             out += std::format("        value = {}; return true;\n", property.name);
         } else if (property.type && property.type->kind == TypeKind::Entity) {
@@ -911,6 +952,63 @@ void CppEmitter::emit_operation_statement_cpp(const IROperation* op, std::string
             out += ind + "}";
         }
         out += "\n";
+    } else if (auto binding = dynamic_cast<const IROptionalBindingIf*>(op)) {
+        const std::string temporary = std::format("_es_optional_{}", binding->span.start_offset);
+        out += std::format("{}{{\n{}    auto&& {} = {};\n", ind, ind, temporary,
+            emit_operation_cpp(binding->optional_value.get()));
+        out += std::format("{}    if ({}) {{\n", ind, temporary);
+        const Type* source_type = binding->optional_value ? binding->optional_value->result_type.get() : nullptr;
+        const ApiTypeDescriptor* api_type = source_type && source_type->kind == TypeKind::Class
+            ? ApiCatalog::instance().find_available_type(source_type->name) : nullptr;
+        const bool stored_optional = source_type && (source_type->kind == TypeKind::Optional ||
+            (source_type->is_nullable && source_type->kind != TypeKind::Class) ||
+            (source_type->is_nullable && api_type && api_type->value_type));
+        out += std::format("{}        auto {} = {}{};\n", ind, binding->name,
+            stored_optional ? "*" : "", temporary);
+        for (const auto& nested : binding->then_operations) {
+            emit_operation_statement_cpp(nested.get(), out, indent + 2);
+        }
+        out += ind + "    }";
+        if (!binding->else_operations.empty()) {
+            out += " else {\n";
+            for (const auto& nested : binding->else_operations) {
+                emit_operation_statement_cpp(nested.get(), out, indent + 2);
+            }
+            out += ind + "    }";
+        }
+        out += "\n" + ind + "}\n";
+    } else if (auto guard = dynamic_cast<const IRGuard*>(op)) {
+        const std::string temporary = std::format("_es_optional_{}", guard->span.start_offset);
+        out += std::format("{}auto&& {} = {};\n", ind, temporary,
+            emit_operation_cpp(guard->optional_value.get()));
+        out += std::format("{}if (!{}) {{\n", ind, temporary);
+        for (const auto& nested : guard->else_operations) {
+            emit_operation_statement_cpp(nested.get(), out, indent + 1);
+        }
+        out += ind + "}\n";
+        const Type* source_type = guard->optional_value ? guard->optional_value->result_type.get() : nullptr;
+        const ApiTypeDescriptor* api_type = source_type && source_type->kind == TypeKind::Class
+            ? ApiCatalog::instance().find_available_type(source_type->name) : nullptr;
+        const bool stored_optional = source_type && (source_type->kind == TypeKind::Optional ||
+            (source_type->is_nullable && source_type->kind != TypeKind::Class) ||
+            (source_type->is_nullable && api_type && api_type->value_type));
+        out += std::format("{}auto {} = {}{};\n", ind, guard->name,
+            stored_optional ? "*" : "", temporary);
+    } else if (auto match_statement = dynamic_cast<const IRMatchStatement*>(op)) {
+        const std::string temporary = std::format("_es_match_{}", match_statement->span.start_offset);
+        out += std::format("{}{{\n{}    auto&& {} = {};\n", ind, ind, temporary,
+            emit_operation_cpp(match_statement->subject.get()));
+        for (std::size_t index = 0; index < match_statement->arms.size(); ++index) {
+            const auto& arm = match_statement->arms[index];
+            out += std::format("{}    {}if ({}) {{\n", ind, index == 0 ? "" : "else ",
+                emit_match_condition_cpp(arm.pattern, temporary,
+                    match_statement->subject ? match_statement->subject->result_type.get() : nullptr));
+            for (const auto& nested : arm.operations) {
+                emit_operation_statement_cpp(nested.get(), out, indent + 2);
+            }
+            out += ind + "    }\n";
+        }
+        out += ind + "}\n";
     } else if (auto ret = dynamic_cast<const IRReturn*>(op)) {
         if (ret->value) {
             out += std::format("{}{} {};\n", ind, m_emitting_async_method ? "co_return" : "return", emit_operation_cpp(ret->value.get()));
@@ -978,11 +1076,53 @@ std::string CppEmitter::emit_truthy_cpp(const IROperation* op) {
     return value;
 }
 
+std::string CppEmitter::emit_match_condition_cpp(
+    const IRMatchPattern& pattern,
+    std::string_view subject,
+    const Type* subject_type
+) const {
+    if (pattern.kind == IRMatchPattern::Kind::Wildcard) return "true";
+    if (pattern.kind == IRMatchPattern::Kind::Null) return std::format("!{}", subject);
+
+    const bool stored_optional = subject_type && (subject_type->kind == TypeKind::Optional ||
+        (subject_type->is_nullable && subject_type->kind != TypeKind::Class));
+    const std::string value = stored_optional ? std::format("*{}", subject) : std::string(subject);
+    std::string comparison;
+    switch (pattern.kind) {
+        case IRMatchPattern::Kind::Boolean: comparison = pattern.bool_value ? "true" : "false"; break;
+        case IRMatchPattern::Kind::Integer: comparison = std::to_string(pattern.int_value); break;
+        case IRMatchPattern::Kind::Float: {
+            std::ostringstream number;
+            number << std::setprecision(9) << pattern.float_value;
+            comparison = number.str();
+            if (comparison.find_first_of(".eE") == std::string::npos) comparison += ".0";
+            comparison += "f";
+            break;
+        }
+        case IRMatchPattern::Kind::String: comparison = cpp_string_literal(pattern.string_value); break;
+        case IRMatchPattern::Kind::EnumMember:
+            comparison = pattern.enum_name + "::" + pattern.member_name;
+            break;
+        case IRMatchPattern::Kind::Wildcard:
+        case IRMatchPattern::Kind::Null:
+            break;
+    }
+    const std::string equality = std::format("{} == {}", value, comparison);
+    return stored_optional ? std::format("({} && {})", subject, equality) : equality;
+}
+
 std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     if (!op) return "";
 
     if (auto c = dynamic_cast<const IRConstant*>(op)) {
-        if (c->is_null) return "nullptr";
+        if (c->is_null) {
+            const Type* null_type = c->result_type.get();
+            if (null_type && (null_type->kind == TypeKind::Optional ||
+                (null_type->is_nullable && null_type->kind != TypeKind::Class))) {
+                return "std::nullopt";
+            }
+            return "nullptr";
+        }
         if (c->result_type && c->result_type->is_bool()) return c->bool_val ? "true" : "false";
         if (c->result_type && c->result_type->is_string()) return cpp_string_literal(c->string_val);
         if (c->result_type && c->result_type->is_float()) {
@@ -1027,6 +1167,27 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
         return std::format("({}{})", token_type_to_string(un->op), emit_operation_cpp(un->operand.get()));
     }
 
+    if (auto conditional = dynamic_cast<const IRConditional*>(op)) {
+        return std::format("({} ? {} : {})", emit_truthy_cpp(conditional->condition.get()),
+            emit_operation_cpp(conditional->then_value.get()),
+            emit_operation_cpp(conditional->else_value.get()));
+    }
+
+    if (auto match_expression = dynamic_cast<const IRMatchExpression*>(op)) {
+        const std::string temporary = std::format("_es_match_{}", match_expression->span.start_offset);
+        std::string result = std::format("([&]() -> {} {{ auto&& {} = {}; ",
+            type_to_cpp(match_expression->result_type.get()), temporary,
+            emit_operation_cpp(match_expression->subject.get()));
+        for (const auto& arm : match_expression->arms) {
+            result += std::format("if ({}) return {}; ",
+                emit_match_condition_cpp(arm.pattern, temporary,
+                    match_expression->subject ? match_expression->subject->result_type.get() : nullptr),
+                emit_operation_cpp(arm.value.get()));
+        }
+        result += "std::abort(); }())";
+        return result;
+    }
+
     if (auto conversion = dynamic_cast<const IRNumericConvert*>(op)) {
         if (!conversion->operand) return "0";
         if (conversion->operand->result_type &&
@@ -1045,6 +1206,25 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             ? std::format("EngineScript::StringOps::from_numeric({})",
                 emit_operation_cpp(conversion->operand.get()))
             : "std::string{}";
+    }
+
+    if (auto interpolated = dynamic_cast<const IRInterpolatedString*>(op)) {
+        std::string result = "([&]() -> std::string { EngineScript::StringBuilder _es_builder; ";
+        std::size_t value_index = 0;
+        for (const auto& segment : interpolated->segments) {
+            if (!segment.text.empty()) {
+                result += std::format("_es_builder.append({}); ", cpp_string_literal(segment.text));
+            }
+            if (segment.value) {
+                result += std::format("auto&& _es_value_{} = {}; ", value_index,
+                    emit_operation_cpp(segment.value.get()));
+                result += std::format("_es_builder.append(_es_value_{}, {}); ", value_index,
+                    cpp_string_literal(segment.format));
+                ++value_index;
+            }
+        }
+        result += "return std::move(_es_builder).take(); }())";
+        return result;
     }
 
     if (auto assignment = dynamic_cast<const IRAssign*>(op)) {
@@ -1161,6 +1341,14 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
     if (auto call = dynamic_cast<const IRCall*>(op)) {
         const bool injected_callable = m_injected_members.contains(call->callee_name);
         std::string s;
+        if (call->callee_name == "Deque") {
+            if (call->result_type && call->result_type->kind == TypeKind::Deque) {
+                return type_to_cpp(call->result_type.get()) + "{}";
+            }
+            const std::string element = call->type_arguments.empty()
+                ? "int" : type_to_cpp(call->type_arguments.front().get());
+            return "std::deque<" + element + ">{}";
+        }
         if (call->callee_name == "delay" || call->callee_name == "realDelay" ||
             call->callee_name == "nextFrame" || call->callee_name == "fixedUpdate" ||
             call->callee_name == "self" || call->callee_name == "instantiate" ||
@@ -1318,7 +1506,25 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
             if (kind == TypeKind::Array && mc->method_name == "pop") {
                 return "EngineScript::popValue(" + target + ")";
             }
-            if ((kind == TypeKind::Array || kind == TypeKind::Set || kind == TypeKind::Map) &&
+            if (kind == TypeKind::Deque && mc->method_name == "pushFront") {
+                return target + ".push_front(" + emit_operation_cpp(mc->args[0].get()) + ")";
+            }
+            if (kind == TypeKind::Deque && mc->method_name == "pushBack") {
+                return target + ".push_back(" + emit_operation_cpp(mc->args[0].get()) + ")";
+            }
+            if (kind == TypeKind::Deque && mc->method_name == "front") {
+                return "EngineScript::dequeFront(" + target + ")";
+            }
+            if (kind == TypeKind::Deque && mc->method_name == "back") {
+                return "EngineScript::dequeBack(" + target + ")";
+            }
+            if (kind == TypeKind::Deque && mc->method_name == "popFront") {
+                return "EngineScript::dequePopFront(" + target + ")";
+            }
+            if (kind == TypeKind::Deque && mc->method_name == "popBack") {
+                return "EngineScript::dequePopBack(" + target + ")";
+            }
+            if ((kind == TypeKind::Array || kind == TypeKind::Deque || kind == TypeKind::Set || kind == TypeKind::Map) &&
                 mc->method_name == "clear") {
                 return target + ".clear()";
             }
@@ -1421,11 +1627,16 @@ std::string CppEmitter::emit_operation_cpp(const IROperation* op) {
         }
         if (mg->target && mg->target->result_type &&
             (mg->target->result_type->kind == TypeKind::Array ||
+             mg->target->result_type->kind == TypeKind::Deque ||
              mg->target->result_type->kind == TypeKind::FixedArray ||
              mg->target->result_type->kind == TypeKind::Map ||
              mg->target->result_type->kind == TypeKind::Set) &&
             (mg->member_name == "length" || mg->member_name == "size")) {
             return "static_cast<int32_t>(" + emit_operation_cpp(mg->target.get()) + ".size())";
+        }
+        if (mg->target && mg->target->result_type &&
+            mg->target->result_type->kind == TypeKind::Deque && mg->member_name == "isEmpty") {
+            return emit_operation_cpp(mg->target.get()) + ".empty()";
         }
         if (mg->target && mg->target->result_type && mg->target->result_type->kind == TypeKind::String) {
             if (mg->member_name == "length" || mg->member_name == "size") {

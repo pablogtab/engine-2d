@@ -176,6 +176,7 @@ const char* script_field_type_to_string(ScriptFieldType type) {
         case ScriptFieldType::Boolean: return "boolean";
         case ScriptFieldType::Number: return "number";
         case ScriptFieldType::String: return "string";
+        case ScriptFieldType::Enum: return "enum";
         case ScriptFieldType::Vector2: return "vector2";
         case ScriptFieldType::Entity: return "entity";
         case ScriptFieldType::Asset: return "asset";
@@ -187,6 +188,7 @@ bool script_field_type_from_string(std::string_view value, ScriptFieldType& resu
     if (value == "boolean") result = ScriptFieldType::Boolean;
     else if (value == "number") result = ScriptFieldType::Number;
     else if (value == "string") result = ScriptFieldType::String;
+    else if (value == "enum") result = ScriptFieldType::Enum;
     else if (value == "vector2") result = ScriptFieldType::Vector2;
     else if (value == "entity") result = ScriptFieldType::Entity;
     else if (value == "asset") result = ScriptFieldType::Asset;
@@ -199,6 +201,7 @@ Json serialize_script_field_value(const ScriptPublicField& field) {
         case ScriptFieldType::Boolean: return std::get<bool>(field.value);
         case ScriptFieldType::Number: return std::get<double>(field.value);
         case ScriptFieldType::String: return std::get<std::string>(field.value);
+        case ScriptFieldType::Enum: return std::get<std::string>(field.value);
         case ScriptFieldType::Vector2: {
             const ScriptVector2 value = std::get<ScriptVector2>(field.value);
             return Json::array({value.x, value.y});
@@ -229,6 +232,10 @@ bool deserialize_script_field_value(
             return true;
         case ScriptFieldType::String:
             if (!value.is_string()) { error = "Script string field value is invalid"; return false; }
+            result = value.get<std::string>();
+            return true;
+        case ScriptFieldType::Enum:
+            if (!value.is_string()) { error = "Script enum field value is invalid"; return false; }
             result = value.get<std::string>();
             return true;
         case ScriptFieldType::Vector2:
@@ -1215,6 +1222,7 @@ void register_script(ComponentRegistry& registry) {
                     };
                     if (!field.component_type.empty()) serialized_field["component_type"] = field.component_type;
                     if (!field.asset_type.empty()) serialized_field["asset_type"] = field.asset_type;
+                    if (!field.enum_type.empty()) serialized_field["enum_type"] = field.enum_type;
                     fields.push_back(std::move(serialized_field));
                 }
                 Json value{
@@ -1294,6 +1302,13 @@ void register_script(ComponentRegistry& registry) {
                             return false;
                         }
                         field.asset_type = field_value["asset_type"].get<std::string>();
+                    }
+                    if (field_value.contains("enum_type")) {
+                        if (!field_value["enum_type"].is_string()) {
+                            error = "Script enum type is invalid";
+                            return false;
+                        }
+                        field.enum_type = field_value["enum_type"].get<std::string>();
                     }
                     const bool duplicate = std::any_of(
                         instance.public_fields.begin(), instance.public_fields.end(),

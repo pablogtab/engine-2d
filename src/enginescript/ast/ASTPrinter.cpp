@@ -104,6 +104,19 @@ void ASTPrinter::print_stmt(const Statement& stmt, std::string& out, int indent)
         print_expr(*if_s->condition, out, indent + 1);
         print_stmt(*if_s->then_branch, out, indent + 1);
         if (if_s->else_branch) print_stmt(*if_s->else_branch, out, indent + 1);
+    } else if (auto binding = dynamic_cast<const OptionalBindingIfStmt*>(&stmt)) {
+        out += std::format("{}IfLet({})\n", ind, binding->name);
+        print_expr(*binding->optional_value, out, indent + 1);
+        print_stmt(*binding->then_branch, out, indent + 1);
+        if (binding->else_branch) print_stmt(*binding->else_branch, out, indent + 1);
+    } else if (auto guard = dynamic_cast<const GuardStmt*>(&stmt)) {
+        out += std::format("{}GuardLet({})\n", ind, guard->name);
+        print_expr(*guard->optional_value, out, indent + 1);
+        print_stmt(*guard->else_branch, out, indent + 1);
+    } else if (auto match = dynamic_cast<const MatchStmt*>(&stmt)) {
+        out += std::format("{}Match\n", ind);
+        print_expr(*match->subject, out, indent + 1);
+        for (const auto& arm : match->arms) print_stmt(*arm.body, out, indent + 1);
     }
 }
 
@@ -118,6 +131,16 @@ void ASTPrinter::print_expr(const Expression& expr, std::string& out, int indent
             case LiteralExpr::Kind::Boolean:  out += std::format("{}Literal(Bool: {})\n", ind, lit->bool_val ? "true" : "false"); break;
             case LiteralExpr::Kind::Null:     out += std::format("{}Literal(Null)\n", ind); break;
         }
+    } else if (auto interpolated = dynamic_cast<const InterpolatedStringExpr*>(&expr)) {
+        out += std::format("{}InterpolatedString\n", ind);
+        for (const auto& segment : interpolated->segments) {
+            if (!segment.text.empty()) out += std::format("{}  Text({})\n", ind, segment.text);
+            if (segment.expression) {
+                out += std::format("{}  Expression{}\n", ind,
+                    segment.format.empty() ? "" : std::format("(:{})", segment.format));
+                print_expr(*segment.expression, out, indent + 2);
+            }
+        }
     } else if (auto id = dynamic_cast<const IdentifierExpr*>(&expr)) {
         out += std::format("{}Identifier({})\n", ind, id->name);
     } else if (dynamic_cast<const ThisExpr*>(&expr)) {
@@ -126,11 +149,23 @@ void ASTPrinter::print_expr(const Expression& expr, std::string& out, int indent
         out += std::format("{}BinaryOp({})\n", ind, token_type_to_string(bin->op));
         print_expr(*bin->left, out, indent + 1);
         print_expr(*bin->right, out, indent + 1);
+    } else if (auto conditional = dynamic_cast<const ConditionalExpr*>(&expr)) {
+        out += std::format("{}Conditional\n", ind);
+        print_expr(*conditional->condition, out, indent + 1);
+        print_expr(*conditional->then_value, out, indent + 1);
+        print_expr(*conditional->else_value, out, indent + 1);
+    } else if (auto match = dynamic_cast<const MatchExpr*>(&expr)) {
+        out += std::format("{}MatchExpression\n", ind);
+        print_expr(*match->subject, out, indent + 1);
+        for (const auto& arm : match->arms) print_expr(*arm.value, out, indent + 1);
     } else if (auto call = dynamic_cast<const CallExpr*>(&expr)) {
         out += std::format("{}Call\n", ind);
         print_expr(*call->callee, out, indent + 1);
-        for (const auto& a : call->arguments) {
-            print_expr(*a, out, indent + 2);
+        for (std::size_t index = 0; index < call->arguments.size(); ++index) {
+            if (index < call->argument_names.size() && call->argument_names[index]) {
+                out += std::format("{}  NamedArgument({})\n", ind, *call->argument_names[index]);
+            }
+            print_expr(*call->arguments[index], out, indent + 2);
         }
     } else if (auto mem = dynamic_cast<const MemberAccessExpr*>(&expr)) {
         out += std::format("{}MemberAccess({}{})\n", ind, mem->is_optional ? "?." : ".", mem->member_name);

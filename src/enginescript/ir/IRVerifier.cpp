@@ -112,6 +112,22 @@ bool IRVerifier::verify_operation(const IROperation* op) {
             const auto* value = dynamic_cast<const IRUnary*>(op);
             return value && value->operand && verify_operation(value->operand.get());
         }
+        case IROpKind::Conditional: {
+            const auto* value = dynamic_cast<const IRConditional*>(op);
+            return value && value->condition && value->then_value && value->else_value &&
+                verify_operation(value->condition.get()) && verify_operation(value->then_value.get()) &&
+                verify_operation(value->else_value.get());
+        }
+        case IROpKind::MatchExpression: {
+            const auto* value = dynamic_cast<const IRMatchExpression*>(op);
+            if (!value || !value->subject || value->arms.empty() || !verify_operation(value->subject.get())) {
+                return false;
+            }
+            for (const auto& arm : value->arms) {
+                if (!arm.value || !verify_operation(arm.value.get())) return false;
+            }
+            return true;
+        }
         case IROpKind::NumericConvert: {
             const auto* value = dynamic_cast<const IRNumericConvert*>(op);
             if (!value || !numeric_type_info(value->target_kind) || !value->result_type ||
@@ -136,6 +152,16 @@ bool IRVerifier::verify_operation(const IROperation* op) {
                 return false;
             }
             return verify_operation(value->operand.get());
+        }
+        case IROpKind::InterpolatedString: {
+            const auto* value = dynamic_cast<const IRInterpolatedString*>(op);
+            if (!value || !value->result_type || value->result_type->kind != TypeKind::String) {
+                return fail("IRInterpolatedString must produce String");
+            }
+            for (const auto& segment : value->segments) {
+                if (segment.value && !verify_operation(segment.value.get())) return false;
+            }
+            return true;
         }
         case IROpKind::ValueConstruct: {
             const auto* value = dynamic_cast<const IRValueConstruct*>(op);
@@ -247,6 +273,27 @@ bool IRVerifier::verify_operation(const IROperation* op) {
             const auto* value = dynamic_cast<const IRIf*>(op);
             return value && value->condition && verify_operation(value->condition.get()) &&
                 verify_all(value->then_operations) && verify_all(value->else_operations);
+        }
+        case IROpKind::OptionalBindingIf: {
+            const auto* value = dynamic_cast<const IROptionalBindingIf*>(op);
+            return value && !value->name.empty() && value->optional_value &&
+                verify_operation(value->optional_value.get()) && verify_all(value->then_operations) &&
+                verify_all(value->else_operations);
+        }
+        case IROpKind::Guard: {
+            const auto* value = dynamic_cast<const IRGuard*>(op);
+            return value && !value->name.empty() && value->optional_value &&
+                verify_operation(value->optional_value.get()) && verify_all(value->else_operations);
+        }
+        case IROpKind::MatchStatement: {
+            const auto* value = dynamic_cast<const IRMatchStatement*>(op);
+            if (!value || !value->subject || value->arms.empty() || !verify_operation(value->subject.get())) {
+                return false;
+            }
+            for (const auto& arm : value->arms) {
+                if (!verify_all(arm.operations)) return false;
+            }
+            return true;
         }
         case IROpKind::While: {
             const auto* value = dynamic_cast<const IRWhile*>(op);

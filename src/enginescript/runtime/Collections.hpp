@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -140,6 +141,32 @@ void sortValues(std::vector<T, Allocator>& values, Compare&& compare) {
 
 template <typename T, typename Allocator>
 [[nodiscard]] std::optional<T> popValue(std::vector<T, Allocator>& values) {
+    if (values.empty()) return std::nullopt;
+    T value = std::move(values.back());
+    values.pop_back();
+    return value;
+}
+
+template <typename T, typename Allocator>
+[[nodiscard]] std::optional<T> dequeFront(const std::deque<T, Allocator>& values) {
+    return values.empty() ? std::nullopt : std::optional<T>{values.front()};
+}
+
+template <typename T, typename Allocator>
+[[nodiscard]] std::optional<T> dequeBack(const std::deque<T, Allocator>& values) {
+    return values.empty() ? std::nullopt : std::optional<T>{values.back()};
+}
+
+template <typename T, typename Allocator>
+[[nodiscard]] std::optional<T> dequePopFront(std::deque<T, Allocator>& values) {
+    if (values.empty()) return std::nullopt;
+    T value = std::move(values.front());
+    values.pop_front();
+    return value;
+}
+
+template <typename T, typename Allocator>
+[[nodiscard]] std::optional<T> dequePopBack(std::deque<T, Allocator>& values) {
     if (values.empty()) return std::nullopt;
     T value = std::move(values.back());
     values.pop_back();

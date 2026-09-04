@@ -167,10 +167,19 @@ void GenericsManager::analyze_operation(const IROperation* operation) {
         analyze_operation(value->right.get());
     } else if (const auto* value = dynamic_cast<const IRUnary*>(operation)) {
         analyze_operation(value->operand.get());
+    } else if (const auto* value = dynamic_cast<const IRConditional*>(operation)) {
+        analyze_operation(value->condition.get());
+        analyze_operation(value->then_value.get());
+        analyze_operation(value->else_value.get());
+    } else if (const auto* value = dynamic_cast<const IRMatchExpression*>(operation)) {
+        analyze_operation(value->subject.get());
+        for (const auto& arm : value->arms) analyze_operation(arm.value.get());
     } else if (const auto* value = dynamic_cast<const IRNumericConvert*>(operation)) {
         analyze_operation(value->operand.get());
     } else if (const auto* value = dynamic_cast<const IRStringConvert*>(operation)) {
         analyze_operation(value->operand.get());
+    } else if (const auto* value = dynamic_cast<const IRInterpolatedString*>(operation)) {
+        for (const auto& segment : value->segments) analyze_operation(segment.value.get());
     } else if (const auto* value = dynamic_cast<const IRValueConstruct*>(operation)) {
         analyze_all(value->args);
     } else if (const auto* value = dynamic_cast<const IRClassConstruct*>(operation)) {
@@ -194,6 +203,16 @@ void GenericsManager::analyze_operation(const IROperation* operation) {
         for (const auto& parameter : value->params) record_type(parameter.type);
         analyze_all(value->body_operations);
         analyze_operation(value->body_expression.get());
+    } else if (const auto* value = dynamic_cast<const IROptionalBindingIf*>(operation)) {
+        analyze_operation(value->optional_value.get());
+        analyze_all(value->then_operations);
+        analyze_all(value->else_operations);
+    } else if (const auto* value = dynamic_cast<const IRGuard*>(operation)) {
+        analyze_operation(value->optional_value.get());
+        analyze_all(value->else_operations);
+    } else if (const auto* value = dynamic_cast<const IRMatchStatement*>(operation)) {
+        analyze_operation(value->subject.get());
+        for (const auto& arm : value->arms) analyze_all(arm.operations);
     } else if (const auto* value = dynamic_cast<const IRTypedEventEmit*>(operation)) {
         analyze_operation(value->target.get());
         analyze_operation(value->event.get());

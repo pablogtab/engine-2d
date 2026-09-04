@@ -65,6 +65,17 @@ struct LiteralExpr : public Expression {
     bool bool_val = false;
 };
 
+struct InterpolatedStringSegment {
+    std::string text;
+    std::shared_ptr<Expression> expression;
+    std::string format;
+    SourceSpan span;
+};
+
+struct InterpolatedStringExpr : public Expression {
+    std::vector<InterpolatedStringSegment> segments;
+};
+
 struct IdentifierExpr : public Expression {
     std::string name;
 };
@@ -89,10 +100,41 @@ struct AssignmentExpr : public Expression {
     std::shared_ptr<Expression> value;
 };
 
+struct ConditionalExpr : public Expression {
+    std::shared_ptr<Expression> condition;
+    std::shared_ptr<Expression> then_value;
+    std::shared_ptr<Expression> else_value;
+};
+
+struct MatchPattern {
+    enum class Kind { Wildcard, Null, Boolean, Integer, Float, String, EnumMember };
+    Kind kind = Kind::Wildcard;
+    bool bool_value = false;
+    int64_t int_value = 0;
+    double float_value = 0.0;
+    std::string string_value;
+    std::string enum_name;
+    std::string member_name;
+    SourceSpan span;
+};
+
+struct MatchExpressionArm {
+    MatchPattern pattern;
+    std::shared_ptr<Expression> value;
+};
+
+struct MatchExpr : public Expression {
+    std::shared_ptr<Expression> subject;
+    std::vector<MatchExpressionArm> arms;
+};
+
 struct CallExpr : public Expression {
     std::shared_ptr<Expression> callee;
     std::vector<TypeAnnotation> type_arguments;
     std::vector<std::shared_ptr<Expression>> arguments;
+    // Parallel to arguments. Empty optionals are positional arguments; names
+    // are resolved and cleared by the type checker before IR lowering.
+    std::vector<std::optional<std::string>> argument_names;
 };
 
 struct MemberAccessExpr : public Expression {
@@ -176,6 +218,29 @@ struct IfStmt : public Statement {
     std::shared_ptr<Expression> condition;
     std::shared_ptr<Statement> then_branch;
     std::shared_ptr<Statement> else_branch;
+};
+
+struct OptionalBindingIfStmt : public Statement {
+    std::string name;
+    std::shared_ptr<Expression> optional_value;
+    std::shared_ptr<Statement> then_branch;
+    std::shared_ptr<Statement> else_branch;
+};
+
+struct GuardStmt : public Statement {
+    std::string name;
+    std::shared_ptr<Expression> optional_value;
+    std::shared_ptr<Statement> else_branch;
+};
+
+struct MatchStatementArm {
+    MatchPattern pattern;
+    std::shared_ptr<Statement> body;
+};
+
+struct MatchStmt : public Statement {
+    std::shared_ptr<Expression> subject;
+    std::vector<MatchStatementArm> arms;
 };
 
 struct WhileStmt : public Statement {

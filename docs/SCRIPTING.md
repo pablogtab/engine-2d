@@ -62,9 +62,13 @@ Constructor decorators define dependencies rather than hiding service lookups:
 
 `ScriptComponent` serializes the script asset handle, enabled state, and typed
 public values. Supported Inspector values currently include numbers, booleans,
-strings, `Vec2`, entity references, and asset handles. The compiler manifest is
-the schema source; matching authored values survive recompilation and missing
-values receive their declared defaults.
+strings, enums, `Vec2`, entity references, and asset handles. Enums are stored by
+member name and rendered as dropdowns. If a serialized member was removed from
+the enum, the Inspector preserves it and marks it invalid instead of silently
+choosing another value. A string-backed enum may use its backing text when
+interpolated, but persistence still uses the declaration member name. The
+compiler manifest is the schema source; matching authored values survive
+recompilation and missing values receive their declared defaults.
 
 Inspector edits during Play Mode are read by the behaviour on the following
 update. Script-side changes affect only the runtime component. Stop always
@@ -98,6 +102,7 @@ editable in the Inspector, and available to scripts through `Entities`:
 
 ```enginescript
 let player: Entity = entities.findByGameplayTag("player");
+let optionalPlayer: Entity? = entities.firstByGameplayTag("player");
 let coins: Array<Entity> = entities.findAllByGameplayTag("collectible.coin");
 if (entities.hasGameplayTag(other, "platform.trampoline")) {
     body.velocity.y = trampolineSpeed;
@@ -105,8 +110,10 @@ if (entities.hasGameplayTag(other, "platform.trampoline")) {
 ```
 
 Runtime-created entities can use `addGameplayTag` and `removeGameplayTag`;
-`gameplayTags(entity)` returns the current sorted list. Missing queries return an
-invalid `Entity` for which `entities.exists(...)` is `false`; invalid or destroyed
+`gameplayTags(entity)` returns the current sorted list. New code should use
+`firstByGameplayTag` when absence is expected and bind its `Entity?` explicitly.
+The compatible `findByGameplayTag` method still returns an invalid `Entity` for
+which `entities.exists(...)` is `false`; invalid or destroyed
 references otherwise return `false` or an empty array rather than exposing stale
 ECS storage. Display-name queries remain available for authoring-oriented lookups,
 but gameplay behavior should prefer semantic tags.
@@ -118,7 +125,7 @@ but gameplay behavior should prefer semantic tags.
 - `Scene`: `load(path)`, `currentName()`, `isLoading()`, and `lastError()`.
   A successful request advances through two frame boundaries before the new
   runtime scene is activated. Gameplay events use authored struct values; the
-  string event bus is not part of EngineScript 2.0.
+  string event bus is not part of the current EngineScript contract.
 - `Assets`: `find(path)`, `exists(path)`, and the typed async operation
   `await assets.load<Texture|AudioClip|Font|DataAsset|ParticleEffect2D>(path)`.
   Loading validates the registered asset type and precaches it on the next
@@ -165,7 +172,7 @@ removed, cleared, and saved. It never exposes project paths or arbitrary file
 access. Use the canonical camelCase SDK names; unsupported legacy aliases are
 compiler errors rather than calls that can fail later during native compilation.
 
-EngineScript 2.0 removes the legacy `toString(value)` helper. Use the `String`
+EngineScript removes the legacy `toString(value)` helper. Use the `String`
 type as an explicit numeric conversion instead: `String(score)`. Numeric values
 are never converted implicitly, so `"Score: " + score` is rejected while
 `"Score: " + String(score)` is valid and remains statically typed.
@@ -180,6 +187,85 @@ limit. `Int`, `UInt`, and `Float` remain aliases of `Int32`, `UInt32`, and
 `Float32`. `Vec2(...)`, `Vec3(...)`, `Vec4(...)`, and `Color(...)` are value
 constructors, not casts. Components remain typed ECS queries through
 `entity.getComponent<T>()`.
+
+## Ergonomic control flow and text
+
+Backtick strings support multiple lines and `${expression}` interpolation. Each
+expression is evaluated exactly once from left to right. Conversion is
+deterministic and locale-independent for strings, numbers, booleans, durations,
+enums, and documented math values. Integer padding and floating precision are
+checked statically:
+
+```enginescript
+let label = `Wave ${wave:02} · Damage ${damage:.2f}`;
+```
+
+An authored type is interpolable when it has a public synchronous
+`toString(): String` method; no marker interface is required. Use `\${` for a
+literal interpolation opener and `` \` `` for a literal backtick. Quoted strings
+and `String(number)` remain valid. Implicit concatenation such as
+`"Score: " + score` remains an error.
+
+Nullable values can be bound without repeating a lookup:
+
+```enginescript
+if (let target = entities.firstByGameplayTag("enemy.boss")) {
+    target.destroy();
+}
+
+guard (let player = entities.firstByGameplayTag("player")) else { return; }
+let stateLabel = alive ? "Alive" : "Defeated";
+```
+
+The nullable expression is evaluated once. An `if let` binding exists only in
+its positive block. A `guard let` binding exists after the guard, and its `else`
+block must end with `return`, `break`, or `continue`.
+
+Enums provide stable gameplay states and exhaustive `match` expressions or
+statements without fall-through:
+
+```enginescript
+enum EnemyState { Idle, Chase, Attack }
+
+let speed = match (state) {
+    EnemyState.Idle => 0.0,
+    EnemyState.Chase => walkSpeed,
+    EnemyState.Attack => attackSpeed
+};
+```
+
+Enums, booleans, and nullable domains must be exhaustive. Numeric and string
+domains require a final `_` arm. Prefer enums over magic state integers; do not
+add a wildcard to a closed enum merely to hide an unhandled new member.
+
+Functions, methods, and constructors accept constant trailing defaults and named
+arguments after positional arguments. Named calls are normalized to declaration
+order before IR generation:
+
+```enginescript
+function damage(base: Int, multiplier: Int = 1, critical: Bool = false): Int {
+    return critical ? base * multiplier * 2 : base * multiplier;
+}
+let result = damage(20, critical: true);
+```
+
+Defaults may be literals, `null`, enum members, or constant native value
+constructors. Required parameters cannot follow a default parameter. Unknown,
+duplicated, missing, or positional-after-named arguments are compile errors.
+
+`Deque<T>` is the deterministic queue type. It exposes `length`, `size`,
+`isEmpty`, `pushFront`, `pushBack`, `front`, `back`, `popFront`, `popBack`, and
+`clear`. Reads and removals from an empty deque return `T?`:
+
+```enginescript
+let pending: Deque<SpawnRequest> = Deque<SpawnRequest>();
+pending.pushBack(request);
+if (let next = pending.popFront()) spawn(next);
+```
+
+When related values move together, use one collection of an authored struct.
+Parallel arrays or deques can diverge after an insertion/removal and are an
+authoring anti-pattern.
 
 Generic functions, structs, and classes accept explicit concrete type arguments
 and constraints such as `T extends Send`. Identical combinations are reused
@@ -201,7 +287,7 @@ There is no interpreter fallback in the active runtime path.
 
 ## API contract and coverage
 
-`src/enginescript/api/engine_api.json` is the versioned source of truth for
+`src/enginescript/api/engine_api.json` is the current source of truth for
 the gameplay SDK surface. The compiler resolves its builtin types and functions
 from this catalog, and its ABI version and SDK hash are checked against the
 native `GameModule` contract. Entries marked `planned` are intentionally not
@@ -211,9 +297,11 @@ Each method declares typed parameters, defaults, return nullability, and
 availability. Each property declares read/write access and nullability. The
 compiler and LSP consume those descriptors, and tests verify that runtime
 services and component descriptors remain represented by the catalog.
+The human-readable [API reference](ENGINESCRIPT_API.md) is regenerated with
+`python3 scripts/generate_enginescript_api_docs.py`; `--check` detects drift.
 
 Exposed properties use a typed bridge shared by the runtime and generated
-behaviours: `Bool`, numbers, `String`, `Vec2`, and `Entity` are pushed from the
+behaviours: `Bool`, numbers, `String`, enums, `Vec2`, and `Entity` are pushed from the
 Inspector before each lifecycle callback and pulled back afterwards. Asset
 queries resolve the project's stable asset records without exposing filesystem
 access to gameplay code.
@@ -272,13 +360,18 @@ object literals, property access and assignment, calls, `this`, arrow
 functions, `await`, typed `Result` operations, deterministic `Array`, `Map`,
 `Set`, and `FixedArray` literals, checked indexing, and indexed assignment.
 Collection methods are typed against their element/key/value contracts and
-lower to the deterministic runtime helpers. Reference casts are not part of
-EngineScript 2.0; `as` is reserved for import aliases.
+lower to the deterministic runtime helpers. Reference casts are not part of the
+current language; `as` is reserved for import aliases.
+
+For tooling and AI audits, `e2sc <project> --check --json` returns one JSON object
+with success and code-growth totals plus every diagnostic's code, severity,
+file, range, explanation, and suggested fix. The API catalog exposes the current
+language version, ABI, SDK hash, compiler-cache identifier, and feature flags.
 
 ## Standard library beta
 
 `Math`, `Vec2`, `Vec3`, `Vec4`, `Color`, `Ease`, `Rect` and conservative
-collection helpers are available through the versioned API catalog. Vector and
+collection helpers are available through the current API catalog. Vector and
 easing operations are pure; `Rect.intersection` returns a nullable `Rect`.
 `Color` provides component operations only: EngineScript does not define an
 sRGB/linear conversion contract yet.

@@ -32,6 +32,7 @@ private:
     Token scan_identifier_or_keyword();
     Token scan_number();
     Token scan_string();
+    Token scan_template_text();
 
     FileId m_file_id;
     std::string_view m_source;
@@ -43,6 +44,9 @@ private:
     uint32_t m_column = 1;
     uint32_t m_start_line = 1;
     uint32_t m_start_column = 1;
+    bool m_in_template_text = false;
+    bool m_in_template_expression = false;
+    uint32_t m_template_brace_depth = 0;
 };
 
 } // namespace EngineScript

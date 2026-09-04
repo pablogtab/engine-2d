@@ -9,6 +9,131 @@ namespace EngineScript {
 
 namespace {
 
+std::shared_ptr<Type> unwrap_optional_type(const std::shared_ptr<Type>& type) {
+    if (!type) return Type::make_primitive(TypeKind::Error);
+    if (type->kind == TypeKind::Optional && !type->type_args.empty()) {
+        auto result = std::make_shared<Type>(*type->type_args.front());
+        result->is_nullable = false;
+        return result;
+    }
+    auto result = std::make_shared<Type>(*type);
+    result->is_nullable = false;
+    return result;
+}
+
+bool statement_terminates_flow(const std::shared_ptr<Statement>& statement) {
+    if (!statement) return false;
+    if (dynamic_cast<ReturnStmt*>(statement.get()) || dynamic_cast<BreakStmt*>(statement.get()) ||
+        dynamic_cast<ContinueStmt*>(statement.get())) return true;
+    if (const auto* block = dynamic_cast<BlockStmt*>(statement.get())) {
+        return !block->statements.empty() && statement_terminates_flow(block->statements.back());
+    }
+    if (const auto* branch = dynamic_cast<IfStmt*>(statement.get())) {
+        return branch->else_branch && statement_terminates_flow(branch->then_branch) &&
+            statement_terminates_flow(branch->else_branch);
+    }
+    return false;
+}
+
+bool validate_match_patterns(
+    const std::shared_ptr<Type>& subject_type,
+    const std::vector<MatchPattern>& patterns,
+    const std::shared_ptr<Scope>& scope,
+    DiagnosticEngine& diagnostics,
+    const SourceSpan& span
+) {
+    if (!subject_type || subject_type->is_error()) return false;
+    const std::shared_ptr<Type> domain_type = unwrap_optional_type(subject_type);
+    std::unordered_set<std::string> seen;
+    bool wildcard = false;
+    bool seen_true = false;
+    bool seen_false = false;
+    bool seen_null = false;
+    std::unordered_set<std::string> enum_members;
+
+    for (const MatchPattern& pattern : patterns) {
+        bool compatible = true;
+        std::string key;
+        switch (pattern.kind) {
+            case MatchPattern::Kind::Wildcard:
+                key = "_";
+                wildcard = true;
+                break;
+            case MatchPattern::Kind::Null:
+                key = "null";
+                seen_null = true;
+                compatible = subject_type->is_nullable || subject_type->kind == TypeKind::Optional;
+                break;
+            case MatchPattern::Kind::Boolean:
+                key = pattern.bool_value ? "true" : "false";
+                seen_true = seen_true || pattern.bool_value;
+                seen_false = seen_false || !pattern.bool_value;
+                compatible = domain_type->is_bool();
+                break;
+            case MatchPattern::Kind::Integer:
+                key = "i:" + std::to_string(pattern.int_value);
+                compatible = domain_type->is_integer();
+                break;
+            case MatchPattern::Kind::Float:
+                key = "f:" + std::to_string(pattern.float_value);
+                compatible = domain_type->is_float();
+                break;
+            case MatchPattern::Kind::String:
+                key = "s:" + pattern.string_value;
+                compatible = domain_type->is_string();
+                break;
+            case MatchPattern::Kind::EnumMember: {
+                key = "e:" + pattern.enum_name + "." + pattern.member_name;
+                compatible = domain_type->kind == TypeKind::Enum && domain_type->name == pattern.enum_name;
+                const auto symbol = scope->lookup(pattern.enum_name);
+                const auto* declaration = symbol
+                    ? dynamic_cast<const EnumDecl*>(symbol->ast_node.get()) : nullptr;
+                compatible = compatible && declaration && std::any_of(
+                    declaration->entries.begin(), declaration->entries.end(),
+                    [&pattern](const EnumEntry& entry) { return entry.name == pattern.member_name; }
+                );
+                enum_members.insert(pattern.member_name);
+                break;
+            }
+        }
+        if (!compatible) {
+            diagnostics.report_error(
+                "E3106",
+                std::format("Match pattern is incompatible with '{}'", subject_type->to_string()),
+                pattern.span
+            );
+        }
+        if (!seen.emplace(key).second) {
+            diagnostics.report_error("E3107", "Duplicate match pattern", pattern.span);
+        }
+    }
+
+    if (wildcard) return true;
+    bool exhaustive = false;
+    if (domain_type->kind == TypeKind::Enum) {
+        const auto symbol = scope->lookup(domain_type->name);
+        const auto* declaration = symbol
+            ? dynamic_cast<const EnumDecl*>(symbol->ast_node.get()) : nullptr;
+        exhaustive = declaration && std::all_of(
+            declaration->entries.begin(), declaration->entries.end(),
+            [&enum_members](const EnumEntry& entry) { return enum_members.contains(entry.name); }
+        );
+    } else if (domain_type->is_bool()) {
+        exhaustive = seen_true && seen_false;
+    }
+    if ((subject_type->is_nullable || subject_type->kind == TypeKind::Optional) && !seen_null) {
+        exhaustive = false;
+    }
+    if (!exhaustive) {
+        diagnostics.report_error(
+            "E3108",
+            "Match is not exhaustive; cover every closed-domain value or add '_'",
+            span
+        );
+    }
+    return exhaustive;
+}
+
 TypeAnnotation parse_type_text(std::string text) {
     const auto trim = [](std::string value) {
         const std::size_t first = value.find_first_not_of(" \t\r\n");
@@ -47,6 +172,60 @@ TypeAnnotation parse_type_text(std::string text) {
         }
     }
     return annotation;
+}
+
+bool is_constant_default_expression(const std::shared_ptr<Expression>& expression) {
+    if (!expression) return false;
+    if (dynamic_cast<const LiteralExpr*>(expression.get())) return true;
+    if (const auto* unary = dynamic_cast<const UnaryExpr*>(expression.get())) {
+        return (unary->op == TokenType::Minus || unary->op == TokenType::Plus) &&
+            dynamic_cast<const LiteralExpr*>(unary->operand.get()) != nullptr;
+    }
+    if (const auto* member = dynamic_cast<const MemberAccessExpr*>(expression.get())) {
+        return dynamic_cast<const IdentifierExpr*>(member->object.get()) != nullptr && !member->is_optional;
+    }
+    if (const auto* call = dynamic_cast<const CallExpr*>(expression.get())) {
+        const auto* identifier = dynamic_cast<const IdentifierExpr*>(call->callee.get());
+        if (!identifier || !value_constructor_width(identifier->name) ||
+            call->arguments.size() != *value_constructor_width(identifier->name)) return false;
+        return std::all_of(call->arguments.begin(), call->arguments.end(), [](const auto& argument) {
+            const auto* literal = dynamic_cast<const LiteralExpr*>(argument.get());
+            if (literal) return literal->kind == LiteralExpr::Kind::Integer || literal->kind == LiteralExpr::Kind::Float;
+            const auto* unary = dynamic_cast<const UnaryExpr*>(argument.get());
+            return unary && (unary->op == TokenType::Minus || unary->op == TokenType::Plus) &&
+                dynamic_cast<const LiteralExpr*>(unary->operand.get()) != nullptr;
+        });
+    }
+    return false;
+}
+
+std::shared_ptr<Expression> catalog_default_expression(
+    const ApiParameterDescriptor& parameter,
+    const SourceSpan& span
+) {
+    if (parameter.default_value.empty()) return nullptr;
+    auto literal = std::make_shared<LiteralExpr>();
+    literal->span = span;
+    const std::string& value = parameter.default_value;
+    if (value == "null") {
+        literal->kind = LiteralExpr::Kind::Null;
+    } else if (value == "true" || value == "false") {
+        literal->kind = LiteralExpr::Kind::Boolean;
+        literal->bool_val = value == "true";
+    } else if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
+        literal->kind = LiteralExpr::Kind::String;
+        literal->string_val = value.substr(1, value.size() - 2);
+    } else if (parameter.type == "Float" || parameter.type == "Double" || parameter.type == "Duration" ||
+               value.find_first_of(".eE") != std::string::npos) {
+        literal->kind = parameter.type == "Duration" ? LiteralExpr::Kind::Duration : LiteralExpr::Kind::Float;
+        literal->float_val = std::stod(value);
+        literal->duration_seconds = literal->float_val;
+        literal->duration_unit = "s";
+    } else {
+        literal->kind = LiteralExpr::Kind::Integer;
+        literal->int_val = std::stoll(value);
+    }
+    return literal;
 }
 
 struct ClosureCaptureScan {
@@ -125,7 +304,7 @@ bool is_send_type(const std::shared_ptr<Type>& type) {
     if (type->is_numeric() || type->is_bool() || type->is_string() || type->kind == TypeKind::Enum ||
         type->kind == TypeKind::Struct || type->kind == TypeKind::Duration || type->kind == TypeKind::Vec2 ||
         type->kind == TypeKind::Vec3 || type->kind == TypeKind::Vec4 || type->kind == TypeKind::Color || type->kind == TypeKind::Bounds2) return true;
-    if (type->kind == TypeKind::Array || type->kind == TypeKind::FixedArray || type->kind == TypeKind::Set ||
+    if (type->kind == TypeKind::Array || type->kind == TypeKind::Deque || type->kind == TypeKind::FixedArray || type->kind == TypeKind::Set ||
         type->kind == TypeKind::Optional || type->kind == TypeKind::Map || type->kind == TypeKind::Result) {
         return !type->type_args.empty() && std::all_of(type->type_args.begin(), type->type_args.end(), is_send_type);
     }
@@ -150,6 +329,138 @@ TypeChecker::TypeChecker(const SymbolResolver& resolver, DiagnosticEngine& diagn
     m_type_null = Type::make_primitive(TypeKind::Null);
     m_type_entity = Type::make_primitive(TypeKind::Entity);
     m_type_error = Type::make_primitive(TypeKind::Error);
+}
+
+void TypeChecker::validate_parameter_defaults(
+    const std::vector<std::shared_ptr<ParamDecl>>& parameters,
+    const std::shared_ptr<Scope>& scope,
+    std::string_view callable_name
+) {
+    bool saw_default = false;
+    for (const auto& parameter : parameters) {
+        if (!parameter) continue;
+        if (!parameter->default_value) {
+            if (saw_default) {
+                m_diagnostics.report_error(
+                    "E3111",
+                    std::format("Required parameter '{}' cannot follow a default parameter in '{}'",
+                        parameter->name, callable_name),
+                    parameter->span
+                );
+            }
+            continue;
+        }
+        saw_default = true;
+        if (!is_constant_default_expression(parameter->default_value)) {
+            m_diagnostics.report_error(
+                "E3112",
+                std::format("Default for '{}' must be a constant, enum member, null, or constant value constructor",
+                    parameter->name),
+                parameter->default_value->span
+            );
+        }
+        const auto expected = resolve_type_annotation(parameter->type_annotation, scope.get());
+        const auto actual = check_expression_expected(parameter->default_value, scope, expected);
+        if (actual && !actual->is_error() && !actual->is_assignable_to(expected)) {
+            m_diagnostics.report_error(
+                "E3113",
+                std::format("Default for '{}' expects '{}', got '{}'", parameter->name,
+                    expected->to_string(), actual->to_string()),
+                parameter->default_value->span
+            );
+        }
+    }
+}
+
+void TypeChecker::normalize_call_arguments(
+    CallExpr& call,
+    const std::vector<std::string>& parameter_names,
+    const std::vector<std::shared_ptr<Expression>>& default_values,
+    const std::vector<bool>& optional_parameters,
+    const std::shared_ptr<Scope>& scope,
+    std::string_view callable_name
+) {
+    if (call.argument_names.size() < call.arguments.size()) {
+        call.argument_names.resize(call.arguments.size());
+    }
+    const bool uses_names = std::any_of(call.argument_names.begin(), call.argument_names.end(),
+        [](const auto& name) { return name.has_value(); });
+    const bool has_defaults = std::any_of(default_values.begin(), default_values.end(),
+        [](const auto& value) { return value != nullptr; });
+    const bool has_optional = std::any_of(optional_parameters.begin(), optional_parameters.end(),
+        [](bool value) { return value; });
+    if (!uses_names && !has_defaults && !has_optional) return;
+
+    std::vector<std::shared_ptr<Expression>> ordered(parameter_names.size());
+    std::vector<std::shared_ptr<Expression>> extras;
+    std::size_t next_positional = 0;
+    bool saw_named = false;
+    for (std::size_t index = 0; index < call.arguments.size(); ++index) {
+        const auto& name = call.argument_names[index];
+        if (!name) {
+            if (saw_named) {
+                m_diagnostics.report_error(
+                    "E3114",
+                    "Positional arguments must appear before named arguments",
+                    call.arguments[index]->span
+                );
+            }
+            while (next_positional < ordered.size() && ordered[next_positional]) ++next_positional;
+            if (next_positional < ordered.size()) ordered[next_positional++] = call.arguments[index];
+            else extras.push_back(call.arguments[index]);
+            continue;
+        }
+
+        saw_named = true;
+        const auto parameter = std::find(parameter_names.begin(), parameter_names.end(), *name);
+        if (parameter == parameter_names.end()) {
+            m_diagnostics.report_error(
+                "E3115",
+                std::format("'{}' has no parameter named '{}'", callable_name, *name),
+                call.arguments[index]->span
+            );
+            extras.push_back(call.arguments[index]);
+            continue;
+        }
+        const std::size_t target = static_cast<std::size_t>(parameter - parameter_names.begin());
+        if (ordered[target]) {
+            m_diagnostics.report_error(
+                "E3116",
+                std::format("Argument '{}' is provided more than once", *name),
+                call.arguments[index]->span
+            );
+            extras.push_back(call.arguments[index]);
+            continue;
+        }
+        ordered[target] = call.arguments[index];
+    }
+
+    for (std::size_t index = 0; index < ordered.size(); ++index) {
+        if (ordered[index]) continue;
+        if (index < default_values.size() && default_values[index]) {
+            ordered[index] = default_values[index];
+            if (m_node_types.find(ordered[index].get()) == m_node_types.end()) {
+                check_expression(ordered[index], scope);
+            }
+            continue;
+        }
+        const bool optional = index < optional_parameters.size() && optional_parameters[index];
+        const bool later_value = std::any_of(ordered.begin() + static_cast<std::ptrdiff_t>(index + 1), ordered.end(),
+            [](const auto& value) { return value != nullptr; });
+        if (optional && !later_value) {
+            ordered.resize(index);
+            break;
+        }
+        m_diagnostics.report_error(
+            "E3117",
+            std::format("Missing required argument '{}' for '{}'", parameter_names[index], callable_name),
+            call.span
+        );
+    }
+
+    ordered.insert(ordered.end(), extras.begin(), extras.end());
+    call.arguments = std::move(ordered);
+    call.argument_names.assign(call.arguments.size(), std::nullopt);
 }
 
 std::shared_ptr<Type> TypeChecker::get_type_of_node(const ASTNode* node) const {
@@ -199,7 +510,7 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
                         annot.generic_args[1].span.is_valid() ? annot.generic_args[1].span : annot.span
                     );
                 }
-            } else if (annot.name == "Array" || annot.name == "Set" || annot.name == "Optional" ||
+            } else if (annot.name == "Array" || annot.name == "Deque" || annot.name == "Set" || annot.name == "Optional" ||
                        annot.name == "Weak" || annot.name == "Task" || annot.name == "ComponentRef") {
                 require_arity(1);
             } else if (annot.name == "Map" || annot.name == "Result") {
@@ -252,6 +563,12 @@ std::shared_ptr<Type> TypeChecker::resolve_type_annotation(const TypeAnnotation&
             args.push_back(resolve_type_annotation(a, scope));
         }
         t = Type::make_generic(TypeKind::Array, "Array", args);
+    } else if (annot.name == "Deque") {
+        std::vector<std::shared_ptr<Type>> args;
+        for (const auto& a : annot.generic_args) {
+            args.push_back(resolve_type_annotation(a, scope));
+        }
+        t = Type::make_generic(TypeKind::Deque, "Deque", args);
     } else if (annot.name == "Map") {
         std::vector<std::shared_ptr<Type>> args;
         for (const auto& a : annot.generic_args) {
@@ -463,6 +780,7 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
     m_current_self_type = resolve_type_annotation(self_annotation, cls_scope.get());
 
     if (cls.constructor_decl) {
+        validate_parameter_defaults(cls.constructor_decl->params, cls_scope, cls.name + " constructor");
         for (const auto& parameter : cls.constructor_decl->params) {
             m_node_types[parameter.get()] = resolve_type_annotation(parameter->type_annotation, cls_scope.get());
         }
@@ -490,10 +808,14 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
 
     if (cls.constructor_decl && cls.constructor_decl->body) {
         auto ctor_scope = std::make_shared<Scope>(ScopeKind::Function, cls_scope);
+        const auto previous_narrowing = m_narrowed_nonnull;
+        m_narrowed_nonnull.clear();
         check_statement(cls.constructor_decl->body, ctor_scope, m_type_void, false);
+        m_narrowed_nonnull = previous_narrowing;
     }
 
     for (const auto& m : cls.methods) {
+        validate_parameter_defaults(m->params, cls_scope, cls.name + "." + m->name);
         if (m->body) {
             auto m_scope = std::make_shared<Scope>(ScopeKind::Function, cls_scope);
             for (const auto& generic : m->generic_params) {
@@ -508,7 +830,10 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
             }
             std::shared_ptr<Type> ret_t = m->return_type ? resolve_type_annotation(*m->return_type, m_scope.get()) : m_type_void;
             m_node_types[m.get()] = ret_t;
+            const auto previous_narrowing = m_narrowed_nonnull;
+            m_narrowed_nonnull.clear();
             check_statement(m->body, m_scope, ret_t, m->is_async);
+            m_narrowed_nonnull = previous_narrowing;
 
             if (!ret_t->is_void() && !m->is_async) {
                 if (!check_statement_returns(m->body)) {
@@ -545,6 +870,7 @@ void TypeChecker::check_struct_decl(const StructDecl& st, const std::shared_ptr<
         }
     }
     for (const auto& method : st.methods) {
+        validate_parameter_defaults(method->params, st_scope, st.name + "." + method->name);
         auto method_scope = std::make_shared<Scope>(ScopeKind::Function, st_scope);
         for (const auto& generic : method->generic_params) {
             auto symbol = std::make_shared<Symbol>();
@@ -559,7 +885,10 @@ void TypeChecker::check_struct_decl(const StructDecl& st, const std::shared_ptr<
         const auto return_type = method->return_type
             ? resolve_type_annotation(*method->return_type, method_scope.get()) : m_type_void;
         m_node_types[method.get()] = return_type;
+        const auto previous_narrowing = m_narrowed_nonnull;
+        m_narrowed_nonnull.clear();
         check_statement(method->body, method_scope, return_type, method->is_async);
+        m_narrowed_nonnull = previous_narrowing;
         if (!return_type->is_void() && !method->is_async && !check_statement_returns(method->body)) {
             m_diagnostics.report_error("E3003", std::format("Method '{}' does not return a value on all code paths", method->name), method->span);
         }
@@ -569,8 +898,9 @@ void TypeChecker::check_struct_decl(const StructDecl& st, const std::shared_ptr<
 }
 
 void TypeChecker::check_function_decl(const FunctionDecl& fn, const std::shared_ptr<Scope>& scope) {
+    auto fn_scope = std::make_shared<Scope>(ScopeKind::Function, scope);
+    validate_parameter_defaults(fn.params, fn_scope, fn.name);
     if (fn.body) {
-        auto fn_scope = std::make_shared<Scope>(ScopeKind::Function, scope);
         for (const auto& generic : fn.generic_params) {
             auto symbol = std::make_shared<Symbol>();
             symbol->name = generic.name;
@@ -583,7 +913,10 @@ void TypeChecker::check_function_decl(const FunctionDecl& fn, const std::shared_
         }
         std::shared_ptr<Type> ret_t = fn.return_type ? resolve_type_annotation(*fn.return_type, fn_scope.get()) : m_type_void;
         m_node_types[&fn] = ret_t;
+        const auto previous_narrowing = m_narrowed_nonnull;
+        m_narrowed_nonnull.clear();
         check_statement(fn.body, fn_scope, ret_t, fn.is_async);
+        m_narrowed_nonnull = previous_narrowing;
 
         if (!ret_t->is_void() && !fn.is_async) {
             if (!check_statement_returns(fn.body)) {
@@ -609,6 +942,16 @@ bool TypeChecker::check_statement_returns(const std::shared_ptr<Statement>& stmt
         if (if_s->else_branch && check_statement_returns(if_s->then_branch) && check_statement_returns(if_s->else_branch)) {
             return true;
         }
+    }
+    if (auto binding = dynamic_cast<OptionalBindingIfStmt*>(stmt.get())) {
+        return binding->else_branch && check_statement_returns(binding->then_branch) &&
+            check_statement_returns(binding->else_branch);
+    }
+    if (auto match_statement = dynamic_cast<MatchStmt*>(stmt.get())) {
+        return !match_statement->arms.empty() && std::all_of(
+            match_statement->arms.begin(), match_statement->arms.end(),
+            [this](const MatchStatementArm& arm) { return check_statement_returns(arm.body); }
+        );
     }
     return false;
 }
@@ -699,6 +1042,62 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
             check_statement_returns(if_s->then_branch)) {
             m_narrowed_nonnull.insert(nullable_identifier->name);
         }
+    } else if (auto binding = dynamic_cast<OptionalBindingIfStmt*>(stmt.get())) {
+        const auto optional_type = check_expression(binding->optional_value, scope);
+        if (optional_type->kind != TypeKind::Optional && !optional_type->is_nullable && !optional_type->is_error()) {
+            m_diagnostics.report_error(
+                "E3102",
+                std::format("Optional binding requires a nullable value, got '{}'", optional_type->to_string()),
+                binding->optional_value->span
+            );
+        }
+        const auto value_type = unwrap_optional_type(optional_type);
+        if (const auto symbol = m_resolver.find_symbol_for_node(binding)) {
+            symbol->type_string = value_type->to_string();
+        }
+        auto then_scope = std::make_shared<Scope>(ScopeKind::Block, scope);
+        auto local = std::make_shared<Symbol>();
+        local->name = binding->name;
+        local->kind = SymbolKind::Variable;
+        local->type_string = value_type->to_string();
+        then_scope->define(local);
+        check_statement(binding->then_branch, then_scope, expected_return, is_async);
+        if (binding->else_branch) check_statement(binding->else_branch, scope, expected_return, is_async);
+    } else if (auto guard = dynamic_cast<GuardStmt*>(stmt.get())) {
+        const auto optional_type = check_expression(guard->optional_value, scope);
+        if (optional_type->kind != TypeKind::Optional && !optional_type->is_nullable && !optional_type->is_error()) {
+            m_diagnostics.report_error(
+                "E3102",
+                std::format("Guard binding requires a nullable value, got '{}'", optional_type->to_string()),
+                guard->optional_value->span
+            );
+        }
+        if (!statement_terminates_flow(guard->else_branch)) {
+            m_diagnostics.report_error(
+                "E3103",
+                "Guard else branch must end with return, break, or continue",
+                guard->else_branch ? guard->else_branch->span : guard->span
+            );
+        }
+        check_statement(guard->else_branch, scope, expected_return, is_async);
+        const auto value_type = unwrap_optional_type(optional_type);
+        if (const auto symbol = m_resolver.find_symbol_for_node(guard)) {
+            symbol->type_string = value_type->to_string();
+        }
+        auto local = std::make_shared<Symbol>();
+        local->name = guard->name;
+        local->kind = SymbolKind::Variable;
+        local->type_string = value_type->to_string();
+        scope->define(local);
+    } else if (auto match_statement = dynamic_cast<MatchStmt*>(stmt.get())) {
+        const auto subject_type = check_expression(match_statement->subject, scope);
+        std::vector<MatchPattern> patterns;
+        patterns.reserve(match_statement->arms.size());
+        for (const auto& arm : match_statement->arms) {
+            patterns.push_back(arm.pattern);
+            check_statement(arm.body, scope, expected_return, is_async);
+        }
+        validate_match_patterns(subject_type, patterns, scope, m_diagnostics, match_statement->span);
     } else if (auto w = dynamic_cast<WhileStmt*>(stmt.get())) {
         auto cond_t = check_expression(w->condition, scope);
         if (!is_truthy_compatible(cond_t) && !cond_t->is_error()) {
@@ -723,7 +1122,7 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
     } else if (auto for_in = dynamic_cast<ForInStmt*>(stmt.get())) {
         auto for_scope = std::make_shared<Scope>(ScopeKind::Block, scope);
         auto coll_t = check_expression(for_in->collection, for_scope);
-        if (coll_t->kind != TypeKind::Array && coll_t->kind != TypeKind::FixedArray &&
+        if (coll_t->kind != TypeKind::Array && coll_t->kind != TypeKind::Deque && coll_t->kind != TypeKind::FixedArray &&
             coll_t->kind != TypeKind::Map && coll_t->kind != TypeKind::Set && !coll_t->is_error()) {
             m_diagnostics.report_error("E3014", std::format("Type '{}' is not iterable in for-in", coll_t->to_string()), for_in->collection->span);
         }
@@ -732,14 +1131,15 @@ void TypeChecker::check_statement(const std::shared_ptr<Statement>& stmt, const 
         --m_loop_depth;
     } else if (auto ret = dynamic_cast<ReturnStmt*>(stmt.get())) {
         if (ret->value) {
-            auto val_t = check_expression(ret->value, scope);
+            std::shared_ptr<Type> target_return = expected_return;
+            if (is_async && expected_return && expected_return->kind == TypeKind::Task &&
+                !expected_return->type_args.empty()) {
+                target_return = expected_return->type_args[0];
+            }
+            auto val_t = target_return
+                ? check_expression_expected(ret->value, scope, target_return)
+                : check_expression(ret->value, scope);
             if (expected_return) {
-                // If async, expected return is Task<T> or T
-                std::shared_ptr<Type> target_return = expected_return;
-                if (is_async && expected_return->kind == TypeKind::Task && !expected_return->type_args.empty()) {
-                    target_return = expected_return->type_args[0];
-                }
-
                 if (!val_t->is_assignable_to(target_return)) {
                     m_diagnostics.report_error("E3015", std::format("Cannot return value of type '{}', expected '{}'", val_t->to_string(), target_return->to_string()), ret->value->span);
                 }
@@ -767,6 +1167,11 @@ std::shared_ptr<Type> TypeChecker::check_expression_expected(
     const std::shared_ptr<Scope>& scope,
     const std::shared_ptr<Type>& expected
 ) {
+    if (const auto* literal = dynamic_cast<const LiteralExpr*>(expr.get());
+        literal && literal->kind == LiteralExpr::Kind::Null && expected && expected->is_nullable) {
+        m_node_types[literal] = expected;
+        return expected;
+    }
     if (const auto* object = dynamic_cast<const ObjectLiteralExpr*>(expr.get())) {
         return check_object_literal(*object, scope, expected);
     }
@@ -954,6 +1359,88 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         return t;
     }
 
+    if (auto interpolated = dynamic_cast<InterpolatedStringExpr*>(expr.get())) {
+        const auto has_authored_to_string = [&scope](const std::shared_ptr<Type>& type) {
+            if (!type || type->name.empty()) return false;
+            const auto symbol = scope->lookup(type->name);
+            if (!symbol) return false;
+
+            const auto valid_method = [](const std::shared_ptr<MethodDecl>& method) {
+                return method && method->name == "toString" &&
+                    method->access == AccessModifier::Public && !method->is_async &&
+                    method->params.empty() && method->return_type &&
+                    method->return_type->name == "String" && !method->return_type->is_nullable;
+            };
+            if (const auto* declaration = dynamic_cast<const ClassDecl*>(symbol->ast_node.get())) {
+                return std::any_of(declaration->methods.begin(), declaration->methods.end(), valid_method);
+            }
+            if (const auto* declaration = dynamic_cast<const StructDecl*>(symbol->ast_node.get())) {
+                return std::any_of(declaration->methods.begin(), declaration->methods.end(), valid_method);
+            }
+            if (const auto* declaration = dynamic_cast<const InterfaceDecl*>(symbol->ast_node.get())) {
+                return std::any_of(
+                    declaration->members.begin(),
+                    declaration->members.end(),
+                    [](const InterfaceMember& member) {
+                        return member.is_method && member.name == "toString" &&
+                            member.params.empty() && member.return_type.name == "String" &&
+                            !member.return_type.is_nullable;
+                    }
+                );
+            }
+            return false;
+        };
+
+        for (const auto& segment : interpolated->segments) {
+            if (!segment.expression) continue;
+            const auto value_type = check_expression(segment.expression, scope);
+            const bool built_in = value_type && (
+                value_type->is_string() || value_type->is_numeric() || value_type->is_bool() ||
+                value_type->kind == TypeKind::Duration || value_type->kind == TypeKind::Enum ||
+                value_type->kind == TypeKind::Vec2 || value_type->kind == TypeKind::Vec3 ||
+                value_type->kind == TypeKind::Vec4 || value_type->kind == TypeKind::Color ||
+                value_type->kind == TypeKind::Rect || value_type->kind == TypeKind::Bounds2
+            );
+            if (!built_in && !has_authored_to_string(value_type) && value_type && !value_type->is_error()) {
+                m_diagnostics.report_error(
+                    "E3100",
+                    std::format(
+                        "Type '{}' cannot be interpolated; add public toString(): String",
+                        value_type->to_string()
+                    ),
+                    segment.span
+                );
+            }
+
+            if (!segment.format.empty()) {
+                bool valid_format = value_type && value_type->is_numeric();
+                if (valid_format && segment.format.front() == '.') {
+                    valid_format = segment.format.size() >= 3 && segment.format.back() == 'f';
+                    for (std::size_t index = 1; valid_format && index + 1 < segment.format.size(); ++index) {
+                        valid_format = std::isdigit(static_cast<unsigned char>(segment.format[index]));
+                    }
+                } else if (valid_format) {
+                    for (const char character : segment.format) {
+                        if (!std::isdigit(static_cast<unsigned char>(character))) {
+                            valid_format = false;
+                            break;
+                        }
+                    }
+                }
+                if (!valid_format) {
+                    m_diagnostics.report_error(
+                        "E3101",
+                        std::format("Unsupported interpolation format '{}'", segment.format),
+                        segment.span
+                    );
+                }
+            }
+        }
+
+        m_node_types[interpolated] = m_type_string;
+        return m_type_string;
+    }
+
     if (auto id = dynamic_cast<IdentifierExpr*>(expr.get())) {
         auto sym = m_resolver.find_symbol_for_node(id);
         if (!sym) {
@@ -1056,6 +1543,76 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             return t;
         }
         return m_type_error;
+    }
+
+    if (auto conditional = dynamic_cast<ConditionalExpr*>(expr.get())) {
+        const auto condition_type = check_expression(conditional->condition, scope);
+        if (!is_truthy_compatible(condition_type) && !condition_type->is_error()) {
+            m_diagnostics.report_error(
+                "E3104",
+                std::format("Conditional expression requires a truthy-compatible condition, got '{}'",
+                    condition_type->to_string()),
+                conditional->condition->span
+            );
+        }
+        const auto then_type = check_expression(conditional->then_value, scope);
+        const auto else_type = check_expression(conditional->else_value, scope);
+        std::shared_ptr<Type> result = m_type_error;
+        if (then_type->is_numeric() && else_type->is_numeric()) {
+            if (const auto promoted = promote_numeric_types(then_type->kind, else_type->kind)) {
+                result = Type::make_primitive(*promoted);
+            }
+        } else if (then_type->is_assignable_to(else_type)) {
+            result = else_type;
+        } else if (else_type->is_assignable_to(then_type)) {
+            result = then_type;
+        }
+        if (result->is_error() && !then_type->is_error() && !else_type->is_error()) {
+            m_diagnostics.report_error(
+                "E3105",
+                std::format("Conditional branches '{}' and '{}' are incompatible",
+                    then_type->to_string(), else_type->to_string()),
+                conditional->span
+            );
+        }
+        m_node_types[conditional] = result;
+        return result;
+    }
+
+    if (auto match_expression = dynamic_cast<MatchExpr*>(expr.get())) {
+        const auto subject_type = check_expression(match_expression->subject, scope);
+        std::vector<MatchPattern> patterns;
+        patterns.reserve(match_expression->arms.size());
+        std::shared_ptr<Type> result;
+        for (const auto& arm : match_expression->arms) {
+            patterns.push_back(arm.pattern);
+            const auto arm_type = check_expression(arm.value, scope);
+            if (!result) {
+                result = arm_type;
+            } else if (result->is_numeric() && arm_type->is_numeric()) {
+                if (const auto promoted = promote_numeric_types(result->kind, arm_type->kind)) {
+                    result = Type::make_primitive(*promoted);
+                } else {
+                    result = m_type_error;
+                }
+            } else if (arm_type->is_assignable_to(result)) {
+                // Keep the current common type.
+            } else if (result->is_assignable_to(arm_type)) {
+                result = arm_type;
+            } else {
+                m_diagnostics.report_error(
+                    "E3109",
+                    std::format("Match arm type '{}' is incompatible with '{}'",
+                        arm_type->to_string(), result->to_string()),
+                    arm.value->span
+                );
+                result = m_type_error;
+            }
+        }
+        validate_match_patterns(subject_type, patterns, scope, m_diagnostics, match_expression->span);
+        if (!result) result = m_type_error;
+        m_node_types[match_expression] = result;
+        return result;
     }
 
     if (auto bin = dynamic_cast<BinaryExpr*>(expr.get())) {
@@ -1199,11 +1756,114 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         for (const auto& a : call->arguments) {
             check_expression(a, scope);
         }
+        const auto normalize_authored = [&](const std::vector<std::shared_ptr<ParamDecl>>& parameters,
+                                             std::string_view callable_name) {
+            std::vector<std::string> names;
+            std::vector<std::shared_ptr<Expression>> defaults;
+            std::vector<bool> optional;
+            names.reserve(parameters.size());
+            defaults.reserve(parameters.size());
+            optional.reserve(parameters.size());
+            for (const auto& parameter : parameters) {
+                names.push_back(parameter->name);
+                defaults.push_back(parameter->default_value);
+                optional.push_back(false);
+            }
+            normalize_call_arguments(*call, names, defaults, optional, scope, callable_name);
+        };
+        const auto normalize_catalog = [&](const std::vector<ApiParameterDescriptor>& parameters,
+                                            std::string_view callable_name) {
+            std::vector<std::string> names;
+            std::vector<std::shared_ptr<Expression>> defaults;
+            std::vector<bool> optional;
+            names.reserve(parameters.size());
+            defaults.reserve(parameters.size());
+            optional.reserve(parameters.size());
+            for (const auto& parameter : parameters) {
+                names.push_back(parameter.name);
+                defaults.push_back(catalog_default_expression(parameter, call->span));
+                optional.push_back(parameter.optional);
+            }
+            normalize_call_arguments(*call, names, defaults, optional, scope, callable_name);
+        };
+        if (const auto* identifier = dynamic_cast<IdentifierExpr*>(call->callee.get())) {
+            if (const auto* function = ApiCatalog::instance().find_available_function(identifier->name)) {
+                normalize_catalog(function->parameters, function->name);
+            }
+        }
 
         // Handle known engine builtin calls & methods
         if (auto mem = dynamic_cast<MemberAccessExpr*>(call->callee.get())) {
             auto target_t = get_type_of_node(mem->object.get());
             if (target_t) {
+                if (const auto member_symbol = m_member_symbols.find(mem); member_symbol != m_member_symbols.end()) {
+                    if (const auto* method = dynamic_cast<const MethodDecl*>(member_symbol->second->ast_node.get())) {
+                        normalize_authored(method->params, target_t->name + "." + method->name);
+                    }
+                }
+                std::string early_catalog_owner = target_t->name;
+                if (target_t->kind == TypeKind::String) early_catalog_owner = "String";
+                if (target_t->kind == TypeKind::Entity) early_catalog_owner = "Entity";
+                if (target_t->kind == TypeKind::Array) early_catalog_owner = "Array";
+                if (target_t->kind == TypeKind::Deque) early_catalog_owner = "Deque";
+                if (target_t->kind == TypeKind::FixedArray) early_catalog_owner = "FixedArray";
+                if (target_t->kind == TypeKind::Map) early_catalog_owner = "Map";
+                if (target_t->kind == TypeKind::Set) early_catalog_owner = "Set";
+                if (const auto* method = ApiCatalog::instance().find_available_method(
+                        early_catalog_owner, mem->member_name)) {
+                    normalize_catalog(method->parameters, early_catalog_owner + "." + mem->member_name);
+                }
+                const auto normalize_native_collection = [&](std::initializer_list<std::string_view> parameter_names) {
+                    std::vector<std::string> names;
+                    names.reserve(parameter_names.size());
+                    for (const std::string_view name : parameter_names) names.emplace_back(name);
+                    normalize_call_arguments(
+                        *call,
+                        names,
+                        std::vector<std::shared_ptr<Expression>>(names.size()),
+                        std::vector<bool>(names.size(), false),
+                        scope,
+                        early_catalog_owner + "." + mem->member_name
+                    );
+                };
+                if (target_t->kind == TypeKind::Array) {
+                    if (mem->member_name == "push" || mem->member_name == "contains" ||
+                        mem->member_name == "remove" || mem->member_name == "indexOf" ||
+                        mem->member_name == "lastIndexOf") {
+                        normalize_native_collection({"value"});
+                    } else if (mem->member_name == "removeAt") {
+                        normalize_native_collection({"index"});
+                    } else if (mem->member_name == "swap") {
+                        normalize_native_collection({"left", "right"});
+                    } else if (mem->member_name == "shuffle" || mem->member_name == "choose") {
+                        normalize_native_collection({"seed"});
+                    } else if (mem->member_name == "map" || mem->member_name == "filter" ||
+                               mem->member_name == "sortBy") {
+                        normalize_native_collection({"callback"});
+                    } else if (mem->member_name == "reduce") {
+                        normalize_native_collection({"initial", "reducer"});
+                    } else if (mem->member_name == "pop" || mem->member_name == "reverse" ||
+                               mem->member_name == "clear") {
+                        normalize_native_collection({});
+                    }
+                } else if (target_t->kind == TypeKind::Set) {
+                    if (mem->member_name == "add" || mem->member_name == "contains" ||
+                        mem->member_name == "remove") {
+                        normalize_native_collection({"value"});
+                    } else if (mem->member_name == "clear") {
+                        normalize_native_collection({});
+                    }
+                } else if (target_t->kind == TypeKind::Map) {
+                    if (mem->member_name == "set") {
+                        normalize_native_collection({"key", "value"});
+                    } else if (mem->member_name == "get" || mem->member_name == "containsKey" ||
+                               mem->member_name == "remove") {
+                        normalize_native_collection({"key"});
+                    } else if (mem->member_name == "keys" || mem->member_name == "values" ||
+                               mem->member_name == "clear") {
+                        normalize_native_collection({});
+                    }
+                }
                 if (target_t->kind == TypeKind::Entity &&
                     (mem->member_name == "getComponent" || mem->member_name == "getComponents" ||
                      mem->member_name == "hasComponent" || mem->member_name == "addComponent")) {
@@ -1388,6 +2048,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 if (target_t->kind == TypeKind::String) catalog_owner = "String";
                 if (target_t->kind == TypeKind::Entity) catalog_owner = "Entity";
                 if (target_t->kind == TypeKind::Array) catalog_owner = "Array";
+                if (target_t->kind == TypeKind::Deque) catalog_owner = "Deque";
                 if (target_t->kind == TypeKind::FixedArray) catalog_owner = "FixedArray";
                 if (target_t->kind == TypeKind::Map) catalog_owner = "Map";
                 if (target_t->kind == TypeKind::Set) catalog_owner = "Set";
@@ -1395,6 +2056,11 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 if (target_t->kind == TypeKind::Bounds2) catalog_owner = "Bounds2";
                 if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(
                         catalog_owner, mem->member_name)) {
+                    normalize_catalog(method->parameters, catalog_owner + "." + mem->member_name);
+                    const auto resolve_method_type = [&](const std::string& type_name) {
+                        if (type_name == "T" && !target_t->type_args.empty()) return target_t->type_args.front();
+                        return resolve_type_annotation(parse_type_text(type_name), scope.get());
+                    };
                     if (call->arguments.size() < method->min_arguments ||
                         call->arguments.size() > method->max_arguments) {
                         m_diagnostics.report_error(
@@ -1411,8 +2077,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                         );
                     }
                     for (std::size_t index = 0; index < call->arguments.size() && index < method->parameters.size(); ++index) {
-                        TypeAnnotation parameter_annotation = parse_type_text(method->parameters[index].type);
-                        const auto parameter_type = resolve_type_annotation(parameter_annotation, scope.get());
+                        const auto parameter_type = resolve_method_type(method->parameters[index].type);
                         const auto argument_type = get_type_of_node(call->arguments[index].get());
                         if (argument_type && !argument_type->is_assignable_to(parameter_type)) {
                             m_diagnostics.report_error(
@@ -1423,13 +2088,12 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                             );
                         }
                     }
-                    TypeAnnotation return_annotation = parse_type_text(method->return_type);
-                    auto return_type = resolve_type_annotation(return_annotation, scope.get());
-          if (method->nullable_return) {
-            return_type = std::make_shared<Type>(*return_type);
-            return_type->is_nullable = true;
-          }
-          m_node_types[call] = return_type;
+                    auto return_type = resolve_method_type(method->return_type);
+                    if (method->nullable_return) {
+                        return_type = std::make_shared<Type>(*return_type);
+                        return_type->is_nullable = true;
+                    }
+                    m_node_types[call] = return_type;
                     return return_type;
                 }
             }
@@ -1609,6 +2273,37 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     return m_type_void;
                 }
             }
+            if (target_t && target_t->kind == TypeKind::Deque && !target_t->type_args.empty()) {
+                const auto& element_type = target_t->type_args.front();
+                if (mem->member_name == "pushFront" || mem->member_name == "pushBack") {
+                    if (call->arguments.size() != 1 ||
+                        (call->arguments.size() == 1 &&
+                         !get_type_of_node(call->arguments.front().get())->is_assignable_to(element_type))) {
+                        m_diagnostics.report_error("E3118", std::format("Deque.{} expects one '{}' value",
+                            mem->member_name, element_type->to_string()), call->span);
+                    }
+                    m_node_types[call] = m_type_void;
+                    return m_type_void;
+                }
+                if (mem->member_name == "front" || mem->member_name == "back" ||
+                    mem->member_name == "popFront" || mem->member_name == "popBack") {
+                    if (!call->arguments.empty()) {
+                        m_diagnostics.report_error("E3118", std::format("Deque.{} expects no arguments",
+                            mem->member_name), call->span);
+                    }
+                    auto result = std::make_shared<Type>(*element_type);
+                    result->is_nullable = true;
+                    m_node_types[call] = result;
+                    return result;
+                }
+                if (mem->member_name == "clear") {
+                    if (!call->arguments.empty()) {
+                        m_diagnostics.report_error("E3118", "Deque.clear expects no arguments", call->span);
+                    }
+                    m_node_types[call] = m_type_void;
+                    return m_type_void;
+                }
+            }
             if (target_t && target_t->kind == TypeKind::Map && target_t->type_args.size() == 2) {
                 const auto& key_type = target_t->type_args[0];
                 const auto& value_type = target_t->type_args[1];
@@ -1714,6 +2409,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 if (target_t->kind == TypeKind::String) catalog_owner = "String";
                 if (target_t->kind == TypeKind::Entity) catalog_owner = "Entity";
                 if (target_t->kind == TypeKind::Array) catalog_owner = "Array";
+                if (target_t->kind == TypeKind::Deque) catalog_owner = "Deque";
                 if (ApiCatalog::instance().has_available_type(catalog_owner)) {
                     m_diagnostics.report_error(
                         "E3047",
@@ -1773,6 +2469,16 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 m_node_types[call] = target_type;
                 return target_type;
             }
+            if (id->name == "Deque") {
+                if (call->type_arguments.size() != 1 || !call->arguments.empty()) {
+                    m_diagnostics.report_error("E3119", "Deque<T>() requires one element type and no arguments", call->span);
+                }
+                const auto element_type = call->type_arguments.empty()
+                    ? m_type_error : resolve_type_annotation(call->type_arguments.front(), scope.get());
+                auto deque_type = Type::make_generic(TypeKind::Deque, "Deque", {element_type});
+                m_node_types[call] = deque_type;
+                return deque_type;
+            }
             if (const auto constructor_width = value_constructor_width(id->name)) {
                 if (call->arguments.size() != *constructor_width) {
                     m_diagnostics.report_error(
@@ -1817,6 +2523,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             const auto called_symbol = scope->lookup(id->name);
             if (called_symbol) {
                 if (const auto* function = dynamic_cast<const FunctionDecl*>(called_symbol->ast_node.get())) {
+                    normalize_authored(function->params, function->name);
                     std::unordered_map<std::string, std::shared_ptr<Type>> bindings;
                     if (!call->type_arguments.empty() && call->type_arguments.size() != function->generic_params.size()) {
                         m_diagnostics.report_error("E3077", std::format("Generic function '{}' expects {} type arguments, got {}",
@@ -1850,7 +2557,8 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                             if (constraint == "Ordered") satisfied = satisfied || type->is_numeric() || type->is_string() || type->kind == TypeKind::Enum;
                             if (constraint == "Send") satisfied = satisfied || type->is_numeric() || type->is_bool() || type->is_string() ||
                                 type->kind == TypeKind::Enum || type->kind == TypeKind::Struct || type->kind == TypeKind::Array ||
-                                type->kind == TypeKind::FixedArray || type->kind == TypeKind::Map || type->kind == TypeKind::Set;
+                                type->kind == TypeKind::Deque || type->kind == TypeKind::FixedArray ||
+                                type->kind == TypeKind::Map || type->kind == TypeKind::Set;
                             if (!satisfied) {
                                 m_diagnostics.report_error("E3078", std::format("Type '{}' does not satisfy constraint '{}'",
                                     type->to_string(), constraint), call->span);
@@ -1888,6 +2596,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                     }
                     const auto& parameters = class_decl->constructor_decl
                         ? class_decl->constructor_decl->params : std::vector<std::shared_ptr<ParamDecl>>{};
+                    normalize_authored(parameters, class_decl->name + " constructor");
                     if (call->arguments.size() != parameters.size()) {
                         m_diagnostics.report_error("E3079", std::format("{} constructor expects {} arguments, got {}",
                             class_decl->name, parameters.size(), call->arguments.size()), call->span);
@@ -1984,6 +2693,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             }
             if (const ApiFunctionDescriptor* function =
                     ApiCatalog::instance().find_available_function(id->name)) {
+                normalize_catalog(function->parameters, function->name);
                 if (call->arguments.size() != function->parameters.size()) {
                     m_diagnostics.report_error(
                         "E3048",
@@ -2067,14 +2777,19 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         if (obj_t->kind == TypeKind::Rect) catalog_owner = "Rect";
         if (obj_t->kind == TypeKind::Bounds2) catalog_owner = "Bounds2";
         if (obj_t->kind == TypeKind::Array) catalog_owner = "Array";
+        if (obj_t->kind == TypeKind::Deque) catalog_owner = "Deque";
         if (obj_t->kind == TypeKind::FixedArray) catalog_owner = "FixedArray";
         if (obj_t->kind == TypeKind::Map) catalog_owner = "Map";
         if (obj_t->kind == TypeKind::Set) catalog_owner = "Set";
-        if ((obj_t->kind == TypeKind::Array || obj_t->kind == TypeKind::FixedArray ||
+        if ((obj_t->kind == TypeKind::Array || obj_t->kind == TypeKind::Deque || obj_t->kind == TypeKind::FixedArray ||
              obj_t->kind == TypeKind::Map || obj_t->kind == TypeKind::Set) &&
             (mem->member_name == "length" || mem->member_name == "size")) {
             m_node_types[mem] = m_type_int;
             return m_type_int;
+        }
+        if (obj_t->kind == TypeKind::Deque && mem->member_name == "isEmpty") {
+            m_node_types[mem] = m_type_bool;
+            return m_type_bool;
         }
         if (const ApiPropertyDescriptor* property = ApiCatalog::instance().find_available_property(catalog_owner, mem->member_name)) {
             if (!property->readable) {
@@ -2082,11 +2797,11 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
             }
             TypeAnnotation annotation = parse_type_text(property->type);
             auto property_type = resolve_type_annotation(annotation, scope.get());
-      if (property->nullable) {
-        property_type = std::make_shared<Type>(*property_type);
-        property_type->is_nullable = true;
-      }
-      m_node_types[mem] = property_type;
+            if (property->nullable) {
+                property_type = std::make_shared<Type>(*property_type);
+                property_type->is_nullable = true;
+            }
+            m_node_types[mem] = property_type;
             return property_type;
         }
         // A member access is checked before its enclosing CallExpr.  Catalog
@@ -2094,12 +2809,17 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
         // instead of reporting them as missing class fields.
         if (const ApiMethodDescriptor* method = ApiCatalog::instance().find_available_method(catalog_owner, mem->member_name)) {
             auto function_type = Type::make_custom(TypeKind::Function, mem->member_name);
-            TypeAnnotation return_annotation = parse_type_text(method->return_type);
-            function_type->return_type = resolve_type_annotation(return_annotation, scope.get());
-            function_type->return_type->is_nullable = method->nullable_return;
+            const auto resolve_method_type = [&](const std::string& type_name) {
+                if (type_name == "T" && !obj_t->type_args.empty()) return obj_t->type_args.front();
+                return resolve_type_annotation(parse_type_text(type_name), scope.get());
+            };
+            function_type->return_type = resolve_method_type(method->return_type);
+            if (method->nullable_return) {
+                function_type->return_type = std::make_shared<Type>(*function_type->return_type);
+                function_type->return_type->is_nullable = true;
+            }
             for (const auto& parameter : method->parameters) {
-                TypeAnnotation parameter_annotation = parse_type_text(parameter.type);
-                function_type->param_types.push_back(resolve_type_annotation(parameter_annotation, scope.get()));
+                function_type->param_types.push_back(resolve_method_type(parameter.type));
             }
             m_node_types[mem] = function_type;
             return function_type;
@@ -2129,6 +2849,11 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
               mem->member_name == "removeAt" || mem->member_name == "reverse" || mem->member_name == "swap" ||
               mem->member_name == "shuffle" || mem->member_name == "choose" || mem->member_name == "map" ||
               mem->member_name == "filter" || mem->member_name == "reduce" || mem->member_name == "sortBy")) ||
+            (obj_t->kind == TypeKind::Deque &&
+             (mem->member_name == "pushFront" || mem->member_name == "pushBack" ||
+              mem->member_name == "front" || mem->member_name == "back" ||
+              mem->member_name == "popFront" || mem->member_name == "popBack" ||
+              mem->member_name == "clear")) ||
             (obj_t->kind == TypeKind::Set &&
              (mem->member_name == "add" || mem->member_name == "contains" ||
               mem->member_name == "remove" || mem->member_name == "clear")) ||
@@ -2368,6 +3093,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
     if (auto arrow = dynamic_cast<ArrowFunctionExpr*>(expr.get())) {
         auto type = Type::make_custom(TypeKind::Function, "<closure>");
         auto function_scope = std::make_shared<Scope>(ScopeKind::Function, scope);
+        const auto previous_narrowing = m_narrowed_nonnull;
         for (const auto& parameter : arrow->params) {
             const auto parameter_type = resolve_type_annotation(parameter->type_annotation, scope.get());
             type->param_types.push_back(parameter_type);
@@ -2383,6 +3109,7 @@ std::shared_ptr<Type> TypeChecker::check_expression(const std::shared_ptr<Expres
                 ? resolve_type_annotation(*arrow->return_type, scope.get()) : m_type_void;
             check_statement(arrow->body_stmt, function_scope, type->return_type, false);
         }
+        m_narrowed_nonnull = previous_narrowing;
         m_node_types[arrow] = type;
         return type;
     }

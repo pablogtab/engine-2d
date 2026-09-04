@@ -64,6 +64,8 @@ void Parser::synchronize() {
             case TokenType::Let:
             case TokenType::Const:
             case TokenType::For:
+            case TokenType::Guard:
+            case TokenType::Match:
             case TokenType::If:
             case TokenType::While:
             case TokenType::Return:
@@ -620,6 +622,8 @@ std::shared_ptr<Statement> Parser::parse_statement() {
     if (check(TokenType::OpenBrace)) return parse_block();
     if (check(TokenType::Let) || check(TokenType::Const)) return parse_var_decl();
     if (check(TokenType::If)) return parse_if();
+    if (check(TokenType::Guard)) return parse_guard();
+    if (check(TokenType::Match)) return parse_match_statement();
     if (check(TokenType::While)) return parse_while();
     if (check(TokenType::For)) return parse_for();
     if (check(TokenType::Return)) return parse_return();
@@ -675,7 +679,27 @@ std::shared_ptr<VarDeclStmt> Parser::parse_var_decl() {
     return v;
 }
 
-std::shared_ptr<IfStmt> Parser::parse_if() {
+std::shared_ptr<Statement> Parser::parse_if() {
+    if (m_current + 2 < m_tokens.size() && m_tokens[m_current + 1].is(TokenType::OpenParen) &&
+        m_tokens[m_current + 2].is(TokenType::Let)) {
+        const Token if_token = advance();
+        consume(TokenType::OpenParen, "E1171", "Expected '(' after 'if'");
+        consume(TokenType::Let, "E1173", "Expected 'let' in optional binding");
+        const Token name = consume(TokenType::Identifier, "E1174", "Expected binding name");
+        consume(TokenType::Equals, "E1175", "Expected '=' in optional binding");
+        auto binding = std::make_shared<OptionalBindingIfStmt>();
+        binding->name = name.text;
+        binding->optional_value = parse_expression();
+        consume(TokenType::CloseParen, "E1172", "Expected ')' after optional binding");
+        binding->then_branch = parse_statement();
+        binding->span = if_token.span.merge(binding->then_branch ? binding->then_branch->span : name.span);
+        if (match(TokenType::Else)) {
+            binding->else_branch = parse_statement();
+            if (binding->else_branch) binding->span = binding->span.merge(binding->else_branch->span);
+        }
+        return binding;
+    }
+
     auto if_s = std::make_shared<IfStmt>();
     Token if_tok = consume(TokenType::If, "E1170", "Expected 'if'");
     if_s->span = if_tok.span;
@@ -694,6 +718,121 @@ std::shared_ptr<IfStmt> Parser::parse_if() {
         }
     }
     return if_s;
+}
+
+std::shared_ptr<GuardStmt> Parser::parse_guard() {
+    auto guard = std::make_shared<GuardStmt>();
+    const Token guard_token = consume(TokenType::Guard, "E1176", "Expected 'guard'");
+    guard->span = guard_token.span;
+    consume(TokenType::OpenParen, "E1177", "Expected '(' after 'guard'");
+    consume(TokenType::Let, "E1178", "Expected 'let' in guard binding");
+    const Token name = consume(TokenType::Identifier, "E1179", "Expected binding name");
+    guard->name = name.text;
+    consume(TokenType::Equals, "E1183", "Expected '=' in guard binding");
+    guard->optional_value = parse_expression();
+    consume(TokenType::CloseParen, "E1184", "Expected ')' after guard binding");
+    consume(TokenType::Else, "E1185", "Expected 'else' after guard binding");
+    guard->else_branch = parse_statement();
+    guard->span = guard->span.merge(guard->else_branch ? guard->else_branch->span : name.span);
+    return guard;
+}
+
+MatchPattern Parser::parse_match_pattern() {
+    MatchPattern pattern;
+    const bool negative = match(TokenType::Minus);
+    if (match(TokenType::IntegerLiteral)) {
+        pattern.kind = MatchPattern::Kind::Integer;
+        pattern.int_value = negative ? -previous().int_value : previous().int_value;
+        pattern.span = previous().span;
+        return pattern;
+    }
+    if (match(TokenType::FloatLiteral)) {
+        pattern.kind = MatchPattern::Kind::Float;
+        pattern.float_value = negative ? -previous().float_value : previous().float_value;
+        pattern.span = previous().span;
+        return pattern;
+    }
+    if (negative) {
+        m_diagnostics.report_error("E1186", "Expected numeric literal after '-' in match pattern", previous().span);
+    }
+    if (match(TokenType::True) || match(TokenType::False)) {
+        pattern.kind = MatchPattern::Kind::Boolean;
+        pattern.bool_value = previous().type == TokenType::True;
+        pattern.span = previous().span;
+        return pattern;
+    }
+    if (match(TokenType::Null)) {
+        pattern.kind = MatchPattern::Kind::Null;
+        pattern.span = previous().span;
+        return pattern;
+    }
+    if (match(TokenType::StringLiteral)) {
+        pattern.kind = MatchPattern::Kind::String;
+        pattern.string_value = previous().string_value;
+        pattern.span = previous().span;
+        return pattern;
+    }
+    const Token name = consume(TokenType::Identifier, "E1187", "Expected match pattern");
+    pattern.span = name.span;
+    if (name.text == "_") {
+        pattern.kind = MatchPattern::Kind::Wildcard;
+        return pattern;
+    }
+    consume(TokenType::Dot, "E1188", "Expected '.' in enum match pattern");
+    const Token member = consume(TokenType::Identifier, "E1189", "Expected enum member name");
+    pattern.kind = MatchPattern::Kind::EnumMember;
+    pattern.enum_name = name.text;
+    pattern.member_name = member.text;
+    pattern.span = name.span.merge(member.span);
+    return pattern;
+}
+
+std::shared_ptr<MatchStmt> Parser::parse_match_statement() {
+    auto statement = std::make_shared<MatchStmt>();
+    const Token match_token = consume(TokenType::Match, "E1197", "Expected 'match'");
+    statement->span = match_token.span;
+    consume(TokenType::OpenParen, "E1198", "Expected '(' after 'match'");
+    statement->subject = parse_expression();
+    consume(TokenType::CloseParen, "E1199", "Expected ')' after match subject");
+    consume(TokenType::OpenBrace, "E1201", "Expected '{' before match arms");
+    while (!check(TokenType::CloseBrace) && !is_at_end()) {
+        MatchStatementArm arm;
+        arm.pattern = parse_match_pattern();
+        consume(TokenType::Arrow, "E1202", "Expected '=>' after match pattern");
+        if (!check(TokenType::OpenBrace)) {
+            m_diagnostics.report_error("E1203", "Statement match arms require a block", peek().span);
+        }
+        arm.body = parse_statement();
+        statement->arms.push_back(std::move(arm));
+        match(TokenType::Comma);
+    }
+    const Token close = consume(TokenType::CloseBrace, "E1204", "Expected '}' after match arms");
+    statement->span = statement->span.merge(close.span);
+    return statement;
+}
+
+std::shared_ptr<MatchExpr> Parser::parse_match_expression() {
+    auto expression = std::make_shared<MatchExpr>();
+    const Token match_token = consume(TokenType::Match, "E1260", "Expected 'match'");
+    expression->span = match_token.span;
+    consume(TokenType::OpenParen, "E1261", "Expected '(' after 'match'");
+    expression->subject = parse_expression();
+    consume(TokenType::CloseParen, "E1262", "Expected ')' after match subject");
+    consume(TokenType::OpenBrace, "E1263", "Expected '{' before match arms");
+    while (!check(TokenType::CloseBrace) && !is_at_end()) {
+        MatchExpressionArm arm;
+        arm.pattern = parse_match_pattern();
+        consume(TokenType::Arrow, "E1264", "Expected '=>' after match pattern");
+        arm.value = parse_expression();
+        expression->arms.push_back(std::move(arm));
+        if (!match(TokenType::Comma) && !check(TokenType::CloseBrace)) {
+            m_diagnostics.report_error("E1265", "Expected ',' between match expression arms", peek().span);
+            break;
+        }
+    }
+    const Token close = consume(TokenType::CloseBrace, "E1266", "Expected '}' after match arms");
+    expression->span = expression->span.merge(close.span);
+    return expression;
 }
 
 std::shared_ptr<WhileStmt> Parser::parse_while() {
@@ -817,6 +956,22 @@ std::shared_ptr<Expression> Parser::parse_expression(int min_precedence) {
     if (!left) return nullptr;
 
     while (true) {
+        constexpr int conditional_precedence = 2;
+        if (check(TokenType::Question) && min_precedence <= conditional_precedence) {
+            advance();
+            auto then_value = parse_expression();
+            consume(TokenType::Colon, "E1244", "Expected ':' in conditional expression");
+            auto else_value = parse_expression(conditional_precedence);
+            auto conditional = std::make_shared<ConditionalExpr>();
+            conditional->condition = left;
+            conditional->then_value = std::move(then_value);
+            conditional->else_value = std::move(else_value);
+            conditional->span = left->span.merge(
+                conditional->else_value ? conditional->else_value->span : left->span
+            );
+            left = std::move(conditional);
+            continue;
+        }
         int prec = get_token_precedence(peek().type);
         if (prec < min_precedence || prec == 0) break;
 
@@ -869,6 +1024,7 @@ std::shared_ptr<Expression> Parser::parse_prefix() {
 }
 
 std::shared_ptr<Expression> Parser::parse_primary() {
+    if (check(TokenType::Match)) return parse_match_expression();
     if (match(TokenType::IntegerLiteral)) {
         auto lit = std::make_shared<LiteralExpr>();
         lit->kind = LiteralExpr::Kind::Integer;
@@ -898,6 +1054,54 @@ std::shared_ptr<Expression> Parser::parse_primary() {
         lit->string_val = previous().string_value;
         lit->span = previous().span;
         return lit;
+    }
+    if (match(TokenType::TemplateStart)) {
+        const Token opening = previous();
+        auto interpolated = std::make_shared<InterpolatedStringExpr>();
+        interpolated->span = opening.span;
+
+        while (!check(TokenType::TemplateEnd) && !is_at_end()) {
+            if (match(TokenType::TemplateText)) {
+                InterpolatedStringSegment segment;
+                segment.text = previous().string_value;
+                segment.span = previous().span;
+                interpolated->segments.push_back(std::move(segment));
+                continue;
+            }
+            if (match(TokenType::TemplateExprStart)) {
+                const Token expression_start = previous();
+                InterpolatedStringSegment segment;
+                segment.expression = parse_expression();
+                if (match(TokenType::Colon)) {
+                    while (!check(TokenType::TemplateExprEnd) && !is_at_end()) {
+                        segment.format += advance().text;
+                    }
+                }
+                const Token expression_end = consume(
+                    TokenType::TemplateExprEnd,
+                    "E1241",
+                    "Expected '}' after interpolated expression"
+                );
+                segment.span = expression_start.span.merge(expression_end.span);
+                interpolated->segments.push_back(std::move(segment));
+                continue;
+            }
+
+            const Token unexpected = advance();
+            m_diagnostics.report_error(
+                "E1242",
+                "Unexpected token in interpolated string",
+                unexpected.span
+            );
+        }
+
+        const Token closing = consume(
+            TokenType::TemplateEnd,
+            "E1243",
+            "Expected '`' after interpolated string"
+        );
+        interpolated->span = opening.span.merge(closing.span);
+        return interpolated;
     }
     if (match(TokenType::True) || match(TokenType::False)) {
         auto lit = std::make_shared<LiteralExpr>();
@@ -1090,10 +1294,7 @@ std::shared_ptr<Expression> Parser::parse_postfix(std::shared_ptr<Expression> ex
             call->callee = expr;
             call->span = expr->span;
 
-            while (!check(TokenType::CloseParen) && !is_at_end()) {
-                call->arguments.push_back(parse_expression());
-                if (!match(TokenType::Comma)) break;
-            }
+            parse_call_arguments(*call);
             Token close_tok = consume(TokenType::CloseParen, "E1252", "Expected ')'");
             call->span = call->span.merge(close_tok.span);
             expr = call;
@@ -1114,10 +1315,7 @@ std::shared_ptr<Expression> Parser::parse_postfix(std::shared_ptr<Expression> ex
             call->callee = expr;
             call->type_arguments = std::move(type_arguments);
             call->span = expr->span;
-            while (!check(TokenType::CloseParen) && !is_at_end()) {
-                call->arguments.push_back(parse_expression());
-                if (!match(TokenType::Comma)) break;
-            }
+            parse_call_arguments(*call);
             Token close_tok = consume(TokenType::CloseParen, "E1252", "Expected ')' after call arguments");
             call->span = call->span.merge(close_tok.span);
             expr = call;
@@ -1127,6 +1325,20 @@ std::shared_ptr<Expression> Parser::parse_postfix(std::shared_ptr<Expression> ex
     }
 
     return expr;
+}
+
+void Parser::parse_call_arguments(CallExpr& call) {
+    while (!check(TokenType::CloseParen) && !is_at_end()) {
+        std::optional<std::string> argument_name;
+        if (check(TokenType::Identifier) && m_current + 1 < m_tokens.size() &&
+            m_tokens[m_current + 1].is(TokenType::Colon)) {
+            argument_name = advance().text;
+            advance(); // ':'
+        }
+        call.argument_names.push_back(std::move(argument_name));
+        call.arguments.push_back(parse_expression());
+        if (!match(TokenType::Comma)) break;
+    }
 }
 
 } // namespace EngineScript

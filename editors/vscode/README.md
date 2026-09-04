@@ -3,12 +3,14 @@
 The extension provides syntax highlighting, live diagnostics, completion, hover,
 go-to-definition for authored declarations, document symbols, and type-aware
 member completion for typed variables, properties, injections, and services.
-The language server reads the versioned EngineScript API catalog, so available
+The language server reads the current EngineScript API catalog, so available
 types, global functions, and service methods stay aligned with the compiler.
 This includes contextual component methods such as
 `RigidBody2D.setIgnoreOneWay`, particle authoring through `Particles` and
 `ParticleEmitter2D`, semantic entity lookup and mutation through the
 `Entities` gameplay-tag methods, and deterministic numeric conversions.
+The current extension also covers interpolated backtick strings, optional
+bindings, exhaustive `match`, enums, named/default arguments, and `Deque<T>`.
 Numeric type calls such as `Int(value)`, `UInt8(value)`, and `Float64(value)`
 provide completion documentation, hover details, and signature help.
 The `EngineScript: Compile Project` command builds `.e2s` files. Its status-bar item

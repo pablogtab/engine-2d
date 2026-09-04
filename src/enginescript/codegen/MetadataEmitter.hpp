@@ -18,6 +18,13 @@ struct ExposedPropertyDesc {
     bool is_exposed = false;
     bool is_serializable = true;
     bool is_behaviour_reference = false;
+    std::string enum_type;
+    std::vector<std::string> enum_values;
+};
+
+struct EnumManifest {
+    std::string name;
+    std::vector<std::string> members;
 };
 
 struct InjectedDependencyDesc {
@@ -42,7 +49,7 @@ struct ProjectMetadataManifest {
     std::string sdk_hash = ENGINE_SCRIPT_SDK_HASH;
     std::vector<BehaviourManifest> behaviours;
     std::vector<std::string> structs;
-    std::vector<std::string> enums;
+    std::vector<EnumManifest> enums;
 };
 
 class MetadataEmitter {

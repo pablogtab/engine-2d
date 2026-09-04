@@ -53,6 +53,19 @@ private:
         const std::vector<std::shared_ptr<MethodDecl>>& methods,
         const std::shared_ptr<Scope>& scope
     );
+    void validate_parameter_defaults(
+        const std::vector<std::shared_ptr<ParamDecl>>& parameters,
+        const std::shared_ptr<Scope>& scope,
+        std::string_view callable_name
+    );
+    void normalize_call_arguments(
+        CallExpr& call,
+        const std::vector<std::string>& parameter_names,
+        const std::vector<std::shared_ptr<Expression>>& default_values,
+        const std::vector<bool>& optional_parameters,
+        const std::shared_ptr<Scope>& scope,
+        std::string_view callable_name
+    );
 
     bool check_statement_returns(const std::shared_ptr<Statement>& stmt);
 
