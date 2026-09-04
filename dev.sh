@@ -59,11 +59,10 @@ if [ ! -f "$PROJECT_DIR/project.engine2d" ]; then
 fi
 PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
 
-# Ensure build directory exists
-if [ ! -d "$BUILD_DIR" ]; then
-    echo "[DEV] Initializing CMake build environment..."
-    cmake -B "$BUILD_DIR" -S . -DENGINE_PROJECT_DIR="$PROJECT_DIR"
-fi
+# Reconfigure on every startup so changes to project.engine2d cannot leave
+# removed runtime shader paths cached in the generated build files.
+echo "[DEV] Configuring CMake build environment..."
+cmake -B "$BUILD_DIR" -S . -DENGINE_PROJECT_DIR="$PROJECT_DIR"
 
 echo "[DEV] Initial build..."
 cmake --build "$BUILD_DIR"
@@ -132,7 +131,9 @@ echo "[DEV] Watching 'src/' for changes... (Press Ctrl+C to stop)"
 
 # Function to compute MD5 checksum of source files modification times
 get_checksum() {
-    find src CMakeLists.txt -type f \( -name "*.cpp" -o -name "*.hpp" -o -name "CMakeLists.txt" \) -exec stat -f "%m %N" {} + 2>/dev/null | md5
+    find src CMakeLists.txt "$PROJECT_DIR/project.engine2d" -type f \
+        \( -name "*.cpp" -o -name "*.hpp" -o -name "CMakeLists.txt" -o -name "project.engine2d" \) \
+        -exec stat -f "%m %N" {} + 2>/dev/null | md5
 }
 
 LAST_CHECKSUM=$(get_checksum)
@@ -144,7 +145,8 @@ while true; do
         echo -e "\n[DEV] 🔄 File change detected! Rebuilding..."
         LAST_CHECKSUM=$CURRENT_CHECKSUM
         
-        if cmake --build "$BUILD_DIR"; then
+        if cmake -B "$BUILD_DIR" -S . -DENGINE_PROJECT_DIR="$PROJECT_DIR" && \
+            cmake --build "$BUILD_DIR"; then
             echo "[DEV] ✅ Build successful! Relaunching engine..."
             start_app
         else
