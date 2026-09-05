@@ -31,7 +31,7 @@ WorkspaceManager::WorkspaceManager()
         {EditorWorkspaceId::Tilemap, "tilemap", "Tilemap", {
             EditorPanelId::Hierarchy, EditorPanelId::Viewport,
             EditorPanelId::Inspector, EditorPanelId::Tilemap,
-            EditorPanelId::Assets
+            EditorPanelId::SurfaceGenerator, EditorPanelId::Assets
         }},
         {EditorWorkspaceId::Vfx, "vfx", "VFX", {
             EditorPanelId::Viewport, EditorPanelId::Inspector,

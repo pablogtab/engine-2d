@@ -23,6 +23,12 @@ int main() {
     assert(!manager.contains(EditorPanelId::Viewport));
     assert(!manager.contains(EditorPanelId::Inspector));
 
+    assert(manager.set_active(EditorWorkspaceId::Tilemap));
+    assert(manager.contains(EditorPanelId::Tilemap));
+    assert(manager.contains(EditorPanelId::SurfaceGenerator));
+    assert(std::string(editor_panel_id_key(EditorPanelId::SurfaceGenerator)) ==
+        "surface_generator");
+
     assert(manager.set_active(EditorWorkspaceId::Vfx));
     assert(manager.contains(EditorPanelId::Particles));
     assert(manager.contains(EditorPanelId::TrailPreview));

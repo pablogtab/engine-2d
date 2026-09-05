@@ -130,6 +130,7 @@ set(SOURCES
     src/editor/panels/ProjectSettingsPanel.cpp
     src/editor/panels/ShortcutsPreferencesPanel.cpp
     src/editor/panels/TilemapPalettePanel.cpp
+    src/editor/panels/SurfaceGeneratorPanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/panels/SpriteAnimationStudioSidebar.cpp
     src/editor/panels/SpriteAnimationStudioCanvas.cpp
@@ -182,6 +183,7 @@ set(SOURCES
     src/editor/tools/ViewportLightingOverlay.cpp
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
+    src/editor/tools/SurfaceGenerationService.cpp
     src/editor/state/EditorEntityStateStore.cpp
     src/editor/state/EditorPanelStateStore.cpp
     src/editor/state/AutosaveRecovery.cpp
@@ -354,6 +356,16 @@ add_executable(Engine2DStandalone src/runtime/StandaloneMain.cpp src/core/Applic
 target_compile_definitions(Engine2DStandalone PRIVATE ENGINE_WITH_EDITOR=0)
 add_executable(LightingBakeTool src/tools/LightingBakeTool.cpp)
 target_link_libraries(LightingBakeTool PRIVATE EngineRuntime)
+
+add_executable(SurfaceGenerateTool
+    src/tools/SurfaceGenerateTool.cpp
+    src/editor/tools/SurfaceGenerationService.cpp
+)
+target_include_directories(SurfaceGenerateTool PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(SurfaceGenerateTool PRIVATE EngineRuntime)
 
 add_dependencies(Engine2D compile_shaders)
 add_dependencies(Engine2DStandalone compile_shaders)
@@ -755,6 +767,18 @@ target_include_directories(LightingBakeTests PRIVATE
 )
 target_link_libraries(LightingBakeTests PRIVATE EngineRuntime)
 add_test(NAME LightingBakeTests COMMAND LightingBakeTests)
+
+add_executable(SurfaceGenerationTests
+    tests/SurfaceGenerationTests.cpp
+    src/editor/tools/SurfaceGenerationService.cpp
+    vendor/stb/stb_impl.cpp
+)
+target_include_directories(SurfaceGenerationTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(SurfaceGenerationTests PRIVATE SDL3::SDL3)
+add_test(NAME SurfaceGenerationTests COMMAND SurfaceGenerationTests)
 
 add_executable(CanvasLayoutTests tests/CanvasLayoutTests.cpp)
 target_include_directories(CanvasLayoutTests PRIVATE

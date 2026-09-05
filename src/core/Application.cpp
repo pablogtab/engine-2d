@@ -20,6 +20,7 @@
 #include "../editor/panels/ProjectSettingsPanel.hpp"
 #include "../editor/panels/ShortcutsPreferencesPanel.hpp"
 #include "../editor/panels/TilemapPalettePanel.hpp"
+#include "../editor/panels/SurfaceGeneratorPanel.hpp"
 #include "../editor/panels/SpriteAnimationStudioPanel.hpp"
 #include "../editor/panels/ParticleEffectEditorPanel.hpp"
 #include "../editor/panels/TrailPreviewPanel.hpp"
@@ -371,6 +372,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     auto shortcuts_panel = std::make_shared<ShortcutsPreferencesPanel>();
     shortcuts_panel->is_open = false; // Closed by default until opened from Edit menu
     auto palette_panel = std::make_shared<TilemapPalettePanel>(m_window->get_sdl_renderer(), &m_scene_manager, selection);
+    auto surface_generator_panel = std::make_shared<SurfaceGeneratorPanel>(m_window->get_sdl_renderer());
     auto ai_assistant_panel = std::make_shared<AiAssistantPanel>(
         &m_scene_manager,
         selection,
@@ -496,6 +498,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_editor_layer->register_panel(EditorPanelId::ProjectSettings, project_settings_panel);
     m_editor_layer->register_panel(EditorPanelId::Shortcuts, shortcuts_panel);
     m_editor_layer->register_panel(EditorPanelId::Tilemap, palette_panel);
+    m_editor_layer->register_panel(EditorPanelId::SurfaceGenerator, surface_generator_panel);
     m_editor_layer->register_panel(EditorPanelId::Animation, anim_studio_panel);
     m_editor_layer->register_panel(EditorPanelId::Assistant, ai_assistant_panel);
     m_editor_layer->register_panel(EditorPanelId::UiGallery, ui_gallery_panel);

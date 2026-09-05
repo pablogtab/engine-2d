@@ -235,6 +235,7 @@ void WorkspaceLayoutController::build_default(
             );
             ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left);
             ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
+            ImGui::DockBuilderDockWindow("Surface Generator", dock_main_id);
             ImGui::DockBuilderDockWindow("Entity Inspector", dock_right);
             ImGui::DockBuilderDockWindow("Tilemap Palette", dock_bottom);
             ImGui::DockBuilderDockWindow("Asset Browser", dock_bottom);
