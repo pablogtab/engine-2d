@@ -43,9 +43,14 @@ std::optional<ProjectContext> ProjectContext::open(const fs::path& project_path,
     }
 
     ProjectDescriptor descriptor;
-    descriptor.version = json.value("version", 0);
-    descriptor.name = json.value("name", std::string{});
-    descriptor.startup_scene = json.value("startup_scene", std::string{});
+    try {
+        descriptor.version = json.value("version", 0);
+        descriptor.name = json.value("name", std::string{});
+        descriptor.startup_scene = json.value("startup_scene", std::string{});
+    } catch (const nlohmann::json::exception& exception) {
+        set_error(error, "Invalid project descriptor fields: " + std::string(exception.what()));
+        return std::nullopt;
+    }
     if (descriptor.version != 1) {
         set_error(error, "Unsupported project descriptor version: " + std::to_string(descriptor.version));
         return std::nullopt;

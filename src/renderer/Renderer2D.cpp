@@ -75,6 +75,7 @@ void Renderer2D::set_render_resolution(
 void Renderer2D::trim_transient_resources() {
     if (m_frame_world_target_leased) return;
     m_render_target_pool.clear();
+    m_white_texture.reset();
     m_sprite_shadow_ellipses.clear();
     m_receiver_mask_textures.clear();
     for (const auto& pass : m_lighting_passes) {
@@ -396,17 +397,14 @@ void Renderer2D::submit_sprite(
     const SpriteMaterialLighting* material_lighting,
     bool receives_shadows
 ) {
+    // Cull before material-pack work; enqueue_sprite applies the same checks
+    // to prebuilt commands received through batch submission.
     render_layer = std::min<RenderLayer>(render_layer, 31);
-    if (m_active_camera && !m_active_camera->renders_layer(render_layer)) {
+    if (m_active_camera && (!m_active_camera->renders_layer(render_layer) ||
+        !m_active_camera->is_visible(position, size))) {
         ++m_culled_sprites;
         return;
     }
-    // 2D Frustum Culling Check
-    if (m_active_camera && !m_active_camera->is_visible(position, size)) {
-        m_culled_sprites++;
-        return; // Early discard out-of-screen sprite
-    }
-
     SpriteCommand cmd{texture, position, size, rotation, pivot, color};
     if (src_rect) {
         cmd.src_rect = *src_rect;
@@ -446,20 +444,23 @@ void Renderer2D::submit_sprite(
         }
     }
 
-    if (is_overlay) {
-        cmd.sort_key = 0xFFFFFFFFFFFFFFFFULL; // Force overlay to sort after all game world sprites!
-    } else {
-        // Explicit layer/order precede depth and Y sorting. Texture batching is
-        // handled later by contiguous equal-texture commands where possible.
-        cmd.sort_key = SpriteSortKey::world(
-            sorting_layer,
-            position.z,
-            position.y,
-            order_in_layer
-        );
-    }
+    enqueue_sprite(std::move(cmd), is_overlay);
+}
 
-    m_sprite_queue.push_back(cmd);
+void Renderer2D::enqueue_sprite(SpriteCommand cmd, bool overlay) {
+    cmd.render_layer = std::min<RenderLayer>(cmd.render_layer, 31);
+    if (!cmd.texture && !cmd.material) return;
+    if (!cmd.is_screen_space && m_active_camera &&
+        (!m_active_camera->renders_layer(cmd.render_layer) || !m_active_camera->is_visible(cmd.position, cmd.size))) {
+        ++m_culled_sprites;
+        return;
+    }
+    if (!cmd.entity_effect_profile.is_valid()) cmd.entity_effect_scope = 0;
+    cmd.sort_key = cmd.is_screen_space
+        ? SpriteSortKey::screen(cmd.position.z, m_screen_submission_order++)
+        : overlay ? 0xFFFFFFFFFFFFFFFFULL
+        : SpriteSortKey::world(cmd.sorting_layer, cmd.position.z, cmd.position.y, cmd.order_in_layer);
+    m_sprite_queue.push_back(std::move(cmd));
 }
 
 std::shared_ptr<const Material> Renderer2D::create_lit_sprite_material(
@@ -734,60 +735,10 @@ void Renderer2D::submit_screen_text(
 }
 
 void Renderer2D::submit_sprites_batch(const SpriteCommand* commands, size_t count) {
-    if (!commands || count == 0) return;
-
-    if (m_thread_pool && m_thread_pool->get_thread_count() > 1 && count >= 512) {
-        std::vector<SpriteCommand> processed_cmds(count);
-        std::vector<uint8_t> is_visible(count, 0);
-
-        m_thread_pool->parallel_for(0, count, [&](size_t i) {
-            const auto& src = commands[i];
-            if (!src.texture && (!src.material || src.material->shader().sampler_count() != 0)) return;
-
-            if (m_active_camera && !m_active_camera->is_visible(src.position, src.size)) {
-                return; // Culled
-            }
-
-            SpriteCommand cmd = src;
-            uint32_t z_key = static_cast<uint32_t>(src.position.z + 10000.0f);
-            uint16_t y_key = static_cast<uint16_t>(src.position.y + 32768.0f);
-            uint16_t tex_key = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(src.texture) & 0xFFFF);
-            cmd.sort_key = (static_cast<uint64_t>(z_key) << 32) | (static_cast<uint64_t>(y_key) << 16) | tex_key;
-
-            processed_cmds[i] = cmd;
-            is_visible[i] = 1;
-        });
-
-        for (size_t i = 0; i < count; ++i) {
-            if (is_visible[i]) {
-                m_sprite_queue.push_back(processed_cmds[i]);
-            } else {
-                m_culled_sprites++;
-            }
-        }
-    } else {
-        for (size_t i = 0; i < count; ++i) {
-            submit_sprite(
-                commands[i].texture,
-                commands[i].position,
-                commands[i].size,
-                commands[i].rotation,
-                commands[i].color,
-                commands[i].has_src_rect ? &commands[i].src_rect : nullptr,
-                commands[i].pivot,
-                false,
-                commands[i].flip_x,
-                commands[i].flip_y,
-                commands[i].sorting_layer,
-                commands[i].order_in_layer,
-                commands[i].material,
-                commands[i].render_layer,
-                commands[i].entity_effect_profile,
-                commands[i].entity_effect_scope,
-                commands[i].blend_mode
-            );
-        }
-    }
+    if (!commands) return;
+    // Submission owns ordered renderer state. Geometry generation in end_scene
+    // remains parallel; every batch size uses the same culling/sorting contract.
+    for (size_t i = 0; i < count; ++i) enqueue_sprite(commands[i]);
 }
 
 void Renderer2D::end_scene() {
@@ -1057,12 +1008,13 @@ void Renderer2D::end_scene() {
                     }
                     // SDL's geometry path omits TEXCOORD0 when no texture is
                     // supplied, even if a custom zero-sampler shader consumes
-                    // UVs. A shared white carrier keeps the authored 0..1 UVs
+                    // UVs. A renderer-owned white carrier keeps the authored 0..1 UVs
                     // available without becoming a shader sampler dependency.
                     Texture* geometry_texture = current_texture;
                     if (!geometry_texture && current_material &&
                         current_material->shader().sampler_count() == 0) {
-                        geometry_texture = Texture::get_white(m_sdl_renderer);
+                        if (!m_white_texture) m_white_texture.reset(Texture::create_solid(m_sdl_renderer, 4, 4, 255, 255, 255, 255));
+                        geometry_texture = m_white_texture.get();
                     }
                     SDL_Texture* sdl_tex = geometry_texture
                         ? geometry_texture->get_sdl_texture() : nullptr;

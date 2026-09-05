@@ -8,7 +8,7 @@ namespace Engine {
 bool SaveSystem::write_json(const std::string& path, const nlohmann::json& data, bool pretty) {
     try {
         std::string json_str = pretty ? data.dump(2) : data.dump();
-        return FileSystem::write_text(path, json_str);
+        return FileSystem::write_text_atomically(path, json_str);
     } catch (const std::exception& e) {
         ENGINE_LOG_ERROR("[SAVESYSTEM] Error serializing JSON to '{}': {}", path, e.what());
         return false;
@@ -78,9 +78,9 @@ bool SaveSystem::save_file(const std::string& path, const BinaryWriter& data, bo
     bool success = false;
     if (base64_encode) {
         std::string b64 = Base64::encode(full_buffer);
-        success = FileSystem::write_text(path, b64);
+        success = FileSystem::write_text_atomically(path, b64);
     } else {
-        success = FileSystem::write_bytes(path, full_buffer);
+        success = FileSystem::write_bytes_atomically(path, full_buffer.data(), full_buffer.size());
     }
 
     if (success) {
@@ -129,6 +129,11 @@ bool SaveSystem::load_file(const std::string& path, BinaryReader& out_reader) {
     if (header.magic[0] != 'E' || header.magic[1] != '2' ||
         header.magic[2] != 'D' || header.magic[3] != 'S') {
         ENGINE_LOG_ERROR("[SAVESYSTEM] Invalid save game magic header in '{}'", path);
+        return false;
+    }
+
+    if (header.version != CURRENT_SAVE_VERSION) {
+        ENGINE_LOG_ERROR("[SAVESYSTEM] Unsupported save version {}", header.version);
         return false;
     }
 

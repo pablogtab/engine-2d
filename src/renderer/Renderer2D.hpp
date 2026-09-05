@@ -290,6 +290,7 @@ public:
     SDL_Renderer* get_sdl_renderer() const { return m_sdl_renderer; }
 
 private:
+    void enqueue_sprite(SpriteCommand command, bool overlay = false);
     struct ReceiverMaskTexture {
         std::uint64_t content_hash{0};
         std::unique_ptr<Texture> texture;
@@ -305,6 +306,7 @@ private:
     [[nodiscard]] Texture* get_receiver_mask_texture(Texture* source);
 
     SDL_Renderer* m_sdl_renderer{nullptr};
+    std::unique_ptr<Texture> m_white_texture;
     SDL_Color m_scene_clear_color{24, 28, 36, 255};
     ThreadPool* m_thread_pool{nullptr};
     PostProcessPipeline* m_post_process_pipeline{nullptr};

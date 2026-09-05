@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <cstring>
@@ -222,6 +223,19 @@ public:
                 return {};
             }
         }
+        // Additional samplers belong to material-specific backend states.
+        if (shader->sampler_count() > 1) return shader;
+        // Keep asset identity stable across prefab/material loads. Compare actual
+        // bytes and layout so edits are observed even before a database rescan.
+        // Weak entries retain neither assets nor renderer/device resources.
+        static std::mutex cache_mutex;
+        static std::vector<std::weak_ptr<const FragmentShader>> loaded_shaders;
+        const std::lock_guard lock(cache_mutex);
+        std::erase_if(loaded_shaders, [](const auto& entry) { return entry.expired(); });
+        for (const auto& entry : loaded_shaders) {
+            if (auto existing = entry.lock(); existing && *existing == *shader) return existing;
+        }
+        loaded_shaders.push_back(shader);
         return shader;
     }
 

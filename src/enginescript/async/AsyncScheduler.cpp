@@ -69,6 +69,11 @@ void AsyncScheduler::reset() {
     m_id_counter.store(0);
 }
 
+bool AsyncScheduler::has_queued_actions() const {
+    std::scoped_lock lock(m_actions_mutex);
+    return !m_actions.empty();
+}
+
 size_t AsyncScheduler::pending_tasks_count() const {
     std::scoped_lock lock(m_actions_mutex);
     size_t count = 0;

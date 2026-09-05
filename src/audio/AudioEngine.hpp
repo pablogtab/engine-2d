@@ -9,7 +9,12 @@ namespace Engine {
 class AudioEngine {
 public:
     // Initializes the hardware audio device (macOS/iOS CoreAudio, Windows WASAPI, Linux ALSA/Pulse, Android AAudio, WebAudio)
-    static bool init();
+    static bool init(bool offline = false);
+    // Call from the main thread each frame to release completed sound effects.
+    static void update();
+    [[nodiscard]] static std::size_t active_sound_count();
+    // Offline mode mixes interleaved stereo float PCM at 48 kHz without a device.
+    static bool render_offline(float* stereo_samples, std::size_t frame_count);
 
     // Shuts down the audio engine cleanly and frees background mixing threads
     static void shutdown();

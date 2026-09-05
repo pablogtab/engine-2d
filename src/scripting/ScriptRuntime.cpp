@@ -817,14 +817,7 @@ private:
             ParticleView& view = view_it->second;
             if (!inserted) return &view.value;
             const ParticleEmitter2DComponent& source = m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(entity.id);
-            float asset_rate = 0.0f;
-            int asset_burst = 0;
-            if (m_binding.asset_database && source.effect_handle.is_valid()) {
-                if (const auto asset = ParticleEffectAsset::load_asset(source.effect_handle, *m_binding.asset_database)) {
-                    asset_rate = asset->emission.continuous_rate;
-                    asset_burst = asset->emission.burst_count;
-                }
-            }
+            const auto [asset_rate, asset_burst] = particle_defaults(view, source.effect_handle);
             view.value.emitRate = source.emit_rate_override.value_or(asset_rate);
             view.value.burstCount = source.burst_count_override.value_or(asset_burst);
             view.value.active = source.active;
@@ -944,14 +937,7 @@ private:
                 if (!alive_with<ParticleEmitter2DComponent>(entity)) continue;
                 const ParticleEmitter2DComponent& source =
                     m_binding.entity_manager->get_component<ParticleEmitter2DComponent>(entity);
-                float asset_rate = 0.0f;
-                int asset_burst = 0;
-                if (m_binding.asset_database && source.effect_handle.is_valid()) {
-                    if (const auto asset = ParticleEffectAsset::load_asset(source.effect_handle, *m_binding.asset_database)) {
-                        asset_rate = asset->emission.continuous_rate;
-                        asset_burst = asset->emission.burst_count;
-                    }
-                }
+                const auto [asset_rate, asset_burst] = particle_defaults(view, source.effect_handle);
                 view.value.emitRate = source.emit_rate_override.value_or(asset_rate);
                 view.value.burstCount = source.burst_count_override.value_or(asset_burst);
                 view.value.active = source.active;
@@ -1033,7 +1019,36 @@ private:
             float initial_emit_rate{0.0f};
             int initial_burst_count{0};
             bool initial_active{false};
+            std::string effect_source;
+            float asset_emit_rate{0.0f};
+            int asset_burst_count{0};
         };
+        std::pair<float, int> particle_defaults(ParticleView& view, AssetHandle handle) const {
+            const AssetRecord* record = m_binding.asset_database && handle.is_valid()
+                ? m_binding.asset_database->find(handle) : nullptr;
+            if (!record || record->status != AssetStatus::Ready || record->type != AssetType::ParticleEffect) {
+                return {0.0f, 0};
+            }
+            // Compare source bytes to preserve immediate reloads, including same-size
+            // edits with unchanged timestamps. Only decoding is cached per host view.
+            std::string text = FileSystem::read_text(
+                (m_binding.asset_database->project_root() / record->source_path).string());
+            if (text != view.effect_source) {
+                view.effect_source = std::move(text);
+                view.asset_emit_rate = 0.0f;
+                view.asset_burst_count = 0;
+                if (!view.effect_source.empty()) {
+                    const auto json = nlohmann::json::parse(view.effect_source, nullptr, false);
+                    if (!json.is_discarded()) {
+                        if (const auto asset = ParticleEffectAsset::from_json(json)) {
+                            view.asset_emit_rate = asset->emission.continuous_rate;
+                            view.asset_burst_count = asset->emission.burst_count;
+                        }
+                    }
+                }
+            }
+            return {view.asset_emit_rate, view.asset_burst_count};
+        }
         struct JointView { EngineScript::Joint2D value; };
         std::unordered_map<EntityID, TransformView> m_transforms;
         std::unordered_map<EntityID, RigidBodyView> m_rigid_bodies;
@@ -2656,25 +2671,36 @@ bool ScriptRuntime::prepare_entity(EntityID entity) {
     return initialize_instances(entity);
 }
 
-void ScriptRuntime::discard_entity_instances(EntityID entity) {
-    for (auto instance = m_instances.begin(); instance != m_instances.end();) {
-        if (instance->entity != entity) {
-            ++instance;
-            continue;
-        }
-        if (instance->behaviour) {
-            if (m_native_async_scheduler) {
-                m_native_async_scheduler->cancel_scope(instance->behaviour->task_scope_id);
-            }
-            if (m_typed_event_bus) {
-                m_typed_event_bus->cancel_scope(instance->behaviour->task_scope_id);
-            }
-            instance->behaviour->cancel_owned_tasks();
-        }
-        m_instance_registry.unregister_instance({instance->entity, instance->slot_id, instance->generation});
-        m_slot_statuses.erase(instance->slot_id);
-        instance = m_instances.erase(instance);
+void ScriptRuntime::destroy_instance(Instance& instance) {
+    m_instance_registry.unregister_instance({instance.entity, instance.slot_id, instance.generation});
+    m_slot_statuses.erase(instance.slot_id);
+    if (!instance.behaviour) return;
+    const auto cancel = [&] {
+        if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(instance.behaviour->task_scope_id);
+        if (m_typed_event_bus) m_typed_event_bus->cancel_scope(instance.behaviour->task_scope_id);
+        instance.behaviour->cancel_owned_tasks();
+    };
+    cancel();
+    try {
+        instance.behaviour->on_destroy();
+    } catch (const std::exception& error) {
+        ENGINE_LOG_ERROR("[SCRIPT] on_destroy failed for entity #{}: {}", instance.entity, error.what());
+    } catch (...) {
+        ENGINE_LOG_ERROR("[SCRIPT] on_destroy failed for entity #{}", instance.entity);
     }
+    // A destructor callback may schedule work; its scope must still end here.
+    cancel();
+}
+
+void ScriptRuntime::discard_entity_instances(EntityID entity) {
+    // Detach before callbacks so nested lifecycle requests cannot invalidate
+    // iteration or destroy the same behaviour twice. Bindings outlive callbacks.
+    std::list<Instance> discarded;
+    for (auto it = m_instances.begin(); it != m_instances.end();) {
+        auto current = it++;
+        if (current->entity == entity) discarded.splice(discarded.end(), m_instances, current);
+    }
+    for (auto& instance : discarded) destroy_instance(instance);
     m_statuses.erase(entity);
 }
 
@@ -2706,7 +2732,19 @@ void ScriptRuntime::flush_pending_entity_destroys() {
     m_pending_entity_destroys.clear();
     for (EntityID entity : pending) {
         if (!m_entity_manager || !m_entity_manager->is_alive(entity)) continue;
-        discard_entity_instances(entity);
+        std::vector<EntityID> subtree{entity};
+        std::unordered_set<EntityID> visited{entity};
+        for (std::size_t index = 0; index < subtree.size(); ++index) {
+            const auto id = subtree[index];
+            if (!m_entity_manager->has_component<HierarchyComponent>(id)) continue;
+            for (const auto child : m_entity_manager->get_component<HierarchyComponent>(id).children) {
+                if (visited.insert(child).second) subtree.push_back(child);
+            }
+        }
+        for (auto it = subtree.rbegin(); it != subtree.rend(); ++it) {
+            std::erase(m_pending_entity_starts, *it);
+            discard_entity_instances(*it);
+        }
         if (m_entity_manager->is_alive(entity)) m_entity_manager->destroy_entity_subtree(entity);
     }
 }
@@ -2900,6 +2938,19 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
 
     if (changed_assets.empty()) return result;
 
+    // An empty project may build a valid module, but removing a source still
+    // referenced by a live slot must not discard the currently running module.
+    for (const auto handle : checked_assets) {
+        const auto* record = m_asset_database->find(handle);
+        if (!record || record->type != AssetType::Script || record->status != AssetStatus::Ready) {
+            const std::string error = "Active script source is unavailable; keeping the current module";
+            for (const auto changed : changed_assets) m_reload_errors[changed] = error;
+            result.failed = changed_assets.size();
+            return result;
+        }
+    }
+
+
     EngineScript::EngineScriptWorkspace candidate_workspace(m_asset_database->project_root().string());
     for (const AssetRecord& record : m_asset_database->records()) {
         if (record.type != AssetType::Script || record.status != AssetStatus::Ready) continue;
@@ -2960,7 +3011,7 @@ ScriptHotReloadResult ScriptRuntime::reload_changed_scripts(bool force) {
 }
 
 void ScriptRuntime::update(float delta_time) {
-    if (m_native_async_scheduler) {
+    if (m_native_async_scheduler && m_native_async_scheduler->has_queued_actions()) {
         for (auto& inst : m_instances) {
             if (m_instance_registry.state({inst.entity, inst.slot_id, inst.generation}) != ScriptInstanceState::Running) continue;
             if (!m_entity_manager || !inst.behaviour) continue;
@@ -3035,15 +3086,11 @@ void ScriptRuntime::shutdown() {
     // needed when startup is cancelled or the application exits mid-build.
     m_pending_native_build.reset();
     unsubscribe_from_events();
-    for (auto& inst : m_instances) {
-        if (inst.behaviour) {
-            if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(inst.behaviour->task_scope_id);
-            if (m_typed_event_bus) m_typed_event_bus->cancel_scope(inst.behaviour->task_scope_id);
-            inst.behaviour->cancel_owned_tasks();
-            inst.behaviour->on_destroy();
-            m_instance_registry.unregister_instance({inst.entity, inst.slot_id, inst.generation});
-        }
-    }
+    auto discarded = std::move(m_instances);
+    m_instances.clear();
+    for (auto& instance : discarded) destroy_instance(instance);
+    // Destroy native objects while their dynamic module is still loaded.
+    discarded.clear();
     // Music started through the gameplay service belongs to the active script
     // session. Enforce cleanup even when authored behaviours omit on_destroy().
     if (m_services.stop_music) m_services.stop_music();
@@ -3066,6 +3113,7 @@ void ScriptRuntime::shutdown() {
     m_next_hot_reload_poll_ms = 0;
     m_pending_events.clear();
     m_pending_entity_destroys.clear();
+    m_pending_component_removals.clear();
 }
 
 void ScriptRuntime::set_error(
@@ -3255,7 +3303,9 @@ bool ScriptRuntime::remove_behaviour_component(const EngineScript::ComponentRefe
 }
 
 void ScriptRuntime::flush_pending_component_removals() {
-    for (const EngineScript::ComponentReference& reference : m_pending_component_removals) {
+    auto pending = std::move(m_pending_component_removals);
+    m_pending_component_removals.clear();
+    for (const EngineScript::ComponentReference& reference : pending) {
         const auto found = std::find_if(
             m_instances.begin(), m_instances.end(),
             [&reference](const Instance& instance) {
@@ -3264,13 +3314,9 @@ void ScriptRuntime::flush_pending_component_removals() {
             }
         );
         if (found == m_instances.end()) continue;
-        if (found->behaviour) {
-            if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(found->behaviour->task_scope_id);
-            if (m_typed_event_bus) m_typed_event_bus->cancel_scope(found->behaviour->task_scope_id);
-            found->behaviour->cancel_owned_tasks();
-            found->behaviour->on_destroy();
-        }
-        m_instance_registry.unregister_instance({found->entity, found->slot_id, found->generation});
+        std::list<Instance> discarded;
+        discarded.splice(discarded.end(), m_instances, found);
+        destroy_instance(*found);
         if (m_entity_manager) {
             if (ScriptBehaviourSlot* slot = find_script_slot(*m_entity_manager, found->entity, found->slot_id)) {
                 auto& scripts = m_entity_manager->get_component<ScriptComponent>(found->entity);
@@ -3279,9 +3325,7 @@ void ScriptRuntime::flush_pending_component_removals() {
                 });
             }
         }
-        m_instances.erase(found);
     }
-    m_pending_component_removals.clear();
 }
 
 const std::string* ScriptRuntime::reload_error(AssetHandle handle) const {

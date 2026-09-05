@@ -66,6 +66,10 @@ export class PlayerController extends Behaviour {
 
     override update(deltaTime: Float): Void {
         tickCount = tickCount + 1.0;
+        if (tickCount == 3.0) {
+            asyncCompleted = false;
+            compute_async_value();
+        }
     }
 
     async compute_async_value(): Task<Int> {
@@ -117,6 +121,15 @@ export class PlayerController extends Behaviour {
         return field.name == "asyncCompleted";
     });
     assert(async_completed != updated_fields.end());
+    assert(std::get<bool>(async_completed->value));
+
+    // Re-enter async work after an idle frame, preserving regular updates and
+    // exposed property synchronization on both sides of the transition.
+    runtime.update(0.016f);
+    assert(std::get<double>(tick->value) == 3.0);
+    assert(!std::get<bool>(async_completed->value));
+    runtime.update(0.016f);
+    assert(std::get<double>(tick->value) == 4.0);
     assert(std::get<bool>(async_completed->value));
     
     runtime.shutdown();
@@ -547,6 +560,14 @@ export class ParticleUser extends Behaviour {
         @component private transform: Transform2D
     ) {}
 
+    @expose observedRate: Float = 0.0;
+    @expose observedBurst: Int = 0;
+
+    override update(deltaTime: Float): Void {
+        observedRate = emitter.emitRate;
+        observedBurst = emitter.burstCount;
+    }
+
     override on_start(): Void { configureEffect(); }
 
     async configureEffect(): Task<Void> {
@@ -616,6 +637,56 @@ export class ParticleUser extends Behaviour {
     assert(direct_count == 3);
     assert(options_count == 4);
     assert(stopped_and_cleared);
+
+    const fs::path effect_path = root / "Assets/Particles/dust.particle";
+    const auto check_defaults = [&](double rate, double burst) {
+        runtime.update(0.0f);
+        const auto& fields = entity_manager.get_component<ScriptComponent>(entity).instances.front().public_fields;
+        for (const auto& [name, expected] : {std::pair{"observedRate", rate}, std::pair{"observedBurst", burst}}) {
+            const auto field = std::find_if(fields.begin(), fields.end(), [&](const ScriptPublicField& value) {
+                return value.name == name;
+            });
+            assert(field != fields.end());
+            assert(std::get<double>(field->value) == expected);
+        }
+    };
+    check_defaults(20.0, 10.0);
+    check_defaults(20.0, 10.0);
+    // Same-size edits with unchanged timestamps must refresh constructor-injected views.
+    const std::string first_effect = R"({"version":1,"type":"ParticleEffect2D","name":"Dust","appearance":{},"motion":{},"lifetime":{},"collision":{},"emission":{"continuous_rate":31,"burst_count":12},"rendering":{}})";
+    write_test_file(effect_path, first_effect);
+    const auto timestamp = fs::last_write_time(effect_path);
+    check_defaults(31.0, 12.0);
+    std::string edited_effect = first_effect;
+    edited_effect.replace(edited_effect.find(":31"), 3, ":42");
+    write_test_file(effect_path, edited_effect);
+    fs::last_write_time(effect_path, timestamp);
+    check_defaults(42.0, 12.0);
+    auto& emitter = entity_manager.get_component<ParticleEmitter2DComponent>(entity);
+    assert(!emitter.emit_rate_override && !emitter.burst_count_override);
+    emitter.emit_rate_override = 7.0f;
+    emitter.burst_count_override = 3;
+    check_defaults(7.0, 3.0);
+    emitter.emit_rate_override.reset();
+    emitter.burst_count_override.reset();
+    write_test_file(effect_path, "{invalid");
+    check_defaults(0.0, 0.0);
+    check_defaults(0.0, 0.0);
+    write_test_file(effect_path, "{}");
+    check_defaults(0.0, 0.0);
+    write_test_file(effect_path, first_effect);
+    check_defaults(31.0, 12.0);
+    fs::remove(effect_path);
+    check_defaults(0.0, 0.0);
+    write_test_file(effect_path, edited_effect);
+    check_defaults(42.0, 12.0);
+    const AssetHandle effect_handle = emitter.effect_handle;
+    emitter.effect_handle = {};
+    check_defaults(0.0, 0.0);
+    emitter.effect_handle = script_record->handle;
+    check_defaults(0.0, 0.0);
+    emitter.effect_handle = effect_handle;
+    check_defaults(42.0, 12.0);
 
     runtime.shutdown();
     fs::remove_all(root, error);

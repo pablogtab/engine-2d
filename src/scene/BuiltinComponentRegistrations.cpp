@@ -1125,9 +1125,7 @@ void register_collider(ComponentRegistry& registry) {
         .after_remove = [](EntityManager& em, EntityID entity) { PhysicsSystem::rebuild_body(em, entity); },
         .validate = [](const ColliderComponent& collider) -> std::optional<std::string> {
             for (const auto& shape : collider.shapes) {
-                if (shape.type == ColliderShapeType::Box && (shape.size.x <= 0.0f || shape.size.y <= 0.0f)) return "Box size must be positive";
-                if (shape.type == ColliderShapeType::Circle && shape.radius <= 0.0f) return "Circle radius must be positive";
-                if (shape.type == ColliderShapeType::Polygon && shape.vertices.size() < 3) return "Polygon requires at least three vertices";
+                if (!collider_shape_valid(shape)) return "Collider geometry must be finite and non-degenerate; polygons require 3 to 8 distinct vertices";
             }
             return std::nullopt;
         }

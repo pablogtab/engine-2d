@@ -83,7 +83,7 @@ int main(int argc, char* argv[]) {
 
     const size_t file_count = workspace.discover_project_sources();
 
-    if (file_count == 0) {
+    if (file_count == 0 && !native_module) {
         if (json_diagnostics) {
             std::cout << "{\"success\":true,\"error_count\":0,\"warning_count\":0,"
                          "\"generic_instantiations\":0,\"generated_cpp_bytes\":0,\"diagnostics\":[]}\n";

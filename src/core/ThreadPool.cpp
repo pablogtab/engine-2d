@@ -92,31 +92,37 @@ void ThreadPool::parallel_for(size_t start, size_t end, const std::function<void
     size_t chunk_size = (total + num_threads - 1) / num_threads;
     std::vector<std::future<void>> futures;
     futures.reserve(num_threads - 1);
+    std::exception_ptr failure;
 
-    for (size_t t = 0; t < num_threads - 1; ++t) {
-        size_t chunk_start = start + t * chunk_size;
-        size_t chunk_end = std::min(chunk_start + chunk_size, end);
+    try {
+        for (size_t t = 0; t < num_threads - 1; ++t) {
+            size_t chunk_start = start + t * chunk_size;
+            size_t chunk_end = std::min(chunk_start + chunk_size, end);
 
-        if (chunk_start < chunk_end) {
-            futures.push_back(enqueue([chunk_start, chunk_end, &job]() {
-                for (size_t i = chunk_start; i < chunk_end; ++i) {
-                    job(i);
-                }
-            }));
+            if (chunk_start < chunk_end) {
+                futures.push_back(enqueue([chunk_start, chunk_end, &job]() {
+                    for (size_t i = chunk_start; i < chunk_end; ++i) {
+                        job(i);
+                    }
+                }));
+            }
         }
+
+        // Process last chunk on current thread (main thread)
+        size_t main_start = start + (num_threads - 1) * chunk_size;
+        size_t main_end = std::min(main_start + chunk_size, end);
+        for (size_t i = main_start; i < main_end; ++i) {
+            job(i);
+        }
+    } catch (...) {
+        failure = std::current_exception();
     }
 
-    // Process last chunk on current thread (main thread)
-    size_t main_start = start + (num_threads - 1) * chunk_size;
-    size_t main_end = std::min(main_start + chunk_size, end);
-    for (size_t i = main_start; i < main_end; ++i) {
-        job(i);
-    }
-
-    // Wait for worker threads to complete
+    // All exits join every submitted chunk before releasing the caller's captured state.
     for (auto& fut : futures) {
-        fut.get();
+        try { fut.get(); } catch (...) { if (!failure) failure = std::current_exception(); }
     }
+    if (failure) std::rethrow_exception(failure);
 }
 
 } // namespace Engine

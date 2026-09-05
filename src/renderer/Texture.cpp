@@ -89,14 +89,6 @@ Texture* Texture::load_from_file(SDL_Renderer* renderer, const std::string& file
     return tex;
 }
 
-Texture* Texture::get_white(SDL_Renderer* renderer) {
-    static Texture* s_white = nullptr;
-    if (!s_white && renderer) {
-        s_white = Texture::create_solid(renderer, 4, 4, 255, 255, 255, 255);
-    }
-    return s_white;
-}
-
 Texture* Texture::create_solid(SDL_Renderer* renderer, int width, int height, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     std::vector<uint32_t> pixels(width * height);
     uint32_t color = (r << 24) | (g << 16) | (b << 8) | a;

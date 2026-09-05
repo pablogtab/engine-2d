@@ -10,6 +10,8 @@ bool PlayerPrefs::s_dirty = false;
 bool PlayerPrefs::s_initialized = false;
 
 void PlayerPrefs::init(const std::string& filepath) {
+    s_prefs = nlohmann::json::object();
+    s_dirty = false;
     s_filepath = filepath;
     s_initialized = true;
     load();
@@ -79,7 +81,7 @@ std::string PlayerPrefs::get_string(std::string_view key, std::string_view defau
 
 glm::vec2 PlayerPrefs::get_vec2(std::string_view key, const glm::vec2& default_value) {
     std::string k(key);
-    if (s_prefs.contains(k) && s_prefs[k].is_array() && s_prefs[k].size() >= 2) {
+    if (s_prefs.contains(k) && s_prefs[k].is_array() && s_prefs[k].size() >= 2 && s_prefs[k][0].is_number() && s_prefs[k][1].is_number()) {
         return glm::vec2(s_prefs[k][0].get<float>(), s_prefs[k][1].get<float>());
     }
     return default_value;
@@ -87,7 +89,7 @@ glm::vec2 PlayerPrefs::get_vec2(std::string_view key, const glm::vec2& default_v
 
 glm::vec3 PlayerPrefs::get_vec3(std::string_view key, const glm::vec3& default_value) {
     std::string k(key);
-    if (s_prefs.contains(k) && s_prefs[k].is_array() && s_prefs[k].size() >= 3) {
+    if (s_prefs.contains(k) && s_prefs[k].is_array() && s_prefs[k].size() >= 3 && s_prefs[k][0].is_number() && s_prefs[k][1].is_number() && s_prefs[k][2].is_number()) {
         return glm::vec3(s_prefs[k][0].get<float>(), s_prefs[k][1].get<float>(), s_prefs[k][2].get<float>());
     }
     return default_value;
@@ -125,7 +127,9 @@ bool PlayerPrefs::load() {
         return false;
     }
 
-    bool ok = SaveSystem::read_json(s_filepath, s_prefs);
+    nlohmann::json candidate;
+    bool ok = SaveSystem::read_json(s_filepath, candidate) && candidate.is_object();
+    if (ok) s_prefs = std::move(candidate);
     if (ok) {
         s_dirty = false;
         ENGINE_LOG_INFO("[PLAYERPREFS] Loaded preferences from '{}' (Keys: {})", s_filepath, s_prefs.size());

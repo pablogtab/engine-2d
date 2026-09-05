@@ -74,7 +74,7 @@ SDLGPUMaterialBackend::CachedState* SDLGPUMaterialBackend::state_for(const Mater
     const auto& shader = material.shader_ptr();
     if (auto found = m_states.find(shader); found != m_states.end()) {
         CachedState& cached = found->second;
-        if (shader->sampler_count() == 1 ||
+        if (shader->sampler_count() <= 1 ||
             (cached.sampler_material == &material && cached.sampler_revision == material.sampler_revision())) {
             return &cached;
         }

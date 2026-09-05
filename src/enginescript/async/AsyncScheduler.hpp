@@ -51,6 +51,8 @@ public:
     void step_fixed_update();
 
     size_t pending_tasks_count() const;
+    // Includes cancelled actions until step reclaims them.
+    bool has_queued_actions() const;
     void reset();
 
     // Awaitable helper struct for coroutines

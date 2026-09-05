@@ -1,3 +1,4 @@
+#include "core/ThreadPool.hpp"
 #include "renderer/LightingPass.hpp"
 #include "renderer/Renderer2D.hpp"
 #include "renderer/Texture.hpp"
@@ -257,7 +258,49 @@ void test_material_only_sprite_reaches_the_renderer() {
 
 } // namespace
 
+void test_batch_contract_and_renderer_owned_fallback() {
+    using namespace Engine;
+    SDL_Surface* surfaces[2] = {
+        SDL_CreateSurface(64, 64, SDL_PIXELFORMAT_RGBA32),
+        SDL_CreateSurface(64, 64, SDL_PIXELFORMAT_RGBA32)};
+    SDL_Renderer* renderers[2] = {SDL_CreateSoftwareRenderer(surfaces[0]), SDL_CreateSoftwareRenderer(surfaces[1])};
+    assert(renderers[0] && renderers[1]);
+    ThreadPool pool(2);
+    auto shader = std::make_shared<FragmentShader>("Procedural fallback"); shader->set_sampler_count(0);
+    auto material = std::make_shared<Material>("Procedural fallback", shader);
+    {
+        Renderer2D first(renderers[0]), second(renderers[1]);
+        for (auto* renderer : {&first, &second}) {
+            renderer->set_thread_pool(&pool);
+            renderer->set_material_backend(std::make_shared<RecordingMaterialBackend>());
+            Camera2D camera(64, 64); camera.set_render_layer_mask(1);
+            for (int count : {511, 512, 1024}) {
+                std::vector<SpriteCommand> commands(count);
+                for (auto& cmd : commands) { cmd.material = material; cmd.size = {32, 32}; cmd.render_layer = 1; }
+                renderer->begin_scene(camera); renderer->submit_sprites_batch(commands.data(), commands.size()); renderer->end_scene();
+                assert(renderer->get_rendered_sprite_count() == 0 && renderer->get_culled_sprite_count() == count);
+                // Explicit order must win over insertion, at every batch size.
+                for (auto& cmd : commands) { cmd.render_layer = 0; cmd.color = {0, 0, 255, 255}; }
+                commands.front().order_in_layer = 10; commands.front().color = {255, 0, 0, 255};
+                renderer->begin_scene(camera); renderer->submit_sprites_batch(commands.data(), commands.size()); renderer->end_scene();
+                assert(renderer->get_rendered_sprite_count() == count);
+                SDL_Surface* pixels = SDL_RenderReadPixels(renderer->get_sdl_renderer(), nullptr); assert(pixels);
+                Uint8 r, g, b, a; assert(SDL_ReadSurfacePixel(pixels, 32, 32, &r, &g, &b, &a));
+                assert(r == 255 && g == 0 && b == 0 && a == 255);
+                SDL_DestroySurface(pixels);
+            }
+            renderer->invalidate_render_surface(); renderer->restore_render_surface();
+            renderer->begin_scene(camera);
+            renderer->submit_sprite(nullptr, {0, 0, 0}, {32, 32}, 0, {255, 0, 0, 255}, nullptr, {.5f, .5f}, false, false, false, 0, 0, material);
+            renderer->end_scene();
+            assert(renderer->get_rendered_sprite_count() == 1);
+        }
+    }
+    for (int i = 0; i < 2; ++i) { SDL_DestroyRenderer(renderers[i]); SDL_DestroySurface(surfaces[i]); }
+}
+
 int main() {
+    test_batch_contract_and_renderer_owned_fallback();
     test_stage_metrics_and_frame_reset();
     test_render_target_memory_metrics();
     test_material_only_sprite_reaches_the_renderer();

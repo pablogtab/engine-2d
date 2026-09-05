@@ -707,6 +707,7 @@ void Application::run() {
 #endif
 
     while (m_running && !m_window->is_should_close()) {
+        AudioEngine::update();
         uint64_t current_counter = SDL_GetPerformanceCounter();
         float raw_delta_time = static_cast<float>(current_counter - last_counter) / static_cast<float>(frequency);
         last_counter = current_counter;

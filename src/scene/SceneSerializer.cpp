@@ -110,7 +110,7 @@ bool SceneSerializer::serialize(const std::string& filepath) {
     std::string json_text = serialize_to_string();
     if (json_text.empty()) return false;
 
-    if (!FileSystem::write_text(filepath, json_text)) {
+    if (!FileSystem::write_text_atomically(filepath, json_text)) {
         ENGINE_LOG_ERROR("[SERIALIZER] Failed to write scene to '{}'", filepath);
         return false;
     }

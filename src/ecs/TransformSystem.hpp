@@ -121,6 +121,14 @@ public:
         return world_to_local_transform(child_t, &parent_t);
     }
 
+    // Refresh a changed branch without visiting unrelated entities. Ancestors
+    // are evaluated first so their local edits need not have reached a frame tick.
+    static void update_subtree(EntityManager& entity_manager, EntityID root) {
+        if (!update_ancestors(entity_manager, root, entity_manager.get_living_entity_count())) return;
+        update_entity_hierarchy(entity_manager, root,
+            entity_manager.get_component<TransformComponent>(root));
+    }
+
     // Update world transforms for all entities, evaluating parent-child hierarchy trees
     static void update(EntityManager& entity_manager) {
         // Step 1: Initialize all entities' world transforms to their local transforms
@@ -155,6 +163,22 @@ public:
     }
 
 private:
+    static bool update_ancestors(EntityManager& entity_manager, EntityID id, std::size_t remaining) {
+        if (remaining == 0 || !entity_manager.is_alive(id) ||
+            !entity_manager.has_component<TransformComponent>(id)) return false;
+        const TransformComponent* parent = nullptr;
+        if (entity_manager.has_component<HierarchyComponent>(id)) {
+            const EntityID parent_id = entity_manager.get_component<HierarchyComponent>(id).parent;
+            if (entity_manager.is_alive(parent_id) && entity_manager.has_component<TransformComponent>(parent_id)) {
+                if (!update_ancestors(entity_manager, parent_id, remaining - 1)) return false;
+                parent = &entity_manager.get_component<TransformComponent>(parent_id);
+            }
+        }
+        auto& transform = entity_manager.get_component<TransformComponent>(id);
+        transform = local_to_world_transform(transform, parent);
+        return true;
+    }
+
     static void update_entity_hierarchy(
         EntityManager& entity_manager, 
         EntityID parent_id, 

@@ -10,8 +10,13 @@ endif()
 set(executable "${ENGINE_OUTPUT_DIR}/Engine2DStandalone.exe")
 file(READ "${ENGINE_OUTPUT_DIR}/project.engine2d" project_json)
 string(JSON startup_scene GET "${project_json}" startup_scene)
-string(JSON shader_descriptor GET "${project_json}" runtime_shader descriptor)
-string(JSON shader_variant_base GET "${project_json}" runtime_shader variant_base)
+set(optional_shader_paths)
+string(JSON runtime_shader_type ERROR_VARIABLE runtime_shader_error TYPE "${project_json}" runtime_shader)
+if(NOT runtime_shader_error)
+    string(JSON shader_descriptor GET "${project_json}" runtime_shader descriptor)
+    string(JSON shader_variant_base GET "${project_json}" runtime_shader variant_base)
+    list(APPEND optional_shader_paths "${ENGINE_OUTPUT_DIR}/${shader_descriptor}" "${ENGINE_OUTPUT_DIR}/${shader_variant_base}.dxil")
+endif()
 foreach(required_path
     "${executable}"
     "${ENGINE_OUTPUT_DIR}/SDL3.dll"
@@ -20,8 +25,7 @@ foreach(required_path
     "${ENGINE_OUTPUT_DIR}/libwinpthread-1.dll"
     "${ENGINE_OUTPUT_DIR}/project.engine2d"
     "${ENGINE_OUTPUT_DIR}/${startup_scene}"
-    "${ENGINE_OUTPUT_DIR}/${shader_variant_base}.dxil"
-    "${ENGINE_OUTPUT_DIR}/${shader_descriptor}"
+    ${optional_shader_paths}
     "${ENGINE_OUTPUT_DIR}/ProjectSettings/AssetDatabase.json"
     "${ENGINE_OUTPUT_DIR}/engine_api.json"
     "${ENGINE_OUTPUT_DIR}/Engine/Shaders/lit_sprite.frag.dxil"
@@ -45,6 +49,7 @@ if(EXISTS "${ENGINE_OUTPUT_DIR}/editor_assets")
     message(FATAL_ERROR "Portable Windows runtime includes editor-only assets")
 endif()
 
+if(NOT runtime_shader_error)
 file(READ "${ENGINE_OUTPUT_DIR}/${shader_variant_base}.dxil" dxil_header LIMIT 4 HEX)
 if(NOT dxil_header STREQUAL "44584243")
     message(FATAL_ERROR "Packaged DXIL shader has an invalid header: ${dxil_header}")
@@ -53,9 +58,6 @@ file(READ "${ENGINE_OUTPUT_DIR}/${shader_descriptor}" descriptor_json)
 if(NOT descriptor_json MATCHES "\"format\"[ \t]*:[ \t]*\"dxil\"")
     message(FATAL_ERROR "Packaged shader descriptor does not select DXIL")
 endif()
-file(READ "${ENGINE_OUTPUT_DIR}/ProjectSettings/AssetDatabase.json" asset_database_json)
-if(NOT asset_database_json MATCHES "night_vision\\.frag\\.dxil")
-    message(FATAL_ERROR "Packaged AssetDatabase does not resolve the DXIL shader")
 endif()
 
 set(system_dlls

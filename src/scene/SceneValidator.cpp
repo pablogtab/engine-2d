@@ -1,3 +1,4 @@
+#include "../physics/ColliderGeometry.hpp"
 #include "SceneValidator.hpp"
 
 #include "../ecs/EntityManager.hpp"
@@ -331,9 +332,7 @@ std::vector<SceneDiagnostic> SceneValidator::validate(
         if (entities.has_component<ColliderComponent>(entity)) {
             const auto& collider = entities.get_component<ColliderComponent>(entity);
             const bool invalid_shape = std::any_of(collider.shapes.begin(), collider.shapes.end(), [](const ColliderShape& shape) {
-                return (shape.type == ColliderShapeType::Box && (shape.size.x <= 0.0f || shape.size.y <= 0.0f)) ||
-                    (shape.type == ColliderShapeType::Circle && shape.radius <= 0.0f) ||
-                    (shape.type == ColliderShapeType::Polygon && shape.vertices.size() < 3);
+                return !collider_shape_valid(shape);
             });
             if (invalid_shape) {
                 add_diagnostic(

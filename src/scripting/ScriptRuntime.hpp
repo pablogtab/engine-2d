@@ -227,6 +227,7 @@ private:
     bool validate_running_instances(std::optional<EntityID> entity = std::nullopt);
     void flush_pending_entity_destroys();
     void discard_entity_instances(EntityID entity);
+    void destroy_instance(Instance& instance);
     void flush_pending_component_removals();
 
     EntityManager* m_entity_manager{nullptr};

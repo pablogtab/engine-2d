@@ -4,6 +4,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <atomic>
+#include <chrono>
+#include <limits>
 
 #if defined(_WIN32)
     #ifndef WIN32_LEAN_AND_MEAN
@@ -149,75 +152,60 @@ bool FileSystem::write_text(const std::string& path, const std::string& content)
         return false;
     }
     file << content;
-    return file.good();
+    file.flush();
+    file.close();
+    return !file.fail();
 }
 
 bool FileSystem::write_text_atomically(const std::string& path, const std::string& content) {
-    std::string resolved = resolve_path(path);
+    return write_bytes_atomically(path, reinterpret_cast<const uint8_t*>(content.data()), content.size());
+}
 
-    // Ensure parent directory exists
-    try {
-        fs::path p(resolved);
-        if (p.has_parent_path()) {
-            fs::create_directories(p.parent_path());
-        }
-    } catch (const std::exception& e) {
-        ENGINE_LOG_ERROR("[FILESYSTEM] Exception creating directories for '{}': {}", resolved, e.what());
+bool FileSystem::write_bytes_atomically(const std::string& path, const uint8_t* data, size_t size) {
+    if ((size != 0 && !data) || size > static_cast<size_t>(std::numeric_limits<std::streamsize>::max())) return false;
+    const fs::path destination = resolve_path(path);
+    std::error_code error;
+    if (destination.has_parent_path()) fs::create_directories(destination.parent_path(), error);
+    if (error) return false;
+
+    // Reserving a unique sibling directory prevents concurrent writers sharing a temporary file.
+    static std::atomic<uint64_t> sequence{0};
+    fs::path staging;
+    bool reserved = false;
+    for (int attempt = 0; attempt < 32 && !reserved; ++attempt) {
+        const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+        staging = destination.string() + ".write-" + std::to_string(nonce) + "-" + std::to_string(sequence++);
+        reserved = fs::create_directory(staging, error);
+        if (error && error != std::errc::file_exists) return false;
+        error.clear();
+    }
+    if (!reserved) return false;
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { std::error_code ignored; fs::remove_all(path, ignored); }
+    } cleanup{staging};
+    const fs::path temporary = staging / "content";
+    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+    if (!file) return false;
+    if (size) file.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
+    file.flush();
+    file.close();
+    if (file.fail()) {
+        ENGINE_LOG_ERROR("[FILESYSTEM] Could not finish atomic write to '{}'", destination.string());
         return false;
     }
-
-    const std::string tmp_path = resolved + ".tmp";
-    {
-        std::ofstream file(tmp_path, std::ios::out | std::ios::trunc | std::ios::binary);
-        if (!file.is_open()) {
-            ENGINE_LOG_ERROR("[FILESYSTEM] Failed to open tmp file for atomic write: '{}'", tmp_path);
-            return false;
-        }
-        file << content;
-        if (!file.good()) {
-            ENGINE_LOG_ERROR("[FILESYSTEM] Error writing content to tmp file: '{}'", tmp_path);
-            file.close();
-            std::error_code rm_ec;
-            fs::remove(tmp_path, rm_ec);
-            return false;
-        }
-    }
-
 #if defined(_WIN32)
-    const std::wstring wtmp = fs::path(tmp_path).wstring();
-    const std::wstring wdest = fs::path(resolved).wstring();
-
-    // ReplaceFileW is the Windows API for atomic replacement of an existing file.
-    // If the destination file does not exist yet (ERROR_FILE_NOT_FOUND), use MoveFileExW with REPLACE_EXISTING.
-    if (!ReplaceFileW(wdest.c_str(), wtmp.c_str(), nullptr, REPLACEFILE_IGNORE_MERGE_ERRORS, nullptr, nullptr)) {
-        DWORD err = GetLastError();
-        if (err == ERROR_FILE_NOT_FOUND) {
-            if (!MoveFileExW(wtmp.c_str(), wdest.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-                DWORD move_err = GetLastError();
-                ENGINE_LOG_ERROR("[FILESYSTEM] Atomic MoveFileExW failed for '{}' -> '{}' (Win32 error: {})", tmp_path, resolved, move_err);
-                std::error_code rm_ec;
-                fs::remove(tmp_path, rm_ec);
-                return false;
-            }
-        } else {
-            ENGINE_LOG_ERROR("[FILESYSTEM] Atomic ReplaceFileW failed for '{}' -> '{}' (Win32 error: {})", tmp_path, resolved, err);
-            std::error_code rm_ec;
-            fs::remove(tmp_path, rm_ec);
-            return false;
-        }
+    if (!MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        ENGINE_LOG_ERROR("[FILESYSTEM] Atomic replacement failed for '{}'", destination.string());
+        return false;
     }
 #else
-    // POSIX rename() is atomic and replaces existing destination
-    std::error_code ec;
-    fs::rename(tmp_path, resolved, ec);
-    if (ec) {
-        ENGINE_LOG_ERROR("[FILESYSTEM] Atomic rename failed '{}' -> '{}': {}", tmp_path, resolved, ec.message());
-        std::error_code rm_ec;
-        fs::remove(tmp_path, rm_ec);
+    fs::rename(temporary, destination, error);
+    if (error) {
+        ENGINE_LOG_ERROR("[FILESYSTEM] Atomic replacement failed for '{}': {}", destination.string(), error.message());
         return false;
     }
 #endif
-
     return true;
 }
 
@@ -246,6 +234,7 @@ bool FileSystem::write_bytes(const std::string& path, const std::vector<uint8_t>
 }
 
 bool FileSystem::write_bytes(const std::string& path, const uint8_t* data, size_t size) {
+    if ((size > 0 && !data) || size > static_cast<size_t>(std::numeric_limits<std::streamsize>::max())) return false;
     std::string resolved = resolve_path(path);
 
     try {
@@ -263,10 +252,12 @@ bool FileSystem::write_bytes(const std::string& path, const uint8_t* data, size_
         return false;
     }
 
-    if (size > 0 && data) {
+    if (size > 0) {
         file.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
     }
-    return file.good();
+    file.flush();
+    file.close();
+    return !file.fail();
 }
 
 bool FileSystem::exists(const std::string& path) {

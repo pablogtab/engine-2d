@@ -19,6 +19,7 @@ struct FragmentShaderVariant {
     std::vector<std::uint8_t> code;
     std::string entry_point{"main"};
     std::string source_path;
+    bool operator==(const FragmentShaderVariant&) const = default;
 };
 
 // Backend-neutral fragment shader asset. A shader can contain one compiled
@@ -26,6 +27,7 @@ struct FragmentShaderVariant {
 class FragmentShader {
 public:
     explicit FragmentShader(std::string name) : m_name(std::move(name)) {}
+    bool operator==(const FragmentShader&) const = default;
 
     [[nodiscard]] const std::string& name() const { return m_name; }
     [[nodiscard]] const std::vector<FragmentShaderVariant>& variants() const { return m_variants; }

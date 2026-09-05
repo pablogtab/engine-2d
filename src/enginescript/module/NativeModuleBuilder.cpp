@@ -18,12 +18,63 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <cerrno>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <spawn.h>
+#include <sys/wait.h>
+extern char** environ;
+#endif
 
 namespace EngineScript {
 namespace {
 
-std::string quote(const std::filesystem::path& value) {
-    return "\"" + value.string() + "\"";
+// Launch the compiler with literal argv; project paths must never be shell code.
+bool run_process(const std::vector<std::string>& arguments) {
+    if (arguments.empty()) return false;
+#if defined(_WIN32)
+    std::vector<std::wstring> wide;
+    for (const auto& argument : arguments) wide.push_back(std::filesystem::path(argument).wstring());
+    // Apply the Windows C runtime argv quoting rules, without cmd.exe.
+    std::wstring command;
+    for (const auto& argument : wide) {
+        if (!command.empty()) command += L' ';
+        command += L'"';
+        std::size_t slashes = 0;
+        for (const wchar_t ch : argument) {
+            if (ch == L'\\') { ++slashes; continue; }
+            command.append(slashes * (ch == L'"' ? 2 : 1), L'\\');
+            if (ch == L'"') command += L'\\';
+            command += ch;
+            slashes = 0;
+        }
+        command.append(slashes * 2, L'\\');
+        command += L'"';
+    }
+    STARTUPINFOW startup{}; startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(wide.front().c_str(), command.data(), nullptr, nullptr,
+                        FALSE, 0, nullptr, nullptr, &startup, &process)) return false;
+    const DWORD waited = WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD status = 1;
+    const bool exited = GetExitCodeProcess(process.hProcess, &status);
+    CloseHandle(process.hThread); CloseHandle(process.hProcess);
+    return waited == WAIT_OBJECT_0 && exited && status == 0;
+#else
+    std::vector<char*> argv;
+    for (const auto& argument : arguments) argv.push_back(const_cast<char*>(argument.c_str()));
+    argv.push_back(nullptr);
+    pid_t process;
+    if (posix_spawnp(&process, argv.front(), nullptr, nullptr, argv.data(), environ) != 0) return false;
+    int status = 0;
+    pid_t result;
+    do { result = waitpid(process, &status, 0); } while (result == -1 && errno == EINTR);
+    return result == process && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#endif
 }
 
 std::filesystem::path library_path(const std::filesystem::path& directory, uint32_t build_number) {
@@ -106,44 +157,47 @@ std::string object_extension() {
 #endif
 }
 
-std::string compile_object_command(
+std::vector<std::string> compile_object_command(
     const std::filesystem::path& source,
     const std::filesystem::path& object,
     const std::filesystem::path& generated_directory
 ) {
-    std::ostringstream command;
+    std::vector<std::string> command{ENGINE_SCRIPT_NATIVE_CXX_COMPILER};
 #if defined(_WIN32)
-    command << quote(ENGINE_SCRIPT_NATIVE_CXX_COMPILER) << " /nologo /std:c++20 /c"
-            << " /I" << quote(ENGINE_SCRIPT_NATIVE_SOURCE_DIR)
-            << " /I" << quote(ENGINE_SCRIPT_NATIVE_VENDOR_DIR)
-            << " /I" << quote(ENGINE_SCRIPT_NATIVE_GLM_INCLUDE_DIR)
-            << " /I" << quote(generated_directory)
-            << " /Fo" << quote(object) << " " << quote(source);
+    command.insert(command.end(), {"/nologo", "/std:c++20", "/c"});
+    const std::string include = "/I";
 #else
-    command << quote(ENGINE_SCRIPT_NATIVE_CXX_COMPILER) << " -std=c++20 -fPIC -c"
-            << " -I" << quote(ENGINE_SCRIPT_NATIVE_SOURCE_DIR)
-            << " -I" << quote(ENGINE_SCRIPT_NATIVE_VENDOR_DIR)
-            << " -I" << quote(ENGINE_SCRIPT_NATIVE_GLM_INCLUDE_DIR)
-            << " -I" << quote(generated_directory)
-            << " -o " << quote(object) << " " << quote(source);
+    command.insert(command.end(), {"-std=c++20", "-fPIC", "-c"});
+    const std::string include = "-I";
 #endif
-    return command.str();
+    for (const auto& directory : {std::filesystem::path(ENGINE_SCRIPT_NATIVE_SOURCE_DIR),
+         std::filesystem::path(ENGINE_SCRIPT_NATIVE_VENDOR_DIR),
+         std::filesystem::path(ENGINE_SCRIPT_NATIVE_GLM_INCLUDE_DIR), generated_directory}) {
+        command.push_back(include + directory.string());
+    }
+#if defined(_WIN32)
+    command.push_back("/Fo" + object.string());
+#else
+    command.insert(command.end(), {"-o", object.string()});
+#endif
+    command.push_back(source.string());
+    return command;
 }
 
-std::string link_library_command(
+std::vector<std::string> link_library_command(
     const std::vector<std::filesystem::path>& objects,
     const std::filesystem::path& library
 ) {
-    std::ostringstream command;
+    std::vector<std::string> command{ENGINE_SCRIPT_NATIVE_CXX_COMPILER};
 #if defined(_WIN32)
-    command << quote(ENGINE_SCRIPT_NATIVE_CXX_COMPILER) << " /nologo /LD /Fe" << quote(library);
+    command.insert(command.end(), {"/nologo", "/LD", "/Fe" + library.string()});
 #elif defined(__APPLE__)
-    command << quote(ENGINE_SCRIPT_NATIVE_CXX_COMPILER) << " -dynamiclib -o " << quote(library);
+    command.insert(command.end(), {"-dynamiclib", "-o", library.string()});
 #else
-    command << quote(ENGINE_SCRIPT_NATIVE_CXX_COMPILER) << " -shared -o " << quote(library);
+    command.insert(command.end(), {"-shared", "-o", library.string()});
 #endif
-    for (const std::filesystem::path& object : objects) command << " " << quote(object);
-    return command.str();
+    for (const auto& object : objects) command.push_back(object.string());
+    return command;
 }
 
 std::string build_source_hash(
@@ -292,10 +346,7 @@ NativeModuleBuildResult NativeModuleBuilder::build(
         }
         sources.push_back(source);
     }
-    if (sources.empty()) {
-        result.error = "EngineScript project has no generated sources";
-        return result;
-    }
+    // Even a project without scripts exports a valid, empty module ABI.
 
     CppEmitter emitter(workspace.source_manager());
     const fs::path entrypoint = output / "GameModule.generated.cpp";
@@ -425,8 +476,8 @@ NativeModuleBuildResult NativeModuleBuilder::compile_prepared(
                 const std::size_t task_index = next_task.fetch_add(1);
                 if (task_index >= compile_tasks.size()) return;
                 const CompileTask& task = compile_tasks[task_index];
-                const std::string command = compile_object_command(task.source, task.temporary_object, output);
-                if (std::system(command.c_str()) != 0 || !fs::is_regular_file(task.temporary_object)) {
+                const auto command = compile_object_command(task.source, task.temporary_object, output);
+                if (!run_process(command) || !fs::is_regular_file(task.temporary_object)) {
                     compile_failed.store(true);
                     std::scoped_lock lock(error_mutex);
                     if (compile_error.empty()) {
@@ -461,7 +512,7 @@ NativeModuleBuildResult NativeModuleBuilder::compile_prepared(
     }
     result.compiled_objects = static_cast<std::uint32_t>(compile_tasks.size());
 
-    if (std::system(link_library_command(objects, library).c_str()) != 0 || !fs::exists(library)) {
+    if (!run_process(link_library_command(objects, library)) || !fs::exists(library)) {
         result.error = "EngineScript native object linking failed";
         return result;
     }

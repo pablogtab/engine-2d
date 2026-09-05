@@ -346,12 +346,10 @@ bool Lighting2DPass::draw_point_gradient(
 ) {
     if (!renderer || radius <= 0.0f) return false;
     const std::size_t vertex_count = 1 + LIGHT_GRADIENT_RINGS * LIGHT_GRADIENT_SEGMENTS;
-    const std::size_t triangle_count = LIGHT_GRADIENT_SEGMENTS +
+    constexpr std::size_t triangle_count = LIGHT_GRADIENT_SEGMENTS +
         (LIGHT_GRADIENT_RINGS - 1) * LIGHT_GRADIENT_SEGMENTS * 2;
     m_radial_vertices.clear();
-    m_radial_indices.clear();
     m_radial_vertices.reserve(vertex_count);
-    m_radial_indices.reserve(triangle_count * 3);
 
     const SDL_FColor rgb{
         light.color.r / 255.0f,
@@ -401,21 +399,28 @@ bool Lighting2DPass::draw_point_gradient(
         }
     }
 
-    for (int segment = 0; segment < LIGHT_GRADIENT_SEGMENTS; ++segment) {
-        const int next = (segment + 1) % LIGHT_GRADIENT_SEGMENTS;
-        m_radial_indices.insert(m_radial_indices.end(), {0, 1 + segment, 1 + next});
-    }
-    for (int ring = 1; ring < LIGHT_GRADIENT_RINGS; ++ring) {
-        const int inner = 1 + (ring - 1) * LIGHT_GRADIENT_SEGMENTS;
-        const int outer = 1 + ring * LIGHT_GRADIENT_SEGMENTS;
+    // Topology is invariant across lights, frames and renderer instances.
+    static const std::vector<int> indices = [] {
+        std::vector<int> indices;
+        indices.reserve(triangle_count * 3);
         for (int segment = 0; segment < LIGHT_GRADIENT_SEGMENTS; ++segment) {
             const int next = (segment + 1) % LIGHT_GRADIENT_SEGMENTS;
-            m_radial_indices.insert(m_radial_indices.end(), {
-                inner + segment, outer + segment, outer + next,
-                inner + segment, outer + next, inner + next
-            });
+            indices.insert(indices.end(), {0, 1 + segment, 1 + next});
         }
-    }
+        for (int ring = 1; ring < LIGHT_GRADIENT_RINGS; ++ring) {
+            const int inner = 1 + (ring - 1) * LIGHT_GRADIENT_SEGMENTS;
+            const int outer = 1 + ring * LIGHT_GRADIENT_SEGMENTS;
+            for (int segment = 0; segment < LIGHT_GRADIENT_SEGMENTS; ++segment) {
+                const int next = (segment + 1) % LIGHT_GRADIENT_SEGMENTS;
+                indices.insert(indices.end(), {
+                    inner + segment, outer + segment, outer + next,
+                    inner + segment, outer + next, inner + next
+                });
+            }
+        }
+
+        return indices;
+    }();
 
     // The map is cleared for every point light. Replace pixels instead of
     // accumulating shared triangle edges, whose subpixel coverage otherwise
@@ -426,8 +431,8 @@ bool Lighting2DPass::draw_point_gradient(
         nullptr,
         m_radial_vertices.data(),
         static_cast<int>(m_radial_vertices.size()),
-        m_radial_indices.data(),
-        static_cast<int>(m_radial_indices.size())
+        indices.data(),
+        static_cast<int>(indices.size())
     );
 }
 

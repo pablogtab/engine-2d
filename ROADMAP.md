@@ -12,6 +12,10 @@ contratos vigentes en `docs/` y de la historia Git.
    frame, con handles cancelables y ciclo de vida propiedad del juego.
 3. Incorporar fuente exacta y filtros estructurados para fallos de callbacks
    nativos de EngineScript.
+4. Reducir el alcance de las recompilaciones moviendo implementación pesada de
+   headers compartidos a `.cpp`, y separar el build del editor en `dev.sh` de la
+   compilación explícita de tests. Evitar compilar simultáneamente el mismo
+   cambio en el build habitual y en otro directorio de validación.
 
 ## Ergonomía de EngineScript
 
@@ -86,14 +90,29 @@ prefabs visuales está documentado en
 
 ## Diagnóstico, rendimiento y automatización
 
+- [ ] Establecer una escena/recorrido reproducible para presupuestos de 16,67 ms,
+  registrando energía, resolución física, carga y configuración de compilación;
+  comparar editor Debug, player Release y hardware mínimo real con P95/P99.
+- [ ] Reducir la sincronización de campos expuestos y las lecturas de assets por
+  callback de scripts, conservando orden, actualización de componentes y hot
+  reload. Medir cada cambio con el mismo recorrido antes de ampliar su alcance.
+- [ ] Definir perfiles de calidad medidos para iluminación, partículas y
+  resolución, manteniendo la misma simulación en equipos modestos.
+
 - [ ] Completar las APIs de autoría asistida pendientes: comandos/build
   auditables, previsualización de diffs de archivos, recibos estructurados,
   audio, materiales, prefabs, escenas, Tilemap, animación y capturas de juego.
   El contrato actual está en
   [`docs/AI_ASSISTED_AUTHORING.md`](docs/AI_ASSISTED_AUTHORING.md) y
   [`docs/PROJECT_COMMANDS.md`](docs/PROJECT_COMMANDS.md).
-- [ ] Incorporar CI para formato, análisis estático, build, pruebas y smoke
-  tests aplicables por plataforma.
+- [ ] Ejecutar y confirmar en GitHub el workflow `engine-integrity.yml` añadido
+  para Debug/Release, UBSan, CTest y smoke de exportación macOS. La validación
+  local y la resolución de F01–F27 se documentan en
+  [`CORRECCIONES.md`](docs/audits/2026-09-04/CORRECCIONES.md).
+- [ ] Ampliar CI con formato, análisis estático, sanitizadores de memoria/hilos
+  y pruebas en Windows/Linux; las comprobaciones de GPU requieren hardware.
+- [ ] Medir sesiones prolongadas y presupuestos de frame/memoria con un juego
+  representativo antes de declarar preparación productiva general.
 
 ## Criterios permanentes
 

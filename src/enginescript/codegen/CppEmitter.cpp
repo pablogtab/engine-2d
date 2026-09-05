@@ -337,6 +337,18 @@ std::string CppEmitter::emit_game_module_entrypoint(
     const std::string& module_name,
     uint32_t build_number
 ) const {
+    // The project directory name is data, including quotes and control bytes.
+    std::string module_literal = "\"";
+    for (const unsigned char ch : module_name) {
+        if (ch >= 32 && ch < 127 && ch != '"' && ch != '\\') module_literal += char(ch);
+        else {
+            module_literal += '\\';
+            module_literal += char('0' + ((ch >> 6) & 7));
+            module_literal += char('0' + ((ch >> 3) & 7));
+            module_literal += char('0' + (ch & 7));
+        }
+    }
+    module_literal += '"';
     std::unordered_set<std::string> behaviour_names;
     std::vector<std::string> class_names;
     std::ostringstream output;
@@ -366,9 +378,9 @@ std::string CppEmitter::emit_game_module_entrypoint(
            << "engine_script_module_exports() {\n";
     if (behaviour_names.empty()) {
         output << std::format(
-            "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, \"{}\", {}, nullptr, 0, reset_module_static_state}};\n",
+            "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, {}, {}, nullptr, 0, reset_module_static_state}};\n",
             ENGINE_SCRIPT_ABI_VERSION,
-            module_name,
+            module_literal,
             build_number
         );
         output << "    return &exports;\n}\n";
@@ -424,9 +436,9 @@ std::string CppEmitter::emit_game_module_entrypoint(
     }
     output << "    };\n";
     output << std::format(
-        "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, \"{}\", {}, behaviours, sizeof(behaviours) / sizeof(behaviours[0]), reset_module_static_state}};\n",
+        "    static const EngineScript::NativeModuleExports exports{{{}, EngineScript::ENGINE_SCRIPT_SDK_HASH, {}, {}, behaviours, sizeof(behaviours) / sizeof(behaviours[0]), reset_module_static_state}};\n",
         ENGINE_SCRIPT_ABI_VERSION,
-        module_name,
+        module_literal,
         build_number
     );
     output << "    return &exports;\n}\n";

@@ -41,6 +41,8 @@ public:
     // --- File Reading & Writing ---
     [[nodiscard]] static std::string read_text(const std::string& path);
     static bool write_text(const std::string& path, const std::string& content);
+    // Atomic replacement after checked flush/close; not a power-loss durability guarantee.
+    static bool write_bytes_atomically(const std::string& path, const uint8_t* data, size_t size);
     static bool write_text_atomically(const std::string& path, const std::string& content);
 
     [[nodiscard]] static std::vector<uint8_t> read_bytes(const std::string& path);

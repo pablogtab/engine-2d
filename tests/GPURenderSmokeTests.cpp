@@ -1,6 +1,7 @@
 #include "core/AssetDatabase.hpp"
 #include "core/AssetManager.hpp"
 #include "core/Time.hpp"
+#include "core/Log.hpp"
 #include "ecs/EntityManager.hpp"
 #include "ecs/components/CoreComponents.hpp"
 #include "ecs/components/UIComponents.hpp"
@@ -15,6 +16,7 @@
 #include "ui/CanvasUISystem.hpp"
 #include <SDL3/SDL.h>
 #include <cmath>
+#include <cassert>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -216,6 +218,22 @@ int main() {
                 std::cout << "GPURenderSmokeTests skipped: material backend unavailable\n";
                 exit_code = SKIP_RETURN_CODE;
             } else {
+                int shader_creations = 0;
+                Engine::Log::set_callback([&](const Engine::LogRecord& record) {
+                    if (record.message.starts_with("[MATERIAL] Loaded shader")) ++shader_creations;
+                });
+                // Different materials and changing uniforms share the same GPU
+                // shader/state when there are no material-owned sampler bindings.
+                for (int i = 0; i < 100; ++i) {
+                    Engine::Material grade_copy = *material;
+                    Engine::Material procedural_copy = *procedural_material;
+                    procedural_copy.set_uniform(0, std::array<float, 4>{float(i), 0, 0, 0});
+                    assert(backend->bind(grade_copy, {})); backend->unbind();
+                    assert(backend->bind(*procedural_material, {})); backend->unbind();
+                    assert(backend->bind(procedural_copy, {})); backend->unbind();
+                }
+                Engine::Log::set_callback({});
+                assert(shader_creations == 2);
                 constexpr int width = 64;
                 constexpr int height = 64;
                 SDL_Texture* sprite_target = SDL_CreateTexture(

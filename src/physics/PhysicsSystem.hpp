@@ -7,6 +7,7 @@
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/PhysicsComponents.hpp"
 #include "../ecs/EntityManager.hpp"
+#include "../ecs/TransformSystem.hpp"
 #include <box2d/box2d.h>
 #include <glm/glm.hpp>
 #include <memory>
@@ -365,6 +366,7 @@ public:
 
   static void clear() {
     s_b2_bodies.clear();
+    s_body_generations.clear();
     s_b2_joints.clear();
     s_ignore_one_way.clear();
     s_contact_listener.reset();
@@ -379,11 +381,11 @@ public:
     if (!s_b2_world) return;
 
     for (auto it = s_b2_joints.begin(); it != s_b2_joints.end();) {
-      const EntityID joint_entity = it->first;
-      bool references_body = joint_entity == id;
-      if (!references_body && em.is_alive(joint_entity) && em.has_component<JointComponent>(joint_entity)) {
-        references_body = em.get_component<JointComponent>(joint_entity).target_entity == id;
-      }
+      // Inspect the actual joint endpoints: authored targets may already have
+      // changed, while DestroyBody would still free the old attached joint.
+      const bool references_body = it->second &&
+          (it->second->GetBodyA()->GetUserData().pointer == id ||
+           it->second->GetBodyB()->GetUserData().pointer == id);
       if (references_body) {
         if (it->second) s_b2_world->DestroyJoint(it->second);
         it = s_b2_joints.erase(it);
@@ -396,6 +398,7 @@ public:
     if (body != s_b2_bodies.end()) {
       if (body->second) s_b2_world->DestroyBody(body->second);
       s_b2_bodies.erase(body);
+      s_body_generations.erase(id);
     }
     create_body(em, id);
   }
@@ -414,11 +417,8 @@ public:
       tx.position.x = position.x;
       tx.position.y = position.y;
     }
-    auto it = s_b2_bodies.find(id);
-    if (it != s_b2_bodies.end() && it->second) {
-      float current_angle = it->second->GetAngle();
-      it->second->SetTransform(b2Vec2(position.x * k_p2m, position.y * k_p2m), current_angle);
-    }
+    TransformSystem::update_subtree(em, id);
+    sync_body_transform(em, id);
   }
 
   // Synchronizes only the Box2D body from the computed world transform.
@@ -512,13 +512,25 @@ public:
       s_b2_world->SetContactListener(s_contact_listener.get());
     }
 
+    TransformSystem::update(entity_manager);
+    const auto valid_body = [&entity_manager](EntityID id) {
+      const auto generation = s_body_generations.find(id);
+      return entity_manager.is_alive(id) &&
+          entity_manager.has_component<TransformComponent>(id) &&
+          entity_manager.has_component<RigidBodyComponent>(id) &&
+          entity_manager.has_component<ColliderComponent>(id) &&
+          generation != s_body_generations.end() &&
+          generation->second == entity_manager.entity_generation(id);
+    };
+
     // 1. Clean up destroyed joints FIRST (before destroying bodies to prevent double-free dangling pointers)
     for (auto it = s_b2_joints.begin(); it != s_b2_joints.end();) {
-      bool a_alive = entity_manager.is_alive(it->first) && entity_manager.has_component<JointComponent>(it->first);
+      bool a_alive = valid_body(it->first) && entity_manager.has_component<JointComponent>(it->first);
       bool b_alive = false;
       if (a_alive) {
         const auto &jc = entity_manager.get_component<JointComponent>(it->first);
-        b_alive = entity_manager.is_alive(jc.target_entity);
+        b_alive = valid_body(jc.target_entity) &&
+            it->second->GetBodyB()->GetUserData().pointer == jc.target_entity;
       }
 
       if (!a_alive || !b_alive) {
@@ -533,7 +545,9 @@ public:
 
     // 2. Clean up bodies for destroyed entities AFTER joints have been safely freed
     for (auto it = s_b2_bodies.begin(); it != s_b2_bodies.end();) {
-      if (!entity_manager.is_alive(it->first)) {
+      if (!valid_body(it->first)) {
+        s_ignore_one_way.erase(it->first);
+        s_body_generations.erase(it->first);
         s_b2_world->DestroyBody(it->second);
         it = s_b2_bodies.erase(it);
       } else {
@@ -682,31 +696,40 @@ public:
     // Step physics simulation world
     s_b2_world->Step(delta_time, 8, 3);
 
-    // Synchronize positions and velocities back to ECS
-    for (auto &[id, body] : s_b2_bodies) {
-      if (!entity_manager.is_alive(id))
-        continue;
-      if (!entity_manager.has_component<TransformComponent>(id) ||
-          !entity_manager.has_component<RigidBodyComponent>(id))
-        continue;
-
-      auto &transform = entity_manager.get_component<TransformComponent>(id);
-      auto &rb = entity_manager.get_component<RigidBodyComponent>(id);
-
-      if (rb.body_type != BodyType::Static) {
-        b2Vec2 pos = body->GetPosition();
-        b2Vec2 vel = body->GetLinearVelocity();
-
-        transform.position.x = pos.x * k_m2p;
-        transform.position.y = pos.y * k_m2p;
-        rb.velocity = glm::vec2(vel.x * k_m2p, vel.y * k_m2p);
-
-        if (!rb.fixed_rotation) {
-          transform.rotation = -glm::degrees(body->GetAngle());
-          rb.angular_velocity = -glm::degrees(body->GetAngularVelocity());
+    // Visit parents before children: a moving parent must have its current
+    // world transform before converting a child's Box2D pose back to local.
+    std::unordered_set<EntityID> synchronized;
+    const auto sync = [&](auto&& self, EntityID id) -> void {
+      if (!entity_manager.has_component<TransformComponent>(id) || !synchronized.insert(id).second) return;
+      const TransformComponent* parent = nullptr;
+      if (entity_manager.has_component<HierarchyComponent>(id)) {
+        const auto parent_id = entity_manager.get_component<HierarchyComponent>(id).parent;
+        if (entity_manager.has_component<TransformComponent>(parent_id)) {
+          self(self, parent_id);
+          parent = &entity_manager.get_component<TransformComponent>(parent_id);
         }
       }
-    }
+      auto& transform = entity_manager.get_component<TransformComponent>(id);
+      transform = TransformSystem::local_to_world_transform(transform, parent);
+      const auto it = s_b2_bodies.find(id);
+      if (it == s_b2_bodies.end()) return;
+      auto& rb = entity_manager.get_component<RigidBodyComponent>(id);
+      if (rb.body_type == BodyType::Static) return;
+      auto desired = transform;
+      const auto pos = it->second->GetPosition();
+      desired.world_position.x = pos.x * k_m2p;
+      desired.world_position.y = pos.y * k_m2p;
+      if (!rb.fixed_rotation) desired.world_rotation = -glm::degrees(it->second->GetAngle());
+      if (const auto local = TransformSystem::world_to_local_transform(desired, parent)) {
+        transform.position = local->position;
+        transform.rotation = local->rotation;
+        transform = TransformSystem::local_to_world_transform(transform, parent);
+      }
+      const auto velocity = it->second->GetLinearVelocity();
+      rb.velocity = {velocity.x * k_m2p, velocity.y * k_m2p};
+      rb.angular_velocity = -glm::degrees(it->second->GetAngularVelocity());
+    };
+    entity_manager.for_each<TransformComponent>([&](EntityID id, TransformComponent&) { sync(sync, id); });
 
     capture_debug_frame();
   }
@@ -717,7 +740,7 @@ public:
     rb.angular_velocity = degrees_per_sec;
     auto it = s_b2_bodies.find(id);
     if (it != s_b2_bodies.end() && it->second) {
-      it->second->SetAngularVelocity(glm::radians(degrees_per_sec));
+      it->second->SetAngularVelocity(glm::radians(-degrees_per_sec));
     }
   }
 
@@ -726,8 +749,8 @@ public:
     auto &rb = em.get_component<RigidBodyComponent>(id);
     auto it = s_b2_bodies.find(id);
     if (it != s_b2_bodies.end() && it->second) {
-      it->second->ApplyAngularImpulse(impulse * k_p2m, true);
-      rb.angular_velocity = glm::degrees(it->second->GetAngularVelocity());
+      it->second->ApplyAngularImpulse(-impulse * k_p2m, true);
+      rb.angular_velocity = -glm::degrees(it->second->GetAngularVelocity());
     }
   }
 
@@ -799,6 +822,16 @@ private:
     auto &collider = em.get_component<ColliderComponent>(id);
     if (!transform.world_visible) return nullptr;
 
+    static_assert(collider_max_polygon_vertices == b2_maxPolygonVertices);
+    if (!std::isfinite(transform.world_position.x) || !std::isfinite(transform.world_position.y) ||
+        !std::isfinite(transform.world_rotation) || !std::isfinite(rb.mass) || rb.mass < 0 ||
+        !std::isfinite(rb.friction) || rb.friction < 0 || !std::isfinite(rb.restitution) || rb.restitution < 0 ||
+        !std::isfinite(rb.gravity_scale) || !std::isfinite(rb.velocity.x) || !std::isfinite(rb.velocity.y) ||
+        !std::isfinite(rb.angular_velocity)) return nullptr;
+    for (const auto& shape : collider.shapes) {
+      if (!collider_shape_valid(shape, transform.world_scale)) return nullptr;
+    }
+
     b2BodyDef body_def;
     body_def.type = rb.body_type == BodyType::Static
         ? b2_staticBody
@@ -854,6 +887,7 @@ private:
     }
 
     s_b2_bodies[id] = body;
+    s_body_generations[id] = em.entity_generation(id);
     return body;
   }
 
@@ -862,6 +896,7 @@ private:
   static inline std::unique_ptr<PhysicsContactListener> s_contact_listener{
       nullptr};
   static inline std::unordered_map<EntityID, b2Body *> s_b2_bodies;
+  static inline std::unordered_map<EntityID, std::uint64_t> s_body_generations;
   static inline std::unordered_map<EntityID, b2Joint *> s_b2_joints;
   static inline std::unordered_set<EntityID> s_ignore_one_way;
   static inline PhysicsDebugOptions s_debug_options{};

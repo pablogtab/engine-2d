@@ -101,6 +101,7 @@ private:
     [[nodiscard]] bool load_database();
     [[nodiscard]] bool save_database() const;
     [[nodiscard]] AssetHandle generate_handle() const;
+    bool commit_records(AssetDatabase&& candidate, bool notify = true);
     void rebuild_indexes();
     void rebuild_dependencies();
     void notify_assets_changed();

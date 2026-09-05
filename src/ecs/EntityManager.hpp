@@ -3,6 +3,7 @@
 #include "ComponentArray.hpp"
 #include "EcsTypes.hpp"
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <memory>
 #include <typeindex>
@@ -239,7 +240,8 @@ private:
         return static_cast<const ComponentArray<T>*>(it->second.get());
     }
 
-    EntityID m_next_entity_id{1};
+    std::uint64_t m_next_entity_id{1};
+    std::unordered_set<EntityID> m_alive_entities;
     std::vector<EntityID> m_free_entities;
     std::unordered_map<EntityID, std::uint64_t> m_entity_generations;
     std::vector<EntityID> m_living_entities;

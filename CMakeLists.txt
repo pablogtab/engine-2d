@@ -1646,3 +1646,20 @@ add_custom_target(copy_compile_commands ALL
     ${CMAKE_BINARY_DIR}/compile_commands.json
     ${CMAKE_SOURCE_DIR}/compile_commands.json
 )
+
+add_executable(CoreIntegrityTests tests/CoreIntegrityTests.cpp)
+target_include_directories(CoreIntegrityTests PRIVATE src vendor)
+target_link_libraries(CoreIntegrityTests PRIVATE EngineRuntime)
+add_test(NAME CoreIntegrityTests COMMAND CoreIntegrityTests)
+
+# Keep assertions (including fixture setup) active in tests in every configuration.
+get_property(engine_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(engine_test_target IN LISTS engine_all_targets)
+    if(engine_test_target MATCHES "Tests$")
+        if(MSVC)
+            target_compile_options(${engine_test_target} PRIVATE /UNDEBUG)
+        else()
+            target_compile_options(${engine_test_target} PRIVATE -UNDEBUG)
+        endif()
+    endif()
+endforeach()

@@ -1,0 +1,52 @@
+name: Engine integrity
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: brew install cmake sdl3 glm curl
+      - name: Prepare isolated runtime fixture
+        shell: python
+        run: |
+          import json, os, pathlib, shutil
+          project = pathlib.Path(os.environ['RUNNER_TEMP']) / 'runtime-fixture'
+          shutil.copytree('tests/fixtures/runtime_project', project)
+          descriptor = project / 'project.engine2d'
+          data = json.loads(descriptor.read_text())
+          data.pop('runtime_shader', None)  # Fixture shader bytes are mocks.
+          descriptor.write_text(json.dumps(data))
+      - name: Configure
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}
+          -DENGINE_PROJECT_DIR="$RUNNER_TEMP/runtime-fixture"
+          -DENGINE_ENABLE_HARDWARE_TESTS=OFF
+          -DCMAKE_CXX_FLAGS="-fsanitize=undefined -fno-sanitize-recover=all"
+      - name: Build engine and tests with the pinned shader toolchain
+        run: cmake --build build --parallel 3
+      - name: Run tests with assertions enabled
+        run: ctest --test-dir build --output-on-failure --timeout 300 --output-junit results.xml
+      - name: Verify packaged runtime without project scripts or shaders
+        run: cmake --build build --target smoke_macos_export
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.configuration }}
+          path: |
+            build/results.xml
+            build/Testing/Temporary/LastTest.log

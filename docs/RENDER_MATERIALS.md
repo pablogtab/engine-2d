@@ -15,6 +15,15 @@ image, a text glyph, or a full screen quad. `Renderer2D` binds it while flushing
 sprite batches, and `MaterialPostProcessPass` adapts that same material to
 `PostProcessPipeline`.
 
+For shaders with zero or one sampler, repeated `ShaderAsset::load` calls share
+an immutable shader when its name,
+layout, variant paths, entry points and bytes are identical. The reuse table
+holds weak references only; materials and renderer caches own the lifetime.
+Loads still validate and read their sources, so changed or missing files are
+observed without requiring a database rescan. GPU resources remain per backend.
+Shaders with zero or one sampler share a render state across material instances;
+uniform changes are uploaded at bind time and do not recreate the shader.
+
 This separation is intentional:
 
 ```text

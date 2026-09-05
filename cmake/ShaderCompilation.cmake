@@ -43,7 +43,8 @@ else()
         PREFIX "${CMAKE_BINARY_DIR}/toolchains/shadercross"
         GIT_REPOSITORY "https://github.com/libsdl-org/SDL_shadercross.git"
         GIT_TAG "${ENGINE_SHADERCROSS_REVISION}"
-        GIT_SHALLOW TRUE
+        # A pinned historical commit must be available after a fresh clone.
+        GIT_SHALLOW FALSE
         GIT_SUBMODULES_RECURSE TRUE
         UPDATE_DISCONNECTED TRUE
         CMAKE_ARGS

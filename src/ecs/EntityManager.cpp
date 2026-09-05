@@ -1,6 +1,7 @@
 #include "EntityManager.hpp"
 #include "components/CoreComponents.hpp"
 #include <algorithm>
+#include <limits>
 #include <unordered_set>
 
 namespace Engine {
@@ -21,6 +22,7 @@ const char* HierarchyOperationResult::message() const {
 void EntityManager::swap(EntityManager& other) noexcept {
     using std::swap;
     swap(m_next_entity_id, other.m_next_entity_id);
+    swap(m_alive_entities, other.m_alive_entities);
     swap(m_free_entities, other.m_free_entities);
     swap(m_entity_generations, other.m_entity_generations);
     swap(m_living_entities, other.m_living_entities);
@@ -35,11 +37,15 @@ EntityID EntityManager::create_entity() {
         id = m_free_entities.back();
         m_free_entities.pop_back();
     } else {
-        id = m_next_entity_id++;
+        if (m_next_entity_id > std::numeric_limits<EntityID>::max()) {
+            throw std::overflow_error("Entity ID space exhausted");
+        }
+        id = static_cast<EntityID>(m_next_entity_id++);
     }
 
     auto& generation = m_entity_generations[id];
     if (++generation == 0) ++generation;
+    m_alive_entities.insert(id);
     m_living_entities.push_back(id);
     m_root_entities.push_back(id);
     return id;
@@ -55,9 +61,10 @@ EntityID EntityManager::create_entity_with_id(EntityID entity) {
 
     auto& generation = m_entity_generations[entity];
     if (++generation == 0) ++generation;
+    m_alive_entities.insert(entity);
     m_living_entities.push_back(entity);
     m_root_entities.push_back(entity);
-    m_next_entity_id = std::max(m_next_entity_id, entity + 1);
+    m_next_entity_id = std::max(m_next_entity_id, static_cast<std::uint64_t>(entity) + 1);
     return entity;
 }
 
@@ -81,6 +88,7 @@ void EntityManager::destroy_entity(EntityID entity) {
         }
     }
 
+    m_alive_entities.erase(entity);
     m_entity_masks.erase(entity);
     m_living_entities.erase(it);
 
@@ -166,7 +174,7 @@ std::vector<EntityID> EntityManager::find_all_by_tag(const std::string& tag) {
 }
 
 bool EntityManager::is_alive(EntityID entity) const {
-    return std::find(m_living_entities.begin(), m_living_entities.end(), entity) != m_living_entities.end();
+    return m_alive_entities.contains(entity);
 }
 
 std::uint64_t EntityManager::entity_generation(EntityID entity) const {
@@ -381,6 +389,7 @@ void EntityManager::clear() {
         }
     }
     m_component_arrays.clear();
+    m_alive_entities.clear();
     m_living_entities.clear();
     m_root_entities.clear();
     m_free_entities.clear();

@@ -11,14 +11,21 @@ set(resources_dir "${contents_dir}/Resources")
 set(frameworks_dir "${contents_dir}/Frameworks")
 file(READ "${resources_dir}/project.engine2d" project_json)
 string(JSON startup_scene GET "${project_json}" startup_scene)
-string(JSON shader_descriptor GET "${project_json}" runtime_shader descriptor)
+set(optional_shader_paths)
+string(JSON runtime_shader_type ERROR_VARIABLE runtime_shader_error TYPE "${project_json}" runtime_shader)
+if(NOT runtime_shader_error)
+    string(JSON shader_descriptor GET "${project_json}" runtime_shader descriptor)
+    string(JSON shader_variant_base GET "${project_json}" runtime_shader variant_base)
+    list(APPEND optional_shader_paths "${resources_dir}/${shader_descriptor}" "${resources_dir}/${shader_variant_base}.msl")
+endif()
 
 foreach(required_path
     "${contents_dir}/Info.plist"
     "${executable}"
     "${resources_dir}/project.engine2d"
     "${resources_dir}/${startup_scene}"
-    "${resources_dir}/${shader_descriptor}"
+    ${optional_shader_paths}
+    "${resources_dir}/Engine/Shaders/lit_sprite.frag.msl"
     "${resources_dir}/ProjectSettings/AssetDatabase.json"
     "${frameworks_dir}/libSDL3.0.dylib"
     "${frameworks_dir}/libglm.dylib"

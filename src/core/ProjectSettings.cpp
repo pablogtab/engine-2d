@@ -114,52 +114,59 @@ WindowMode window_mode_from_string(const std::string& value) {
 } // namespace
 
 bool ProjectSettings::load(const std::string& filepath) {
-    m_filepath = filepath;
-    const std::string text = FileSystem::read_text(filepath);
-    if (text.empty()) return false;
+    ProjectSettings candidate = *this;
+    candidate.m_filepath = filepath;
+    try {
+        const std::string text = FileSystem::read_text(filepath);
+        if (text.empty()) return false;
 
-    const nlohmann::json root = nlohmann::json::parse(text, nullptr, false);
-    if (root.is_discarded() || !root.is_object()) {
-        ENGINE_LOG_ERROR("[PROJECT SETTINGS] Invalid JSON in '{}'", filepath);
+        const nlohmann::json root = nlohmann::json::parse(text, nullptr, false);
+        if (root.is_discarded() || !root.is_object()) {
+            ENGINE_LOG_ERROR("[PROJECT SETTINGS] Invalid JSON in '{}'", filepath);
+            return false;
+        }
+
+        const auto& display = root.contains("display") ? root["display"] : nlohmann::json::object();
+        candidate.m_display.reference_width = std::clamp(display.value("reference_width", 1280), 64, 16384);
+        candidate.m_display.reference_height = std::clamp(display.value("reference_height", 720), 64, 16384);
+        candidate.m_display.presentation = presentation_from_string(display.value("presentation", std::string{"fit"}));
+        candidate.m_display.default_window_mode = window_mode_from_string(display.value("default_window_mode", std::string{"windowed"}));
+        candidate.m_display.default_window_width = std::clamp(display.value("default_window_width", 1280), 320, 16384);
+        candidate.m_display.default_window_height = std::clamp(display.value("default_window_height", 720), 240, 16384);
+        candidate.m_display.default_refresh_rate = std::max(display.value("default_refresh_rate", 0.0f), 0.0f);
+        candidate.m_display.default_vsync = display.value("default_vsync", true);
+        candidate.m_display.orientation_policy = orientation_policy_from_string(
+            display.value("orientation_policy", std::string{"auto"})
+        );
+        candidate.m_display.render_resolution = normalize_render_resolution_settings({
+            render_scale_mode_from_string(display.value("render_scale_mode", std::string{"fixed"})),
+            display.value("fixed_render_scale", 1.0f),
+            display.value("dynamic_min_render_scale", 0.5f),
+            display.value("dynamic_max_render_scale", 1.0f),
+            display.value("dynamic_target_fps", 60.0f)
+        });
+        const auto& lighting = root.contains("lighting") ? root["lighting"] : nlohmann::json::object();
+        candidate.m_lighting = lighting_quality_settings_for_preset(lighting_quality_preset_from_string(
+            lighting.value("preset", std::string{"high"})
+        ));
+        candidate.m_lighting.shadow_mask_scale = std::clamp(lighting.value("shadow_mask_scale", candidate.m_lighting.shadow_mask_scale), 0.25f, 1.0f);
+        candidate.m_lighting.max_shadowed_lights = std::clamp(lighting.value("max_shadowed_lights", candidate.m_lighting.max_shadowed_lights), 0, 16);
+        candidate.m_lighting.soft_fast_passes = std::clamp(lighting.value("soft_fast_passes", candidate.m_lighting.soft_fast_passes), 0, 3);
+        candidate.m_lighting.contact_hardening_samples = std::clamp(lighting.value("contact_hardening_samples", candidate.m_lighting.contact_hardening_samples), 0, 16);
+        candidate.m_lighting.mobile_override = lighting.value("mobile_override", false);
+        candidate.m_lighting.mobile_preset = lighting_quality_preset_from_string(lighting.value("mobile_preset", std::string{"medium"}));
+        ENGINE_LOG_INFO(
+            "[PROJECT SETTINGS] Authoring reference: {}x{} ({})",
+            candidate.m_display.reference_width,
+            candidate.m_display.reference_height,
+            presentation_to_string(candidate.m_display.presentation)
+        );
+        *this = std::move(candidate);
+        return true;
+    } catch (const nlohmann::json::exception& error) {
+        ENGINE_LOG_ERROR("[PROJECT SETTINGS] Invalid settings schema: {}", error.what());
         return false;
     }
-
-    const auto& display = root.contains("display") ? root["display"] : nlohmann::json::object();
-    m_display.reference_width = std::clamp(display.value("reference_width", 1280), 64, 16384);
-    m_display.reference_height = std::clamp(display.value("reference_height", 720), 64, 16384);
-    m_display.presentation = presentation_from_string(display.value("presentation", std::string{"fit"}));
-    m_display.default_window_mode = window_mode_from_string(display.value("default_window_mode", std::string{"windowed"}));
-    m_display.default_window_width = std::clamp(display.value("default_window_width", 1280), 320, 16384);
-    m_display.default_window_height = std::clamp(display.value("default_window_height", 720), 240, 16384);
-    m_display.default_refresh_rate = std::max(display.value("default_refresh_rate", 0.0f), 0.0f);
-    m_display.default_vsync = display.value("default_vsync", true);
-    m_display.orientation_policy = orientation_policy_from_string(
-        display.value("orientation_policy", std::string{"auto"})
-    );
-    m_display.render_resolution = normalize_render_resolution_settings({
-        render_scale_mode_from_string(display.value("render_scale_mode", std::string{"fixed"})),
-        display.value("fixed_render_scale", 1.0f),
-        display.value("dynamic_min_render_scale", 0.5f),
-        display.value("dynamic_max_render_scale", 1.0f),
-        display.value("dynamic_target_fps", 60.0f)
-    });
-    const auto& lighting = root.contains("lighting") ? root["lighting"] : nlohmann::json::object();
-    m_lighting = lighting_quality_settings_for_preset(lighting_quality_preset_from_string(
-        lighting.value("preset", std::string{"high"})
-    ));
-    m_lighting.shadow_mask_scale = std::clamp(lighting.value("shadow_mask_scale", m_lighting.shadow_mask_scale), 0.25f, 1.0f);
-    m_lighting.max_shadowed_lights = std::clamp(lighting.value("max_shadowed_lights", m_lighting.max_shadowed_lights), 0, 16);
-    m_lighting.soft_fast_passes = std::clamp(lighting.value("soft_fast_passes", m_lighting.soft_fast_passes), 0, 3);
-    m_lighting.contact_hardening_samples = std::clamp(lighting.value("contact_hardening_samples", m_lighting.contact_hardening_samples), 0, 16);
-    m_lighting.mobile_override = lighting.value("mobile_override", false);
-    m_lighting.mobile_preset = lighting_quality_preset_from_string(lighting.value("mobile_preset", std::string{"medium"}));
-    ENGINE_LOG_INFO(
-        "[PROJECT SETTINGS] Authoring reference: {}x{} ({})",
-        m_display.reference_width,
-        m_display.reference_height,
-        presentation_to_string(m_display.presentation)
-    );
-    return true;
 }
 
 bool ProjectSettings::save() const {
@@ -189,7 +196,7 @@ bool ProjectSettings::save() const {
         {"mobile_override", m_lighting.mobile_override},
         {"mobile_preset", lighting_quality_preset_to_string(m_lighting.mobile_preset)}
     };
-    return FileSystem::write_text(m_filepath, root.dump(2) + "\n");
+    return FileSystem::write_text_atomically(m_filepath, root.dump(2) + "\n");
 }
 
 void ProjectSettings::set_display(const ProjectDisplaySettings& settings) {
