@@ -1867,11 +1867,14 @@ void EditorLayer::render_dockspace() {
         if (EditorUi::action_button(
                 "discard_unsaved_palette", EditorIcon::Trash, "Discard",
                 EditorUi::ButtonTone::Danger, true, ImVec2(150.0f, 0.0f))) {
-            if (m_level_composer_panel) {
-                m_level_composer_panel->discard_unsaved_changes();
+            if (m_level_composer_panel &&
+                m_level_composer_panel->discard_unsaved_changes()) {
+                ImGui::CloseCurrentPopup();
+                resume_pending_action();
+            } else {
+                m_unsaved_level_palette_error =
+                    "The palette could not be discarded. The current workflow remains open.";
             }
-            ImGui::CloseCurrentPopup();
-            resume_pending_action();
         }
         ImGui::SameLine();
         if (EditorUi::action_button(

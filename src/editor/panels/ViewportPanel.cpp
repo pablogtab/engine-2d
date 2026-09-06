@@ -29,7 +29,6 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <algorithm>
-#include <filesystem>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -616,6 +615,7 @@ void ViewportPanel::render_prefab_preview(
         const TransformComponent* transform{nullptr};
         const SpriteComponent* sprite{nullptr};
         Texture* texture{nullptr};
+        RenderLayer render_layer{DEFAULT_RENDER_LAYER};
     };
     std::vector<BasePreviewSprite> base_sprites;
     m_prefab_preview_entities->for_each<TransformComponent, SpriteComponent>(
@@ -624,8 +624,9 @@ void ViewportPanel::render_prefab_preview(
             Texture* texture = sprite.texture
                 ? sprite.texture : AssetManager::get().get_white_texture(m_renderer);
             if (!texture || !texture->get_sdl_texture()) return;
-            if (!camera.renders_layer(sprite.render_layer)) return;
-            base_sprites.push_back({&transform, &sprite, texture});
+            const RenderLayer render_layer = std::min<RenderLayer>(sprite.render_layer, 31);
+            if (!camera.renders_layer(render_layer)) return;
+            base_sprites.push_back({&transform, &sprite, texture, render_layer});
         }
     );
 
@@ -658,9 +659,6 @@ void ViewportPanel::render_prefab_preview(
     std::stable_sort(
         preview_sprites.begin(), preview_sprites.end(),
         [](const PreviewSprite& left, const PreviewSprite& right) {
-            if (left.base->sprite->render_layer != right.base->sprite->render_layer) {
-                return left.base->sprite->render_layer < right.base->sprite->render_layer;
-            }
             return left.sort_key < right.sort_key;
         }
     );

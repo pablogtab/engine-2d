@@ -243,6 +243,12 @@ void test_file_io_and_handle_canonicalization(const std::filesystem::path& root)
     LevelPaletteAsset transactional = make_palette({}, {});
     transactional.entries[1].prefab.prefab.path = "Assets/Prefabs/missing.prefab";
     const LevelPaletteAsset before_failed_canonicalization = transactional;
+    const auto repairable_path = root / "Assets/LevelPalettes/Repairable.levelpalette";
+    write_file(repairable_path, transactional.to_json().dump());
+    require(LevelPaletteAsset::load_from_file(repairable_path, &error).has_value(),
+            "authoring load without a database must preserve repairable missing references");
+    require(!LevelPaletteAsset::load_from_file(repairable_path, &error, &database),
+            "strict database load must reject unresolved references");
     require(!transactional.canonicalize_references(database, &error),
             "missing references must fail canonicalization");
     require(transactional == before_failed_canonicalization,

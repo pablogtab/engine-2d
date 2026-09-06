@@ -322,7 +322,8 @@ bool LevelComposerPanel::load_palette(const std::filesystem::path& path) {
         m_status_is_error = false;
     } else {
         m_status = "Loaded with " + std::to_string(unresolved) +
-            " unavailable stamp" + (unresolved == 1 ? "." : "s. Remove or replace them before saving.");
+            " unavailable stamp" + (unresolved == 1 ? "." : "s.") +
+            " Remove or replace before saving.";
         m_status_is_error = true;
     }
     m_clean_palette = m_palette;
@@ -441,11 +442,11 @@ void LevelComposerPanel::render_pending_load_modal() {
     if (ImGui::Button("Discard and open", ImVec2(128.0f, 0.0f))) {
         if (m_pending_load_path) {
             const std::filesystem::path pending = *m_pending_load_path;
-            m_pending_load_path.reset();
-            m_palette_dirty = false;
-            static_cast<void>(load_palette(pending));
+            if (load_palette(pending)) {
+                m_pending_load_path.reset();
+                ImGui::CloseCurrentPopup();
+            }
         }
-        ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(80.0f, 0.0f)) ||
@@ -680,7 +681,10 @@ void LevelComposerPanel::render_entry_list() {
         const std::string label = std::string(entry_kind_label(entry.kind)) + "  " + entry.label + "##entry";
         if (ImGui::Selectable(label.c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick)) {
             select_entry(index);
-            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_placement_active = true;
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
+                is_entry_asset_ready(entry)) {
+                m_placement_active = true;
+            }
         }
         ImGui::PopID();
     }
@@ -1084,6 +1088,9 @@ void LevelComposerPanel::render_entry_editor(LevelPaletteEntry& entry) {
 
     render_parent_target();
     ImGui::Separator();
+    const bool can_stamp = is_entry_asset_ready(entry);
+    if (!can_stamp) m_placement_active = false;
+    ImGui::BeginDisabled(!can_stamp);
     if (m_placement_active) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.82f, 0.30f, 0.22f, 1.0f));
         if (ImGui::Button("Stop stamping", ImVec2(-1.0f, 30.0f))) m_placement_active = false;
@@ -1093,7 +1100,15 @@ void LevelComposerPanel::render_entry_editor(LevelPaletteEntry& entry) {
         if (ImGui::Button("Stamp in viewport", ImVec2(-1.0f, 30.0f))) m_placement_active = true;
         ImGui::PopStyleColor();
     }
-    ImGui::TextDisabled("Drag to repeat  |  Q/E rotate  |  X/Y flip  |  Esc stop/cancel");
+    ImGui::EndDisabled();
+    if (!can_stamp && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Repair or replace the unavailable asset before stamping.");
+    }
+    ImGui::TextDisabled(
+        entry.kind == LevelPaletteEntryKind::SpriteRegion
+            ? "Drag to repeat  |  Q/E rotate  |  X/Y flip  |  Esc stop/cancel"
+            : "Drag to repeat  |  Q/E rotate  |  Esc stop/cancel"
+    );
 }
 
 void LevelComposerPanel::on_gui() {

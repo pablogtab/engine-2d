@@ -293,7 +293,7 @@ void LevelComposerViewportTool::handle(
             (input.MousePos.y - image_min.y) * viewport_size.y / image_size.y
         );
         snapped_world = LevelComposerService::snap_position(
-            camera.screen_to_world(mouse_in_viewport),
+            camera.screen_to_world(mouse_in_viewport, entry->placement.depth_z),
             entry->placement.snap,
             panel.grid_origin()
         );

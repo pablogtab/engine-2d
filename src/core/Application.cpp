@@ -319,29 +319,43 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     asset_browser->set_renderer(m_window->get_sdl_renderer());
     asset_browser->set_material_backend(m_renderer->get_material_backend());
     asset_browser->set_command_history(command_history);
-    asset_browser->set_live_asset_usage_provider([this](AssetHandle handle) {
+    auto level_composer_panel = std::make_shared<LevelComposerPanel>(
+        m_window->get_sdl_renderer(), &m_scene_manager, selection
+    );
+    level_composer_panel->is_open = false;
+    asset_browser->set_live_asset_usage_provider([
+        this,
+        weak_level_composer = std::weak_ptr<LevelComposerPanel>(level_composer_panel)
+    ](AssetHandle handle) {
         std::vector<std::string> usages;
+        if (!handle.is_valid()) return usages;
         Scene* scene = m_scene_manager.get_active_scene();
-        if (!scene || !handle.is_valid()) return usages;
-
-        SceneSerializer serializer(scene, m_window->get_sdl_renderer());
-        const nlohmann::json document = nlohmann::json::parse(
-            serializer.serialize_to_string(), nullptr, false
-        );
-        if (document.is_discarded() || !document.contains("entities") ||
-            !document["entities"].is_array()) {
-            return usages;
-        }
-
-        const std::string target = handle.to_string();
-        for (const auto& entity : document["entities"]) {
-            if (!entity.is_object() || !json_references_asset_handle(entity, target)) continue;
-            const EntityID id = entity.value("id", EntityID{0});
-            const std::string tag = entity.value("tag", std::string{"Entity"});
-            usages.push_back(
-                "Open scene '" + scene->get_name() + "' / entity '" + tag +
-                "' (#" + std::to_string(id) + ")"
+        if (scene) {
+            SceneSerializer serializer(scene, m_window->get_sdl_renderer());
+            const nlohmann::json document = nlohmann::json::parse(
+                serializer.serialize_to_string(), nullptr, false
             );
+            if (!document.is_discarded() && document.contains("entities") &&
+                document["entities"].is_array()) {
+                const std::string target = handle.to_string();
+                for (const auto& entity : document["entities"]) {
+                    if (!entity.is_object() ||
+                        !json_references_asset_handle(entity, target)) {
+                        continue;
+                    }
+                    const EntityID id = entity.value("id", EntityID{0});
+                    const std::string tag = entity.value("tag", std::string{"Entity"});
+                    usages.push_back(
+                        "Open scene '" + scene->get_name() + "' / entity '" + tag +
+                        "' (#" + std::to_string(id) + ")"
+                    );
+                }
+            }
+        }
+        if (const auto composer = weak_level_composer.lock()) {
+            for (std::string usage : composer->live_asset_usages(handle)) {
+                usages.push_back(std::move(usage));
+            }
         }
         return usages;
     });
@@ -375,10 +389,6 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     auto shortcuts_panel = std::make_shared<ShortcutsPreferencesPanel>();
     shortcuts_panel->is_open = false; // Closed by default until opened from Edit menu
     auto palette_panel = std::make_shared<TilemapPalettePanel>(m_window->get_sdl_renderer(), &m_scene_manager, selection);
-    auto level_composer_panel = std::make_shared<LevelComposerPanel>(
-        m_window->get_sdl_renderer(), &m_scene_manager, selection
-    );
-    level_composer_panel->is_open = false;
     asset_browser->set_on_open_level_palette_callback(
         [level_composer_panel](const std::string& palette_path) {
             level_composer_panel->open_palette(palette_path);
