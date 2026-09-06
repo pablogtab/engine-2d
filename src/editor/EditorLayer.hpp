@@ -32,6 +32,7 @@ class PrefabStageController;
 class SpriteAnimationStudioPanel;
 class ParticleEffectEditorPanel;
 class PostProcessTunerPanel;
+class LevelComposerPanel;
 
 enum class PendingActionType {
     None,
@@ -45,6 +46,9 @@ struct PendingDestructiveAction {
     PendingActionType type{PendingActionType::None};
     std::string target;
     std::function<void()> action;
+    // Normal application exit checkpoints dirty scenes for recovery. Project
+    // switching and other destructive actions still require a scene decision.
+    bool allow_scene_recovery{false};
 };
 
 class EditorLayer {
@@ -102,6 +106,9 @@ public:
     void set_post_process_tuner_panel(PostProcessTunerPanel* panel) {
         m_post_process_tuner_panel = panel;
     }
+    void set_level_composer_panel(LevelComposerPanel* panel) {
+        m_level_composer_panel = panel;
+    }
     void set_scene_manager(class SceneManager* sm) { m_scene_manager = sm; }
     void set_window_wrapper(Window* window) { m_window_wrapper = window; }
     void set_command_history(std::shared_ptr<EditorCommandHistory> ch) { m_command_history = ch; }
@@ -141,6 +148,7 @@ private:
     void activate_workspace(EditorWorkspaceId id);
     void apply_workspace_panel_visibility(bool restore_saved = true);
     void persist_panel_states();
+    void resume_pending_action();
     [[nodiscard]] bool can_persist_authoring_scenes() const;
     bool save_hot_exit_session();
     void restore_hot_exit_session();
@@ -215,6 +223,7 @@ private:
     bool m_visible{true}; // Enabled by default in editor builds
     bool m_show_save_as_popup{false};
     bool m_show_unsaved_changes_modal{false};
+    bool m_show_unsaved_level_palette_modal{false};
     bool m_show_prefab_stage_exit_modal{false};
     bool m_show_autosave_preferences{false};
     bool m_show_reset_all_layouts_modal{false};
@@ -233,6 +242,7 @@ private:
     bool m_continue_pending_action_after_save_as{false};
     std::string m_save_as_error;
     std::string m_unsaved_changes_error;
+    std::string m_unsaved_level_palette_error;
     std::string m_external_conflict_error;
     std::string m_recovery_error;
     std::string m_prefab_stage_error;
@@ -249,6 +259,7 @@ private:
     bool m_redo_is_holding{false};
 
     EditorPanelRegistry m_panel_registry;
+    LevelComposerPanel* m_level_composer_panel{nullptr};
 };
 
 } // namespace Engine

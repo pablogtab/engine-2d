@@ -33,6 +33,14 @@ contratos vigentes en `docs/` y de la historia Git.
 
 ## Renderer y presentación
 
+- [ ] Ampliar Level Composer con autotiling de cuatro vecinos, stamps de
+  perímetro, scatter determinista y un overlay de densidad/repetición. Mantener
+  el suelo en Tilemap y la arquitectura irregular como sprites o prefabs; el
+  contrato vigente está en [`docs/LEVEL_COMPOSER.md`](docs/LEVEL_COMPOSER.md).
+- [ ] Añadir oclusores 2D opcionales con desvanecimiento cuando un actor queda
+  completamente detrás de una pieza frontal, sin acoplar el renderer a tags de
+  un juego concreto.
+
 - [ ] Diseñar `MaterialInstance`/property blocks para sobrescribir parámetros
   por renderer sin duplicar shader ni modificar el material compartido.
   - Definir identidad, herencia del material base y ciclo de vida de overrides.

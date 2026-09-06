@@ -329,6 +329,64 @@ void test_instantiate_prefab_command_undo_redo_without_disk_dependency() {
     std::cout << "test_instantiate_prefab_command_undo_redo_without_disk_dependency passed." << std::endl;
 }
 
+void test_instantiate_prefab_command_reuses_ready_asset_registration() {
+    EntityManager source_em;
+    const EntityID source_root = source_em.create_entity();
+    source_em.add_component<TagComponent>(source_root, TagComponent{"CachedPrefab"});
+    source_em.add_component<TransformComponent>(source_root, TransformComponent{});
+    TransformSystem::update(source_em);
+
+    const std::string prefab_json = EntitySubtreeArchive::capture_to_json(
+        source_em, source_root, ComponentSerializationContext{}
+    );
+    assert(!prefab_json.empty());
+
+    std::filesystem::create_directories("assets/prefabs");
+    const std::string prefab_file = "assets/prefabs/instantiate_ready_cache_test.prefab";
+    assert(FileSystem::write_text_atomically(prefab_file, prefab_json));
+
+    auto& database = AssetDatabase::get();
+    const auto imported = database.import_asset(prefab_file);
+    assert(imported.has_value());
+    const AssetRecord* initial_record = database.find(*imported);
+    assert(initial_record);
+    assert(initial_record->type == AssetType::Prefab);
+    assert(initial_record->status == AssetStatus::Ready);
+
+    int asset_change_notifications = 0;
+    database.set_on_assets_changed([&asset_change_notifications]() {
+        ++asset_change_notifications;
+    });
+
+    EntityManager target_em;
+    auto selection = std::make_shared<EditorSelection>();
+    InstantiatePrefabCommand cached_command(
+        &target_em, selection, prefab_file, false, std::nullopt
+    );
+    assert(cached_command.is_valid());
+    assert(asset_change_notifications == 0);
+
+    // A non-ready registration must still be reimported and validated.
+    assert(database.remove_asset(prefab_file));
+    asset_change_notifications = 0;
+    InstantiatePrefabCommand reimport_command(
+        &target_em, selection, prefab_file, false, std::nullopt
+    );
+    assert(reimport_command.is_valid());
+    assert(asset_change_notifications == 1);
+    const AssetRecord* restored_record = database.find_by_path(prefab_file);
+    assert(restored_record);
+    assert(restored_record->type == AssetType::Prefab);
+    assert(restored_record->status == AssetStatus::Ready);
+
+    database.set_on_assets_changed({});
+    std::filesystem::remove(prefab_file);
+    assert(database.remove_asset(prefab_file));
+    static_cast<void>(database.discard_missing_asset_record(prefab_file));
+
+    std::cout << "test_instantiate_prefab_command_reuses_ready_asset_registration passed." << std::endl;
+}
+
 void test_prefab_physics_and_tilemap_undo_redo() {
     EntityManager em;
     auto selection = std::make_shared<EditorSelection>();
@@ -1529,6 +1587,7 @@ int main() {
     test_prefab_instantiation_under_transformed_parent();
     test_prefab_atomic_rollback_on_corrupt_data();
     test_instantiate_prefab_command_undo_redo_without_disk_dependency();
+    test_instantiate_prefab_command_reuses_ready_asset_registration();
     test_prefab_physics_and_tilemap_undo_redo();
     test_prefab_structural_rejections();
     test_instantiate_prefab_drag_drop_scenarios();

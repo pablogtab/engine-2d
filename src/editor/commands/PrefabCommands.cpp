@@ -193,7 +193,17 @@ InstantiatePrefabCommand::InstantiatePrefabCommand(
     } else {
         m_prefab_filepath = prefab_filepath_or_json;
         std::replace(m_prefab_filepath.begin(), m_prefab_filepath.end(), '\\', '/');
-        if (!AssetDatabase::get().import_asset(m_prefab_filepath)) {
+        auto& asset_database = AssetDatabase::get();
+        const AssetRecord* prefab_record = asset_database.find_by_path(m_prefab_filepath);
+        const bool is_ready_prefab = prefab_record &&
+                                     prefab_record->type == AssetType::Prefab &&
+                                     prefab_record->status == AssetStatus::Ready;
+        if (!is_ready_prefab) {
+            const auto imported_handle = asset_database.import_asset(m_prefab_filepath);
+            prefab_record = imported_handle ? asset_database.find(*imported_handle) : nullptr;
+        }
+        if (!prefab_record || prefab_record->type != AssetType::Prefab ||
+            prefab_record->status != AssetStatus::Ready) {
             ENGINE_LOG_ERROR("[PREFAB] InstantiatePrefabCommand: prefab '{}' is not importable", m_prefab_filepath);
             m_valid = false;
             return;

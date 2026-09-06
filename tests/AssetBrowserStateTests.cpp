@@ -29,7 +29,7 @@ int main() {
     expected.view_mode = AssetBrowserViewMode::Details;
     expected.collection = AssetBrowserCollection::Favorites;
     expected.scope = AssetBrowserScope::Project;
-    expected.type_filter = AssetBrowserTypeFilter::Materials;
+    expected.type_filter = AssetBrowserTypeFilter::LevelPalettes;
     expected.status_filter = AssetBrowserStatusFilter::Issues;
     expected.sort = AssetBrowserSort::Size;
     expected.sort_ascending = false;

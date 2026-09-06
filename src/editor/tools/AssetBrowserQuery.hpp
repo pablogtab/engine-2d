@@ -27,7 +27,8 @@ enum class AssetBrowserTypeFilter {
     Scripts,
     Profiles,
     Data,
-    Other
+    Other,
+    LevelPalettes
 };
 
 enum class AssetBrowserStatusFilter {

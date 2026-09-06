@@ -29,6 +29,7 @@
 #include "panels/ProjectSettingsPanel.hpp"
 #include "panels/AiAssistantPanel.hpp"
 #include "panels/AssetBrowserPanel.hpp"
+#include "panels/LevelComposerPanel.hpp"
 #include "../ecs/components/CoreComponents.hpp"
 #include "../ecs/components/RenderingComponents.hpp"
 #include "../ecs/CameraSystem.hpp"
@@ -868,6 +869,12 @@ void EditorLayer::update_window_title() {
 }
 
 bool EditorLayer::request_destructive_action(PendingDestructiveAction action) {
+    if (action.type == PendingActionType::ExitApp && m_level_composer_panel &&
+        m_level_composer_panel->has_unsaved_changes()) {
+        m_pending_action = std::move(action);
+        m_show_unsaved_level_palette_modal = true;
+        return false;
+    }
     // If a dirty prefab stage is active, block and show the stage exit modal.
     if (m_prefab_stage && m_prefab_stage->is_active() && m_prefab_stage->is_dirty()) {
         m_pending_action = std::move(action);
@@ -893,7 +900,8 @@ bool EditorLayer::request_destructive_action(PendingDestructiveAction action) {
     }
 
     auto& session = get_or_create_session(active_scene);
-    if (session.command_history && session.command_history->is_dirty()) {
+    if (!action.allow_scene_recovery && session.command_history &&
+        session.command_history->is_dirty()) {
         m_pending_action = std::move(action);
         m_show_unsaved_changes_modal = true;
         return false;
@@ -906,25 +914,18 @@ bool EditorLayer::request_destructive_action(PendingDestructiveAction action) {
 }
 
 bool EditorLayer::request_exit() {
-    if (m_prefab_stage && m_prefab_stage->is_active() && m_prefab_stage->is_dirty()) {
-        return request_destructive_action({
-            .type = PendingActionType::ExitApp,
-            .target = "",
-            .action = [this]() {
-                if (m_scene_manager && m_scene_manager->is_play_session_active()) {
-                    m_scene_manager->stop_play();
-                }
-                save_hot_exit_session();
-                if (m_window_wrapper) m_window_wrapper->force_close();
+    return request_destructive_action({
+        .type = PendingActionType::ExitApp,
+        .target = "Exit Engine2D",
+        .action = [this]() {
+            if (m_scene_manager && m_scene_manager->is_play_session_active()) {
+                m_scene_manager->stop_play();
             }
-        });
-    }
-    if (m_scene_manager && m_scene_manager->is_play_session_active()) {
-        m_scene_manager->stop_play();
-    }
-    save_hot_exit_session();
-    if (m_window_wrapper) m_window_wrapper->force_close();
-    return true;
+            save_hot_exit_session();
+            if (m_window_wrapper) m_window_wrapper->force_close();
+        },
+        .allow_scene_recovery = true
+    });
 }
 
 bool EditorLayer::request_project_hub() {
@@ -1447,6 +1448,12 @@ void EditorLayer::complete_pending_action() {
     if (action) action();
 }
 
+void EditorLayer::resume_pending_action() {
+    PendingDestructiveAction action = std::move(m_pending_action);
+    m_pending_action = {};
+    static_cast<void>(request_destructive_action(std::move(action)));
+}
+
 void EditorLayer::cancel_pending_action() {
     m_pending_action = {};
     m_continue_pending_action_after_save_as = false;
@@ -1818,6 +1825,72 @@ void EditorLayer::render_dockspace() {
         }
         ImGui::SameLine();
         if (ImGui::Button("Close", ImVec2(110.0f, 0.0f))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    if (m_show_unsaved_level_palette_modal) {
+        ImGui::OpenPopup("Unsaved Level Palette");
+        m_show_unsaved_level_palette_modal = false;
+        m_unsaved_level_palette_error.clear();
+    }
+
+    EditorUi::set_next_modal_width();
+    if (ImGui::BeginPopupModal(
+            "Unsaved Level Palette", nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        const std::string palette_name = m_level_composer_panel
+            ? m_level_composer_panel->current_palette_label()
+            : "Level Palette";
+        EditorUi::modal_status("UNSAVED PALETTE", EditorUi::BadgeTone::Warning);
+        EditorUi::modal_lead(
+            "The Level Composer palette contains unsaved changes.",
+            "Save them before leaving this project, or discard them permanently."
+        );
+        const std::string pending_target = m_pending_action.target.empty()
+            ? "Close the current workflow" : m_pending_action.target;
+        EditorUi::modal_resource(
+            "PALETTE", palette_name.c_str(), ("Next: " + pending_target).c_str()
+        );
+        if (!m_unsaved_level_palette_error.empty()) {
+            EditorUi::modal_callout(
+                m_unsaved_level_palette_error.c_str(), EditorUi::BadgeTone::Error
+            );
+        }
+
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        EditorUi::modal_footer(110.0f + 150.0f + 170.0f + spacing * 2.0f);
+        const bool cancel_palette = EditorUi::action_button(
+            "cancel_unsaved_palette", EditorIcon::Clear, "Cancel",
+            EditorUi::ButtonTone::Neutral, true, ImVec2(110.0f, 0.0f)
+        ) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+        ImGui::SameLine();
+        if (EditorUi::action_button(
+                "discard_unsaved_palette", EditorIcon::Trash, "Discard",
+                EditorUi::ButtonTone::Danger, true, ImVec2(150.0f, 0.0f))) {
+            if (m_level_composer_panel) {
+                m_level_composer_panel->discard_unsaved_changes();
+            }
+            ImGui::CloseCurrentPopup();
+            resume_pending_action();
+        }
+        ImGui::SameLine();
+        if (EditorUi::action_button(
+                "save_unsaved_palette", EditorIcon::Save, "Save & Continue",
+                EditorUi::ButtonTone::Primary, m_level_composer_panel != nullptr,
+                ImVec2(170.0f, 0.0f))) {
+            if (m_level_composer_panel &&
+                m_level_composer_panel->save_unsaved_changes()) {
+                ImGui::CloseCurrentPopup();
+                resume_pending_action();
+            } else {
+                m_unsaved_level_palette_error =
+                    "The palette could not be saved. Review Level Composer and try again.";
+            }
+        }
+        if (cancel_palette) {
+            cancel_pending_action();
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::EndPopup();
     }
 
@@ -2727,7 +2800,7 @@ void EditorLayer::render_prefab_stage_modals() {
             m_last_active_scene = nullptr;
             sync_active_scene_session();
             ImGui::CloseCurrentPopup();
-            complete_pending_action();
+            resume_pending_action();
         }
         ImGui::SameLine();
         if (EditorUi::action_button(
@@ -2738,7 +2811,7 @@ void EditorLayer::render_prefab_stage_modals() {
                 m_last_active_scene = nullptr;
                 sync_active_scene_session();
                 ImGui::CloseCurrentPopup();
-                complete_pending_action();
+                resume_pending_action();
             } else {
                 m_prefab_stage_error = "The prefab could not be saved. The stage remains open.";
             }

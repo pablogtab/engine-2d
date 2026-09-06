@@ -393,6 +393,56 @@ void test_delete_tilemap_cleans_and_restores_generated_colliders() {
     assert(generated_collider_count(em, entity) == 0);
 }
 
+void test_paint_tiles_command_keeps_its_target_and_dirty_revision() {
+    EntityManager em;
+    EditorCommandHistory history;
+
+    const EntityID painted = em.create_entity();
+    em.add_component<TransformComponent>(painted, TransformComponent{0.0f, 0.0f});
+    TilemapComponent painted_tilemap;
+    painted_tilemap.generate_colliders = false;
+    painted_tilemap.set_tile(0, 0, 7);
+    painted_tilemap.set_tile(1, 0, 8);
+    em.add_component<TilemapComponent>(painted, painted_tilemap);
+
+    const EntityID other = em.create_entity();
+    em.add_component<TransformComponent>(other, TransformComponent{0.0f, 0.0f});
+    TilemapComponent other_tilemap;
+    other_tilemap.generate_colliders = false;
+    other_tilemap.set_tile(0, 0, 99);
+    em.add_component<TilemapComponent>(other, other_tilemap);
+
+    std::unordered_map<int64_t, uint16_t> before{
+        {TilemapComponent::make_key(0, 0), 1},
+        {TilemapComponent::make_key(1, 0), 0}
+    };
+    std::unordered_map<int64_t, uint16_t> after{
+        {TilemapComponent::make_key(0, 0), 7},
+        {TilemapComponent::make_key(1, 0), 8}
+    };
+    history.push_executed_command(std::make_unique<PaintTilesCommand>(
+        &em,
+        painted,
+        std::move(before),
+        std::move(after),
+        "Paint (2 tiles)"
+    ));
+
+    assert(history.is_dirty());
+    assert(history.get_undo_count() == 1);
+    history.undo();
+    assert(!history.is_dirty());
+    assert(em.get_component<TilemapComponent>(painted).get_tile(0, 0) == 1);
+    assert(em.get_component<TilemapComponent>(painted).get_tile(1, 0) == 0);
+    assert(em.get_component<TilemapComponent>(other).get_tile(0, 0) == 99);
+
+    history.redo();
+    assert(history.is_dirty());
+    assert(em.get_component<TilemapComponent>(painted).get_tile(0, 0) == 7);
+    assert(em.get_component<TilemapComponent>(painted).get_tile(1, 0) == 8);
+    assert(em.get_component<TilemapComponent>(other).get_tile(0, 0) == 99);
+}
+
 void test_animation_authored_edits_round_trip_without_runtime_state() {
     EntityManager em;
     EditorCommandHistory history;
@@ -1582,6 +1632,7 @@ int main() {
     test_tilemap_edit_rebuilds_only_on_commit_and_round_trips();
     test_clear_and_remove_tilemap_restore_authored_and_generated_state();
     test_delete_tilemap_cleans_and_restores_generated_colliders();
+    test_paint_tiles_command_keeps_its_target_and_dirty_revision();
     test_animation_authored_edits_round_trip_without_runtime_state();
     test_camera_edits_and_primary_selection_round_trip();
     test_camera_component_removal_restores_exact_state();

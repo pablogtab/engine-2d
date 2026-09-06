@@ -3,6 +3,7 @@
 #include "../ui/EditorUi.hpp"
 #include "../stage/PrefabStageController.hpp"
 #include "TilemapPalettePanel.hpp"
+#include "LevelComposerPanel.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
@@ -22,6 +23,7 @@
 #include "../../core/AssetManager.hpp"
 #include "../../core/AssetDatabase.hpp"
 #include "../../renderer/Renderer2D.hpp"
+#include "../../renderer/SpriteSortKey.hpp"
 #include "../../scene/EntitySubtreeArchive.hpp"
 #include "../../scene/PrefabSerializer.hpp"
 #include <imgui.h>
@@ -181,6 +183,15 @@ ViewportPanel::ViewportPanel(
     ensure_render_target();
 
     Time::set_time_scale(0.0f); // Default to Edit Mode (paused) on launch
+}
+
+void ViewportPanel::on_context_changed(const EditorPanelContext& context) {
+    // A placement preview belongs to the scene and history that were active
+    // when the stroke began. Never carry it across a tab or Prefab Stage switch.
+    m_level_composer_tool.cancel();
+    set_command_history(context.command_history);
+    set_entity_state_store(context.entity_state_store);
+    set_selection(context.selection);
 }
 
 bool ViewportPanel::ensure_render_target() {
@@ -530,9 +541,22 @@ bool ViewportPanel::capture_viewport_png(
 
 bool ViewportPanel::prepare_prefab_preview(
     const std::string& path,
-    const glm::vec2& world_position
+    const glm::vec2& world_position,
+    float rotation_degrees
 ) {
-    if (path.empty()) return false;
+    return prepare_prefab_preview(
+        path, std::vector<glm::vec2>{world_position}, rotation_degrees, 0.0f
+    );
+}
+
+bool ViewportPanel::prepare_prefab_preview(
+    const std::string& path,
+    const std::vector<glm::vec2>& world_positions,
+    float rotation_degrees,
+    float depth_z
+) {
+    if (path.empty() || world_positions.empty()) return false;
+    const glm::vec2 base_position = world_positions.front();
     if (m_prefab_preview_path != path || !m_prefab_preview_entities ||
         !m_prefab_preview_entities->is_alive(m_prefab_preview_root)) {
         const std::string json = PrefabSerializer::read_json_from_file(path);
@@ -544,7 +568,9 @@ bool ViewportPanel::prepare_prefab_preview(
             .asset_manager = &AssetManager::get(),
             .asset_database = &AssetDatabase::get()
         };
-        const TransformComponent desired{glm::vec3(world_position, 0.0f)};
+        const TransformComponent desired{
+            glm::vec3(base_position, depth_z), glm::vec2(1.0f), rotation_degrees
+        };
         SubtreeInstantiationResult result = EntitySubtreeArchive::instantiate_from_json(
             *entities, json, desired, 0, context
         );
@@ -555,11 +581,14 @@ bool ViewportPanel::prepare_prefab_preview(
         m_prefab_preview_entities = std::move(entities);
     }
 
-    m_prefab_preview_position = world_position;
+    m_prefab_preview_positions = world_positions;
+    m_prefab_preview_depth_z = depth_z;
     if (m_prefab_preview_entities->has_component<TransformComponent>(m_prefab_preview_root)) {
         auto& root = m_prefab_preview_entities->get_component<TransformComponent>(m_prefab_preview_root);
-        root.position.x = world_position.x;
-        root.position.y = world_position.y;
+        root.position.x = base_position.x;
+        root.position.y = base_position.y;
+        root.position.z = depth_z;
+        root.rotation = rotation_degrees;
     }
     TransformSystem::update(*m_prefab_preview_entities);
     return true;
@@ -574,78 +603,135 @@ void ViewportPanel::render_prefab_preview(
     const glm::vec2 camera_size = camera.get_viewport_size();
     if (camera_size.x <= 0.0f || camera_size.y <= 0.0f) return;
 
-    const auto to_screen = [&](const glm::vec2& world) {
-        const glm::vec2 point = camera.world_to_screen(glm::vec3(world, 0.0f));
+    const auto to_screen = [&](const glm::vec3& world) {
+        const glm::vec2 point = camera.world_to_screen(world);
         return ImVec2(
             image_min.x + point.x * image_size.x / camera_size.x,
             image_min.y + point.y * image_size.y / camera_size.y
         );
     };
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    std::size_t sprite_count = 0;
+
+    struct BasePreviewSprite {
+        const TransformComponent* transform{nullptr};
+        const SpriteComponent* sprite{nullptr};
+        Texture* texture{nullptr};
+    };
+    std::vector<BasePreviewSprite> base_sprites;
     m_prefab_preview_entities->for_each<TransformComponent, SpriteComponent>(
         [&](EntityID, const TransformComponent& transform, const SpriteComponent& sprite) {
             if (!transform.world_visible || !sprite.visible) return;
             Texture* texture = sprite.texture
                 ? sprite.texture : AssetManager::get().get_white_texture(m_renderer);
             if (!texture || !texture->get_sdl_texture()) return;
-
-            const glm::vec2 size = sprite.size * glm::abs(transform.world_scale);
-            const float min_x = -transform.world_pivot.x * size.x;
-            const float max_x = (1.0f - transform.world_pivot.x) * size.x;
-            const float min_y = -transform.world_pivot.y * size.y;
-            const float max_y = (1.0f - transform.world_pivot.y) * size.y;
-            const float radians = glm::radians(transform.world_rotation);
-            const float cosine = std::cos(radians);
-            const float sine = std::sin(radians);
-            // Camera2D converts Cartesian Y-up into screen Y-down. Therefore
-            // the texture's top edge corresponds to max_y in world space.
-            const std::array<glm::vec2, 4> local{{
-                {min_x, max_y}, {max_x, max_y}, {max_x, min_y}, {min_x, min_y}
-            }};
-            ImVec2 corners[4];
-            for (std::size_t index = 0; index < local.size(); ++index) {
-                const glm::vec2 rotated(
-                    local[index].x * cosine - local[index].y * sine,
-                    local[index].x * sine + local[index].y * cosine
-                );
-                corners[index] = to_screen(glm::vec2(transform.world_position) + rotated);
-            }
-
-            ImVec2 uv0{0.0f, 0.0f};
-            ImVec2 uv1{1.0f, 0.0f};
-            ImVec2 uv2{1.0f, 1.0f};
-            ImVec2 uv3{0.0f, 1.0f};
-            if (sprite.use_src_rect && texture->get_width() > 0 && texture->get_height() > 0) {
-                const float width = static_cast<float>(texture->get_width());
-                const float height = static_cast<float>(texture->get_height());
-                uv0 = {sprite.src_rect.x / width, sprite.src_rect.y / height};
-                uv1 = {(sprite.src_rect.x + sprite.src_rect.w) / width, sprite.src_rect.y / height};
-                uv2 = {(sprite.src_rect.x + sprite.src_rect.w) / width, (sprite.src_rect.y + sprite.src_rect.h) / height};
-                uv3 = {sprite.src_rect.x / width, (sprite.src_rect.y + sprite.src_rect.h) / height};
-            }
-            if (sprite.flip_x) { std::swap(uv0, uv1); std::swap(uv3, uv2); }
-            if (sprite.flip_y) { std::swap(uv0, uv3); std::swap(uv1, uv2); }
-            const int alpha = std::clamp(static_cast<int>(sprite.color.a) * 3 / 4, 70, 190);
-            draw_list->AddImageQuad(
-                texture->get_sdl_texture(), corners[0], corners[1], corners[2], corners[3],
-                uv0, uv1, uv2, uv3,
-                IM_COL32(sprite.color.r, sprite.color.g, sprite.color.b, alpha)
-            );
-            draw_list->AddPolyline(corners, 4, IM_COL32(103, 220, 190, 230), ImDrawFlags_Closed, 1.2f);
-            ++sprite_count;
+            if (!camera.renders_layer(sprite.render_layer)) return;
+            base_sprites.push_back({&transform, &sprite, texture});
         }
     );
 
-    if (sprite_count == 0) {
-        const ImVec2 center = to_screen(m_prefab_preview_position);
-        draw_list->AddRect(
-            ImVec2(center.x - 18.0f, center.y - 18.0f),
-            ImVec2(center.x + 18.0f, center.y + 18.0f),
-            IM_COL32(103, 220, 190, 230), 2.0f, 0, 1.5f
+    struct PreviewSprite {
+        const BasePreviewSprite* base{nullptr};
+        glm::vec3 world_position{0.0f};
+        std::uint64_t sort_key{0};
+    };
+    std::vector<PreviewSprite> preview_sprites;
+    preview_sprites.reserve(base_sprites.size() * m_prefab_preview_positions.size());
+    const glm::vec2 base_position = m_prefab_preview_positions.front();
+    for (const glm::vec2 instance_position : m_prefab_preview_positions) {
+        const glm::vec2 offset = instance_position - base_position;
+        for (const BasePreviewSprite& base : base_sprites) {
+            glm::vec3 world_position = base.transform->world_position;
+            world_position.x += offset.x;
+            world_position.y += offset.y;
+            preview_sprites.push_back({
+                &base,
+                world_position,
+                SpriteSortKey::world(
+                    base.sprite->sorting_layer,
+                    world_position.z,
+                    world_position.y,
+                    base.sprite->order_in_layer
+                )
+            });
+        }
+    }
+    std::stable_sort(
+        preview_sprites.begin(), preview_sprites.end(),
+        [](const PreviewSprite& left, const PreviewSprite& right) {
+            if (left.base->sprite->render_layer != right.base->sprite->render_layer) {
+                return left.base->sprite->render_layer < right.base->sprite->render_layer;
+            }
+            return left.sort_key < right.sort_key;
+        }
+    );
+
+    for (const PreviewSprite& preview : preview_sprites) {
+        const TransformComponent& transform = *preview.base->transform;
+        const SpriteComponent& sprite = *preview.base->sprite;
+        Texture* texture = preview.base->texture;
+
+        const glm::vec2 size = sprite.size * glm::abs(transform.world_scale);
+        const float min_x = -transform.world_pivot.x * size.x;
+        const float max_x = (1.0f - transform.world_pivot.x) * size.x;
+        const float min_y = -transform.world_pivot.y * size.y;
+        const float max_y = (1.0f - transform.world_pivot.y) * size.y;
+        const float radians = glm::radians(transform.world_rotation);
+        const float cosine = std::cos(radians);
+        const float sine = std::sin(radians);
+        // Camera2D converts Cartesian Y-up into screen Y-down. Therefore
+        // the texture's top edge corresponds to max_y in world space.
+        const std::array<glm::vec2, 4> local{{
+            {min_x, max_y}, {max_x, max_y}, {max_x, min_y}, {min_x, min_y}
+        }};
+        ImVec2 corners[4];
+        for (std::size_t index = 0; index < local.size(); ++index) {
+            const glm::vec2 rotated(
+                local[index].x * cosine - local[index].y * sine,
+                local[index].x * sine + local[index].y * cosine
+            );
+            corners[index] = to_screen(
+                preview.world_position + glm::vec3(rotated, 0.0f)
+            );
+        }
+
+        ImVec2 uv0{0.0f, 0.0f};
+        ImVec2 uv1{1.0f, 0.0f};
+        ImVec2 uv2{1.0f, 1.0f};
+        ImVec2 uv3{0.0f, 1.0f};
+        if (sprite.use_src_rect && texture->get_width() > 0 && texture->get_height() > 0) {
+            const float width = static_cast<float>(texture->get_width());
+            const float height = static_cast<float>(texture->get_height());
+            uv0 = {sprite.src_rect.x / width, sprite.src_rect.y / height};
+            uv1 = {(sprite.src_rect.x + sprite.src_rect.w) / width, sprite.src_rect.y / height};
+            uv2 = {(sprite.src_rect.x + sprite.src_rect.w) / width, (sprite.src_rect.y + sprite.src_rect.h) / height};
+            uv3 = {sprite.src_rect.x / width, (sprite.src_rect.y + sprite.src_rect.h) / height};
+        }
+        if (sprite.flip_x) { std::swap(uv0, uv1); std::swap(uv3, uv2); }
+        if (sprite.flip_y) { std::swap(uv0, uv3); std::swap(uv1, uv2); }
+        const int alpha = std::clamp(static_cast<int>(sprite.color.a) * 3 / 4, 70, 190);
+        draw_list->AddImageQuad(
+            texture->get_sdl_texture(), corners[0], corners[1], corners[2], corners[3],
+            uv0, uv1, uv2, uv3,
+            IM_COL32(sprite.color.r, sprite.color.g, sprite.color.b, alpha)
+        );
+        draw_list->AddPolyline(
+            corners, 4, IM_COL32(103, 220, 190, 230), ImDrawFlags_Closed, 1.2f
         );
     }
-    const ImVec2 label = to_screen(m_prefab_preview_position);
+
+    if (preview_sprites.empty()) {
+        for (const glm::vec2 position : m_prefab_preview_positions) {
+            const ImVec2 center = to_screen(glm::vec3(position, m_prefab_preview_depth_z));
+            draw_list->AddRect(
+                ImVec2(center.x - 18.0f, center.y - 18.0f),
+                ImVec2(center.x + 18.0f, center.y + 18.0f),
+                IM_COL32(103, 220, 190, 230), 2.0f, 0, 1.5f
+            );
+        }
+    }
+    const ImVec2 label = to_screen(glm::vec3(
+        m_prefab_preview_positions.back(), m_prefab_preview_depth_z
+    ));
     const std::string name = std::filesystem::path(m_prefab_preview_path).stem().string();
     draw_list->AddText(
         ImVec2(label.x + 12.0f, label.y + 12.0f),
@@ -1638,6 +1724,41 @@ void ViewportPanel::on_gui() {
                 ImVec2(img_min.x + img_size.x, img_min.y + img_size.y),
                 true
             );
+            const bool is_level_composing = is_editing && m_level_composer_panel &&
+                m_level_composer_panel->is_placement_active();
+            if ((!is_editing || !active_scene || !active_cam) &&
+                m_level_composer_tool.is_stroking()) {
+                m_level_composer_tool.cancel();
+            }
+            if (is_editing && active_cam && m_level_composer_panel) {
+                const EntityID required_root =
+                    m_prefab_stage && m_prefab_stage->is_active()
+                    ? m_prefab_stage->get_root_entity()
+                    : 0;
+                m_level_composer_tool.handle(
+                    active_scene,
+                    *m_level_composer_panel,
+                    *active_cam,
+                    img_min,
+                    img_size,
+                    viewport_tools_hovered,
+                    m_renderer,
+                    m_selection,
+                    m_command_history.get(),
+                    m_entity_state_store.get(),
+                    [this](
+                        const std::string& prefab_path,
+                        const std::vector<glm::vec2>& world_positions,
+                        float rotation_degrees,
+                        float depth_z
+                    ) {
+                        m_prefab_preview_visible = prepare_prefab_preview(
+                            prefab_path, world_positions, rotation_degrees, depth_z
+                        );
+                    },
+                    required_root
+                );
+            }
             if (active_cam) render_prefab_preview(*active_cam, img_min, img_size);
 
             const bool is_guide_interaction = is_editing && active_cam
@@ -1797,7 +1918,14 @@ void ViewportPanel::on_gui() {
             }
 
             // --- 5. Selection Outlines & Centroid Transform Gizmo ---
-            bool is_tilemap_painting = (m_palette_panel && m_palette_panel->is_painting_active());
+            bool is_tilemap_painting = !is_level_composing &&
+                (m_palette_panel && m_palette_panel->is_painting_active());
+            const bool is_level_authoring = is_level_composing ||
+                m_level_composer_tool.is_stroking();
+            if (is_editing && active_scene && !is_tilemap_painting &&
+                m_tilemap_painting_tool.has_active_stroke()) {
+                m_tilemap_painting_tool.cancel_active_stroke(active_scene);
+            }
             bool is_gizmo_active = false;
 
             // UI rectangles are themselves the move surface. Pick the visible
@@ -1806,7 +1934,8 @@ void ViewportPanel::on_gui() {
             // same gesture. This also prevents a previously selected,
             // overlapping UI rectangle from swallowing the click.
             if (is_editing && active_scene && active_cam && m_selection &&
-                !is_tilemap_painting && !is_guide_interaction && m_is_hovered &&
+                !is_tilemap_painting && !is_level_authoring &&
+                !is_guide_interaction && m_is_hovered &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
                 !io.KeyCtrl && !io.KeyShift && !io.KeyAlt) {
                 EntityManager& em = active_scene->get_entity_manager();
@@ -1823,7 +1952,8 @@ void ViewportPanel::on_gui() {
             }
 
             // --- 5. Selection Outlines & Transform Gizmo (Only when NOT actively painting tiles) ---
-            if (is_editing && active_scene && active_cam && m_selection && !m_selection->empty() && !is_tilemap_painting) {
+            if (is_editing && active_scene && active_cam && m_selection &&
+                !m_selection->empty() && !is_tilemap_painting && !is_level_authoring) {
                 // A. Selection Outlines
                 m_selection_tool.render_selection_outlines(
                     active_scene->get_entity_manager(),
@@ -1864,7 +1994,8 @@ void ViewportPanel::on_gui() {
             }
 
             // --- 6. Marquee Box Selection & Raycast Picking (Active when NOT painting) ---
-            if (is_editing && active_cam && m_selection && !is_tilemap_painting) {
+            if (is_editing && active_cam && m_selection &&
+                !is_tilemap_painting && !is_level_authoring) {
                 m_selection_tool.handle_selection_input(
                     active_scene,
                     *active_cam,
@@ -1881,35 +2012,7 @@ void ViewportPanel::on_gui() {
 
             // --- 6.5 Interactive Tilemap Painting Tool (Brush / Box Fill / Eraser) ---
             if (is_editing && active_scene && active_cam && is_tilemap_painting) {
-                EntityManager& em = active_scene->get_entity_manager();
-                EntityID tilemap_entity = 0;
-
-                // 1. Check if currently selected entity has a TilemapComponent
-                if (m_selection && !m_selection->empty()) {
-                    EntityID primary = m_selection->get_primary();
-                    if (em.is_alive(primary) && em.has_component<TilemapComponent>(primary)) {
-                        tilemap_entity = primary;
-                    }
-                }
-
-                // 2. Fallback: Find first entity in active scene with a TilemapComponent
-                if (tilemap_entity == 0) {
-                    em.for_each<TilemapComponent>([&](EntityID id, const TilemapComponent&) {
-                        if (tilemap_entity == 0) tilemap_entity = id;
-                    });
-                }
-
-                // 3. Fallback: If no Tilemap entity exists yet, create one automatically!
-                if (tilemap_entity == 0) {
-                    tilemap_entity = em.create_entity();
-                    em.add_component<TagComponent>(tilemap_entity, TagComponent{"Tilemap"});
-                    em.add_component<TransformComponent>(tilemap_entity, TransformComponent{glm::vec3(0.0f)});
-                    em.add_component<TilemapComponent>(tilemap_entity, TilemapComponent{});
-                }
-
-                if (m_selection && m_selection->empty()) {
-                    m_selection->select(tilemap_entity);
-                }
+                const EntityID tilemap_entity = m_palette_panel->get_selected_tilemap_entity();
 
                 m_tilemap_painting_tool.handle_viewport_painting(
                     active_scene,

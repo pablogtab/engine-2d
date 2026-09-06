@@ -24,8 +24,13 @@ int main() {
     assert(!manager.contains(EditorPanelId::Inspector));
 
     assert(manager.set_active(EditorWorkspaceId::Tilemap));
+    assert(std::string(manager.active_descriptor().key) == "tilemap");
+    assert(std::string(manager.active_descriptor().label) == "Level");
     assert(manager.contains(EditorPanelId::Tilemap));
+    assert(manager.contains(EditorPanelId::LevelComposer));
     assert(manager.contains(EditorPanelId::SurfaceGenerator));
+    assert(std::string(editor_panel_id_key(EditorPanelId::LevelComposer)) ==
+        "level_composer");
     assert(std::string(editor_panel_id_key(EditorPanelId::SurfaceGenerator)) ==
         "surface_generator");
 

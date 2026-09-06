@@ -20,6 +20,7 @@
 #include "../editor/panels/ProjectSettingsPanel.hpp"
 #include "../editor/panels/ShortcutsPreferencesPanel.hpp"
 #include "../editor/panels/TilemapPalettePanel.hpp"
+#include "../editor/panels/LevelComposerPanel.hpp"
 #include "../editor/panels/SurfaceGeneratorPanel.hpp"
 #include "../editor/panels/SpriteAnimationStudioPanel.hpp"
 #include "../editor/panels/ParticleEffectEditorPanel.hpp"
@@ -244,8 +245,10 @@ Application::Application(ProjectContext project, const std::string& name, int wi
 
     m_window->set_close_request_callback([this]() {
 #if ENGINE_WITH_EDITOR
-        if (m_editor_layer && m_editor_layer->is_visible()) {
-            return m_editor_layer->request_exit();
+        if (m_editor_layer) {
+            const bool can_close = m_editor_layer->request_exit();
+            if (!can_close) m_editor_layer->set_visible(true);
+            return can_close;
         }
 #endif
         return true;
@@ -372,6 +375,29 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     auto shortcuts_panel = std::make_shared<ShortcutsPreferencesPanel>();
     shortcuts_panel->is_open = false; // Closed by default until opened from Edit menu
     auto palette_panel = std::make_shared<TilemapPalettePanel>(m_window->get_sdl_renderer(), &m_scene_manager, selection);
+    auto level_composer_panel = std::make_shared<LevelComposerPanel>(
+        m_window->get_sdl_renderer(), &m_scene_manager, selection
+    );
+    level_composer_panel->is_open = false;
+    asset_browser->set_on_open_level_palette_callback(
+        [level_composer_panel](const std::string& palette_path) {
+            level_composer_panel->open_palette(palette_path);
+            level_composer_panel->is_open = true;
+        }
+    );
+    level_composer_panel->set_on_open_prefab_callback(
+        [this](const std::string& prefab_path) {
+            if (m_editor_layer) {
+                m_editor_layer->request_destructive_action({
+                    .type = PendingActionType::LoadScene,
+                    .target = prefab_path,
+                    .action = [this, prefab_path]() {
+                        m_editor_layer->open_prefab_stage(prefab_path);
+                    }
+                });
+            }
+        }
+    );
     auto surface_generator_panel = std::make_shared<SurfaceGeneratorPanel>(m_window->get_sdl_renderer());
     auto ai_assistant_panel = std::make_shared<AiAssistantPanel>(
         &m_scene_manager,
@@ -479,10 +505,12 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     });
 
     viewport_panel->set_palette_panel(palette_panel.get());
+    viewport_panel->set_level_composer_panel(level_composer_panel.get());
     m_editor_layer->set_viewport_panel(viewport_panel.get());
     m_editor_layer->set_animation_studio_panel(anim_studio_panel.get());
     m_editor_layer->set_particle_editor_panel(particle_editor_panel.get());
     m_editor_layer->set_post_process_tuner_panel(postprocess_panel.get());
+    m_editor_layer->set_level_composer_panel(level_composer_panel.get());
     m_editor_layer->set_selection(selection);
     m_editor_layer->register_panel(EditorPanelId::Viewport, viewport_panel);
     m_editor_layer->register_panel(EditorPanelId::Hierarchy, hierarchy_panel);
@@ -498,6 +526,7 @@ Application::Application(ProjectContext project, const std::string& name, int wi
     m_editor_layer->register_panel(EditorPanelId::ProjectSettings, project_settings_panel);
     m_editor_layer->register_panel(EditorPanelId::Shortcuts, shortcuts_panel);
     m_editor_layer->register_panel(EditorPanelId::Tilemap, palette_panel);
+    m_editor_layer->register_panel(EditorPanelId::LevelComposer, level_composer_panel);
     m_editor_layer->register_panel(EditorPanelId::SurfaceGenerator, surface_generator_panel);
     m_editor_layer->register_panel(EditorPanelId::Animation, anim_studio_panel);
     m_editor_layer->register_panel(EditorPanelId::Assistant, ai_assistant_panel);

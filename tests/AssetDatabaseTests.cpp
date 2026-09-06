@@ -1,10 +1,13 @@
 #include "core/AssetDatabase.hpp"
 #include "core/FileSystem.hpp"
+#include "core/LevelPaletteAsset.hpp"
 
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -25,12 +28,41 @@ std::string read_file(const std::filesystem::path& path) {
     return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
 }
 
+Engine::LevelPaletteAsset make_texture_palette(
+    Engine::AssetHandle texture_handle,
+    std::string texture_path
+) {
+    Engine::LevelPaletteAsset palette;
+    palette.name = "Sanctuary";
+    palette.categories = {{"architecture", "Architecture"}};
+
+    Engine::LevelPaletteEntry entry;
+    entry.id = "wall.back";
+    entry.label = "Back Wall";
+    entry.category = "architecture";
+    entry.kind = Engine::LevelPaletteEntryKind::SpriteRegion;
+    entry.sprite_region.texture = {texture_handle, std::move(texture_path)};
+    entry.sprite_region.rect_px = {0, 0, 64, 128};
+    entry.sprite_region.world_size = {64.0f, 128.0f};
+    entry.sprite_region.pivot = {0.5f, 1.0f};
+    entry.placement.snap = {64.0f, 64.0f};
+    entry.placement.spacing = 64.0f;
+    palette.entries.push_back(std::move(entry));
+    return palette;
+}
+
 } // namespace
 
 int main() {
     namespace fs = std::filesystem;
     require(Engine::AssetDatabase::type_for_path("PlayerController.e2s") == Engine::AssetType::Script,
         "EngineScript files are recognized as script assets");
+    require(Engine::AssetDatabase::type_for_path("Sanctuary.LEVELPALETTE") ==
+            Engine::AssetType::LevelPalette,
+        "level palette files are recognized case-insensitively");
+    require(std::string(Engine::AssetDatabase::type_name(Engine::AssetType::LevelPalette)) ==
+            "level_palette",
+        "level palette type has a stable persisted name");
     const fs::path root = fs::temp_directory_path() / "engine2d_asset_database_tests";
     std::error_code error;
     fs::remove_all(root, error);
@@ -155,6 +187,80 @@ int main() {
         "scene discovers prefab link asset handles");
     require(dependency_database.dependents(*dependent_prefab).size() == 1,
         "prefab reports the scene that uses it");
+
+    write_file(dependency_root / "assets/textures/Sanctuary.png");
+    const auto palette_texture = dependency_database.import_asset("assets/textures/Sanctuary.png");
+    require(palette_texture.has_value(), "level palette texture imports");
+    const Engine::LevelPaletteAsset path_only_palette = make_texture_palette(
+        {}, "assets/textures/Sanctuary.png");
+    write_file(dependency_root / "assets/palettes/Sanctuary.levelpalette",
+        path_only_palette.to_json().dump());
+    const auto level_palette = dependency_database.import_asset(
+        "assets/palettes/Sanctuary.levelpalette");
+    require(level_palette.has_value(), "path-only level palette imports");
+    require(dependency_database.find(*level_palette)->type == Engine::AssetType::LevelPalette,
+        "level palette type is inferred");
+    require(dependency_database.find(*level_palette)->status == Engine::AssetStatus::Ready,
+        "path-only level palette resolves to a ready asset");
+    require(dependency_database.dependencies(*level_palette) ==
+            std::vector<Engine::AssetHandle>{*palette_texture},
+        "path-only level palette discovers the resolved asset handle");
+    require(dependency_database.dependents(*palette_texture) ==
+            std::vector<Engine::AssetHandle>{*level_palette},
+        "referenced asset reports its level palette dependent");
+
+    Engine::AssetHandle stale_texture_handle{1};
+    while (dependency_database.find(stale_texture_handle)) ++stale_texture_handle.value;
+    const Engine::LevelPaletteAsset stale_handle_palette = make_texture_palette(
+        stale_texture_handle, "assets/textures/Sanctuary.png");
+    write_file(dependency_root / "assets/palettes/StaleHandle.levelpalette",
+        stale_handle_palette.to_json().dump());
+    const auto stale_level_palette = dependency_database.import_asset(
+        "assets/palettes/StaleHandle.levelpalette");
+    require(stale_level_palette.has_value(), "stale-handle level palette imports");
+    require(dependency_database.find(*stale_level_palette)->status == Engine::AssetStatus::Ready,
+        "valid diagnostic path recovers a stale level palette handle");
+    require(dependency_database.dependencies(*stale_level_palette) ==
+            std::vector<Engine::AssetHandle>{*palette_texture},
+        "stale handle is replaced by the asset resolved from its valid path");
+
+    write_file(dependency_root / "assets/palettes/Malformed.levelpalette", "{not-json");
+    const auto malformed_palette = dependency_database.import_asset(
+        "assets/palettes/Malformed.levelpalette");
+    require(malformed_palette.has_value(), "malformed palette keeps a repairable asset record");
+    require(dependency_database.find(*malformed_palette)->status == Engine::AssetStatus::FailedImport,
+        "malformed level palette JSON is marked as a failed import");
+    require(dependency_database.dependencies(*malformed_palette).empty(),
+        "malformed level palette does not publish dependency edges");
+
+    write_file(dependency_root / "assets/palettes/Malformed.levelpalette",
+        path_only_palette.to_json().dump());
+    require(dependency_database.import_asset("assets/palettes/Malformed.levelpalette") ==
+            malformed_palette,
+        "reimporting a repaired palette preserves its handle");
+    require(dependency_database.find(*malformed_palette)->status == Engine::AssetStatus::Ready,
+        "reimporting valid JSON repairs a failed level palette");
+    require(dependency_database.dependencies(*malformed_palette) ==
+            std::vector<Engine::AssetHandle>{*palette_texture},
+        "repaired palette publishes its dependency graph");
+    Engine::AssetDatabase reloaded_palette_database(dependency_root);
+    [[maybe_unused]] const auto reloaded_palette_scan =
+        reloaded_palette_database.scan(dependency_root / "assets");
+    const auto* reloaded_palette = reloaded_palette_database.find(*level_palette);
+    require(reloaded_palette && reloaded_palette->type == Engine::AssetType::LevelPalette,
+        "level palette type persists across database reload");
+    require(reloaded_palette_database.dependencies(*level_palette) ==
+            std::vector<Engine::AssetHandle>{*palette_texture},
+        "level palette dependencies persist across database reload");
+
+    fs::remove(dependency_root / "assets/textures/Sanctuary.png", error);
+    [[maybe_unused]] const auto missing_palette_dependency_scan = dependency_database.rescan();
+    require(dependency_database.find(*level_palette)->status == Engine::AssetStatus::MissingDependency,
+        "missing referenced asset invalidates level palette");
+    write_file(dependency_root / "assets/textures/Sanctuary.png");
+    [[maybe_unused]] const auto repaired_palette_dependency_scan = dependency_database.rescan();
+    require(dependency_database.find(*level_palette)->status == Engine::AssetStatus::Ready,
+        "restored referenced asset repairs level palette");
 
     fs::remove(dependency_root / "assets/shaders/Test.msl", error);
     [[maybe_unused]] const auto missing_dependency_scan = dependency_database.rescan();

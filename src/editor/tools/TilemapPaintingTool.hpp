@@ -27,12 +27,26 @@ public:
         EditorCommandHistory* command_history = nullptr
     );
 
+    // Reverts an unfinished live brush stroke. The viewport calls this when
+    // painting is disabled or its palette closes before mouse release.
+    void cancel_active_stroke(Scene* active_scene);
+    [[nodiscard]] bool has_active_stroke() const {
+        return m_was_painting || m_is_box_filling;
+    }
+
 private:
     bool m_is_box_filling{false};
     bool m_was_painting{false};
     glm::ivec2 m_box_fill_start{0, 0};
+    glm::ivec2 m_last_grid_cell{0, 0};
+    bool m_has_last_grid_cell{false};
+    Scene* m_stroke_scene{nullptr};
+    EntityID m_stroke_entity{0};
+    TileToolMode m_stroke_tool{TileToolMode::Brush};
     std::unordered_map<int64_t, uint16_t> m_stroke_old_tiles;
     std::unordered_map<int64_t, uint16_t> m_stroke_new_tiles;
+
+    void reset_active_stroke();
 };
 
 } // namespace Engine

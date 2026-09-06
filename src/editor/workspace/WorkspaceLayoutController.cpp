@@ -228,15 +228,16 @@ void WorkspaceLayoutController::build_default(
                 dock_main_id, ImGuiDir_Left, 0.18f, nullptr, &dock_main_id
             );
             const ImGuiID dock_right = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Right, 0.24f, nullptr, &dock_main_id
+                dock_main_id, ImGuiDir_Right, 0.32f, nullptr, &dock_main_id
             );
             const ImGuiID dock_bottom = ImGui::DockBuilderSplitNode(
-                dock_main_id, ImGuiDir_Down, 0.31f, nullptr, &dock_main_id
+                dock_main_id, ImGuiDir_Down, 0.28f, nullptr, &dock_main_id
             );
             ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left);
             ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
-            ImGui::DockBuilderDockWindow("Surface Generator", dock_main_id);
+            ImGui::DockBuilderDockWindow("Surface Generator", dock_bottom);
             ImGui::DockBuilderDockWindow("Entity Inspector", dock_right);
+            ImGui::DockBuilderDockWindow("Level Composer", dock_right);
             ImGui::DockBuilderDockWindow("Tilemap Palette", dock_bottom);
             ImGui::DockBuilderDockWindow("Asset Browser", dock_bottom);
             break;

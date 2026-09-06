@@ -41,6 +41,9 @@ public:
     void set_on_open_prefab_callback(std::function<void(const std::string&)> cb) {
         m_on_open_prefab = std::move(cb);
     }
+    void set_on_open_level_palette_callback(std::function<void(const std::string&)> cb) {
+        m_on_open_level_palette = std::move(cb);
+    }
     void set_on_open_particle_effect(std::function<void(AssetHandle)> callback) {
         m_on_open_particle_effect = std::move(callback);
     }
@@ -129,6 +132,7 @@ private:
     std::shared_ptr<EditorCommandHistory> m_command_history;
     std::function<void(const std::string&)> m_on_load_scene;
     std::function<void(const std::string&)> m_on_open_prefab;
+    std::function<void(const std::string&)> m_on_open_level_palette;
     std::function<void(AssetHandle)> m_on_open_particle_effect;
     std::function<void(AssetHandle)> m_on_open_vfx_preview;
     std::function<void(AssetHandle, std::shared_ptr<const Material>)> m_on_material_preview;

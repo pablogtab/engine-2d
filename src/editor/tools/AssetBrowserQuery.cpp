@@ -81,6 +81,9 @@ bool type_matches_alias(const AssetBrowserEntry& entry, const std::string& alias
     if (alias == "layereffect" || alias == "layerfx") {
         return entry.type == AssetType::RenderLayerEffectProfile;
     }
+    if (alias == "palette" || alias == "levelpalette" || alias == "level_palette") {
+        return entry.type == AssetType::LevelPalette;
+    }
     if (alias == "data" || alias == "json") return entry.type == AssetType::Data;
     if (alias == "other" || alias == "unknown") return entry.type == AssetType::Unknown;
     return false;
@@ -128,6 +131,8 @@ bool type_filter_matches(const AssetBrowserEntry& entry, AssetBrowserTypeFilter 
                 entry.type == AssetType::RenderLayerEffectProfile);
         case AssetBrowserTypeFilter::Data: return !entry.is_directory && entry.type == AssetType::Data;
         case AssetBrowserTypeFilter::Other: return !entry.is_directory && entry.type == AssetType::Unknown;
+        case AssetBrowserTypeFilter::LevelPalettes:
+            return !entry.is_directory && entry.type == AssetType::LevelPalette;
     }
     return false;
 }
@@ -296,6 +301,7 @@ const char* AssetBrowserQuery::type_filter_name(AssetBrowserTypeFilter filter) {
         case AssetBrowserTypeFilter::Profiles: return "Profiles";
         case AssetBrowserTypeFilter::Data: return "Data";
         case AssetBrowserTypeFilter::Other: return "Other";
+        case AssetBrowserTypeFilter::LevelPalettes: return "Level Palettes";
     }
     return "All types";
 }

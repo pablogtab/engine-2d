@@ -1,5 +1,6 @@
 #include "AssetDatabase.hpp"
 #include "FileSystem.hpp"
+#include "LevelPaletteAsset.hpp"
 #include "Log.hpp"
 
 #include <algorithm>
@@ -38,13 +39,25 @@ void collect_asset_handles(const nlohmann::json& value, std::vector<AssetHandle>
     }
 }
 
+const LevelPaletteAssetReference& palette_entry_reference(const LevelPaletteEntry& entry) {
+    return entry.kind == LevelPaletteEntryKind::SpriteRegion
+        ? entry.sprite_region.texture
+        : entry.prefab.prefab;
+}
+
+AssetType palette_entry_asset_type(const LevelPaletteEntry& entry) {
+    return entry.kind == LevelPaletteEntryKind::SpriteRegion
+        ? AssetType::Texture
+        : AssetType::Prefab;
+}
+
 std::string normalize_path(const fs::path& path) { return path.lexically_normal().generic_string(); }
 AssetType type_from_name(const std::string& name) {
     if (name == "scene") return AssetType::Scene; if (name == "prefab") return AssetType::Prefab;
     if (name == "texture") return AssetType::Texture; if (name == "font") return AssetType::Font; if (name == "audio") return AssetType::Audio;
     if (name == "shader") return AssetType::Shader; if (name == "material") return AssetType::Material;
     if (name == "post_process_profile") return AssetType::PostProcessProfile; if (name == "render_layer_effect_profile") return AssetType::RenderLayerEffectProfile;
-    if (name == "particle_effect") return AssetType::ParticleEffect;
+    if (name == "particle_effect") return AssetType::ParticleEffect; if (name == "level_palette") return AssetType::LevelPalette;
     if (name == "script") return AssetType::Script; if (name == "data") return AssetType::Data;
     return AssetType::Unknown;
 }
@@ -231,10 +244,11 @@ AssetType AssetDatabase::type_for_path(const fs::path& path) {
     if (ext == ".postprocess") return AssetType::PostProcessProfile;
     if (ext == ".layereffect") return AssetType::RenderLayerEffectProfile;
     if (ext == ".particle") return AssetType::ParticleEffect;
+    if (ext == ".levelpalette") return AssetType::LevelPalette;
     if (ext == ".e2s") return AssetType::Script;
     return ext == ".json" ? AssetType::Data : AssetType::Unknown;
 }
-const char* AssetDatabase::type_name(AssetType type) { switch (type) { case AssetType::Scene:return "scene"; case AssetType::Prefab:return "prefab"; case AssetType::Texture:return "texture"; case AssetType::Font:return "font"; case AssetType::Audio:return "audio"; case AssetType::Shader:return "shader"; case AssetType::Material:return "material"; case AssetType::PostProcessProfile:return "post_process_profile"; case AssetType::RenderLayerEffectProfile:return "render_layer_effect_profile"; case AssetType::ParticleEffect:return "particle_effect"; case AssetType::Script:return "script"; case AssetType::Data:return "data"; default:return "unknown"; } }
+const char* AssetDatabase::type_name(AssetType type) { switch (type) { case AssetType::Scene:return "scene"; case AssetType::Prefab:return "prefab"; case AssetType::Texture:return "texture"; case AssetType::Font:return "font"; case AssetType::Audio:return "audio"; case AssetType::Shader:return "shader"; case AssetType::Material:return "material"; case AssetType::PostProcessProfile:return "post_process_profile"; case AssetType::RenderLayerEffectProfile:return "render_layer_effect_profile"; case AssetType::ParticleEffect:return "particle_effect"; case AssetType::LevelPalette:return "level_palette"; case AssetType::Script:return "script"; case AssetType::Data:return "data"; default:return "unknown"; } }
 
 std::optional<std::string> AssetDatabase::to_project_relative(const fs::path& path) const { const auto relative = resolve_source_path(path).lexically_relative(m_project_root); if (relative.empty() || relative == "." || relative.begin()->string() == "..") return std::nullopt; return normalize_path(relative); }
 fs::path AssetDatabase::resolve_source_path(const fs::path& path) const { fs::path result = FileSystem::resolve_path(path.string()); if (result.is_relative()) result = m_project_root / result; return fs::absolute(result).lexically_normal(); }
@@ -246,14 +260,66 @@ void AssetDatabase::rebuild_dependencies() {
     for (auto& record : m_records) {
         if (record.status == AssetStatus::MissingDependency) record.status = AssetStatus::Ready;
     }
-    for (const auto& record : m_records) {
+    for (auto& record : m_records) {
         if (record.status == AssetStatus::MissingSource) continue;
         if (record.type == AssetType::Texture || record.type == AssetType::Audio ||
             record.type == AssetType::Font || record.type == AssetType::Script) continue;
         const auto json = nlohmann::json::parse(FileSystem::read_text((m_project_root / record.source_path).string()), nullptr, false);
-        if (json.is_discarded()) continue;
         std::vector<AssetHandle> dependencies;
-        collect_asset_handles(json, dependencies);
+        if (record.type == AssetType::LevelPalette) {
+            std::string validation_error;
+            std::optional<LevelPaletteAsset> palette;
+            if (!json.is_discarded()) {
+                palette = LevelPaletteAsset::from_json(json, &validation_error);
+            }
+            if (!palette) {
+                record.status = AssetStatus::FailedImport;
+                ENGINE_LOG_WARN(
+                    "[ASSET DB] Invalid level palette '{}': {}",
+                    record.source_path,
+                    validation_error.empty() ? "invalid JSON" : validation_error
+                );
+                continue;
+            }
+
+            bool missing_path_reference = false;
+            bool wrong_type_reference = false;
+            for (const LevelPaletteEntry& entry : palette->entries) {
+                const LevelPaletteAssetReference& reference = palette_entry_reference(entry);
+                const AssetType expected_type = palette_entry_asset_type(entry);
+                const AssetRecord* dependency = reference.handle.is_valid()
+                    ? find(reference.handle)
+                    : nullptr;
+                if (!dependency && !reference.path.empty()) {
+                    dependency = find_by_path(reference.path);
+                }
+                if (dependency) {
+                    if (dependency->type != expected_type) {
+                        wrong_type_reference = true;
+                        break;
+                    }
+                    dependencies.push_back(dependency->handle);
+                } else if (reference.handle.is_valid()) {
+                    dependencies.push_back(reference.handle);
+                } else {
+                    missing_path_reference = true;
+                }
+            }
+            if (wrong_type_reference) {
+                record.status = AssetStatus::FailedImport;
+                ENGINE_LOG_WARN(
+                    "[ASSET DB] Level palette '{}' contains a reference of the wrong asset type",
+                    record.source_path
+                );
+                continue;
+            }
+            record.status = missing_path_reference
+                ? AssetStatus::MissingDependency
+                : AssetStatus::Ready;
+        } else {
+            if (json.is_discarded()) continue;
+            collect_asset_handles(json, dependencies);
+        }
         std::sort(dependencies.begin(), dependencies.end(), [](AssetHandle lhs, AssetHandle rhs) {
             return lhs.value < rhs.value;
         });

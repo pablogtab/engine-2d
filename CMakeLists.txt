@@ -40,6 +40,7 @@ set(SOURCES
     src/debug/StressScenarios.cpp
     src/core/FileSystem.cpp
     src/core/Input.cpp
+    src/core/LevelPaletteAsset.cpp
     src/core/Log.cpp
     src/core/PlayerPrefs.cpp
     src/core/ProjectContext.cpp
@@ -130,6 +131,7 @@ set(SOURCES
     src/editor/panels/ProjectSettingsPanel.cpp
     src/editor/panels/ShortcutsPreferencesPanel.cpp
     src/editor/panels/TilemapPalettePanel.cpp
+    src/editor/panels/LevelComposerPanel.cpp
     src/editor/panels/SurfaceGeneratorPanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/panels/SpriteAnimationStudioSidebar.cpp
@@ -183,6 +185,8 @@ set(SOURCES
     src/editor/tools/ViewportLightingOverlay.cpp
     src/editor/tools/ViewportSelectionTool.cpp
     src/editor/tools/TilemapPaintingTool.cpp
+    src/editor/tools/LevelComposerService.cpp
+    src/editor/tools/LevelComposerViewportTool.cpp
     src/editor/tools/SurfaceGenerationService.cpp
     src/editor/state/EditorEntityStateStore.cpp
     src/editor/state/EditorPanelStateStore.cpp
@@ -779,6 +783,26 @@ target_include_directories(SurfaceGenerationTests PRIVATE
 )
 target_link_libraries(SurfaceGenerationTests PRIVATE SDL3::SDL3)
 add_test(NAME SurfaceGenerationTests COMMAND SurfaceGenerationTests)
+
+add_executable(LevelComposerServiceTests
+    tests/LevelComposerServiceTests.cpp
+    src/editor/tools/LevelComposerService.cpp
+)
+target_include_directories(LevelComposerServiceTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(LevelComposerServiceTests PRIVATE glm::glm)
+add_test(NAME LevelComposerServiceTests COMMAND LevelComposerServiceTests)
+
+add_executable(LevelPaletteTests
+    tests/LevelPaletteTests.cpp
+)
+target_include_directories(LevelPaletteTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(LevelPaletteTests PRIVATE EngineRuntime)
+add_test(NAME LevelPaletteTests COMMAND LevelPaletteTests)
 
 add_executable(CanvasLayoutTests tests/CanvasLayoutTests.cpp)
 target_include_directories(CanvasLayoutTests PRIVATE

@@ -37,6 +37,10 @@ int main() {
     write_file(root / "Assets/Characters/HeroController.e2s", "@behaviour\nexport class HeroController extends Behaviour {}\n");
     write_file(root / "Assets/Materials/Hero.material", "{}\n");
     write_file(root / "Assets/Scenes/Main.scene", "{}\n");
+    write_file(
+        root / "Assets/Layout.levelpalette",
+        R"({"version":1,"type":"Engine2D.LevelPalette","name":"Layout","grid":{"origin":[0,0]},"categories":[{"id":"walls","label":"Walls"}],"entries":[]})"
+    );
     write_file(root / "Assets/Readme.txt", "text\n");
     write_file(root / "Assets/.DS_Store", "finder metadata\n");
     write_file(root / "Assets/.hidden.png", "hidden image\n");
@@ -47,13 +51,13 @@ int main() {
 
     AssetDatabase database(root);
     const AssetScanResult scan = database.scan(root / "Assets");
-    assert(scan.ready == 11);
+    assert(scan.ready == 12);
 
     AssetBrowserQueryOptions options;
     auto entries = AssetBrowserQuery::collect(
         database, root / "Assets", root / "Assets", options
     );
-    assert(entries.size() == 4);
+    assert(entries.size() == 5);
     assert(entries[0].is_directory && entries[1].is_directory && entries[2].is_directory);
     assert(find_entry(entries, "Readme.txt"));
     assert(!find_entry(entries, ".DS_Store"));
@@ -86,9 +90,17 @@ int main() {
     entries = AssetBrowserQuery::collect(database, root / "Assets", root / "Assets", options);
     assert(entries.size() == 1 && entries.front().type == AssetType::Material);
 
+    options.type = AssetBrowserTypeFilter::LevelPalettes;
+    entries = AssetBrowserQuery::collect(database, root / "Assets", root / "Assets", options);
+    assert(entries.size() == 1 && entries.front().type == AssetType::LevelPalette);
     options.type = AssetBrowserTypeFilter::All;
+    options.text = "t:palette";
+    entries = AssetBrowserQuery::collect(database, root / "Assets", root / "Assets", options);
+    assert(entries.size() == 1 && entries.front().name == "Layout.levelpalette");
+
+    options.text.clear();
     fs::remove(root / "Assets/Characters/Hero.png", error);
-    assert(database.rescan().ready == 10);
+    assert(database.rescan().ready == 11);
     options.status = AssetBrowserStatusFilter::Issues;
     entries = AssetBrowserQuery::collect(database, root / "Assets", root / "Assets", options);
     assert(entries.size() == 1);
@@ -98,7 +110,7 @@ int main() {
     options.sort = AssetBrowserSort::Size;
     options.ascending = false;
     entries = AssetBrowserQuery::collect(database, root / "Assets", root / "Assets", options);
-    assert(entries.size() == 4);
+    assert(entries.size() == 5);
     assert(entries.front().size >= entries.back().size);
 
     const AssetBrowserEntry quoted{

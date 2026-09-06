@@ -28,10 +28,11 @@ WorkspaceManager::WorkspaceManager()
         {EditorWorkspaceId::Animation, "animation", "Animation", {
             EditorPanelId::Assets, EditorPanelId::Animation
         }},
-        {EditorWorkspaceId::Tilemap, "tilemap", "Tilemap", {
+        {EditorWorkspaceId::Tilemap, "tilemap", "Level", {
             EditorPanelId::Hierarchy, EditorPanelId::Viewport,
             EditorPanelId::Inspector, EditorPanelId::Tilemap,
-            EditorPanelId::SurfaceGenerator, EditorPanelId::Assets
+            EditorPanelId::LevelComposer, EditorPanelId::SurfaceGenerator,
+            EditorPanelId::Assets
         }},
         {EditorWorkspaceId::Vfx, "vfx", "VFX", {
             EditorPanelId::Viewport, EditorPanelId::Inspector,

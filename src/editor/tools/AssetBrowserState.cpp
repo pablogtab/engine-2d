@@ -48,7 +48,12 @@ AssetBrowserPersistentState AssetBrowserState::load(const std::filesystem::path&
         state.view_mode = enum_value(root, "view_mode", state.view_mode, 2);
         state.collection = enum_value(root, "collection", state.collection, 2);
         state.scope = enum_value(root, "scope", state.scope, 1);
-        state.type_filter = enum_value(root, "type_filter", state.type_filter, 12);
+        state.type_filter = enum_value(
+            root,
+            "type_filter",
+            state.type_filter,
+            static_cast<int>(AssetBrowserTypeFilter::LevelPalettes)
+        );
         state.status_filter = enum_value(root, "status_filter", state.status_filter, 2);
         state.sort = enum_value(root, "sort", state.sort, 3);
         state.sort_ascending = root.value("sort_ascending", state.sort_ascending);

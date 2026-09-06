@@ -1,5 +1,9 @@
 #include "TilemapPalettePanel.hpp"
+#include "../commands/EditorCommandHistory.hpp"
+#include "../commands/EntityCommands.hpp"
+#include "../inspector/AssetDropTarget.hpp"
 #include "../ui/EditorUi.hpp"
+#include "../../core/AssetDatabase.hpp"
 #include "../../core/AssetManager.hpp"
 #include "../../core/Log.hpp"
 #include "../../scene/SceneManager.hpp"
@@ -15,23 +19,115 @@ TilemapPalettePanel::TilemapPalettePanel(
     SceneManager* scene_manager,
     std::shared_ptr<EditorSelection> selection
 ) : m_renderer(renderer), m_scene_manager(scene_manager), m_selection(selection) {
-    // Initialize default random pool with 2 sample variations
-    m_random_pool.push_back({1, 75.0f}); // 75% default tile
-    m_random_pool.push_back({2, 25.0f}); // 25% variation
+}
+
+void TilemapPalettePanel::on_context_changed(const EditorPanelContext& context) {
+    m_selection = context.selection;
+    m_command_history = context.command_history;
+    m_bound_tilemap_entity = 0;
+}
+
+EntityID TilemapPalettePanel::get_selected_tilemap_entity() const {
+    if (!m_scene_manager || !m_selection || m_selection->empty()) return 0;
+    Scene* active_scene = m_scene_manager->get_active_scene();
+    if (!active_scene) return 0;
+
+    EntityManager& em = active_scene->get_entity_manager();
+    EntityID selected_tilemap = 0;
+    for (EntityID id : m_selection->get_selected()) {
+        if (em.is_alive(id) && em.has_component<TilemapComponent>(id)) {
+            if (selected_tilemap == 0 || id < selected_tilemap) selected_tilemap = id;
+        }
+    }
+    return selected_tilemap;
 }
 
 bool TilemapPalettePanel::has_selected_tilemap() const {
-    if (!m_scene_manager || !m_selection || m_selection->empty()) return false;
-    Scene* active_scene = m_scene_manager->get_active_scene();
-    if (!active_scene) return false;
+    return get_selected_tilemap_entity() != 0;
+}
 
-    EntityManager& em = active_scene->get_entity_manager();
-    for (EntityID id : m_selection->get_selected()) {
-        if (em.is_alive(id) && em.has_component<TilemapComponent>(id)) {
-            return true;
-        }
+void TilemapPalettePanel::sync_from_selected_tilemap(bool force) {
+    const EntityID entity = get_selected_tilemap_entity();
+    if (entity == 0 || !m_scene_manager) {
+        m_bound_tilemap_entity = 0;
+        return;
     }
-    return false;
+
+    EntityManager& em = m_scene_manager->get_active_scene()->get_entity_manager();
+    const auto& tilemap = em.get_component<TilemapComponent>(entity);
+    if (!force && entity == m_bound_tilemap_entity &&
+        (m_tileset_input_active || m_pixel_size_input_active)) {
+        return;
+    }
+    if (!force && entity == m_bound_tilemap_entity &&
+        m_tileset_path == tilemap.tileset_path &&
+        m_tile_pixel_size == tilemap.tile_pixel_size) {
+        return;
+    }
+
+    m_bound_tilemap_entity = entity;
+    m_tileset_path = tilemap.tileset_path;
+    m_tile_pixel_size = std::clamp(tilemap.tile_pixel_size, 1, 4096);
+    std::snprintf(
+        m_tileset_input_buf,
+        sizeof(m_tileset_input_buf),
+        "%s",
+        m_tileset_path.c_str()
+    );
+}
+
+bool TilemapPalettePanel::apply_selected_tileset_settings(
+    const std::string& path,
+    int tile_pixel_size
+) {
+    const EntityID entity = get_selected_tilemap_entity();
+    if (entity == 0 || !m_scene_manager) return false;
+
+    EntityManager& em = m_scene_manager->get_active_scene()->get_entity_manager();
+    if (!em.is_alive(entity) || !em.has_component<TilemapComponent>(entity)) return false;
+
+    const TilemapComponent before = em.get_component<TilemapComponent>(entity);
+    TilemapComponent after = before;
+    after.tileset_path = path;
+    after.tile_pixel_size = std::clamp(tile_pixel_size, 1, 4096);
+    if (after.tileset_path == before.tileset_path &&
+        after.tile_pixel_size == before.tile_pixel_size) {
+        sync_from_selected_tilemap(true);
+        return false;
+    }
+
+    const auto reload_tileset = [renderer = m_renderer](EntityManager& command_em, EntityID id) {
+        if (!command_em.has_component<TilemapComponent>(id)) return;
+        auto& command_tilemap = command_em.get_component<TilemapComponent>(id);
+        command_tilemap.tileset_texture = nullptr;
+        if (renderer && !command_tilemap.tileset_path.empty()) {
+            command_tilemap.tileset_texture = AssetManager::get().get_texture(
+                renderer,
+                command_tilemap.tileset_path
+            );
+        }
+    };
+
+    bool applied = false;
+    if (m_command_history) {
+        applied = m_command_history->execute_command(
+            std::make_unique<SetComponentCommand<TilemapComponent>>(
+                &em,
+                entity,
+                before,
+                after,
+                "Change Tilemap Tileset",
+                reload_tileset
+            )
+        );
+    } else {
+        em.get_component<TilemapComponent>(entity) = after;
+        reload_tileset(em, entity);
+        applied = true;
+    }
+
+    if (applied) sync_from_selected_tilemap(true);
+    return applied;
 }
 
 void TilemapPalettePanel::add_to_random_pool(uint16_t tile_id, float weight) {
@@ -104,6 +200,8 @@ void TilemapPalettePanel::on_gui() {
             ImGui::End();
             return;
         }
+
+        sync_from_selected_tilemap();
 
         // Mode Toggle Button (Pill design)
         if (m_is_painting_active) {
@@ -207,40 +305,55 @@ void TilemapPalettePanel::on_gui() {
         ImGui::TextDisabled("TILESET & ZOOM:");
         
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 80.0f);
-        ImGui::InputText("##tileset_path", m_tileset_input_buf, sizeof(m_tileset_input_buf));
+        const bool path_submitted = ImGui::InputText(
+            "##tileset_path",
+            m_tileset_input_buf,
+            sizeof(m_tileset_input_buf),
+            ImGuiInputTextFlags_EnterReturnsTrue
+        );
+        m_tileset_input_active = ImGui::IsItemActive();
+        if (path_submitted) {
+            apply_selected_tileset_settings(m_tileset_input_buf, m_tile_pixel_size);
+        }
 
         // Drag and Drop target from AssetBrowserPanel
-        if (ImGui::BeginDragDropTarget()) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                const char* path = static_cast<const char*>(payload->Data);
-                if (path) {
-                    m_tileset_path = path;
-                    snprintf(m_tileset_input_buf, sizeof(m_tileset_input_buf), "%s", path);
-                }
+        if (const auto dropped = accept_asset_drop_target(
+                AssetDatabase::get(), AssetType::Texture
+            )) {
+            if (const AssetRecord* record = AssetDatabase::get().find(*dropped)) {
+                apply_selected_tileset_settings(record->source_path, m_tile_pixel_size);
             }
-            ImGui::EndDragDropTarget();
         }
 
         ImGui::SameLine();
-        if (ImGui::Button("Load", ImVec2(72, 20))) {
-            m_tileset_path = m_tileset_input_buf;
+        if (ImGui::Button("Apply", ImVec2(72, 20))) {
+            apply_selected_tileset_settings(m_tileset_input_buf, m_tile_pixel_size);
         }
 
         // Grid Zoom and Tile Pixel size controls
-        ImGui::SetNextItemWidth(140.0f);
+        ImGui::SetNextItemWidth(132.0f);
         ImGui::SliderFloat("Preview Zoom", &m_palette_cell_size, 32.0f, 72.0f, "%.0f px");
         ImGui::SameLine();
-        ImGui::TextDisabled("| Size:");
-        ImGui::SameLine();
-        if (ImGui::RadioButton("16", m_tile_pixel_size == 16)) m_tile_pixel_size = 16;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("32", m_tile_pixel_size == 32)) m_tile_pixel_size = 32;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("64", m_tile_pixel_size == 64)) m_tile_pixel_size = 64;
+        ImGui::SetNextItemWidth(92.0f);
+        if (ImGui::InputInt("Cell px", &m_tile_pixel_size, 1, 16)) {
+            m_tile_pixel_size = std::clamp(m_tile_pixel_size, 1, 4096);
+        }
+        m_pixel_size_input_active = ImGui::IsItemActive();
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            apply_selected_tileset_settings(m_tileset_input_buf, m_tile_pixel_size);
+        }
+
+        if (m_tool_mode == TileToolMode::BoxFill) {
+            ImGui::Checkbox("Use random pool for box fill", &m_random_box_fill);
+            if (m_random_box_fill && m_random_pool.empty()) {
+                ImGui::TextDisabled("Add variants with Shift+Click before using random fill.");
+            }
+        }
 
         ImGui::Separator();
 
         // --- 4. Interactive Palette Grid ---
+        sync_from_selected_tilemap();
         Texture* tileset_tex = AssetManager::get().get_texture(m_renderer, m_tileset_path);
         if (tileset_tex) {
             int tex_w = tileset_tex->get_width();

@@ -15,6 +15,7 @@
 #include "../tools/EditorToolbox.hpp"
 #include "../tools/DevicePreview.hpp"
 #include "../tools/TilemapPaintingTool.hpp"
+#include "../tools/LevelComposerViewportTool.hpp"
 #include "../panels/TilemapPalettePanel.hpp"
 #include "../stage/PrefabStageController.hpp"
 #include "../../scene/SceneManager.hpp"
@@ -33,6 +34,7 @@ namespace Engine {
 using EditorPlayState = ScenePlayState;
 class Renderer2D;
 class EntityManager;
+class LevelComposerPanel;
 
 struct ViewportGridSettings {
     bool visible{true};
@@ -67,11 +69,7 @@ public:
 
     void on_gui() override;
     void on_render_resources_invalidated() override;
-    void on_context_changed(const EditorPanelContext& context) override {
-        set_command_history(context.command_history);
-        set_entity_state_store(context.entity_state_store);
-        set_selection(context.selection);
-    }
+    void on_context_changed(const EditorPanelContext& context) override;
     [[nodiscard]] const std::string& get_name() const override { return m_name; }
 
     void begin_render();
@@ -100,6 +98,9 @@ public:
     [[nodiscard]] const SceneViewEntityFilter& get_visibility_filter() const { return m_visibility_filter; }
 
     void set_palette_panel(TilemapPalettePanel* palette) { m_palette_panel = palette; }
+    void set_level_composer_panel(LevelComposerPanel* composer) {
+        m_level_composer_panel = composer;
+    }
 
     int get_render_width() const { return m_render_width; }
     int get_render_height() const { return m_render_height; }
@@ -168,6 +169,7 @@ private:
     std::shared_ptr<EditorSelection> m_selection{nullptr};
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     TilemapPalettePanel* m_palette_panel{nullptr};
+    LevelComposerPanel* m_level_composer_panel{nullptr};
     SDL_Texture* m_viewport_texture{nullptr};
 
     int m_render_width{1280};
@@ -191,7 +193,8 @@ private:
     std::string m_prefab_preview_path;
     EntityID m_prefab_preview_root{0};
     bool m_prefab_preview_visible{false};
-    glm::vec2 m_prefab_preview_position{0.0f, 0.0f};
+    std::vector<glm::vec2> m_prefab_preview_positions;
+    float m_prefab_preview_depth_z{0.0f};
     std::size_t m_device_preview_profile{0};
     DevicePreviewOrientation m_device_preview_orientation{DevicePreviewOrientation::Portrait};
     DevicePreviewProfile m_custom_device_preview{
@@ -216,7 +219,17 @@ private:
     [[nodiscard]] bool has_device_preview() const;
     [[nodiscard]] DevicePreviewProfile active_device_preview() const;
     [[nodiscard]] bool is_position_snap_active() const;
-    bool prepare_prefab_preview(const std::string& path, const glm::vec2& world_position);
+    bool prepare_prefab_preview(
+        const std::string& path,
+        const glm::vec2& world_position,
+        float rotation_degrees = 0.0f
+    );
+    bool prepare_prefab_preview(
+        const std::string& path,
+        const std::vector<glm::vec2>& world_positions,
+        float rotation_degrees,
+        float depth_z
+    );
     void render_prefab_preview(
         const Camera2D& camera,
         const ImVec2& image_min,
@@ -229,6 +242,7 @@ private:
     ViewportCameraController m_camera_controller;
     ViewportSelectionTool m_selection_tool;
     TilemapPaintingTool m_tilemap_painting_tool;
+    LevelComposerViewportTool m_level_composer_tool;
     std::shared_ptr<EditorEntityStateStore> m_entity_state_store{nullptr};
     SceneViewEntityFilter m_visibility_filter;
 };

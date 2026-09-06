@@ -31,6 +31,7 @@ enum class EditorPanelId {
     ProjectSettings,
     Shortcuts,
     Tilemap,
+    LevelComposer,
     SurfaceGenerator,
     Animation,
     Assistant,
@@ -53,6 +54,7 @@ enum class EditorPanelId {
         case EditorPanelId::ProjectSettings: return "project_settings";
         case EditorPanelId::Shortcuts: return "shortcuts";
         case EditorPanelId::Tilemap: return "tilemap";
+        case EditorPanelId::LevelComposer: return "level_composer";
         case EditorPanelId::SurfaceGenerator: return "surface_generator";
         case EditorPanelId::Animation: return "animation";
         case EditorPanelId::Assistant: return "assistant";

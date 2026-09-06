@@ -125,6 +125,13 @@ bool path_is_within(const std::filesystem::path& path, const std::filesystem::pa
         (!relative.empty() && relative.begin()->string() != "..");
 }
 
+bool can_open_asset_entry(const AssetBrowserEntry& entry) {
+    return !entry.is_directory &&
+        (entry.status == AssetStatus::Ready ||
+         (entry.type == AssetType::LevelPalette &&
+          entry.status == AssetStatus::MissingDependency));
+}
+
 ImVec4 asset_tag_color(const AssetBrowserEntry& entry) {
     if (!entry.is_directory && entry.status != AssetStatus::Ready) {
         return ImVec4(0.95f, 0.42f, 0.32f, 1.0f);
@@ -138,6 +145,7 @@ ImVec4 asset_tag_color(const AssetBrowserEntry& entry) {
         case AssetType::PostProcessProfile: return ImVec4(0.35f, 0.85f, 0.85f, 1.0f);
         case AssetType::RenderLayerEffectProfile: return ImVec4(0.55f, 0.80f, 1.00f, 1.0f);
         case AssetType::ParticleEffect: return ImVec4(1.00f, 0.65f, 0.20f, 1.0f);
+        case AssetType::LevelPalette: return ImVec4(0.35f, 0.85f, 0.65f, 1.0f);
         case AssetType::Texture: return ImVec4(0.40f, 0.75f, 1.00f, 1.0f);
         case AssetType::Audio: return ImVec4(0.90f, 0.45f, 0.90f, 1.0f);
         case AssetType::Shader: return ImVec4(0.90f, 0.55f, 0.30f, 1.0f);
@@ -155,6 +163,7 @@ EditorIcon asset_icon(const AssetBrowserEntry& entry) {
         case AssetType::Material: return EditorIcon::Material;
         case AssetType::Script: return EditorIcon::Edit;
         case AssetType::ParticleEffect: return EditorIcon::Zap;
+        case AssetType::LevelPalette: return EditorIcon::Grid;
         case AssetType::Scene: return EditorIcon::Sprite;
         case AssetType::Prefab: return EditorIcon::Component;
         case AssetType::PostProcessProfile:
@@ -1144,13 +1153,17 @@ void AssetBrowserPanel::activate_entry(const AssetBrowserEntry& entry) {
         navigate_to(entry.absolute_path);
         return;
     }
-    if (entry.status != AssetStatus::Ready) return;
+    if (!can_open_asset_entry(entry)) return;
     record_recent(entry.handle);
     const std::string& extension = entry.extension;
     if (extension == ".scene") {
         if (m_on_load_scene) m_on_load_scene(entry.absolute_path.string());
     } else if (extension == ".prefab") {
         if (m_on_open_prefab) m_on_open_prefab(entry.absolute_path.string());
+    } else if (extension == ".levelpalette") {
+        if (m_on_open_level_palette) {
+            m_on_open_level_palette(entry.absolute_path.string());
+        }
     } else if (extension == ".e2s") {
         open_script_externally(entry.absolute_path);
     } else if (extension == ".material") {
@@ -1336,8 +1349,10 @@ void AssetBrowserPanel::draw_entry_interactions(const AssetBrowserEntry& entry) 
             if (ImGui::MenuItem("Open Folder")) navigate_to(path);
         } else {
             const bool ready = entry.status == AssetStatus::Ready;
-            ImGui::BeginDisabled(!ready);
+            ImGui::BeginDisabled(!can_open_asset_entry(entry));
             if (ImGui::MenuItem("Open")) activate_entry(entry);
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!ready);
             if (entry.type == AssetType::Prefab &&
                 ImGui::MenuItem("Open in VFX Preview")) {
                 record_recent(entry.handle);
@@ -1393,7 +1408,7 @@ void AssetBrowserPanel::draw_entry_interactions(const AssetBrowserEntry& entry) 
             ImGui::Text("Status: %s", AssetBrowserQuery::status_name(entry.status));
             ImGui::Text("Size: %s", human_file_size(entry.size).c_str());
             ImGui::Text("Handle: %s", entry.handle.to_string().c_str());
-            if (entry.status == AssetStatus::Ready) ImGui::TextDisabled("Double-click to open");
+            if (can_open_asset_entry(entry)) ImGui::TextDisabled("Double-click to open");
         } else {
             ImGui::TextDisabled("Double-click to browse");
         }
@@ -1849,7 +1864,7 @@ void AssetBrowserPanel::draw_toolbar() {
                     "Type", AssetBrowserQuery::type_filter_name(m_type_filter)
                 )) {
                 for (int value = static_cast<int>(AssetBrowserTypeFilter::All);
-                     value <= static_cast<int>(AssetBrowserTypeFilter::Other); ++value) {
+                     value <= static_cast<int>(AssetBrowserTypeFilter::LevelPalettes); ++value) {
                     const auto filter = static_cast<AssetBrowserTypeFilter>(value);
                     if (ImGui::Selectable(
                             AssetBrowserQuery::type_filter_name(filter), filter == m_type_filter
