@@ -35,6 +35,7 @@ using EditorPlayState = ScenePlayState;
 class Renderer2D;
 class EntityManager;
 class LevelComposerPanel;
+class TextureComposerPanel;
 
 struct ViewportGridSettings {
     bool visible{true};
@@ -100,6 +101,9 @@ public:
     void set_palette_panel(TilemapPalettePanel* palette) { m_palette_panel = palette; }
     void set_level_composer_panel(LevelComposerPanel* composer) {
         m_level_composer_panel = composer;
+    }
+    void set_texture_composer_panel(TextureComposerPanel* composer) {
+        m_texture_composer_panel = composer;
     }
 
     int get_render_width() const { return m_render_width; }
@@ -170,6 +174,7 @@ private:
     std::shared_ptr<EditorCommandHistory> m_command_history{nullptr};
     TilemapPalettePanel* m_palette_panel{nullptr};
     LevelComposerPanel* m_level_composer_panel{nullptr};
+    TextureComposerPanel* m_texture_composer_panel{nullptr};
     SDL_Texture* m_viewport_texture{nullptr};
 
     int m_render_width{1280};

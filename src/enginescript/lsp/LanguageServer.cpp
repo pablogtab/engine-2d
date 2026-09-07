@@ -1003,6 +1003,7 @@ std::string LanguageServer::on_completion(const std::string& id, const std::stri
                  {"on_start", "on_start(): Void {\\n    $0\\n}"},
                  {"on_destroy", "on_destroy(): Void {\\n    $0\\n}"},
                  {"on_collision_enter", "on_collision_enter(other: Entity): Void {\\n    $0\\n}"},
+                 {"on_collision_exit", "on_collision_exit(other: Entity): Void {\\n    $0\\n}"},
                  {"on_button_clicked", "on_button_clicked(): Void {\\n    $0\\n}"}}) {
             items.push_back({
                 {"label", name}, {"kind", 15}, {"detail", "EngineScript lifecycle method"},
@@ -1108,7 +1109,7 @@ std::string LanguageServer::on_hover(const std::string& id, const std::string& u
 
     // 1. Decorators
     if (word == "@behaviour" || word == "behaviour") {
-        markdown = "### `@behaviour`\n\n```enginescript\n@behaviour\nexport class <Name> extends Behaviour\n```\n\nMarks this class as an **Engine2D Behaviour** script component.\n\nParticipates in entity lifecycle events:\n- `on_init(): Void`\n- `on_start(): Void`\n- `update(deltaTime: Float): Void`\n- `on_destroy(): Void`\n- `on_collision_enter(other: Entity): Void`\n- `on_button_clicked(): Void`\n\nLifecycle hooks do not require `override`.";
+        markdown = "### `@behaviour`\n\n```enginescript\n@behaviour\nexport class <Name> extends Behaviour\n```\n\nMarks this class as an **Engine2D Behaviour** script component.\n\nParticipates in entity lifecycle events:\n- `on_init(): Void`\n- `on_start(): Void`\n- `update(deltaTime: Float): Void`\n- `on_destroy(): Void`\n- `on_collision_enter(other: Entity): Void`\n- `on_collision_exit(other: Entity): Void`\n- `on_button_clicked(): Void`\n\nLifecycle hooks do not require `override`.";
     } else if (word == "@expose" || word == "expose") {
         markdown = "### `@expose`\n\n```enginescript\n@expose({ min?: Float, max?: Float, step?: Float })\n```\n\nExposes this field to the **Engine2D Inspector UI** for live editing and serializes it in scenes and prefabs.";
     } else if (word == "@inject" || word == "inject") {

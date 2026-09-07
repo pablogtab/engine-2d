@@ -23,7 +23,7 @@ WorkspaceManager::WorkspaceManager()
         {EditorWorkspaceId::TwoD, "2d", "2D", {
             EditorPanelId::Hierarchy, EditorPanelId::Viewport,
             EditorPanelId::Inspector, EditorPanelId::Assets,
-            EditorPanelId::Console
+            EditorPanelId::Console, EditorPanelId::TextureComposer
         }},
         {EditorWorkspaceId::Animation, "animation", "Animation", {
             EditorPanelId::Assets, EditorPanelId::Animation
@@ -32,6 +32,7 @@ WorkspaceManager::WorkspaceManager()
             EditorPanelId::Hierarchy, EditorPanelId::Viewport,
             EditorPanelId::Inspector, EditorPanelId::Tilemap,
             EditorPanelId::LevelComposer, EditorPanelId::SurfaceGenerator,
+            EditorPanelId::TextureComposer,
             EditorPanelId::Assets
         }},
         {EditorWorkspaceId::Vfx, "vfx", "VFX", {

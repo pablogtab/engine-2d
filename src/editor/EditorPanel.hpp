@@ -33,6 +33,7 @@ enum class EditorPanelId {
     Tilemap,
     LevelComposer,
     SurfaceGenerator,
+    TextureComposer,
     Animation,
     Assistant,
     UiGallery
@@ -56,6 +57,7 @@ enum class EditorPanelId {
         case EditorPanelId::Tilemap: return "tilemap";
         case EditorPanelId::LevelComposer: return "level_composer";
         case EditorPanelId::SurfaceGenerator: return "surface_generator";
+        case EditorPanelId::TextureComposer: return "texture_composer";
         case EditorPanelId::Animation: return "animation";
         case EditorPanelId::Assistant: return "assistant";
         case EditorPanelId::UiGallery: return "ui_gallery";

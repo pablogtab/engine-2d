@@ -13,6 +13,7 @@ int main() {
     assert(manager.contains(EditorPanelId::Viewport));
     assert(manager.contains(EditorPanelId::Hierarchy));
     assert(manager.contains(EditorPanelId::Console));
+    assert(manager.contains(EditorPanelId::TextureComposer));
     assert(!manager.contains(EditorPanelId::Assistant));
     assert(!manager.contains(EditorPanelId::Metrics));
 
@@ -29,10 +30,13 @@ int main() {
     assert(manager.contains(EditorPanelId::Tilemap));
     assert(manager.contains(EditorPanelId::LevelComposer));
     assert(manager.contains(EditorPanelId::SurfaceGenerator));
+    assert(manager.contains(EditorPanelId::TextureComposer));
     assert(std::string(editor_panel_id_key(EditorPanelId::LevelComposer)) ==
         "level_composer");
     assert(std::string(editor_panel_id_key(EditorPanelId::SurfaceGenerator)) ==
         "surface_generator");
+    assert(std::string(editor_panel_id_key(EditorPanelId::TextureComposer)) ==
+        "texture_composer");
 
     assert(manager.set_active(EditorWorkspaceId::Vfx));
     assert(manager.contains(EditorPanelId::Particles));

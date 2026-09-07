@@ -542,6 +542,22 @@ private:
     class Physics final : public EngineScript::Physics {
     public:
         explicit Physics(const ScriptRuntimeBinding& binding) : m_binding(binding) {}
+        bool setCircleRadius(const EngineScript::Entity& entity, float radius) override {
+            require_main_thread(m_binding);
+            auto* em = m_binding.entity_manager;
+            if (!em || !em->is_alive(entity.id) || !std::isfinite(radius) || radius <= 0.0f ||
+                !em->has_component<ColliderComponent>(entity.id) ||
+                !em->has_component<RigidBodyComponent>(entity.id) ||
+                !em->has_component<TransformComponent>(entity.id)) return false;
+            auto& collider = em->get_component<ColliderComponent>(entity.id);
+            if (collider.shapes.size() != 1 || collider.shapes[0].type != ColliderShapeType::Circle) return false;
+            if (collider.shapes[0].radius == radius) return true;
+            collider.shapes[0].radius = radius;
+            TransformSystem::update_subtree(*em, entity.id);
+            PhysicsSystem::rebuild_body(*em, entity.id);
+            return true;
+        }
+
         EngineScript::RaycastHit* raycast(const glm::vec2& origin, const glm::vec2& destination, uint32_t mask) override {
             require_main_thread(m_binding);
             const RaycastHit2D hit = PhysicsSystem::raycast(origin, destination, static_cast<uint16_t>(mask));
@@ -1158,6 +1174,9 @@ public:
         execute_method("on_destroy", {});
     }
 
+    void on_collision_exit(const EngineScript::Entity& other) override {
+        execute_method("on_collision_exit", {other});
+    }
     void on_collision_enter(const EngineScript::Entity& other) override {
         execute_method("on_collision_enter", {other});
     }
@@ -2843,7 +2862,7 @@ void ScriptRuntime::dispatch_events() {
                     pull_exposed_properties(*instance.behaviour, *slot);
                 }
             }
-        } else if (event.type == PendingEventType::CollisionEnter) {
+        } else if (event.type == PendingEventType::CollisionEnter || event.type == PendingEventType::CollisionExit) {
             for (auto& instance : m_instances) {
                 if (!instance.behaviour) continue;
                 const ScriptInstanceKey key{instance.entity, instance.slot_id, instance.generation};
@@ -2867,11 +2886,12 @@ void ScriptRuntime::dispatch_events() {
                     if (instance.binding) bind_dynamic_component_access(other, *instance.binding);
                     if (instance.native_host) instance.native_host->sync_before();
                     try {
-                        instance.behaviour->on_collision_enter(other);
+                        if (event.type == PendingEventType::CollisionEnter) instance.behaviour->on_collision_enter(other);
+                        else instance.behaviour->on_collision_exit(other);
                     } catch (const std::exception& runtime_error) {
                         m_instance_registry.set_state(key, ScriptInstanceState::Error);
                         set_error(instance.entity, instance.slot_id,
-                            std::string{"EngineScript runtime error in on_collision_enter: "} + runtime_error.what(),
+                            std::string{"EngineScript runtime error in collision callback: "} + runtime_error.what(),
                             instance.script_path);
                         if (m_native_async_scheduler) m_native_async_scheduler->cancel_scope(instance.behaviour->task_scope_id);
                         if (m_typed_event_bus) m_typed_event_bus->cancel_scope(instance.behaviour->task_scope_id);
@@ -2879,7 +2899,7 @@ void ScriptRuntime::dispatch_events() {
                         continue;
                     } catch (...) {
                         m_instance_registry.set_state(key, ScriptInstanceState::Error);
-                        set_error(instance.entity, instance.slot_id, "EngineScript runtime error in on_collision_enter: unknown exception",
+                        set_error(instance.entity, instance.slot_id, "EngineScript runtime error in collision callback: unknown exception",
                             instance.script_path);
                         continue;
                     }

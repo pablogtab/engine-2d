@@ -4,6 +4,7 @@
 #include "../stage/PrefabStageController.hpp"
 #include "TilemapPalettePanel.hpp"
 #include "LevelComposerPanel.hpp"
+#include "TextureComposerPanel.hpp"
 #include "../shortcuts/ShortcutManager.hpp"
 #include "../commands/EntityCommands.hpp"
 #include "../commands/HierarchyCommands.hpp"
@@ -1215,6 +1216,13 @@ void ViewportPanel::render_entity_context_menu(EntityManager& em, EntityID entit
             ));
         }
         ImGui::EndMenu();
+    }
+
+    const bool can_compose_selection = m_texture_composer_panel && m_selection &&
+        m_selection->count() >= 2 && m_scene_manager && m_scene_manager->is_editing();
+    if (ImGui::MenuItem(
+            "Compose Selected Sprites...", nullptr, false, can_compose_selection)) {
+        m_texture_composer_panel->import_viewport_selection();
     }
 
     if (em.has_component<HierarchyComponent>(entity)) {

@@ -6,8 +6,8 @@ describes only the current compiler and runtime contract.
 ## Contract
 
 - Language: `3`
-- ABI: `36`
-- SDK: `engine2d_abi_v39`
+- ABI: `37`
+- SDK: `engine2d_abi_v40`
 - Compiler cache: `enginescript_codegen_v11_init_static`
 
 ## Language features
@@ -406,6 +406,7 @@ describes only the current compiler and runtime contract.
 - `Entities.particleEmitter(): ParticleEmitter2D`
 - `Entities.hasJoint(): Bool`
 - `Entities.joint(): Joint2D`
+- `Physics.setCircleRadius(entity: Entity, radius: Float): Bool` — Sets the local radius of a body with exactly one circle collider and rebuilds its contacts. Returns false for invalid entities, shapes or radii. Call only when the radius changes.
 - `Physics.raycast(): RaycastHit`
 - `Display.setVsync(): Bool`
 - `Display.setFullscreen(): Bool`

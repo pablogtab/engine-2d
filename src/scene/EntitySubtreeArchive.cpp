@@ -418,7 +418,7 @@ SubtreeInstantiationResult EntitySubtreeArchive::instantiate_from_json(
         return {.success = false, .error_message = "Failed finalizing prefab entities: " + error_msg};
     }
 
-    TransformSystem::update(em);
+    TransformSystem::update_subtree(em, runtime_root);
 
     std::string base_prefab_path;
     if (root_json.contains("base_prefab_path") && root_json["base_prefab_path"].is_string()) {

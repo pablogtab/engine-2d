@@ -133,6 +133,7 @@ set(SOURCES
     src/editor/panels/TilemapPalettePanel.cpp
     src/editor/panels/LevelComposerPanel.cpp
     src/editor/panels/SurfaceGeneratorPanel.cpp
+    src/editor/panels/TextureComposerPanel.cpp
     src/editor/panels/SpriteAnimationStudioPanel.cpp
     src/editor/panels/SpriteAnimationStudioSidebar.cpp
     src/editor/panels/SpriteAnimationStudioCanvas.cpp
@@ -188,6 +189,7 @@ set(SOURCES
     src/editor/tools/LevelComposerService.cpp
     src/editor/tools/LevelComposerViewportTool.cpp
     src/editor/tools/SurfaceGenerationService.cpp
+    src/editor/tools/TextureCompositionService.cpp
     src/editor/state/EditorEntityStateStore.cpp
     src/editor/state/EditorPanelStateStore.cpp
     src/editor/state/AutosaveRecovery.cpp
@@ -783,6 +785,18 @@ target_include_directories(SurfaceGenerationTests PRIVATE
 )
 target_link_libraries(SurfaceGenerationTests PRIVATE SDL3::SDL3)
 add_test(NAME SurfaceGenerationTests COMMAND SurfaceGenerationTests)
+
+add_executable(TextureCompositionTests
+    tests/TextureCompositionTests.cpp
+    src/editor/tools/TextureCompositionService.cpp
+    vendor/stb/stb_impl.cpp
+)
+target_include_directories(TextureCompositionTests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+)
+target_link_libraries(TextureCompositionTests PRIVATE SDL3::SDL3)
+add_test(NAME TextureCompositionTests COMMAND TextureCompositionTests)
 
 add_executable(LevelComposerServiceTests
     tests/LevelComposerServiceTests.cpp

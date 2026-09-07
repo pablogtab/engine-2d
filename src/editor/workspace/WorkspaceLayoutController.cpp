@@ -212,6 +212,7 @@ void WorkspaceLayoutController::build_default(
             ImGui::DockBuilderDockWindow("AI Assistant", dock_right);
             ImGui::DockBuilderDockWindow("Console & Logs", dock_bottom);
             ImGui::DockBuilderDockWindow("Asset Browser", dock_bottom);
+            ImGui::DockBuilderDockWindow("Texture Composer", dock_bottom);
             break;
         }
         case EditorWorkspaceId::Animation: {
@@ -236,6 +237,7 @@ void WorkspaceLayoutController::build_default(
             ImGui::DockBuilderDockWindow("Scene Hierarchy", dock_left);
             ImGui::DockBuilderDockWindow("Scene Viewport", dock_main_id);
             ImGui::DockBuilderDockWindow("Surface Generator", dock_bottom);
+            ImGui::DockBuilderDockWindow("Texture Composer", dock_bottom);
             ImGui::DockBuilderDockWindow("Entity Inspector", dock_right);
             ImGui::DockBuilderDockWindow("Level Composer", dock_right);
             ImGui::DockBuilderDockWindow("Tilemap Palette", dock_bottom);

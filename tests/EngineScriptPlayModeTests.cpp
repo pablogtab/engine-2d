@@ -306,10 +306,16 @@ void test_coin_pickup_speed_boost() {
     std::string code = R"(
 @behaviour
 export class BoostPlayer extends Behaviour {
-    constructor(@component private body: RigidBody2D) {}
+    constructor(@component private body: RigidBody2D, @inject private physics: Physics) {}
 
     @expose
     walkSpeed: Float = 280.0;
+
+    on_start(): Void {
+        if (!physics.setCircleRadius(self(), 42.0)) walkSpeed = 0.0;
+        if (physics.setCircleRadius(self(), -1.0)) walkSpeed = 0.0;
+    }
+    on_collision_exit(other: Entity): Void { walkSpeed = walkSpeed - 25.0; }
 
     on_collision_enter(other: Entity): Void {
         if (!other.name.toLowerCase().includes("coin")) {
@@ -339,6 +345,10 @@ export class BoostPlayer extends Behaviour {
     player_tag.tag = "Player_Knight";
     entity_manager.add_component<TagComponent>(player, player_tag);
     entity_manager.add_component<RigidBodyComponent>(player, RigidBodyComponent::Dynamic());
+    entity_manager.add_component<TransformComponent>(player, TransformComponent{});
+    ColliderComponent pickup_circle;
+    pickup_circle.add_circle(12.0f);
+    entity_manager.add_component<ColliderComponent>(player, pickup_circle);
 
     ScriptComponent script_comp;
     script_comp.instances.front().enabled = true;
@@ -372,6 +382,10 @@ export class BoostPlayer extends Behaviour {
     assert(PhysicsSystem::is_ignoring_one_way(player));
     assert(!entity_manager.is_alive(coin));
 
+    assert(entity_manager.get_component<ColliderComponent>(player).shapes.front().radius == 42.0f);
+    dispatcher.publish(CollisionEndEvent(player, coin, true));
+    runtime.dispatch_events();
+    assert(std::abs(std::get<double>(entity_manager.get_component<ScriptComponent>(player).instances.front().public_fields[0].value) - 330.0) < 0.001);
     PhysicsSystem::set_ignore_one_way(player, false);
 
     runtime.shutdown();

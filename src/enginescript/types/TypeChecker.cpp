@@ -884,7 +884,8 @@ void TypeChecker::check_class_decl(const ClassDecl& cls, const std::shared_ptr<S
         static const std::unordered_map<std::string, std::pair<std::vector<std::string>, std::string>> hooks{
             {"on_init", {{}, "Void"}}, {"on_start", {{}, "Void"}}, {"on_destroy", {{}, "Void"}},
             {"on_button_clicked", {{}, "Void"}}, {"update", {{"Float"}, "Void"}},
-            {"on_collision_enter", {{"Entity"}, "Void"}}
+            {"on_collision_enter", {{"Entity"}, "Void"}},
+            {"on_collision_exit", {{"Entity"}, "Void"}}
         };
         if (cls.is_behaviour()) {
             if (const auto hook = hooks.find(m->name); hook != hooks.end()) {

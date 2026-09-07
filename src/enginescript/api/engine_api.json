@@ -2,8 +2,8 @@
   "schemaVersion": 2,
   "languageVersion": 3,
   "compilerCacheId": "enginescript_codegen_v11_init_static",
-  "abiVersion": 36,
-  "sdkHash": "engine2d_abi_v39",
+  "abiVersion": 37,
+  "sdkHash": "engine2d_abi_v40",
   "languageFeatures": {
     "interpolatedStrings": true,
     "customToString": "structural",
@@ -344,6 +344,7 @@
     { "ownerType": "Entities", "name": "particleEmitter", "returnType": "ParticleEmitter2D", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Entities", "name": "hasJoint", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Entities", "name": "joint", "returnType": "Joint2D", "minArguments": 1, "maxArguments": 1 },
+    { "ownerType": "Physics", "name": "setCircleRadius", "returnType": "Bool", "parameters": [{ "name": "entity", "type": "Entity" }, { "name": "radius", "type": "Float" }], "documentation": "Sets the local radius of a body with exactly one circle collider and rebuilds its contacts. Returns false for invalid entities, shapes or radii. Call only when the radius changes." },
     { "ownerType": "Physics", "name": "raycast", "returnType": "RaycastHit", "minArguments": 2, "maxArguments": 3 },
     { "ownerType": "Display", "name": "setVsync", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },
     { "ownerType": "Display", "name": "setFullscreen", "returnType": "Bool", "minArguments": 1, "maxArguments": 1 },

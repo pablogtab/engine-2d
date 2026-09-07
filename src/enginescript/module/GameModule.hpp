@@ -529,6 +529,7 @@ struct RaycastHit {
 class Physics {
 public:
     virtual ~Physics() = default;
+    [[nodiscard]] virtual bool setCircleRadius(const Entity& entity, float radius) = 0;
     [[nodiscard]] virtual RaycastHit* raycast(
         const glm::vec2& origin,
         const glm::vec2& destination,
@@ -731,6 +732,7 @@ public:
     virtual void on_start() {}
     virtual void on_destroy() {}
     virtual void on_collision_enter(const Entity& other) { static_cast<void>(other); }
+    virtual void on_collision_exit(const Entity& other) { static_cast<void>(other); }
     virtual void on_button_clicked() {}
     virtual bool validate_required_references(std::string& error) const {
         static_cast<void>(error);

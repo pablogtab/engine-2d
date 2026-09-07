@@ -296,6 +296,7 @@ ScriptRuntimeStartResult SceneManager::start_scripts(Scene& scene, bool allow_as
     services.is_scene_loading = [this]() { return is_runtime_scene_loading(); };
     services.scene_load_error = [this]() { return runtime_scene_load_error(); };
     services.instantiate_prefab = [this, &scene](AssetHandle handle, const glm::vec2& position) -> EntityID {
+        auto profile = m_frame_profiler.scope("prefab.instantiate");
         if (!is_playing() || dynamic_cast<CustomScene*>(&scene)) return 0;
         const AssetDatabase& database = m_asset_database ? *m_asset_database : AssetDatabase::get();
         const AssetRecord* asset = database.find(handle);
@@ -321,7 +322,7 @@ ScriptRuntimeStartResult SceneManager::start_scripts(Scene& scene, bool allow_as
         if (entities.has_component<TransformComponent>(result.root_entity)) {
             TransformComponent& root_transform = entities.get_component<TransformComponent>(result.root_entity);
             root_transform.position = {position.x, position.y, 0.0f};
-            TransformSystem::update(entities);
+            TransformSystem::update_subtree(entities, result.root_entity);
         }
         entities.add_component<PrefabLinkComponent>(
             result.root_entity, PrefabLinkComponent{asset->source_path, result.base_prefab_path}
@@ -341,23 +342,26 @@ ScriptRuntimeStartResult SceneManager::start_scripts(Scene& scene, bool allow_as
     };
     const auto instantiate_prefab = services.instantiate_prefab;
     services.create_prefab = [this, instantiate_prefab](AssetHandle handle) -> EntityID {
+        auto profile = m_frame_profiler.scope("prefab.create");
         const EntityID entity = instantiate_prefab(handle, glm::vec2{});
         if (entity != 0) m_script_runtime.prepare_entity(entity);
         return entity;
     };
     services.spawn_prefab = [this, &scene](EntityID entity, const glm::vec2& position) {
+        auto profile = m_frame_profiler.scope("prefab.spawn");
         EntityManager& entities = scene.get_entity_manager();
         if (!entities.is_alive(entity) || !entities.has_component<TransformComponent>(entity)) return false;
         TransformComponent& transform = entities.get_component<TransformComponent>(entity);
         transform.position = {position.x, position.y, 0.0f};
         transform.world_position = transform.position;
-        TransformSystem::update(entities);
+        TransformSystem::update_subtree(entities, entity);
         // create() stages the prefab before its final world position is known.
         // Keep every existing body in the prefab subtree aligned with spawn().
         PhysicsSystem::sync_body_hierarchy(entities, entity);
         return m_script_runtime.activate_entity(entity);
     };
     services.emit_particles = [this, &scene](AssetHandle handle, const glm::vec2& position, int count) {
+        auto profile = m_frame_profiler.scope("particles.emit");
         if (!is_playing() || dynamic_cast<CustomScene*>(&scene)) return false;
         return execution_context(scene).runtime.particle_world().emit_asset(
             handle,
